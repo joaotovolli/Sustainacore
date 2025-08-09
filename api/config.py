@@ -1,0 +1,14 @@
+from datetime import date
+
+BASE_DATE = date(2025, 1, 2)
+BASE_VALUE = 1000.0
+
+# Oracle table names
+TABLE_PRICES        = "INDEX_CONSTITUENT_PRICES"
+TABLE_CONSTITUENTS  = "INDEX_CONSTITUENTS"
+TABLE_REBALANCES    = 'INDEX_REBALANCE_DATES'
+TABLE_LEVELS        = "INDEX_DAILY_LEVELS"
+TABLE_RETURNS       = "INDEX_DAILY_RETURNS"
+
+# How far back to download when a new ticker appears (days)
+LOOKBACK_DAYS = 400
