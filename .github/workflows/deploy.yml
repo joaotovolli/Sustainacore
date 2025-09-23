@@ -7,8 +7,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      VM_HOST: ${{ secrets.VM_HOST }}   # e.g. ai.sustainacore.org
-      VM_USER: ${{ secrets.VM_USER }}   # e.g. opc
+      VM_HOST: ${{ secrets.VM_HOST }}   # ai.sustainacore.org
+      VM_USER: ${{ secrets.VM_USER }}   # opc
     steps:
       - uses: actions/checkout@v4
 
@@ -16,31 +16,26 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Lint/tests (keep or remove if you don't want CI to block deploys)
       - name: Lint & tests
         run: |
-          set -e
           python -m pip install -U pip wheel
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest ruff
           ruff check .
           pytest -q
 
-      # Write SSH key and trust the VM host key
       - name: Setup SSH
         env:
-          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}   # PRIVATE key (OpenSSH)
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}   # PRIVATE key from ~/.ssh/ci_actions
         run: |
           mkdir -p ~/.ssh
-          echo "$VM_SSH_KEY" > ~/.ssh/id_vm
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_vm
           chmod 600 ~/.ssh/id_vm
           ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
-      # Simple deploy: update code on VM and restart service
       - name: Deploy to VM
         run: |
-          set -euo pipefail
-          ssh -i ~/.ssh/id_vm ${VM_USER}@${VM_HOST} 'bash -s' <<'REMOTE'
+          ssh -i ~/.ssh/id_vm -o StrictHostKeyChecking=yes ${VM_USER}@${VM_HOST} 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /opt/sustainacore-ai
           git fetch --all
@@ -49,7 +44,6 @@ jobs:
           sudo systemctl restart sustainacore-ai.service
           REMOTE
 
-      # Smoke test
       - name: Verify health endpoint
         run: |
           curl --fail --retry 20 --retry-delay 5 "http://${VM_HOST}:8080/healthz"
