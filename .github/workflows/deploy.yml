@@ -1,29 +1,55 @@
 name: Deploy
-on: { push: { branches: [main] } }
+on:
+  push:
+    branches: [main]
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      VM_HOST: ${{ secrets.VM_HOST }}   # e.g. ai.sustainacore.org
+      VM_USER: ${{ secrets.VM_USER }}   # e.g. opc
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: |
+        with:
+          python-version: "3.11"
+
+      # Lint/tests (keep or remove if you don't want CI to block deploys)
+      - name: Lint & tests
+        run: |
+          set -e
           python -m pip install -U pip wheel
-          if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
-          pip install pytest ruff || true
-          ruff check . || true
-          pytest -q || true
-      - name: Write SSH key
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest ruff
+          ruff check .
+          pytest -q
+
+      # Write SSH key and trust the VM host key
+      - name: Setup SSH
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}   # PRIVATE key (OpenSSH)
         run: |
-          echo "${{ secrets.VM_SSH_KEY }}" > key.pem
-          chmod 600 key.pem
+          mkdir -p ~/.ssh
+          echo "$VM_SSH_KEY" > ~/.ssh/id_vm
+          chmod 600 ~/.ssh/id_vm
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+
+      # Simple deploy: update code on VM and restart service
       - name: Deploy to VM
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-          SSH_KEY: ${{ github.workspace }}/key.pem
-        run: bash ops/scripts/deploy_vm.sh
-      - name: Verify health endpoint
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
         run: |
-          curl --fail --retry 5 --retry-delay 5 "http://${VM_HOST}:8080/healthz"
+          set -euo pipefail
+          ssh -i ~/.ssh/id_vm ${VM_USER}@${VM_HOST} 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/sustainacore-ai
+          git fetch --all
+          git reset --hard origin/main
+          sudo systemctl daemon-reload || true
+          sudo systemctl restart sustainacore-ai.service
+          REMOTE
+
+      # Smoke test
+      - name: Verify health endpoint
+        run: |
+          curl --fail --retry 20 --retry-delay 5 "http://${VM_HOST}:8080/healthz"
