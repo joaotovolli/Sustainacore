@@ -14,15 +14,17 @@ app = _module.app
 client = TestClient(app)
 
 
-def test_ask2_contract_keys():
+def test_ask2_contract_keys(monkeypatch):
+    monkeypatch.setattr(_module, "search_vectors", lambda query, k: [])
+    monkeypatch.setattr(_module, "gemini_call", lambda *args, **kwargs: None)
     response = client.get("/ask2", params={"q": "contract check"})
     assert response.status_code == 200
     payload = response.json()
     for key in ("answer", "sources", "meta"):
         assert key in payload
-
-
-def test_ask2_non_empty_answer():
+def test_ask2_non_empty_answer(monkeypatch):
+    monkeypatch.setattr(_module, "search_vectors", lambda query, k: [])
+    monkeypatch.setattr(_module, "gemini_call", lambda *args, **kwargs: None)
     response = client.get("/ask2", params={"q": "test"})
     payload = response.json()
     assert len(payload["answer"]) > 0
