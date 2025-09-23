@@ -1,10 +1,12 @@
 from importlib import import_module
 import json, urllib.request, urllib.error, urllib.parse
+import time
 from flask import request, jsonify
 
 # import existing app
 app_mod = import_module("app")
 base_app = getattr(app_mod, "app", None)
+_MODULE_START_TS = time.time()
 
 def _shape(j):
     if not isinstance(j, dict):
@@ -125,6 +127,13 @@ if app:
     @app.route("/healthz", endpoint="healthz_facade")
     def _healthz_facade():
         return jsonify({"ok": True})
+
+    @app.route("/metrics", endpoint="metrics_facade")
+    def _metrics_facade():
+        uptime = time.time() - _MODULE_START_TS
+        if uptime <= 0:
+            uptime = 1e-6
+        return jsonify({"uptime": float(uptime)})
 
 # --- SustainaCore hotfix: ensure /ask2 never returns an empty "answer" ---
 from flask import request
