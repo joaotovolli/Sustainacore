@@ -10,8 +10,10 @@ jobs:
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -47,3 +49,36 @@ jobs:
       - name: Verify health endpoint
         run: |
           curl --fail --retry 12 --retry-delay 5 "http://${VM_HOST}:8080/healthz"
+
+      # -------- Failure feedback loop to PR ----------
+      - name: Fetch service logs (on failure)
+        if: failure()
+        run: |
+          ssh -i ~/.ssh/id_vm -o StrictHostKeyChecking=yes "${VM_USER}@${VM_HOST}" \
+            'journalctl -u sustainacore-ai.service -n 200 --no-pager' | tee deploy_logs.txt
+
+      - name: Upload logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-logs
+          path: deploy_logs.txt
+          if-no-files-found: ignore
+
+      - name: Comment PR with failure summary
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const fs = require('fs');
+            let body = `### 🚨 Deploy failed\nRun: ${runUrl}\n\n`;
+            try { body += "```\n" + fs.readFileSync('deploy_logs.txt','utf8').slice(0,4000) + "\n```"; } catch(e) {}
+            // Find PR for this ref (if any) and comment; else just create a commit comment
+            const headRef = process.env.GITHUB_REF_NAME || (process.env.GITHUB_REF || '').replace('refs/heads/','');
+            const prs = await github.rest.pulls.list({ owner: context.repo.owner, repo: context.repo.repo, head: `${context.repo.owner}:${headRef}`, state: 'open' });
+            if (prs.data.length) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: prs.data[0].number, body });
+            } else {
+              await github.rest.repos.createCommitComment({ owner: context.repo.owner, repo: context.repo.repo, commit_sha: context.sha, body });
+            }
