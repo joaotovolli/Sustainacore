@@ -22,3 +22,8 @@ jobs:
           VM_HOST: ${{ secrets.VM_HOST }}
           SSH_KEY: ${{ github.workspace }}/key.pem
         run: bash ops/scripts/deploy_vm.sh
+      - name: Verify health endpoint
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          curl --fail --retry 5 --retry-delay 5 "http://${VM_HOST}:8080/healthz"
