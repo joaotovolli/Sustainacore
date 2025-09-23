@@ -120,3 +120,40 @@ if base_app and not any(str(r.rule) == "/ask" for r in base_app.url_map.iter_rul
         return jsonify(shaped), 200
 
 app = base_app
+
+# --- SustainaCore hotfix: ensure /ask2 never returns an empty "answer" ---
+from flask import request
+import json
+
+FALLBACK_MESSAGE = (
+    "I couldn’t find a direct answer in the indexed docs. Here are the most relevant sources."
+)
+
+@app.after_request
+def _ensure_nonempty_answer(resp):
+    try:
+        if getattr(request, "path", "") == "/ask2" and getattr(resp, "mimetype", "").startswith("application/json"):
+            try:
+                data = resp.get_json(silent=True)
+            except Exception:
+                data = None
+            if data is None:
+                try:
+                    data = json.loads(resp.get_data(as_text=True) or "{}")
+                except Exception:
+                    data = {}
+
+            ans = (data.get("answer") or "").strip()
+            srcs = (data.get("sources") or [])[:3]
+            meta = data.get("meta") or {}
+            if not ans:
+                meta["note"] = "fallback"
+                data.update({"answer": FALLBACK_MESSAGE, "sources": srcs, "meta": meta})
+                resp.set_data(json.dumps(data))
+                resp.mimetype = "application/json"
+                resp.status_code = 200
+    except Exception:
+        # never break the request path
+        pass
+    return resp
+# --- end hotfix ---
