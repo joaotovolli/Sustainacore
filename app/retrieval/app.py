@@ -3,6 +3,12 @@ from pydantic import BaseModel, Field
 
 app = FastAPI()
 
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+
 class Answer(BaseModel):
     answer: str
     sources: list[str] = Field(default_factory=list)
