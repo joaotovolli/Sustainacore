@@ -122,8 +122,8 @@ if base_app and not any(str(r.rule) == "/ask" for r in base_app.url_map.iter_rul
 app = base_app
 
 if app:
-    @app.route("/healthz")
-    def healthz():
+    @app.route("/healthz", endpoint="healthz_facade")
+    def _healthz_facade():
         return jsonify({"ok": True})
 
 # --- SustainaCore hotfix: ensure /ask2 never returns an empty "answer" ---
