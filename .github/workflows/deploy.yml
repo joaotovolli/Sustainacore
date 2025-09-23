@@ -2,16 +2,16 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      VM_HOST: ${{ secrets.VM_HOST }}   # ai.sustainacore.org
-      VM_USER: ${{ secrets.VM_USER }}   # opc
+      VM_HOST: ${{ secrets.VM_HOST }}
+      VM_USER: ${{ secrets.VM_USER }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -26,7 +26,7 @@ jobs:
 
       - name: Setup SSH
         env:
-          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}   # PRIVATE key from ~/.ssh/ci_actions
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_vm
@@ -35,7 +35,7 @@ jobs:
 
       - name: Deploy to VM
         run: |
-          ssh -i ~/.ssh/id_vm -o StrictHostKeyChecking=yes ${VM_USER}@${VM_HOST} 'bash -s' <<'REMOTE'
+          ssh -i ~/.ssh/id_vm -o StrictHostKeyChecking=yes "${VM_USER}@${VM_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /opt/sustainacore-ai
           git fetch --all
@@ -46,4 +46,4 @@ jobs:
 
       - name: Verify health endpoint
         run: |
-          curl --fail --retry 20 --retry-delay 5 "http://${VM_HOST}:8080/healthz"
+          curl --fail --retry 12 --retry-delay 5 "http://${VM_HOST}:8080/healthz"
