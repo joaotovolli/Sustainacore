@@ -8,6 +8,12 @@ if p.exists():
     spec = importlib.util.spec_from_file_location("retrieval_app", str(p))
     mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
     client = TestClient(mod.app)
+
+    def test_healthz():
+        r = client.get("/healthz")
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
+
     def test_ask2_contract():
         r = client.get("/ask2", params={"q":"test","k":1})
         j = r.json()

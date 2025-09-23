@@ -121,6 +121,11 @@ if base_app and not any(str(r.rule) == "/ask" for r in base_app.url_map.iter_rul
 
 app = base_app
 
+if app:
+    @app.route("/healthz")
+    def healthz():
+        return jsonify({"ok": True})
+
 # --- SustainaCore hotfix: ensure /ask2 never returns an empty "answer" ---
 from flask import request
 import json
