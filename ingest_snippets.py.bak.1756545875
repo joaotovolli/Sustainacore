@@ -1,0 +1,55 @@
+import os, math, requests, oracledb
+
+# --- config (uses the same env as your service) ---
+DB_USER=os.getenv("DB_USER","WKSP_ESGAPEX"); DB_PASS=os.getenv("DB_PASS","9o0p(O)P9o0p")
+DB_DSN=os.getenv("DB_DSN","dbri4x6_high");   TNS=os.getenv("TNS_ADMIN","/opt/adb_wallet")
+WAL=os.getenv("WALLET_PWD","9o0p(O)P9o0p")
+OLLAMA=os.getenv("OLLAMA_URL","http://localhost:11434")
+EMBED_MODEL=os.getenv("OLLAMA_EMBED_MODEL","all-minilm")
+EMBED_DIM=int(os.getenv("EMBED_DIM","384"))
+
+def embed(text:str):
+    r=requests.post(f"{OLLAMA}/api/embeddings",json={"model":EMBED_MODEL,"prompt":text},timeout=60)
+    r.raise_for_status()
+    v=r.json().get("embedding")
+    if not isinstance(v,list) or not v: raise RuntimeError("empty embedding")
+    # normalize
+    s=math.sqrt(sum(float(x)*float(x) for x in v)); v=[float(x)/s for x in v] if s else v
+    if len(v)!=EMBED_DIM: raise RuntimeError(f"embed dim {len(v)} != {EMBED_DIM}")
+    return v
+
+def upsert(doc_id:int, title:str, url:str, text:str, chunk_ix:int=1):
+    with oracledb.connect(user=DB_USER,password=DB_PASS,dsn=DB_DSN,
+                          config_dir=TNS, wallet_location=TNS, wallet_password=WAL) as conn:
+        vec=embed(text)
+        sql="""merge into ESG_DOCS d
+               using (select :doc_id doc_id, :chunk_ix chunk_ix from dual) s
+               on (d.doc_id=s.doc_id and d.chunk_ix=s.chunk_ix)
+               when matched then update set
+                 source_type=:st, source_url=:su, title=:ti, chunk_text=:ct, embedding=:emb
+               when not matched then insert
+                 (doc_id,source_type,source_url,title,chunk_ix,chunk_text,embedding)
+                 values (:doc_id,:st,:su,:ti,:chunk_ix,:ct,:emb)"""
+        cur=conn.cursor(); cur.setinputsizes(emb=oracledb.DB_TYPE_VECTOR)
+        cur.execute(sql, dict(doc_id=doc_id, chunk_ix=chunk_ix, st="manual",
+                              su=url, ti=title, ct=text, emb=vec))
+        conn.commit()
+
+# ---- sample snippets (edit any text below to your exact phrasing) ----
+snippets=[
+ (2101,"About SustainaCore","https://sustainacore.org",
+  "SustainaCore is an ESG and AI governance platform focused on practical assessments and reporting. "
+  "It helps teams evaluate controls, evidence, and risk across sustainability and responsible AI programs."),
+ (2102,"TECH 100 overview","https://sustainacore.org/tech100",
+  "TECH 100 is SustainaCore’s ESG/AI governance scoring framework used to benchmark technology organizations. "
+  "It emphasizes governance, transparency, risk management, and sustainable operations."),
+ (2103,"Contact & Support","https://sustainacore.org/contact",
+  "For questions about SustainaCore or TECH 100, use the contact form on sustainacore.org/contact or reach the support email listed there."),
+ (2104,"Platform value","https://sustainacore.org/product",
+  "The SustainaCore platform centralizes evidence, policies, and controls, and can integrate retrieval from Oracle Autonomous Database for efficient, secure context.")
+]
+
+if __name__=="__main__":
+    for i,(doc_id,title,url,text) in enumerate(snippets, start=1):
+        upsert(doc_id, title, url, text, chunk_ix=1)
+    print(f"Inserted/updated {len(snippets)} snippet(s).")

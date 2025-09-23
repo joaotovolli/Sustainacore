@@ -1,0 +1,15 @@
+Welcome to SustainaCore AI Chat 🌿
+
+This assistant was built with **zero financial resources** — just time, curiosity,
+and open‑source software. It runs on a **free Linux VM with only ~1 GB RAM**.
+
+Right now the chat is in **vector-only** mode (no heavy LLM), so it’s fast and
+focused on what’s actually in the SustainaCore knowledge base.
+
+What are you looking for on SustainaCore?
+• ESG datasets or metrics?
+• Project documents or guidance?
+• How to get involved or contribute?
+
+Tip: ask short, specific questions like “latest renewable targets in EU?” or
+“upload guide for ESG datasets”.

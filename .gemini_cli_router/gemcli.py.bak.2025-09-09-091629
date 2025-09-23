@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+import os, sys, json, time, re
+import orjson
+import google.generativeai as genai
+
+MODEL=os.environ.get("GEMINI_MODEL","gemini-1.5-pro")
+TEMP_ORIENT=float(os.environ.get("GEMINI_TEMP_ORIENT","0.35"))
+TEMP_RAG=float(os.environ.get("GEMINI_TEMP_RAG","0.1"))
+MAXTOK=int(os.environ.get("GEMINI_MAX_TOKENS","896"))
+
+def _api_key():
+    k=os.environ.get("GEMINI_API_KEY")
+    if k: return k
+    try: return open("/etc/sustainacore/gemini.key","r").read().strip()
+    except: return None
+
+def _cfg():
+    key=_api_key()
+    if not key: raise SystemExit("No Gemini API key")
+    genai.configure(api_key=key)
+
+def _read_stdin():
+    data=sys.stdin.buffer.read()
+    if not data: return {}
+    try: return orjson.loads(data)
+    except Exception:
+        return json.loads(data.decode("utf-8"))
+
+def _print_json(obj):
+    sys.stdout.write(orjson.dumps(obj).decode("utf-8"))
+    sys.stdout.flush()
+
+def _is_greeting(s):
+    s=s.lower().strip()
+    return bool(re.match(r"^(hi|hello|hey|howdy|good (morning|evening|afternoon))\\b", s))
+
+def _is_orientation(s):
+    s=s.lower()
+    P=[
+        "who are you", "what is this website", "what is this site",
+        "what can you do", "what do you do", "what information do you have",
+        "what info do you have", "about this site", "about sustainacore"
+    ]
+    return any(p in s for p in P)
+
+def cmd_classify(inp):
+    q=inp.get("q","").strip()
+    out={
+        "intent":"factual",
+        "task":"lookup",
+        "entities":[],
+        "specificity": 0.5
+    }
+    if _is_greeting(q): out["intent"]="greeting"; out["task"]="smalltalk"; out["specificity"]=0.1
+    elif _is_orientation(q): out["intent"]="orientation"; out["task"]="explain"; out["specificity"]=0.3
+    ents=re.findall(r"\\b([A-Z][a-zA-Z]{2,}(?:\\s+[A-Z][a-zA-Z]{2,})*)\\b", q)
+    out["entities"]=list(dict.fromkeys([e.strip() for e in ents]))[:5]
+    _print_json(out)
+
+def cmd_rewrite(inp):
+    q=inp.get("q","").strip()
+    out={
+        "normalized_query": re.sub(r"\\s+"," ", q).strip(),
+        "alt_terms": [],
+        "must_include": []
+    }
+    _print_json(out)
+
+def cmd_route(inp):
+    corpora=inp.get("corpora",[])
+    intent=inp.get("intent","factual")
+    order=[]
+    def find(name):
+        return next((c for c in corpora if c.get("name")==name), None)
+    if intent=="orientation":
+        if find("website"): order.append({"corpus":"website","k":4})
+        if find("methodology"): order.append({"corpus":"methodology","k":3})
+        if find("company_profiles"): order.append({"corpus":"company_profiles","k":2})
+    else:
+        if find("company_profiles"): order.append({"corpus":"company_profiles","k":6})
+        if find("tech100"): order.append({"corpus":"tech100","k":6})
+        if find("methodology"): order.append({"corpus":"methodology","k":4})
+        if find("website"): order.append({"corpus":"website","k":2})
+    _print_json({"route":order})
+
+def cmd_rerank(inp):
+    q=inp.get("q","")
+    items=inp.get("snippets",[])
+    kw=re.findall(r"[A-Za-z]{3,}", q.lower())
+    def score(it):
+        base=float(it.get("score",0.0))
+        text=(it.get("snippet") or it.get("text") or "")[:1600].lower()
+        add=sum(1 for k in kw if k in text)/max(1,len(kw))
+        return base + 0.15*add
+    items=sorted(items, key=score, reverse=True)
+    out=[{"id":it.get("id"),"score":float(it.get("score",0.0))} for it in items]
+    _print_json({"ranking":out})
+
+def cmd_mode(inp):
+    intent=inp.get("intent","factual")
+    s1=float(inp.get("s1",0.0))
+    L=int(inp.get("tokens",0))
+    has_ctx=bool(inp.get("has_context",False))
+    if intent=="greeting": mode="concierge"
+    elif intent=="orientation": mode="orientation"
+    else:
+        if s1>=0.58 and has_ctx: mode="rag"
+        elif s1<0.42: mode="clarify"
+        else: mode="rag" if has_ctx else "clarify"
+    _print_json({"mode":mode})
+
+def cmd_synth(inp):
+    q=inp.get("q","").strip()
+    mode=inp.get("mode","rag")
+    site_facts=inp.get("site_facts",[]) or []
+    ctx=inp.get("context",[]) or []
+    if mode=="concierge":
+        sysmsg="Be brief and friendly. One short greeting line plus two suggested follow-ups. No sources."
+        temp=0.3; ctx_txt=""
+    elif mode=="orientation":
+        sysmsg="Explain what this site/assistant is and how to use it. Be concise (1 sentence + up to 5 bullets). If context is provided, you may include 1-2 concrete examples. Avoid marketing tone."
+        temp=0.35; ctx_txt="\\n- " + "\\n- ".join(site_facts[:10])
+    elif mode=="clarify":
+        sysmsg="Ask exactly ONE specific clarifying question to resolve ambiguity. Offer 2-3 short suggestions as options. No sources."
+        temp=0.2; ctx_txt=""
+    else:
+        sysmsg="Answer ONLY using CONTEXT. If not in CONTEXT, say you can't find it. Be concise: 1 lead sentence + up to 5 bullets."
+        temp=0.1
+        ctx_txt="\\n".join([str(c)[:1600] for c in ctx[:8]])
+    prompt=f"""{sysmsg}
+
+CONTEXT:
+{ctx_txt}
+
+USER QUESTION:
+{q}
+"""
+    _cfg()
+    model=genai.GenerativeModel(MODEL)
+    resp=model.generate_content(prompt, generation_config={"temperature":temp,"max_output_tokens":MAXTOK})
+    txt=getattr(resp, "text", None) or (resp.candidates[0].content.parts[0].text if getattr(resp,"candidates",None) else "")
+    sys.stdout.write((txt or "").strip())
+
+def cmd_selfcheck(inp):
+    draft=inp.get("draft","")
+    ctx=inp.get("context",[])
+    instr=("Return JSON with fields: supported (true/false), missing_citations (array). "
+           "Say supported=true only if claims are directly supported by CONTEXT.")
+    prompt=f"""{instr}
+
+CONTEXT:
+{"\\n".join([str(c)[:1200] for c in ctx[:8]])}
+
+DRAFT ANSWER:
+{draft}
+"""
+    _cfg()
+    model=genai.GenerativeModel(MODEL)
+    resp=model.generate_content(prompt, generation_config={"temperature":0.0,"max_output_tokens":384})
+    text=getattr(resp,"text",None) or ""
+    try:
+        out=json.loads(text)
+    except Exception:
+        out={"supported":True,"missing_citations":[]}
+    _print_json(out)
+
+if __name__=="__main__":
+    if len(sys.argv)<2: 
+        sys.stderr.write("Usage: gemcli.py <classify|rewrite|route|rerank|mode|synth|selfcheck>\n"); sys.exit(2)
+    cmd=sys.argv[1]
+    data=_read_stdin()
+    if   cmd=="classify":  cmd_classify(data)
+    elif cmd=="rewrite":   cmd_rewrite(data)
+    elif cmd=="route":     cmd_route(data)
+    elif cmd=="rerank":    cmd_rerank(data)
+    elif cmd=="mode":      cmd_mode(data)
+    elif cmd=="synth":     cmd_synth(data)
+    elif cmd=="selfcheck": cmd_selfcheck(data)
+    else:
+        sys.stderr.write("Unknown subcommand\n"); sys.exit(2)

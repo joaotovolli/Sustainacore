@@ -1,0 +1,383 @@
+
+# SustainaCore app.py — ZIP-only upgrade
+# Entry: app:app (kept). No NGINX/systemd change. Oracle-only source of truth.
+import os, re, math, time, json, threading, requests
+from collections import defaultdict, Counter
+from flask import Flask, request, jsonify
+from db_helper import top_k_by_vector
+
+# ---- Embeddings (remote optional, local Ollama fallback) ----
+EMBED_URL = os.getenv("EMBED_URL")                 # optional: https://provider/v1/embeddings
+EMBED_KEY = os.getenv("EMBED_KEY")
+EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
+OLLAMA = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "all-minilm")
+
+# ---- Orchestrator defaults (env-overridable, but sane by code) ----
+FUSION_TOPK_BASE = int(os.getenv("FUSION_TOPK_BASE", "8"))
+FUSION_TOPK_MAX  = int(os.getenv("FUSION_TOPK_MAX", "24"))
+RRF_K            = int(os.getenv("RRF_K", "60"))
+MMR_LAMBDA       = float(os.getenv("MMR_LAMBDA", "0.7"))
+DOC_CAP          = int(os.getenv("DOC_CAP", "3"))
+LATENCY_BUDGET_MS= int(os.getenv("LATENCY_BUDGET_MS", "1200"))
+CHUNKS_MAX       = int(os.getenv("CHUNKS_MAX", "12"))
+CITES_MAX        = int(os.getenv("CITES_MAX", "6"))
+
+RETURN_TOP_AS_ANSWER = os.getenv("RETURN_TOP_AS_ANSWER","1") == "1"  # keep fast path
+
+app = Flask(__name__)
+
+# ----------------- Embedding -----------------
+def _embed_remote(text: str):
+    if not EMBED_URL: raise RuntimeError("no remote embed")
+    headers = {"Content-Type": "application/json"}
+    if EMBED_KEY: headers["Authorization"] = f"Bearer {EMBED_KEY}"
+    resp = requests.post(EMBED_URL, headers=headers, json={"input": text})
+    resp.raise_for_status()
+    data = resp.json()
+    vec = data["data"][0]["embedding"]
+    if len(vec) != EMBED_DIM:
+        raise RuntimeError(f"embed dim mismatch: got {len(vec)} expected {EMBED_DIM}")
+    return vec
+
+def _embed_ollama(text: str):
+    url = f"{OLLAMA}/api/embeddings"
+    resp = requests.post(url, json={"model": OLLAMA_MODEL, "prompt": text}, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    vec = data.get("embedding") or data.get("data", [{}])[0].get("embedding")
+    if not isinstance(vec, list):
+        raise RuntimeError("ollama returned no embedding")
+    if EMBED_DIM and len(vec) != EMBED_DIM:
+        # If mismatch, best effort: trim or pad
+        if len(vec) > EMBED_DIM:
+            vec = vec[:EMBED_DIM]
+        else:
+            vec = vec + [0.0]*(EMBED_DIM-len(vec))
+    return vec
+
+def embed(text: str):
+    text = (text or "").strip()
+    if not text: return [0.0]*EMBED_DIM
+    try:
+        if EMBED_URL:
+            return _embed_remote(text)
+    except Exception:
+        pass
+    return _embed_ollama(text)
+
+# ----------------- Intent & entities -----------------
+ALIAS = {
+    "tech 100": "TECH100",
+    "tech-100": "TECH100",
+    "ai governance & ethics index": "TECH100",
+    "msft": "Microsoft",
+    "cisco": "Cisco",
+    "csco": "Cisco",
+    "apple": "Apple",
+    "aapl": "Apple",
+    "alphabet": "Alphabet",
+    "google": "Alphabet",
+    "meta": "Meta",
+}
+
+def detect_intent(q: str):
+    ql = q.lower()
+    if re.search(r'\b(rank|ranking)\b', ql): return "rank"
+    if re.search(r'\bmember(ship)?\b|\bpart of\b', ql): return "membership"
+    if re.search(r'\bcompare|vs\.|versus|difference\b', ql): return "comparison"
+    if re.search(r'\btrend|over time|history\b', ql): return "trend"
+    if re.search(r'\bhow\b|\bwhy\b|\bsteps?\b', ql): return "howwhy"
+    if re.search(r'\bpolicy|regulat|law|directive|act\b', ql): return "policy"
+    if re.search(r'\bwhat is\b|\bdefine\b', ql): return "definition"
+    return "general"
+
+def extract_entities(q: str):
+    ents = []
+    # simple capitalized word sequences
+    for m in re.finditer(r'\b([A-Z][A-Za-z0-9&\.\-]{1,}(?: [A-Z][A-Za-z0-9&\.\-]{1,}){0,3})\b', q):
+        s = m.group(1).strip()
+        if len(s) < 2: continue
+        ents.append(ALIAS.get(s.lower(), s))
+    # normalize TECH 100 wording
+    if "tech 100" in q.lower() or "tech-100" in q.lower():
+        ents.append("TECH100")
+    # dedupe preserving order
+    seen = set(); out = []
+    for e in ents:
+        if e not in seen:
+            seen.add(e); out.append(e)
+    return out[:5]
+
+def make_variants(q: str, ents):
+    q0 = q.strip()
+    vs = [q0]
+    q_norm = re.sub(r'\btech[-\s]?100\b', 'TECH100', q0, flags=re.I)
+    if q_norm != q0: vs.append(q_norm)
+    for e in ents:
+        # ticker normalization patterns (cheap)
+        if e.lower() in ("microsoft","apple","alphabet","meta","cisco","ibm","nvidia","intel"):
+            vs.append(q_norm.replace(e, e))  # identity (placeholder)
+    # remove punctuation / lemmatize-ish
+    vs.append(re.sub(r'[^\w\s]', ' ', q_norm))
+    # ensure unique
+    seen=set(); out=[]
+    for s in vs:
+        s=s.strip()
+        if s and s not in seen:
+            seen.add(s); out.append(s)
+    return out[:5]
+
+# ----------------- Retrieval fusion (vector-only, multi-variant) -----------------
+def rrf_fuse(variant_results, k=RRF_K):
+    scores = defaultdict(float)
+    by_key = {}
+    for res in variant_results:
+        for rank, item in enumerate(res, 1):
+            key = (item.get("doc_id"), item.get("chunk_ix"))
+            by_key[key] = item
+            scores[key] += 1.0 / (k + rank)
+    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    fused = [by_key[key] for key,_ in ranked]
+    return fused
+
+def _tokenize(s):
+    return set(re.findall(r'[A-Za-z0-9]{2,}', (s or "").lower()))
+
+def mmr_select(candidates, max_k=CHUNKS_MAX, lambda_=MMR_LAMBDA, per_doc=DOC_CAP):
+    selected = []
+    used_per_doc = defaultdict(int)
+    cand_tokens = [(_tokenize(c.get("chunk_text","")), i) for i,c in enumerate(candidates)]
+    while len(selected) < max_k and candidates:
+        best = None; best_score=-1; best_idx=None
+        for idx, c in enumerate(candidates):
+            key_doc = c.get("doc_id")
+            if used_per_doc[key_doc] >= per_doc: continue
+            rel = 1.0 / (1.0 + float(c.get("dist", 0.0) or 0.0))
+            if not selected:
+                score = rel
+            else:
+                # diversity: max similarity to already selected (Jaccard over tokens)
+                t_c = cand_tokens[idx][0]
+                sim = max((len(t_c & _tokenize(s.get("chunk_text",""))) / max(1,len(t_c | _tokenize(s.get("chunk_text","")))) for s in selected), default=0.0)
+                score = lambda_ * rel - (1.0 - lambda_) * sim
+            if score > best_score:
+                best_score = score; best = c; best_idx = idx
+        if best is None: break
+        selected.append(best)
+        used_per_doc[best.get("doc_id")] += 1
+        candidates.pop(best_idx)
+        cand_tokens.pop(best_idx)
+    return selected
+
+def retrieve_hybrid(q: str):
+    ents = extract_entities(q)
+    variants = make_variants(q, ents)
+    all_results = []
+    topk = FUSION_TOPK_BASE
+    start = time.time()
+    loops = 0
+    while True:
+        loops += 1
+        per_variant = []
+        for v in variants:
+            vec = embed(v)
+            rows = top_k_by_vector(vec, topk)
+            per_variant.append(rows)
+        fused = rrf_fuse(per_variant, k=RRF_K)
+        # dynamic bump if very small set
+        if (len(fused) < CHUNKS_MAX//2) and (topk < FUSION_TOPK_MAX):
+            topk = min(FUSION_TOPK_MAX, topk*2)
+            if topk > FUSION_TOPK_BASE:  # one bump allowed
+                continue
+        break
+    # MMR + per-doc cap
+    fused2 = mmr_select(fused[:max(FUSION_TOPK_MAX, 32)], max_k=CHUNKS_MAX, lambda_=MMR_LAMBDA, per_doc=DOC_CAP)
+    elapsed = int((time.time()-start)*1000)
+    return {"entities": ents, "variants": variants, "fused": fused2, "elapsed_ms": elapsed, "loops": loops, "k_final": topk}
+
+# ----------------- Evidence & compose -----------------
+def extract_quotes(chunks, max_total_words=50):
+    quotes = []
+    total = 0
+    for i,c in enumerate(chunks, 1):
+        txt = (c.get("chunk_text") or "").strip()
+        if not txt: continue
+        # pick first 1-2 sentences
+        parts = re.split(r'(?<=[.!?])\s+', txt)
+        for p in parts[:2]:
+            w = len(p.split())
+            if w == 0: continue
+            if total + w > max_total_words: break
+            quotes.append((i, p.strip()))
+            total += w
+        if total >= max_total_words: break
+    return quotes
+
+def compose_answer(intent, q, entities, chunks, quotes):
+    # build citations map
+    sources = []
+    for i,c in enumerate(chunks, 1):
+        t = (c.get("title") or "").strip()
+        if t and t not in sources:
+            sources.append(t)
+        if len(sources) >= CITES_MAX: break
+
+    # direct answer based on intent
+    header = f"You asked: {q.strip()}"
+    lines = []
+    if intent == "membership":
+        ent = entities[0] if entities else ""
+        found = any("membership" in (c.get("title","").lower()) or "included" in (c.get("chunk_text","").lower()) for c in chunks)
+        if found and ent:
+            lines.append(f"Yes — {ent} appears in the TECH100 AI Governance & Ethics Index based on retrieved evidence.")
+        elif ent:
+            lines.append(f"No clear evidence for {ent} in TECH100 from the retrieved context.")
+        else:
+            lines.append("Membership evidence located in the retrieved context.")
+    elif intent == "rank":
+        lines.append("Ranking evidence identified in the retrieved context.")
+    elif intent == "definition":
+        lines.append("Here’s a concise definition based on the retrieved evidence.")
+    elif intent == "policy":
+        lines.append("Policy/regulatory details from retrieved sources.")
+    elif intent == "comparison":
+        lines.append("Comparison evidence from multiple sources.")
+    else:
+        lines.append("Here’s the best supported answer from the retrieved sources.")
+
+    # Why this answer (quotes)
+    bullets = [f"[S{idx}] {qline}" for idx, qline in quotes]
+
+    # Build body
+    out = []
+    out.append(header)
+    out.append("")
+    out.extend(lines[:2])
+    if bullets:
+        out.append("Why this answer:")
+        out.extend(f"- {b}" for b in bullets[:6])
+
+    if sources:
+        out.append("")
+        out.append("Sources: " + "; ".join(sources))
+
+    return "\n".join(out)
+
+# ----------------- Middlewares -----------------
+class _OrchestrateMiddleware:
+    """Runs retrieval+compose and replaces downstream answer, leaving JSON shape intact."""
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO","")
+        method = (environ.get("REQUEST_METHOD") or "GET").upper()
+
+        headers_cache = {}
+        def _sr(status, headers, exc_info=None):
+            headers_cache["status"] = status
+            headers_cache["headers"] = list(headers)
+            return lambda x: None
+
+        body_iter = self.app(environ, _sr) if not (path=="/ask" and method=="POST") else None
+
+        if not (path=="/ask" and method=="POST"):
+            # passthrough
+            return self._finish(body_iter, headers_cache, start_response)
+
+        # Parse incoming request body (question)
+        try:
+            size = int(environ.get("CONTENT_LENGTH") or "0")
+        except Exception:
+            size = 0
+        req_body = environ["wsgi.input"].read(size) if size>0 else b""
+        try:
+            body_json = json.loads(req_body.decode("utf-8") or "{}")
+        except Exception:
+            body_json = {}
+        q = (body_json.get("question") or body_json.get("q") or "").strip()
+        if not q:
+            # let downstream handle error
+            return self._finish(self.app(environ, _sr), headers_cache, start_response)
+
+        # Orchestrate
+        t0 = time.time()
+        intent = detect_intent(q)
+        try:
+            retrieval = retrieve_hybrid(q)
+            chunks = retrieval["fused"]
+        except Exception as e:
+            # fallback to downstream if retrieval fails
+            return self._finish(self.app(environ, _sr), headers_cache, start_response)
+
+        quotes = extract_quotes(chunks, max_total_words=50)
+        answer = compose_answer(intent, q, retrieval["entities"], chunks, quotes)
+
+        # Construct response payload mirroring downstream shape
+        payload = {
+            "answer": answer,
+            "contexts": chunks,
+            "mode": "simple"
+        }
+
+        # Telemetry headers
+        hdrs = [(k,v) for (k,v) in (headers_cache.get("headers") or []) if k.lower() != "content-length"]
+        hdrs.extend([
+            ("Content-Type","application/json"),
+            ("X-Intent", intent),
+            ("X-K", str(retrieval["k_final"])),
+            ("X-RRF", "on"),
+            ("X-MMR", str(MMR_LAMBDA)),
+            ("X-Loops", str(retrieval["loops"])),
+            ("X-BudgetMs", str(retrieval["elapsed_ms"])),
+        ])
+        body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        hdrs.append(("Content-Length", str(len(body_bytes))))
+        start_response("200 OK", hdrs)
+        return [body_bytes]
+
+    def _finish(self, body_iter, headers_cache, start_response):
+        if body_iter is None:
+            # defensive
+            start_response(headers_cache.get("status") or "200 OK", headers_cache.get("headers") or [])
+            return [b""]
+        try:
+            body = b"".join(body_iter)
+        finally:
+            if hasattr(body_iter, "close"):
+                try: body_iter.close()
+                except Exception: pass
+        start_response(headers_cache.get("status") or "200 OK", headers_cache.get("headers") or [])
+        return [body]
+
+# ----------------- Downstream base app (minimal routes to remain compatible) -----------------
+@app.route("/healthz")
+def healthz():
+    return jsonify({"ok": True, "ts": time.time()})
+
+@app.route("/ask", methods=["POST"])
+def ask():
+    # Minimal downstream implementation so our middleware can replace it.
+    # If orchestrator fails, we still return a basic vector top-1 answer.
+    try:
+        body = request.get_json(force=True) or {}
+        q = (body.get("question") or body.get("q") or "").strip()
+        top_k = int(body.get("top_k") or FUSION_TOPK_BASE)
+        if not q:
+            return jsonify({"error":"question is required"}), 400
+        vec = embed(q)
+        rows = top_k_by_vector(vec, max(1, min(top_k, FUSION_TOPK_MAX)))
+        ans = rows[0]["chunk_text"] if rows else "No context found."
+        if RETURN_TOP_AS_ANSWER:
+            return jsonify({"answer": ans, "contexts": rows, "mode":"simple"})
+        else:
+            return jsonify({"answer": "No generator configured.", "contexts": rows, "mode":"simple"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Install orchestrator middleware last so it can intercept /ask
+app.wsgi_app = _OrchestrateMiddleware(app.wsgi_app)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)

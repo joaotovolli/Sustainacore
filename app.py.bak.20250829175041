@@ -1,0 +1,126 @@
+import os, math, requests
+from flask import Flask, request, jsonify
+from db_helper import top_k_by_vector
+
+# ---- Embeddings (remote optional, local Ollama fallback) ----
+EMBED_URL = os.getenv("EMBED_URL")                 # optional: https://provider/v1/embeddings
+EMBED_KEY = os.getenv("EMBED_KEY")
+EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
+
+OLLAMA = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "all-minilm")  # tiny 384-d
+
+TOP_K_DEFAULT = int(os.getenv("TOP_K_DEFAULT", "5"))
+RETURN_TOP_AS_ANSWER = os.getenv("RETURN_TOP_AS_ANSWER", "0") == "1"
+
+# ---- Qwen (for Advanced mode) ----
+QWEN_URL   = os.getenv("QWEN_URL")     # e.g. https://.../v1/chat/completions
+QWEN_KEY   = os.getenv("QWEN_KEY")
+QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen2.5-7b-instruct")
+
+app = Flask(__name__)
+
+def _normalize(v):
+    s = math.sqrt(sum(float(x)*float(x) for x in v)) or 1.0
+    return [float(x)/s for x in v]
+
+def _embed_remote(text: str):
+    headers = {"Content-Type":"application/json"}
+    if EMBED_KEY: headers["Authorization"] = f"Bearer {EMBED_KEY}"
+    payload = {"input": text, "model": "mini-384"}
+    r = requests.post(EMBED_URL, headers=headers, json=payload, timeout=30)
+    r.raise_for_status()
+    j = r.json()
+    vec = ((j.get("data") or [{}])[0].get("embedding") or j.get("embedding") or j.get("vector"))
+    if not isinstance(vec, list) or len(vec) != EMBED_DIM:
+        raise RuntimeError(f"embedding missing/wrong dim (got {len(vec) if isinstance(vec,list) else 'None'})")
+    return _normalize(vec)
+
+def _embed_ollama(text: str):
+    r = requests.post(f"{OLLAMA}/api/embeddings",
+                      json={"model": OLLAMA_MODEL, "prompt": text}, timeout=30)
+    r.raise_for_status()
+    vec = r.json().get("embedding")
+    if not isinstance(vec, list) or len(vec) != EMBED_DIM:
+        raise RuntimeError(f"ollama embedding missing/wrong dim (got {len(vec) if isinstance(vec,list) else 'None'})")
+    return _normalize(vec)
+
+def embed(text: str):
+    return _embed_remote(text) if EMBED_URL else _embed_ollama(text)
+
+def call_qwen(prompt: str) -> str:
+    if not (QWEN_URL and QWEN_KEY):
+        return ""
+    headers = {"Authorization": f"Bearer {QWEN_KEY}", "Content-Type":"application/json"}
+    payload = {
+        "model": QWEN_MODEL,
+        "messages": [
+            {"role":"system","content":"You are SustainaCore’s assistant. Be concise and use only the provided context."},
+            {"role":"user","content": prompt}
+        ],
+        "temperature": 0.2
+    }
+    r = requests.post(QWEN_URL, headers=headers, json=payload, timeout=60)
+    r.raise_for_status()
+    j = r.json()
+    return (j.get("choices",[{}])[0].get("message",{}).get("content","") or "").strip()
+
+@app.get("/healthz")
+def healthz():
+    try:
+        _ = embed("ping")
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 500
+
+@app.post("/ask")
+def ask():
+    try:
+        body = request.get_json(force=True) or {}
+        q = (body.get("question") or "").strip()
+        top_k = int(body.get("top_k") or TOP_K_DEFAULT)
+        mode = (body.get("mode") or "simple").lower()
+        if not q:
+            return jsonify({"error": "question is required"}), 400
+
+        qvec = embed(q)
+        contexts = top_k_by_vector(qvec, top_k)
+
+        ctx_txt = "\n\n".join(
+            f"- {c.get('title') or c.get('source_url') or c.get('doc_id')}:\n{c.get('chunk_text','')}"
+            for c in contexts
+        )
+        prompt = f"Question:\n{q}\n\nContext:\n{ctx_txt}\n\nAnswer:"
+
+        if mode in ("advanced","llm","qwen"):
+            ans = call_qwen(prompt)
+            if not ans:
+                # fallback so UI isn't blank if Qwen fails/misconfigured
+                ans = ((contexts[0]["chunk_text"][:700] + "…") if contexts else "No context found.") if RETURN_TOP_AS_ANSWER else "No model reply available."
+        else:
+            # simple = extractive echo (optional)
+            ans = ((contexts[0]["chunk_text"][:700] + "…") if contexts else "No context found.") if RETURN_TOP_AS_ANSWER else ""
+
+        return jsonify({"answer": ans, "contexts": contexts, "mode": mode})
+    except requests.HTTPError as e:
+        return jsonify({"error": f"http {e.response.status_code}: {e}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.post("/search")
+def search_only():
+    try:
+        body = request.get_json(force=True) or {}
+        q = (body.get("q") or body.get("query") or body.get("question") or "").strip()
+        top_k = int(body.get("top_k") or TOP_K_DEFAULT)
+        if not q:
+            return jsonify({"error": "q/query/question is required"}), 400
+        qvec = embed(q)
+        return jsonify({"contexts": top_k_by_vector(qvec, top_k)})
+    except requests.HTTPError as e:
+        return jsonify({"error": f"http {e.response.status_code}: {e}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)

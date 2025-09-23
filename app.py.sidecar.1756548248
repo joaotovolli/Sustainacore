@@ -1,0 +1,401 @@
+import os, re, json, time
+from flask import Flask, request, jsonify
+import requests
+
+UPSTREAM_ASK_URL = os.environ.get("UPSTREAM_ASK_URL", "https://ai.sustainacore.org/ask")
+APP_PORT = int(os.environ.get("APP_PORT", "8088"))
+
+app = Flask(__name__)
+
+# -------- Session memory --------
+MEM = {}  # { session_id: {ts, entity, intent, asked_once} }
+TTL_SECONDS = 60*60
+def now(): return int(time.time())
+
+# -------- Aliases & chips --------
+COMPANY_ALIASES = {
+  "microsoft": ["msft","microsoft corporation"],
+  "nvidia": ["nvda","nvidia corp","nvidia corporation"],
+  "cisco": ["csco","cisco systems","cisco systems inc","cisco inc"],
+  "alphabet": ["googl","google","alphabet inc"],
+  "apple": ["aapl","apple inc"],
+  "oracle": ["orcl","oracle corporation"],
+}
+CHIP_MAP = {
+  "tech100 membership": "membership",
+  "rank (latest)"     : "rank",
+  "ai & esg profile"  : "profile",
+  "explain tech100"   : "explain",
+  "five pillars"      : "pillars",
+  "what are the five pillars?": "pillars",
+}
+DEFAULT_SUGGESTIONS = ["TECH100 membership","Rank (latest)","AI & ESG profile"]
+
+STOP_PROPER = set("""
+Tech TECH TECH100 Index Pillars Pillar EU AI Act Regulation Regulatory Alignment
+Stakeholder Ethical Governance SustainaCore Methodology Rank Ranking Position
+""".split())
+
+PROPER_RE = re.compile(r"\b([A-Z][\w&\.\-]+(?:\s+[A-Z][\w&\.\-]+){0,2})\b")
+
+def _alias_lookup(low: str):
+  for canon, alts in COMPANY_ALIASES.items():
+    if canon in low: return canon.title()
+    for a in alts:
+      if a in low: return canon.title()
+  return None
+
+def _proper_candidates(q: str):
+  cands=[]
+  for m in PROPER_RE.finditer(q):
+    cand=m.group(1).strip()
+    if len(cand)<=1: continue
+    if cand in STOP_PROPER: continue
+    if re.search(r"\bTECH? ?100\b", cand, flags=re.I): continue
+    cands.append(cand)
+  return cands
+
+def find_entity_in_sentence(q: str):
+  low=q.lower()
+  ent=_alias_lookup(low)
+  if ent: return ent
+  for cand in _proper_candidates(q):
+    m=_alias_lookup(cand.lower())
+    return m or cand
+  return None
+
+def detect_intent_and_slots(q: str, mem: dict):
+  s=(q or "").strip()
+  low=s.lower()
+  if low in CHIP_MAP:
+    return CHIP_MAP[low], {"entity": mem.get("entity")}
+  if len(s.split())<=2 and re.search(r"\b(hi|hello|hey|thanks|help)\b", low):
+    return "small_talk", {}
+  if "explain tech100" in low or re.search(r"\bwhat\s+is\s+tech\s*100\b", low):
+    return "explain", {}
+  if "five pillars" in low or "5 pillars" in low or re.search(r"\bpillars?\b", low):
+    return "pillars", {}
+  entity = find_entity_in_sentence(s)
+  if re.search(r"\brank|ranking|position|placement\b", low):
+    return "rank", {"entity": entity}
+  if re.search(r"\bmember|membership|included|in tech\s*100|part of tech\s*100\b", low):
+    return "membership", {"entity": entity}
+  if re.search(r"\bprofile|overview|what does .* do|ai\b", low):
+    return "profile", {"entity": entity}
+  if entity:
+    return "clarify_needed", {"entity": entity}
+  return "unknown", {}
+
+def suggestions_for(_entity=None):
+  return list(DEFAULT_SUGGESTIONS)
+
+def display_sources(ctxs, cap=5):
+  seen=set(); out=[]
+  for c in (ctxs or []):
+    key=(c.get("title") or "")+"|"+(c.get("source_url") or c.get("url") or "")
+    if key in seen: continue
+    seen.add(key)
+    out.append({"title": c.get("title") or c.get("source_url") or c.get("url") or "source"})
+    if len(out)>=cap: break
+  return out
+
+def contexts_ok(ctxs, entity=None, concept=None):
+  if not ctxs: return False
+  ent=(entity or "").lower()
+  concepts={
+    "rank":["rank","ranking","position","placement"],
+    "membership":["member","membership","included","constituent"],
+    "profile":["profile","overview","business","governance","ai"],
+    "pillars":["pillar","tech100","methodology"],
+    "explain":["tech100","methodology","index"],
+  }
+  kws=set(concepts.get(concept or "", []))
+  joined=" ".join([(c.get("title") or "")+" "+(c.get("source_url") or c.get("url") or "") for c in ctxs]).lower()
+  if ent and ent not in joined: return False
+  if kws and not any(k in joined for k in kws): return False
+  return True
+
+def infer_entity_from_contexts(ctxs):
+  counts={}
+  for c in (ctxs or []):
+    title=(c.get("title") or "")
+    for cand in _proper_candidates(title):
+      if cand in STOP_PROPER: continue
+      counts[cand]=counts.get(cand,0)+1
+  if not counts: return None
+  return sorted(counts.items(), key=lambda kv:(-kv[1], kv[0]))[0][0]
+
+# -------- Prompts --------
+STYLE_HINT = (
+  "Answer style:\n"
+  "• First sentence: give the direct answer (Yes/No/Number/Definition).\n"
+  "• Then 3–6 short bullets with concrete details (dates, numbers, pillar scores, cadence).\n"
+  "• Paraphrase; only quote short phrases if necessary (<=10 words). No raw URLs. No 'META'.\n"
+  "• End with: Why this matters: <one short sentence>.\n"
+)
+
+FALLBACK_HINT = (
+  "IMPORTANT fallback: If the provided context does not directly answer the question, "
+  "IGNORE the context and answer from general knowledge. "
+  "Preface with exactly: 'Note — not found in SustainaCore DB; external model answer:' "
+  "Do NOT fabricate citations and do NOT add a Sources section."
+)
+
+SLOT_HINTS = {
+  "membership": "Include: Yes/No + as-of month, inclusion basis, equal-weight note, rebalance cadence.",
+  "rank":       "Include: rank number + as-of month, top-percentile, pillar scores, movement if known, rebalance cadence.",
+  "profile":    "Include: one-line snapshot; bullets for governance structure, policies, risk/process; notable issues.",
+  "explain":    "Include: definition; five pillars (one line each); scoring approach; rebalance cadence.",
+  "pillars":    "List the five pillars (one-sentence definitions each) and how they combine into the composite score.",
+}
+
+DRAFTER = (
+  "ROLE: DRAFTER (Grounded RAG)\n"
+  "TASK: Using only the provided context titles, compose a full answer.\n"
+  "REQUIREMENTS:\n"
+  "1) Answer-first sentence that directly answers the user question type.\n"
+  "2) 3–6 bullets with specifics (dates, numbers, scores, cadence), paraphrased.\n"
+  "3) Create a hidden internal 'Claim-Evidence List' with 3–8 atomic claims; for each claim, copy a <=10-word snippet from a context title that supports it, or mark UNSUPPORTED.\n"
+  "4) Do not include the Claim-Evidence List in the final text.\n"
+  "5) If most key claims are UNSUPPORTED, still draft but hedge uncertainty.\n"
+)
+
+VERIFIER = (
+  "ROLE: VERIFIER (Faithfulness)\n"
+  "TASK: Check the previous answer against the context titles.\n"
+  "FOR EACH CLAIM: label SUPPORTED / WEAK / NOT SUPPORTED.\n"
+  "IF any NOT SUPPORTED or many WEAK claims, return a fully corrected answer that removes unsupported content, hedges weak items, keeps answer-first, and retains structure.\n"
+  "ELSE if the answer is already faithful and well-structured, return exactly <APPROVE>.\n"
+)
+
+POLISHER = (
+  "ROLE: POLISHER (Clarity & Tone)\n"
+  "TASK: Rewrite for clarity and friendliness without changing facts. Keep answer-first sentence, 3–6 tight bullets, and a 'Why this matters' line.\n"
+  "Never add new facts not implied by the answer or context titles.\n"
+)
+
+REFINER = (
+  "ROLE: REFINER (Convergence)\n"
+  "TASK: Improve flow and specificity if possible, without adding new facts. If no meaningful improvement, return exactly <NOCHANGE>.\n"
+)
+
+def q_membership(entity): return f"Is {entity} a current constituent of the TECH100 AI Governance & Ethics Index?"
+def q_rank(entity): return f"What is the latest TECH100 rank for {entity}?"
+def q_profile(entity): return f"Provide an AI & ESG governance snapshot for {entity}."
+def q_explain(): return "Explain the TECH100 AI Governance & Ethics Index."
+def q_pillars(): return "List the TECH100 five pillars and how they combine."
+
+# -------- Upstream --------
+def upstream_ask(question, top_k):
+  try:
+    r = requests.post(UPSTREAM_ASK_URL, json={"question": question, "top_k": top_k}, timeout=int(os.environ.get("UPSTREAM_TIMEOUT","120")))
+    return r.json()
+  except Exception as e:
+    return {"error":"request_failed","detail":str(e)}
+
+def try_with_escalation(primary_q, entity, concept, top_k_initial=6):
+  res1 = upstream_ask(primary_q + "\n\n" + STYLE_HINT + "\n" + SLOT_HINTS.get(concept,""), top_k_initial)
+  ans = (res1 or {}).get("answer",""); ctx = (res1 or {}).get("contexts",[])
+  if ans.strip() and contexts_ok(ctx, entity, concept):
+    return res1, False
+  synonyms = {
+    "rank": " (also called rank, ranking, position, placement)",
+    "membership": " (member, included, constituent)",
+    "profile": " (overview, governance, AI profile)",
+    "explain": "",
+    "pillars": " (five pillars, methodology)"
+  }
+  res2 = upstream_ask(primary_q + synonyms.get(concept,"") + "\n\n" + STYLE_HINT + "\n" + SLOT_HINTS.get(concept,""),
+                      max(top_k_initial*2, 10))
+  ans2 = (res2 or {}).get("answer",""); ctx2 = (res2 or {}).get("contexts",[])
+  if ans2.strip() and contexts_ok(ctx2, entity, concept):
+    return res2, True
+  return None, True
+
+def contexts_summary(ctxs, cap=10):
+  titles=[(c.get("title") or "").strip() for c in (ctxs or [])]
+  titles=[t for t in titles if t][:cap]
+  return "- " + "\n- ".join(titles) if titles else "(no titles)"
+
+def need_continue(text, target_min):
+  if not text: return True
+  t=text.strip()
+  if t.endswith(("...","…")): return True
+  return len(t) < target_min
+
+def pass_call(role_prompt, prev_answer, ctx_titles, concept):
+  prompt = (
+    f"{role_prompt}\n\n"
+    f"QUESTION TYPE: {concept or 'general'}\n"
+    f"CONTEXT TITLES:\n{ctx_titles}\n\n"
+    f"PREVIOUS ANSWER:\n{prev_answer}\n"
+    f"{STYLE_HINT}\n"
+    f"{SLOT_HINTS.get(concept,'')}\n"
+    "Rules: Paraphrase. Do not copy full sentences. No raw URLs. No 'META'."
+  )
+  res = upstream_ask(prompt, 0)  # no new retrieval
+  if not res or res.get("error"): return None
+  return (res.get("answer") or "").strip()
+
+def self_refine(
+  initial_answer, ctxs, concept,
+  min_passes=int(os.environ.get("SELF_REFINE_MIN","2")),
+  max_passes=int(os.environ.get("SELF_REFINE_MAX","4"))
+):
+  """
+  Run 2–4 light passes max (configurable via env). Passes:
+    - DRAFTER only if the base answer looks short/generic.
+    - VERIFIER always.
+    - POLISHER only if we still haven’t hit min_passes.
+    - REFINER loops until convergence or max_passes.
+  """
+  answer = (initial_answer or "").strip()
+  titles = contexts_summary(ctxs)
+  passes = 0
+
+  # Draft only if short/generic for this concept
+  if need_continue(answer, 350 if concept in ("membership","rank") else 500) and passes < max_passes:
+    a1 = pass_call(DRAFTER, answer, titles, concept)
+    if a1 and a1 != answer:
+      answer = a1
+    passes += 1
+
+  # Always verify once
+  if passes < max_passes:
+    v = pass_call(VERIFIER, answer, titles, concept)
+    if v and v != "<APPROVE>":
+      answer = v
+    passes += 1
+
+  # Optional polish to satisfy min_passes
+  if passes < min_passes and passes < max_passes:
+    p = pass_call(POLISHER, answer, titles, concept)
+    if p and p != "<NOCHANGE>":
+      answer = p
+    passes += 1
+
+  # Optional tiny refine loop (rare)
+  while passes < max_passes:
+    r = pass_call(REFINER, answer, titles, concept)
+    passes += 1
+    if not r or r == "<NOCHANGE>" or r == answer:
+      if passes >= min_passes:
+        break
+      else:
+        continue
+    answer = r
+    # Stop once length is healthy for the concept
+    if passes >= min_passes and not need_continue(answer, 400 if concept in ("membership","rank") else 600):
+      break
+  return answer
+
+# -------- Flask route --------
+@app.route("/ask2", methods=["POST"])
+def ask2():
+  data = request.get_json(force=True, silent=True) or {}
+  q = data.get("question")
+  if isinstance(q, str):
+    q = q.strip()
+  else:
+    q = ""
+  top_k = int(data.get("top_k") or 6)
+  session_id = data.get("session_id") or request.headers.get("X-Session-Id") or "anon"
+
+  if not q:
+    return jsonify({"type":"error","error":"empty_question"}), 400
+
+  mem = MEM.get(session_id, {"ts": now(), "asked_once": False})
+  if (now()-mem.get("ts",0))>TTL_SECONDS:
+    mem={"ts": now(), "asked_once": False}
+
+  # Intent + entity
+  intent, slots = detect_intent_and_slots(q, mem)
+  entity = slots.get("entity")
+
+  # If a new explicit entity appears, override memory
+  explicit_ent = find_entity_in_sentence(q)
+  if explicit_ent and explicit_ent != mem.get("entity"):
+    entity = explicit_ent
+    mem["entity"] = explicit_ent
+
+  # Small talk
+  if intent=="small_talk":
+    ans=("Hey! 👋 I’m the SustainaCore Assistant.\n"
+         "Ask me ESG & TECH 100 things like:\n"
+         "• TECH100 membership for a company\n"
+         "• Rank (latest)\n"
+         "• AI & ESG profile for a company\n"
+         "• Explain TECH100 / Five pillars")
+    return jsonify({"type":"answer","answer":ans,"contexts":[]})
+
+  # Carry entity for chip commands
+  if intent in ("rank","membership","profile") and not entity:
+    entity = mem.get("entity")
+
+  # Preflight to infer entity if still missing
+  if intent in ("rank","membership","profile") and not entity:
+    probe = upstream_ask(q, 8)
+    guess = infer_entity_from_contexts((probe or {}).get("contexts", []))
+    if guess:
+      entity = guess; mem["entity"]=guess
+
+  # Clarify exactly once if still no entity
+  if intent in ("rank","membership","profile") and not entity:
+    if not mem.get("asked_once"):
+      mem["asked_once"]=True; mem["ts"]=now(); MEM[session_id]=mem
+      return jsonify({"type":"clarify","answer":"We have several views. What would you like?",
+                      "suggestions": suggestions_for()})
+    return jsonify({"type":"clarify","answer":"Which company should we use?",
+                    "suggestions": suggestions_for()})
+
+  # Update memory
+  if entity: mem["entity"]=entity
+  mem["intent"]=intent; mem["asked_once"]=False; mem["ts"]=now()
+  MEM[session_id]=mem
+
+  # Canonical question + concept
+  if intent=="membership":
+    concept="membership"; primary_q=q_membership(entity)
+  elif intent=="rank":
+    concept="rank"; primary_q=q_rank(entity)
+  elif intent=="profile":
+    concept="profile"; primary_q=q_profile(entity)
+  elif intent=="explain":
+    concept="explain"; primary_q=q_explain()
+  elif intent=="pillars":
+    concept="pillars"; primary_q=q_pillars()
+  elif intent in ("clarify_needed","unknown"):
+    if entity:
+      mem["entity"]=entity; mem["asked_once"]=True; MEM[session_id]=mem
+      return jsonify({"type":"clarify","answer":f"We have several views on **{entity}**. What would you like?",
+                      "suggestions": suggestions_for(entity)})
+    return jsonify({"type":"clarify","answer":"What would you like to explore?",
+                    "suggestions": suggestions_for(None)})
+
+  # Retrieval (with escalation if needed)
+  res, escalated = try_with_escalation(primary_q, entity if intent in ("rank","membership","profile") else None,
+                                       concept, top_k_initial=top_k)
+  if res and (res.get("answer") or "").strip():
+    base_answer = res["answer"].strip()
+    ctxs = res.get("contexts") or []
+    final_answer = (base_answer if os.environ.get('REFINE','on') == 'off' else self_refine(base_answer, ctxs, concept))
+    return jsonify({"type":"answer","answer":final_answer,"contexts": display_sources(ctxs)})
+
+  # Fallback (clearly labeled)
+  fb = upstream_ask(primary_q + "\n\n" + FALLBACK_HINT + "\n\n" + STYLE_HINT + "\n" + SLOT_HINTS.get(concept,""), 0)
+  if fb and (fb.get("answer") or "").strip():
+    polished = pass_call(POLISHER, fb["answer"], contexts_summary([]), concept) or fb["answer"]
+    return jsonify({"type":"fallback","answer": polished.strip(), "contexts":[]})
+
+  # Last resort
+  return jsonify({"type":"clarify",
+                  "answer":"I couldn’t find that in SustainaCore’s knowledge base. Try narrowing the scope (company or topic).",
+                  "suggestions": suggestions_for(entity)})
+
+if __name__ == "__main__":
+  app.run(host="0.0.0.0", port=APP_PORT)
+
+@app.route("/ask", methods=["POST"])
+def ask():
+    return ask2()
+

@@ -1,0 +1,309 @@
+# Auto-generated strict bundle (v8) — forced refine ON; MIN=3/MAX=10 overrides; middleware + header; LLM-free fallback rewrite
+# ---- Begin refinedriver ----
+import os, time, requests
+
+def _rule_refine(ans: str, contexts) -> str:
+    try:
+        text = ans.strip()
+        # Collapse whitespace
+        import re as _re
+        text = _re.sub(r'\s+', ' ', text)
+        # Split into sentences
+        parts = [p.strip() for p in _re.split(r'(?<=[.!?])\s+', text) if p.strip()]
+        if not parts:
+            return ans
+        # Keep up to 5 sentences, bulletize
+        bullets = parts[:5]
+        out = "Refined Summary:\n- " + "\n- ".join(bullets)
+        # If contexts exist, append first 2 titles if available
+        try:
+            titles = []
+            for c in contexts or []:
+                t = c.get('title') if isinstance(c, dict) else None
+                if t: titles.append(str(t))
+                if len(titles) >= 2: break
+            if titles:
+                out += "\nSources: " + "; ".join(titles)
+        except Exception:
+            pass
+        return out
+    except Exception:
+        return ans
+
+MIN = 3
+MAX = 10
+
+# Feature flags / knobs
+REFINE = True == "on"
+OLLAMA_URL   = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+TAILOR_MODEL = os.getenv("TAILOR_MODEL", os.getenv("LLM_MODEL", "mistral:instruct"))
+
+MIN_PASSES = int(os.getenv("SELF_REFINE_MIN", "3") or 3)
+MAX_PASSES = int(os.getenv("SELF_REFINE_MAX", "10") or 10)
+BUDGET_MS  = int(os.getenv("TAILOR_BUDGET_MS", "7000") or 7000)
+CONN_TO    = float(os.getenv("CONNECT_TIMEOUT", "1.0") or 1.0)
+READ_TO    = float(os.getenv("READ_TIMEOUT", "4.0") or 4.0)
+
+def _ctx_titles(ctxs, cap=10):
+    if not ctxs: return "(no titles)"
+    ts=[]
+    for c in ctxs:
+        t = (c.get("title") or c.get("source_title") or "").strip()
+        if t:
+            ts.append(t)
+            if len(ts) >= cap: break
+    return "- " + "\n- ".join(ts) if ts else "(no titles)"
+
+def _ollama(prompt, num_predict=256):
+    try:
+        r = requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model": TAILOR_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.2, "num_predict": num_predict},
+            },
+            timeout=(CONN_TO, READ_TO),
+        )
+        r.raise_for_status()
+        return (r.json().get("response") or "").strip()
+    except Exception:
+        return ""
+
+def _rewrite(answer, titles):
+    prompt = (
+        "ROLE: DRAFTER (polish, no new facts)\n"
+        f"CONTEXT TITLES:\n{titles}\n\n"
+        "Rewrite the ANSWER to be concise and structured: first sentence answers directly; "
+        "then 3–6 bullets with concrete specifics; end with 'Why this matters: ...'. "
+        "Do not invent facts. Do not add URLs.\n\n"
+        f"ANSWER:\n{answer}\n"
+    )
+    return _ollama(prompt)
+
+def _verify(answer, titles):
+    prompt = (
+        "ROLE: VERIFIER\n"
+        "Given the CONTEXT TITLES, if the ANSWER is faithful and well-structured, reply exactly <APPROVE>.\n"
+        "Otherwise, return a corrected ANSWER with the same structure.\n\n"
+        f"CONTEXT TITLES:\n{titles}\n\nANSWER:\n{answer}\n"
+    )
+    out = _ollama(prompt)
+    if not out:
+        return answer
+    return answer if out.strip() == "<APPROVE>" else out.strip()
+
+def refine_maybe(answer: str, contexts):
+    """Return refined answer if REFINE=on; otherwise return original."""
+    if not REFINE:
+        return answer
+    if not isinstance(answer, str) or not answer.strip():
+        return answer
+
+    titles = _ctx_titles(contexts)
+    out = answer.strip()
+    passes = 0
+    start = time.time()
+    def budget_ok(): return (time.time() - start)*1000 < BUDGET_MS
+
+    target = max(MIN_PASSES, 0)
+    maxp   = max(MAX_PASSES, target)
+
+    while passes < maxp and budget_ok():
+        if passes % 2 == 0:
+            t = _rewrite(out, titles)
+            out = t or out
+        else:
+            out = _verify(out, titles)
+        passes += 1
+        if passes >= target and not budget_ok():
+            break
+    return out
+# ---- End refinedriver ----
+
+# ---- Begin downstream original app ----
+import os, math, requests
+from flask import Flask, request, jsonify
+from db_helper import top_k_by_vector
+
+# ---- Embeddings (remote optional, local Ollama fallback) ----
+EMBED_URL = os.getenv("EMBED_URL")                 # optional: https://provider/v1/embeddings
+EMBED_KEY = os.getenv("EMBED_KEY")
+EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
+
+OLLAMA = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "all-minilm")  # tiny 384-d
+
+TOP_K_DEFAULT = int(os.getenv("TOP_K_DEFAULT", "5"))
+RETURN_TOP_AS_ANSWER = os.getenv("RETURN_TOP_AS_ANSWER", "0") == "1"
+
+# ---- Qwen (for Advanced mode) ----
+QWEN_URL   = os.getenv("QWEN_URL")     # e.g. https://.../v1/chat/completions
+QWEN_KEY   = os.getenv("QWEN_KEY")
+QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen2.5-7b-instruct")
+
+downstream = Flask(__name__)
+
+def _normalize(v):
+    s = math.sqrt(sum(float(x)*float(x) for x in v)) or 1.0
+    return [float(x)/s for x in v]
+
+def _embed_remote(text: str):
+    headers = {"Content-Type":"application/json"}
+    if EMBED_KEY: headers["Authorization"] = f"Bearer {EMBED_KEY}"
+    payload = {"input": text, "model": "mini-384"}
+    r = requests.post(EMBED_URL, headers=headers, json=payload, timeout=30)
+    r.raise_for_status()
+    j = r.json()
+    vec = ((j.get("data") or [{}])[0].get("embedding") or j.get("embedding") or j.get("vector"))
+    if not isinstance(vec, list) or len(vec) != EMBED_DIM:
+        raise RuntimeError(f"embedding missing/wrong dim (got {len(vec) if isinstance(vec,list) else 'None'})")
+    return _normalize(vec)
+
+def _embed_ollama(text: str):
+    r = requests.post(f"{OLLAMA}/api/embeddings",
+                      json={"model": OLLAMA_MODEL, "prompt": text}, timeout=30)
+    r.raise_for_status()
+    vec = r.json().get("embedding")
+    if not isinstance(vec, list) or len(vec) != EMBED_DIM:
+        raise RuntimeError(f"ollama embedding missing/wrong dim (got {len(vec) if isinstance(vec,list) else 'None'})")
+    return _normalize(vec)
+
+def embed(text: str):
+    return _embed_remote(text) if EMBED_URL else _embed_ollama(text)
+
+def call_qwen(prompt: str) -> str:
+    if not (QWEN_URL and QWEN_KEY):
+        return ""
+    headers = {"Authorization": f"Bearer {QWEN_KEY}", "Content-Type":"application/json"}
+    payload = {
+        "model": QWEN_MODEL,
+        "messages": [
+            {"role":"system","content":"You are SustainaCore’s assistant. Be concise and use only the provided context."},
+            {"role":"user","content": prompt}
+        ],
+        "temperature": 0.2
+    }
+    r = requests.post(QWEN_URL, headers=headers, json=payload, timeout=60)
+    r.raise_for_status()
+    j = r.json()
+    return (j.get("choices",[{}])[0].get("message",{}).get("content","") or "").strip()
+
+@downstream.get("/healthz")
+def healthz():
+    try:
+        _ = embed("ping")
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 500
+
+@downstream.post("/ask")
+def ask():
+    try:
+        body = request.get_json(force=True) or {}
+        q = (body.get("question") or "").strip()
+        top_k = int(body.get("top_k") or TOP_K_DEFAULT)
+        mode = (body.get("mode") or "simple").lower()
+        if not q:
+            return jsonify({"error": "question is required"}), 400
+
+        qvec = embed(q)
+        contexts = top_k_by_vector(qvec, top_k)
+
+        ctx_txt = "\n\n".join(
+            f"- {c.get('title') or c.get('source_url') or c.get('doc_id')}:\n{c.get('chunk_text','')}"
+            for c in contexts
+        )
+        prompt = f"Question:\n{q}\n\nContext:\n{ctx_txt}\n\nAnswer:"
+
+        if mode in ("advanced","llm","qwen"):
+            ans = call_qwen(prompt)
+            if not ans:
+                # fallback so UI isn't blank if Qwen fails/misconfigured
+                ans = ((contexts[0]["chunk_text"][:700] + "…") if contexts else "No context found.") if RETURN_TOP_AS_ANSWER else "No model reply available."
+        else:
+            # simple = extractive echo (optional)
+            ans = ((contexts[0]["chunk_text"][:700] + "…") if contexts else "No context found.") if RETURN_TOP_AS_ANSWER else ""
+
+        return jsonify({"answer": ans, "contexts": contexts, "mode": mode})
+    except requests.HTTPError as e:
+        return jsonify({"error": f"http {e.response.status_code}: {e}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@downstream.post("/search")
+def search_only():
+    try:
+        body = request.get_json(force=True) or {}
+        q = (body.get("q") or body.get("query") or body.get("question") or "").strip()
+        top_k = int(body.get("top_k") or TOP_K_DEFAULT)
+        if not q:
+            return jsonify({"error": "q/query/question is required"}), 400
+        qvec = embed(q)
+        return jsonify({"contexts": top_k_by_vector(qvec, top_k)})
+    except requests.HTTPError as e:
+        return jsonify({"error": f"http {e.response.status_code}: {e}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    downstream.run(host="0.0.0.0", port=8080)
+# ---- End downstream original app ----
+
+# ---- Begin refinement middleware ----
+import json as _json
+
+class _RefineMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO","")
+        method = environ.get("REQUEST_METHOD","GET").upper()
+
+        headers_holder = {"status": None, "headers": None}
+        def _sr(status, headers, exc_info=None):
+            headers_holder["status"] = status
+            headers_holder["headers"] = list(headers)
+            return lambda x: None
+
+        body_iter = self.app(environ, _sr)
+        try:
+            body_bytes = b"".join(body_iter)
+        finally:
+            if hasattr(body_iter, "close"):
+                try: body_iter.close()
+                except Exception: pass
+
+        status = headers_holder["status"]
+        headers = headers_holder["headers"] or []
+
+        ct = next((v for (k,v) in headers if k.lower()=="content-type"), "")
+        refined_passes = 0
+        if path == "/ask" and method == "POST" and "application/json" in ct and body_bytes:
+            try:
+                payload = _json.loads(body_bytes.decode("utf-8"))
+                ans = payload.get("answer")
+                ctx = payload.get("contexts", [])
+                if isinstance(ans, str):
+                    new_ans, refined_passes = refine_maybe(ans, ctx)
+                    if isinstance(new_ans, str) and new_ans and new_ans != ans:
+                        payload["answer"] = new_ans
+                        body_bytes = _json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            except Exception:
+                pass
+
+        headers = [(k, v) for (k, v) in headers if k.lower() != "content-length"]
+        headers.append(("X-Refine-Passes", str(refined_passes)))
+        headers.append(("Content-Length", str(len(body_bytes))))
+
+        start_response(status, headers)
+        return [body_bytes]
+
+# Install middleware
+downstream.wsgi_app = _RefineMiddleware(downstream.wsgi_app)
+
+# Export app for gunicorn
+app = downstream
+# ---- End refinement middleware ----

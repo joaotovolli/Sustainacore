@@ -1,0 +1,102 @@
+import os, time
+from flask import Flask, request, jsonify
+import requests
+import oracledb
+
+app = Flask(__name__)
+
+TNS_ADMIN = os.environ.get("TNS_ADMIN", "/opt/adb_wallet_tp")
+DB_DSN    = os.environ.get("DB_DSN", "dbri4x6_high")
+DB_USER   = os.environ.get("DB_USER")
+DB_PASS   = os.environ.get("DB_PASS")
+WALLET_PWD = os.environ.get("WALLET_PWD")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "all-minilm")
+DIM = 384  # all-minilm
+
+def _conn():
+    return oracledb.connect(
+        user=DB_USER,
+        password=DB_PASS,
+        dsn=DB_DSN,
+        config_dir=TNS_ADMIN,
+        wallet_location=TNS_ADMIN,
+        wallet_password=WALLET_PWD,
+    )
+
+def embed_text(q: str):
+    r = requests.post(f"{OLLAMA_URL}/api/embeddings",
+                      json={"model": OLLAMA_EMBED_MODEL, "prompt": q}, timeout=15)
+    r.raise_for_status()
+    e = r.json().get("embedding")
+    if not isinstance(e, list) or len(e) != DIM:
+        raise ValueError(f"Bad embedding shape (expected {DIM})")
+    return e
+
+def top_k_by_vector(emb, k=5):
+    sql = """
+    SELECT
+      doc_id,
+      chunk_ix,
+      title,
+      DBMS_LOB.SUBSTR(chunk_text, 480, 1) AS snippet,
+      source_url,
+      VECTOR_DISTANCE(embedding, :v) AS dist
+    FROM ESG_DOCS
+    ORDER BY VECTOR_DISTANCE(embedding, :v)
+    FETCH FIRST :k ROWS ONLY
+    """
+    with _conn() as conn:
+        with conn.cursor() as cur:
+            cur.setinputsizes(v=oracledb.DB_TYPE_VECTOR, k=oracledb.NUMBER)
+            cur.execute(sql, v=emb, k=int(k))
+            cols = [d[0].lower() for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur]
+
+@app.get("/healthz")
+def healthz():
+    st = {"ok": True, "deps": {}}
+    try:
+        rr = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        st["deps"]["ollama"] = {"ok": rr.ok}
+        if not rr.ok: st["ok"] = False
+    except Exception as e:
+        st["deps"]["ollama"] = {"ok": False, "err": str(e)}; st["ok"] = False
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("select 1 from dual"); cur.fetchone()
+        st["deps"]["oracle"] = {"ok": True}
+    except Exception as e:
+        st["deps"]["oracle"] = {"ok": False, "err": str(e)}; st["ok"] = False
+    return jsonify(st), (200 if st["ok"] else 503)
+
+@app.get("/ask2")
+def ask2():
+    t0 = time.time()
+    q = request.args.get("q", "").strip()
+    k = int(request.args.get("k", "5"))
+    if not q:
+        return jsonify({"answer":"", "sources": [], "error":"empty_query"}), 400
+    try:
+        emb = embed_text(q)
+        rows = top_k_by_vector(emb, k=k)
+        sources = []
+        for row in rows:
+            dist = row.get("dist")
+            score = (1.0 - float(dist)) if dist is not None else None
+            sources.append({
+                "id": f"{row.get('doc_id','')}-{row.get('chunk_ix','')}",
+                "title": row.get("title") or "",
+                "score": round(score,4) if score is not None else None,
+                "snippet": (row.get("snippet") or ""),
+                "url": row.get("source_url")
+            })
+        took = int((time.time()-t0)*1000)
+        return jsonify({"answer":"", "sources": sources,
+                        "meta":{"took_ms":took,"k":k,"model_info":{"embed":OLLAMA_EMBED_MODEL}}})
+    except Exception as e:
+        return jsonify({"answer":"", "sources": [], "error":"retrieval_failed", "detail":str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8080)
