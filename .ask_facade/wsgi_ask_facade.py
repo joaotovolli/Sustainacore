@@ -157,3 +157,54 @@ def _ensure_nonempty_answer(resp):
         pass
     return resp
 # --- end hotfix ---
+
+# --- SustainaCore hotfix: ensure /ask2 never returns an empty "answer" ---
+import json
+FALLBACK_MESSAGE = "I couldn’t find a direct answer in the indexed docs. Here are the most relevant sources."
+
+def _ensure_nonempty_answer_mw(wsgi_app):
+    def _mw(environ, start_response):
+        chunks = []
+        status_headers = {"status": None, "headers": None}
+
+        def _sr(status, headers, exc_info=None):
+            status_headers["status"] = status
+            status_headers["headers"] = list(headers)
+            return start_response(status, headers, exc_info)
+
+        for part in wsgi_app(environ, _sr):
+            chunks.append(part)
+        body = b"".join(chunks)
+
+        if environ.get("PATH_INFO") == "/ask2":
+            try:
+                data = json.loads(body.decode("utf-8"))
+                ans = (data.get("answer") or "").strip()
+                srcs = (data.get("sources") or [])[:3]
+                meta = data.get("meta") or {}
+                if not ans:
+                    meta["note"] = "fallback"
+                    data.update({"answer": FALLBACK_MESSAGE, "sources": srcs, "meta": meta})
+                    body = json.dumps(data).encode("utf-8")
+                    # fix headers if missing
+                    hdrs = status_headers["headers"]
+                    found_len = False; found_ct = False
+                    for i,(k,v) in enumerate(hdrs):
+                        kl = k.lower()
+                        if kl == "content-length":
+                            hdrs[i] = (k, str(len(body))); found_len = True
+                        if kl == "content-type":
+                            found_ct = True
+                    if not found_len: hdrs.append(("Content-Length", str(len(body))))
+                    if not found_ct: hdrs.append(("Content-Type", "application/json"))
+            except Exception:
+                pass
+
+        return [body]
+    return _mw
+
+try:
+    app = _ensure_nonempty_answer_mw(app)
+except Exception:
+    pass
+# --- end hotfix ---
