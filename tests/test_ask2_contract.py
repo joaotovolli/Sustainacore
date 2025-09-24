@@ -23,6 +23,10 @@ def test_ask2_contract_keys():
     payload = response.json()
     for key in ("answer", "sources", "meta"):
         assert key in payload
+    assert isinstance(payload["sources"], list)
+    assert "intent" in payload["meta"]
+    assert "latency_ms" in payload["meta"]
+    assert "show_debug_block" in payload["meta"]
 
 
 def test_ask2_non_empty_answer():
@@ -30,3 +34,4 @@ def test_ask2_non_empty_answer():
     payload = response.json()
     assert len(payload["answer"]) > 0
     assert payload["answer"].strip()
+    assert isinstance(payload["meta"].get("retriever", {}), dict)
