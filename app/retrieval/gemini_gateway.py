@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+import re
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
 from typing import Any, Dict, List, Optional
+main
 
 from app.rag.gemini_cli import gemini_call
 
@@ -184,6 +190,14 @@ class GeminiGateway:
                 "citations": "inline using [citation_id]",
                 "no_debug": True,
                 "max_sources": settings.retriever_fact_cap,
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+                "prohibited_openers": [
+                    "Here’s the best supported answer",
+                    "Here's the best supported answer",
+                    "Why this answer",
+                ],
+
+main
             },
         }
         prompt = (
@@ -192,14 +206,50 @@ class GeminiGateway:
             "Every claim referencing retrieved evidence must include an inline citation like [FCA_2024_Guidance].\n"
             "Do not invent citation ids or facts.\n"
             "Keep the tone confident, concise, and human.\n"
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+            "Do not prefix the answer with explanations such as 'Here’s the best supported answer' or 'Why this answer'.\n"
+            "Return ONLY JSON with keys: answer (string) and sources (array of strings formatted 'Title — Publisher (Date)').\n"
+            "Do not include debug sections, numbered sources, or redundant source listings in the answer body.\n"
+
             "Return ONLY JSON with keys: answer (string) and sources (array of strings formatted 'Title — Publisher (Date)').\n"
             "Do not include debug sections or numbered sources.\n"
+main
             f"Payload: {json.dumps(payload, ensure_ascii=False)}"
         )
         response = self._call_json(prompt, model=settings.gemini_model_answer) or {}
         answer = response.get("answer") if isinstance(response, dict) else None
         if not isinstance(answer, str):
             answer = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+        cleaned_answer = _clean_answer_text(answer)
+
+        facts = retriever_result.get("facts") if isinstance(retriever_result, dict) else None
+        derived_sources = _build_sources_from_facts(
+            cleaned_answer, facts if isinstance(facts, list) else [], settings.retriever_fact_cap
+        )
+
+        if not derived_sources:
+            sources = response.get("sources") if isinstance(response, dict) else None
+            if not isinstance(sources, list):
+                sources = []
+            raw_sources: List[str] = []
+            for item in sources:
+                if isinstance(item, str):
+                    candidate = item.strip()
+                    if candidate:
+                        raw_sources.append(candidate)
+                elif isinstance(item, dict):
+                    display = item.get("display") or item.get("title") or ""
+                    if isinstance(display, str):
+                        candidate = display.strip()
+                        if candidate:
+                            raw_sources.append(candidate)
+            derived_sources = _dedup_sources(raw_sources, settings.retriever_fact_cap)
+
+        final_sources = _dedup_sources(derived_sources, settings.retriever_fact_cap)
+
+        return {"answer": cleaned_answer, "sources": final_sources, "raw": response}
+
         sources = response.get("sources") if isinstance(response, dict) else None
         if not isinstance(sources, list):
             sources = []
@@ -212,7 +262,228 @@ class GeminiGateway:
                 if isinstance(display, str) and display.strip():
                     cleaned_sources.append(display.strip())
         return {"answer": answer.strip(), "sources": cleaned_sources[: settings.retriever_fact_cap], "raw": response}
+main
 
 
 gateway = GeminiGateway()
 
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+
+def _clean_answer_text(answer: str) -> str:
+    """Remove boilerplate/debug headings from Gemini answers."""
+
+    if not isinstance(answer, str):
+        return ""
+
+    text = answer.strip()
+    if not text:
+        return ""
+
+    banned_prefixes = (
+        "here’s the best supported answer",
+        "here's the best supported answer",
+    )
+    lines = [line.rstrip() for line in text.splitlines()]
+    cleaned: List[str] = []
+    skip_debug = False
+    removed_any = False
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        normalized = line.lower()
+
+        if not line:
+            if skip_debug:
+                skip_debug = False
+                removed_any = True
+                continue
+            if cleaned and cleaned[-1]:
+                cleaned.append("")
+            continue
+
+        if any(normalized.startswith(prefix) for prefix in banned_prefixes):
+            removed_any = True
+            continue
+
+        if normalized.startswith("why this answer") or normalized.startswith("sources"):
+            skip_debug = True
+            removed_any = True
+            continue
+
+        if normalized.startswith("source ") and ":" in normalized:
+            removed_any = True
+            continue
+
+        if normalized.startswith("- source "):
+            removed_any = True
+            continue
+
+        if skip_debug:
+            removed_any = True
+            continue
+
+        cleaned.append(line)
+
+    collapsed = re.sub(r"(\n\s*){2,}", "\n\n", "\n".join(cleaned)).strip()
+    if collapsed:
+        return collapsed
+
+    return "" if removed_any else text
+
+
+def _dedup_sources(sources: Iterable[str], limit: int) -> List[str]:
+    """Deduplicate source displays while keeping the last occurrence."""
+
+    normalized: List[Tuple[str, str]] = []
+    last_index: Dict[str, int] = {}
+
+    for item in sources:
+        key = _normalize_source_key(item)
+        if not key:
+            continue
+        normalized.append((key, item))
+        last_index[key] = len(normalized) - 1
+
+    deduped: List[str] = []
+    for idx, (key, original) in enumerate(normalized):
+        if last_index.get(key) != idx:
+            continue
+        deduped.append(original)
+        if len(deduped) >= max(0, limit):
+            break
+
+    return deduped
+
+
+def _normalize_source_key(value: str) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text:
+        return ""
+    normalized = re.sub(r"\s+", " ", text)
+    return normalized.strip().lower()
+
+
+_CITATION_PATTERN = re.compile(r"\[\s*([A-Za-z0-9._:-]+)\s*\]")
+
+
+def _extract_citation_ids(answer: str) -> List[str]:
+    if not isinstance(answer, str) or not answer:
+        return []
+    ids: List[str] = []
+    for match in _CITATION_PATTERN.finditer(answer):
+        citation = match.group(1).strip()
+        if citation:
+            ids.append(citation)
+    return ids
+
+
+def _build_sources_from_facts(
+    answer: str, facts: Iterable[Dict[str, Any]], limit: int
+) -> List[str]:
+    if limit <= 0:
+        return []
+
+    citation_ids = _extract_citation_ids(answer)
+    key_to_entry: Dict[str, Dict[str, Any]] = {}
+    citation_to_key: Dict[str, str] = {}
+    ordered_entries: List[Tuple[str, Dict[str, Any]]] = []
+
+    for idx, fact in enumerate(facts or []):
+        if not isinstance(fact, dict):
+            continue
+        canonical_key = _canonical_fact_key(fact)
+        if not canonical_key:
+            continue
+        entry = {"fact": fact, "index": idx}
+        key_to_entry[canonical_key] = entry
+        ordered_entries.append((canonical_key, entry))
+        citation_id = str(fact.get("citation_id") or "").strip()
+        if citation_id:
+            citation_to_key[citation_id.lower()] = canonical_key
+
+    ordered_keys: List[str] = []
+    seen_keys: set[str] = set()
+
+    for citation in citation_ids:
+        key = citation_to_key.get(citation.lower())
+        if key and key in key_to_entry and key not in seen_keys:
+            ordered_keys.append(key)
+            seen_keys.add(key)
+
+    for canonical_key, entry in ordered_entries:
+        if key_to_entry.get(canonical_key) is entry and canonical_key not in seen_keys:
+            ordered_keys.append(canonical_key)
+            seen_keys.add(canonical_key)
+
+    sources: List[str] = []
+    for canonical_key in ordered_keys:
+        entry = key_to_entry.get(canonical_key)
+        if not entry:
+            continue
+        display = _format_source_display(entry["fact"])
+        if not display:
+            continue
+        sources.append(display)
+        if len(sources) >= limit:
+            break
+
+    return sources
+
+
+def _canonical_fact_key(fact: Dict[str, Any]) -> str:
+    url = fact.get("url")
+    if isinstance(url, str) and url.strip():
+        normalized = _normalize_url(url)
+        if normalized:
+            return normalized
+    for key in ("citation_id", "doc_id", "source_id"):
+        value = fact.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    title = fact.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip().lower()
+    return ""
+
+
+def _format_source_display(fact: Dict[str, Any]) -> str:
+    title = str(fact.get("title") or "").strip() or "Untitled excerpt"
+    source = str(fact.get("source_name") or "").strip()
+    date = fact.get("date")
+    date_text = str(date).strip() if isinstance(date, str) else ""
+    display = title
+    if source:
+        display = f"{display} — {source}"
+    if date_text:
+        display = f"{display} ({date_text})"
+    return display.strip()
+
+
+def _normalize_url(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return url.strip().lower()
+    filtered_params = [
+        (k, v)
+        for k, v in parse_qsl(parsed.query, keep_blank_values=False)
+        if not k.lower().startswith(("utm_", "session", "ref", "fbclid", "gclid"))
+    ]
+    query = urlencode(filtered_params, doseq=True)
+    sanitized = parsed._replace(query=query, fragment="")
+    if sanitized.scheme in {"http", "https"}:
+        sanitized = sanitized._replace(netloc=sanitized.netloc.lower())
+    return urlunparse(sanitized)
+
+
+__all__ = [
+    "gateway",
+    "_clean_answer_text",
+    "_dedup_sources",
+    "_build_sources_from_facts",
+]
+
+
+main
