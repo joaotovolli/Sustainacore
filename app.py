@@ -9,6 +9,77 @@ except Exception:
     smalltalk_response = lambda _q: None
 from db_helper import top_k_by_vector
 
+try:
+    from app.rag import routing as _ask2_routing  # type: ignore
+except Exception:  # pragma: no cover - defensive import
+    _ask2_routing = None
+
+
+def _sanitize_meta_k(value, default=4):
+    """Best-effort coercion of the ``k`` parameter for /ask2."""
+
+    try:
+        k_val = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        k_val = default
+    if k_val < 1:
+        k_val = 1
+    if k_val > 10:
+        k_val = 10
+    return k_val
+
+
+if _ask2_routing is not None:
+    _route_ask2 = getattr(_ask2_routing, "route_ask2", None)
+    _sanitize_meta_k = getattr(_ask2_routing, "_sanitize_k", _sanitize_meta_k)
+    _ASK2_ROUTER_FALLBACK = getattr(
+        _ask2_routing,
+        "NO_HIT_FALLBACK",
+        "I couldn’t find Sustainacore documents for that yet. If you can share the "
+        "organization or company name, the ESG or TECH100 topic, and the report or "
+        "year you care about, I can take another look.",
+    )
+else:  # pragma: no cover - import fallback
+    _route_ask2 = None
+    _ASK2_ROUTER_FALLBACK = (
+        "I couldn’t find Sustainacore documents for that yet. If you can share the "
+        "organization or company name, the ESG or TECH100 topic, and the report or "
+        "year you care about, I can take another look."
+    )
+
+
+def _call_route_ask2_facade(question: str, k_value):
+    """Invoke the smart router with graceful fallbacks.
+
+    This mirrors the WSGI facade logic so running ``app.py`` directly (e.g. via
+    ``flask --app app run``) behaves the same as the production entrypoint.
+    """
+
+    sanitized_k = _sanitize_meta_k(k_value)
+    if callable(_route_ask2):
+        try:
+            shaped = _route_ask2(question, sanitized_k)
+            if isinstance(shaped, dict):
+                meta = shaped.get("meta")
+                if isinstance(meta, dict):
+                    meta.setdefault("k", sanitized_k)
+                else:
+                    shaped["meta"] = {"k": sanitized_k}
+                return shaped
+        except Exception:
+            pass
+    return {
+        "answer": _ASK2_ROUTER_FALLBACK,
+        "sources": [],
+        "meta": {
+            "routing": "router_unavailable",
+            "top_score": None,
+            "gemini_used": False,
+            "k": sanitized_k,
+            "error": "router_unavailable",
+        },
+    }
+
 EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
 OLLAMA = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "all-minilm")
@@ -642,18 +713,20 @@ except Exception as e:
 
 # register ask2_simple route\ntry:\n    import route_simple; route_simple.register(app)\n    print("ask2_simple route registered")\nexcept Exception as e:\n    print("route_simple register failed:", e)\n
 
-@app.route('/ask2', methods=['POST'])
+@app.route('/ask2', methods=['GET', 'POST'])
 def ask2():
-    data = request.get_json(silent=True) or {}
-    q = (data.get('q') or data.get('question') or '').strip()
-    if not q:
-        return jsonify({"ok": False, "error": "missing q"}), 400
-    try:
-        from wsgi_refine_wrapper import _ollama
-        ans = _ollama(q)
-        return jsonify({"ok": True, "answer": ans, "model": (os.environ.get("LLM_MODEL") or "gemini-fallback")})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)[:300]}), 500
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        q_raw = data.get('q') or data.get('question') or data.get('text')
+        k_value = data.get('k') or data.get('top_k') or data.get('limit')
+    else:
+        args = request.args
+        q_raw = args.get('q') or args.get('question') or args.get('text')
+        k_value = args.get('k') or args.get('top_k') or args.get('limit')
+
+    question = q_raw.strip() if isinstance(q_raw, str) else ''
+    shaped = _call_route_ask2_facade(question, k_value)
+    return jsonify(shaped), 200
 
 
 
