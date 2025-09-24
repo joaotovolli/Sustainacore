@@ -45,6 +45,7 @@ def _load_module():
 _module = _load_module()
 _clean_answer_text = getattr(_module, "_clean_answer_text")
 _dedup_sources = getattr(_module, "_dedup_sources")
+_build_sources_from_facts = getattr(_module, "_build_sources_from_facts")
 
 
 def test_clean_answer_text_removes_debug_blocks():
@@ -89,4 +90,49 @@ def test_dedup_sources_keeps_last_occurrence():
     assert "duplicate — org" in deduped
     assert "Duplicate — Org" not in deduped
     assert deduped.index("duplicate — org") > deduped.index("Second Title — Publisher (2023)")
+
+
+def test_build_sources_from_facts_prefers_cited_and_latest_entries():
+    answer = "The TECH100 tracks AI leaders [TECH100_METHOD]. Microsoft remains a member [MSFT_PROFILE]."
+    facts = [
+        {
+            "citation_id": "MSFT_PROFILE",
+            "title": "Microsoft Corporation",
+            "source_name": "TECH100",
+            "date": "2024-03-01",
+            "url": "https://example.com/microsoft?utm_source=newsletter",
+        },
+        {
+            "citation_id": "TECH100_METHOD",
+            "title": "TECH100 Methodology",
+            "source_name": "SustainaCore",
+            "date": "2024-01-15",
+            "url": "https://example.com/methodology",
+        },
+        {
+            "citation_id": "MSFT_PROFILE",
+            "title": "Microsoft Corporation (Updated)",
+            "source_name": "SustainaCore",
+            "date": "2024-04-01",
+            "url": "https://example.com/microsoft",
+        },
+    ]
+
+    sources = _build_sources_from_facts(answer, facts, limit=6)
+
+    assert sources[0] == "TECH100 Methodology — SustainaCore (2024-01-15)"
+    assert sources[1] == "Microsoft Corporation (Updated) — SustainaCore (2024-04-01)"
+    assert len(sources) == 2
+
+
+def test_build_sources_from_facts_falls_back_to_uncited_facts():
+    answer = "No citations in this answer."
+    facts = [
+        {"citation_id": "FACT_A", "title": "Fact A", "source_name": "Org", "date": "2024", "url": "https://a"},
+        {"citation_id": "FACT_B", "title": "Fact B", "source_name": "Org", "date": "2023", "url": "https://b"},
+    ]
+
+    sources = _build_sources_from_facts(answer, facts, limit=3)
+
+    assert sources == ["Fact A — Org (2024)", "Fact B — Org (2023)"]
 
