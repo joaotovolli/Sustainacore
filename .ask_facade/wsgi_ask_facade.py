@@ -1,10 +1,27 @@
 from importlib import import_module
 import json, urllib.request, urllib.error, urllib.parse
+from pathlib import Path
 import time
 from flask import request, jsonify
 
 # import existing app
 app_mod = import_module("app")
+
+# Allow the legacy ``app`` module to expose ``app.<submodule>`` helpers that
+# live inside the ``app/`` package directory.
+try:
+    _APP_PKG_PATH = Path(__file__).resolve().parent.parent / "app"
+    if _APP_PKG_PATH.exists():
+        app_mod.__path__ = [str(_APP_PKG_PATH)]  # type: ignore[attr-defined]
+        if getattr(app_mod, "__spec__", None):
+            app_mod.__spec__.submodule_search_locations = [str(_APP_PKG_PATH)]  # type: ignore[attr-defined]
+except Exception:
+    _APP_PKG_PATH = None
+
+try:
+    from app.rag.routing import route_ask2  # type: ignore
+except Exception:  # pragma: no cover - safety net for bootstrap issues
+    route_ask2 = None
 base_app = getattr(app_mod, "app", None)
 _MODULE_START_TS = time.time()
 
@@ -105,6 +122,65 @@ def _try_same_app_backends(q):
         pass
     return {"answer":"", "sources":[], "meta":{"error":"no_backend"}}
 
+
+def _sanitize_meta_k(value, default=4):
+    try:
+        k_val = int(value)
+    except (TypeError, ValueError):
+        k_val = default
+    if k_val < 1:
+        k_val = 1
+    if k_val > 10:
+        k_val = 10
+    return k_val
+
+
+def _call_route_ask2(q, k_value, mode):
+    k_sanitized = _sanitize_meta_k(k_value)
+    if callable(route_ask2):
+        try:
+            shaped = route_ask2(q, k_sanitized, mode=mode)
+            if isinstance(shaped, dict):
+                meta = shaped.get("meta")
+                if isinstance(meta, dict):
+                    meta.setdefault("k", k_sanitized)
+                else:
+                    shaped["meta"] = {"k": k_sanitized}
+                return shaped
+        except Exception:
+            pass
+    return {
+        "answer": FALLBACK_MESSAGE,
+        "sources": [],
+        "meta": {
+            "routing": "no_hit",
+            "top_score": None,
+            "gemini_used": False,
+            "k": k_sanitized,
+            "error": "router_unavailable",
+        },
+    }
+
+
+def _extract_ask2_params():
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        q = data.get("q") or data.get("question") or data.get("text") or ""
+        k_value = data.get("k") or data.get("top_k") or data.get("limit")
+        mode_value = data.get("mode") or data.get("response_mode")
+    else:
+        args = request.args
+        q = args.get("q") or args.get("question") or args.get("text") or ""
+        k_value = args.get("k") or args.get("top_k") or args.get("limit")
+        mode_value = args.get("mode") or args.get("response_mode")
+    return q, k_value, mode_value
+
+
+def _ask2_facade_handler():
+    q, k_value, mode_value = _extract_ask2_params()
+    shaped = _call_route_ask2(q, k_value, mode_value)
+    return jsonify(shaped), 200
+
 # Mount /ask (idempotent)
 if base_app and not any(str(r.rule) == "/ask" for r in base_app.url_map.iter_rules()):
     @base_app.route("/ask", methods=["POST"])
@@ -120,6 +196,18 @@ if base_app and not any(str(r.rule) == "/ask" for r in base_app.url_map.iter_rul
         if not _non_empty_answer(shaped):
             shaped = _try_same_app_backends(q)
         return jsonify(shaped), 200
+
+# Ensure /ask2 is served by the new routing layer (GET and POST compatibility).
+if base_app:
+    try:
+        if "ask2" in base_app.view_functions:
+            base_app.view_functions["ask2"] = _ask2_facade_handler
+        else:
+            base_app.add_url_rule("/ask2", view_func=_ask2_facade_handler, methods=["POST"], endpoint="ask2")
+        if not any(str(rule.rule) == "/ask2" and "GET" in (rule.methods or []) for rule in base_app.url_map.iter_rules()):
+            base_app.add_url_rule("/ask2", view_func=_ask2_facade_handler, methods=["GET"], endpoint="ask2_facade_get")
+    except Exception:
+        pass
 
 app = base_app
 

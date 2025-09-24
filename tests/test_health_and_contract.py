@@ -1,5 +1,9 @@
-from fastapi.testclient import TestClient
 import importlib.util, pathlib
+
+import pytest
+
+pytest.importorskip("fastapi")
+from fastapi.testclient import TestClient
 
 # Load the facade over HTTP via requests mock would be overkill;
 # just assert the FastAPI app contract if present:

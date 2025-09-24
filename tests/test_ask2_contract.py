@@ -1,6 +1,9 @@
 from importlib import util
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 _module_path = Path(__file__).resolve().parents[1] / "app" / "retrieval" / "app.py"
