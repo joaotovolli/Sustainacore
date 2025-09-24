@@ -21,6 +21,7 @@ else:
         module.__spec__.submodule_search_locations = [str(pkg_path)]  # type: ignore[attr-defined]
 
 routing = importlib.import_module("app.rag.routing")
+FULL_MODE_META_KEY = getattr(routing, "FULL_MODE_META_KEY", "_full_mode_payload")
 
 
 def _stub_vector(results):
@@ -49,6 +50,9 @@ def test_smalltalk_with_gemini_success():
     assert result["sources"] == []
     assert result["meta"]["gemini_used"] is True
     assert result["meta"]["k"] == 2
+    extras = result["meta"].get(FULL_MODE_META_KEY)
+    assert isinstance(extras, dict)
+    assert extras.get("type") == "greeting"
 
 
 def test_smalltalk_with_fallback():
@@ -74,6 +78,8 @@ def test_no_hits_path_gemini_success():
     assert result["meta"]["routing"] == "no_hit"
     assert result["sources"] == []
     assert result["meta"]["gemini_used"] is True
+    extras = result["meta"].get(FULL_MODE_META_KEY)
+    assert extras and extras.get("type") == "no_hit"
 
 
 def test_no_hits_path_fallback():
@@ -139,6 +145,8 @@ def test_high_confidence_with_gemini():
     assert result["meta"]["gemini_used"] is True
     assert "[source 1]" in result["answer"].lower()
     assert len(result["sources"]) == 2
+    extras = result["meta"].get(FULL_MODE_META_KEY)
+    assert extras and isinstance(extras.get("contexts"), list)
 
 
 def test_high_confidence_fallback_builds_summary():
@@ -156,6 +164,8 @@ def test_high_confidence_fallback_builds_summary():
     assert result["meta"]["gemini_used"] is False
     assert "[source 1]" in result["answer"].lower()
     assert result["sources"][0].startswith("Source 1: Doc A")
+    extras = result["meta"].get(FULL_MODE_META_KEY)
+    assert extras and isinstance(extras.get("contexts"), list)
 
 
 def test_empty_query_short_circuit():
@@ -165,47 +175,17 @@ def test_empty_query_short_circuit():
     assert result["sources"] == []
 
 
-def test_full_mode_smalltalk_adds_suggestions():
-    result = routing.route_ask2(
-        "hi",
-        k=2,
-        vector_fn=_stub_vector([]),
-        gemini_fn=_stub_gemini("Hello there!"),
-        mode="full",
-    )
-    assert result["meta"]["routing"] == "smalltalk"
-    assert result.get("type") == "greeting"
-    assert isinstance(result.get("suggestions"), list)
-    assert "sources" in result and result["sources"] == []
-
-
-def test_high_conf_full_mode_includes_contexts():
-    hits = [
-        {"title": "Doc A", "url": "http://a", "snippet": "Snippet A", "score": 0.9},
-        {"title": "Doc B", "url": "http://b", "snippet": "Snippet B", "score": 0.82},
-    ]
-    result = routing.route_ask2(
-        "context rich question",
-        k=2,
-        vector_fn=_stub_vector(hits),
-        gemini_fn=_stub_gemini("Answer [Source 1]"),
-        mode="full",
-    )
-    assert result["meta"]["routing"] == "high_conf"
-    assert "contexts" in result
-    assert len(result["contexts"]) == 2
-    assert all("source" in ctx for ctx in result["contexts"])
-
-
-def test_default_mode_does_not_include_full_fields():
+def test_full_mode_metadata_available_in_meta():
     hits = [
         {"title": "Doc A", "url": "http://a", "snippet": "Snippet A", "score": 0.9},
     ]
     result = routing.route_ask2(
-        "no extras please",
+        "full mode via facade",
         k=1,
         vector_fn=_stub_vector(hits),
         gemini_fn=_stub_gemini("Answer [Source 1]"),
     )
-    assert "contexts" not in result
-    assert "type" not in result
+    extras = result["meta"].get(FULL_MODE_META_KEY)
+    assert isinstance(extras, dict)
+    assert "contexts" in extras
+    assert "type" not in result and "contexts" not in result

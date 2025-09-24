@@ -19,9 +19,26 @@ except Exception:
     _APP_PKG_PATH = None
 
 try:
-    from app.rag.routing import route_ask2  # type: ignore
+    from app.rag.routing import (  # type: ignore
+        route_ask2,
+        FULL_MODE_META_KEY,
+        SMALLTALK_SUGGESTIONS,
+        NO_HIT_GUIDANCE,
+    )
 except Exception:  # pragma: no cover - safety net for bootstrap issues
     route_ask2 = None
+    FULL_MODE_META_KEY = "_full_mode_payload"
+    SMALLTALK_SUGGESTIONS = [
+        "TECH100 membership",
+        "Rank (latest)",
+        "AI & ESG profile",
+        "Explain TECH100 / Five pillars",
+    ]
+    NO_HIT_GUIDANCE = [
+        "Organization or company",
+        "ESG or TECH100 topic",
+        "Report or year",
+    ]
 base_app = getattr(app_mod, "app", None)
 _MODULE_START_TS = time.time()
 
@@ -135,21 +152,24 @@ def _sanitize_meta_k(value, default=4):
     return k_val
 
 
-def _call_route_ask2(q, k_value, mode):
+def _call_route_ask2(q, k_value):
     k_sanitized = _sanitize_meta_k(k_value)
+    extras = None
     if callable(route_ask2):
         try:
-            shaped = route_ask2(q, k_sanitized, mode=mode)
+            shaped = route_ask2(q, k_sanitized)
             if isinstance(shaped, dict):
+                shaped = dict(shaped)
                 meta = shaped.get("meta")
                 if isinstance(meta, dict):
                     meta.setdefault("k", k_sanitized)
+                    extras = meta.pop(FULL_MODE_META_KEY, None)
                 else:
                     shaped["meta"] = {"k": k_sanitized}
-                return shaped
+                return shaped, extras
         except Exception:
             pass
-    return {
+    payload = {
         "answer": FALLBACK_MESSAGE,
         "sources": [],
         "meta": {
@@ -160,6 +180,12 @@ def _call_route_ask2(q, k_value, mode):
             "error": "router_unavailable",
         },
     }
+    fallback_extras = {
+        "type": "no_hit",
+        "suggestions": list(SMALLTALK_SUGGESTIONS),
+        "missing_fields": list(NO_HIT_GUIDANCE),
+    }
+    return payload, fallback_extras
 
 
 def _extract_ask2_params():
@@ -178,7 +204,12 @@ def _extract_ask2_params():
 
 def _ask2_facade_handler():
     q, k_value, mode_value = _extract_ask2_params()
-    shaped = _call_route_ask2(q, k_value, mode_value)
+    shaped, extras = _call_route_ask2(q, k_value)
+    mode_normalized = (mode_value or "").strip().lower()
+    if mode_normalized == "full" and isinstance(extras, dict) and shaped:
+        enriched = dict(shaped)
+        enriched.update({k: v for k, v in extras.items() if k not in ("answer", "sources", "meta")})
+        shaped = enriched
     return jsonify(shaped), 200
 
 # Mount /ask (idempotent)

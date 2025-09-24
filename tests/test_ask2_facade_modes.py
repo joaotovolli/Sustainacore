@@ -1,3 +1,4 @@
+import importlib
 import importlib.machinery
 import importlib.util
 import sys
@@ -5,6 +6,8 @@ import types
 from pathlib import Path
 
 from flask import Flask
+
+FULL_MODE_META_KEY = "_full_mode_payload"
 
 
 def _load_facade_module():
@@ -31,9 +34,8 @@ def _load_facade_module():
 def test_facade_default_mode_contract(monkeypatch):
     facade = _load_facade_module()
 
-    def _stub_route(query, k, **kwargs):
-        # ``mode`` should be absent for default requests.
-        assert kwargs.get("mode") in (None, "")
+    def _stub_route(query, k):
+        assert k == 3
         return {"answer": "ok", "sources": ["Source 1"], "meta": {}}
 
     monkeypatch.setattr(facade, "route_ask2", _stub_route)
@@ -50,11 +52,12 @@ def test_facade_default_mode_contract(monkeypatch):
 def test_facade_full_mode_includes_extra_fields(monkeypatch):
     facade = _load_facade_module()
 
-    def _stub_route(query, k, **kwargs):
-        payload = {"answer": "hello", "sources": ["Source 1"], "meta": {}}
-        if kwargs.get("mode") == "full":
-            payload.update({"type": "greeting", "suggestions": ["Option"]})
-        return payload
+    def _stub_route(query, k):
+        return {
+            "answer": "hello",
+            "sources": ["Source 1"],
+            "meta": {FULL_MODE_META_KEY: {"type": "greeting", "suggestions": ["Option"]}},
+        }
 
     monkeypatch.setattr(facade, "route_ask2", _stub_route)
 

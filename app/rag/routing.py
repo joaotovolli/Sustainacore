@@ -87,6 +87,8 @@ NO_HIT_GUIDANCE = [
     "Report or year",
 ]
 
+FULL_MODE_META_KEY = "_full_mode_payload"
+
 VectorSearchFn = Callable[[str, int], List[Dict[str, Any]]]
 GeminiFn = Callable[[str, Optional[float], Optional[str]], Optional[str]]
 
@@ -354,22 +356,16 @@ def route_ask2(
     *,
     vector_fn: Optional[VectorSearchFn] = None,
     gemini_fn: Optional[GeminiFn] = None,
-    mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Main routing entry point used by the Flask facade."""
 
     q = _strip(query)
-    full_mode = isinstance(mode, str) and mode.lower() == "full"
-
     if not q:
-        base = {
-            "answer": EMPTY_QUERY_MESSAGE,
-            "sources": [],
-            "meta": {"routing": "empty", "top_score": None, "gemini_used": False, "k": _sanitize_k(k)},
-        }
-        if full_mode:
-            base.update(_augment_full_mode("empty", []))
-        return base
+        meta = {"routing": "empty", "top_score": None, "gemini_used": False, "k": _sanitize_k(k)}
+        extras = _augment_full_mode("empty", [])
+        if extras:
+            meta[FULL_MODE_META_KEY] = extras
+        return {"answer": EMPTY_QUERY_MESSAGE, "sources": [], "meta": meta}
 
     sanitized_k = _sanitize_k(k)
     meta: Dict[str, Any] = {"routing": "", "top_score": None, "gemini_used": False, "k": sanitized_k}
@@ -377,10 +373,10 @@ def route_ask2(
     if _is_smalltalk(q):
         answer, used = _smalltalk_answer(q, gemini_fn)
         meta.update({"routing": "smalltalk", "top_score": None, "gemini_used": used})
-        result = {"answer": answer, "sources": [], "meta": meta}
-        if full_mode:
-            result.update(_augment_full_mode("smalltalk", []))
-        return result
+        extras = _augment_full_mode("smalltalk", [])
+        if extras:
+            meta[FULL_MODE_META_KEY] = extras
+        return {"answer": answer, "sources": [], "meta": meta}
 
     search_fn = vector_fn or vector_search
     hits = search_fn(q, sanitized_k)
@@ -391,23 +387,23 @@ def route_ask2(
     if not hits:
         answer, used = _no_hit_answer(q, gemini_fn)
         meta.update({"routing": "no_hit", "gemini_used": used})
-        result = {"answer": answer, "sources": [], "meta": meta}
-        if full_mode:
-            result.update(_augment_full_mode("no_hit", []))
-        return result
+        extras = _augment_full_mode("no_hit", [])
+        if extras:
+            meta[FULL_MODE_META_KEY] = extras
+        return {"answer": answer, "sources": [], "meta": meta}
 
     threshold = top_score or 0.0
     if threshold >= HIGH_OK:
         answer, used = _high_conf_answer(q, hits, gemini_fn)
         meta.update({"routing": "high_conf", "gemini_used": used})
-        result = {"answer": answer, "sources": sources, "meta": meta}
-        if full_mode:
-            result.update(_augment_full_mode("high_conf", hits))
-        return result
+        extras = _augment_full_mode("high_conf", hits)
+        if extras:
+            meta[FULL_MODE_META_KEY] = extras
+        return {"answer": answer, "sources": sources, "meta": meta}
 
     answer, used = _low_conf_answer(q, hits, gemini_fn)
     meta.update({"routing": "low_conf", "gemini_used": used})
-    result = {"answer": answer, "sources": sources, "meta": meta}
-    if full_mode:
-        result.update(_augment_full_mode("low_conf", hits))
-    return result
+    extras = _augment_full_mode("low_conf", hits)
+    if extras:
+        meta[FULL_MODE_META_KEY] = extras
+    return {"answer": answer, "sources": sources, "meta": meta}
