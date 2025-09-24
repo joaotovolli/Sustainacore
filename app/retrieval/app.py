@@ -1,39 +1,70 @@
-from fastapi import FastAPI, Query
+"""FastAPI facade that exposes the Gemini-first orchestration."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List
+
+from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from .service import GeminiUnavailableError, RateLimitError, run_pipeline
+from .settings import settings
+
+
+LOGGER = logging.getLogger("ask2")
 app = FastAPI()
 
 
-@app.get("/healthz")
-def healthz():
-    return {"ok": True}
-
-
 class Answer(BaseModel):
+    """Serialized shape returned to APEX callers."""
+
     answer: str
-    sources: list[str] = Field(default_factory=list)
-    meta: dict = Field(default_factory=dict)
+    sources: List[str] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 
-FALLBACK_MESSAGE = (
-    "I couldn’t find a direct answer in the indexed docs. Here are the most relevant sources."
-)
+def _sanitize_k(value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):  # pragma: no cover - FastAPI enforces type
+        parsed = 4
+    parsed = max(1, parsed)
+    return min(parsed, 10)
+
+
+@app.get("/healthz")
+def healthz() -> Dict[str, Any]:
+    return {"ok": True, "gemini_first": settings.gemini_first_enabled}
+
 
 @app.get("/ask2", response_model=Answer)
-def ask2(q: str = Query(""), k: int = Query(4)):
-    # Minimal contract so APEX never breaks.
-    if not q.strip():
-        return Answer(answer="Ask me something about ESG/AI.", sources=[], meta={"k": k, "note": "empty query"})
-    # Replace with your real retrieval/generation logic.
-    computed_answer = f"Echo: {q}"
-    sources: list[str] = []  # Populate with real source titles/urls when available.
+async def ask2(request: Request, q: str = Query(""), k: int = Query(4)) -> Answer:
+    question = (q or "").strip()
+    client_ip = request.client.host if request.client else "unknown"
+    sanitized_k = _sanitize_k(k)
 
-    if not computed_answer.strip():
-        limited_sources = sources[:3]
+    try:
+        payload = run_pipeline(question, k=sanitized_k, client_ip=client_ip)
+    except RateLimitError as exc:
+        raise HTTPException(status_code=429, detail=exc.detail) from exc
+    except GeminiUnavailableError:
         return Answer(
-            answer=FALLBACK_MESSAGE,
-            sources=limited_sources,
-            meta={"k": k, "note": "fallback", "original_answer": computed_answer},
+            answer="Gemini-first orchestration is temporarily disabled. Please retry soon.",
+            sources=[],
+            meta={"intent": "DISABLED", "k": sanitized_k, "show_debug_block": settings.show_debug_block},
         )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("Gemini-first pipeline failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="gemini_pipeline_failure") from exc
 
-    return Answer(answer=computed_answer.strip(), sources=sources, meta={"k": k, "note": "stub"})
+    answer_text = str(payload.get("answer") or "").strip()
+    sources_list = payload.get("sources") or []
+    if not isinstance(sources_list, list):
+        sources_list = []
+    meta = payload.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta.setdefault("k", sanitized_k)
+
+    return Answer(answer=answer_text, sources=sources_list, meta=meta)
