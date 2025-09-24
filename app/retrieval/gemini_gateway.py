@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
 import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+from typing import Any, Dict, List, Optional
+main
 
 from app.rag.gemini_cli import gemini_call
 
@@ -186,11 +190,14 @@ class GeminiGateway:
                 "citations": "inline using [citation_id]",
                 "no_debug": True,
                 "max_sources": settings.retriever_fact_cap,
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
                 "prohibited_openers": [
                     "Here’s the best supported answer",
                     "Here's the best supported answer",
                     "Why this answer",
                 ],
+
+main
             },
         }
         prompt = (
@@ -199,15 +206,21 @@ class GeminiGateway:
             "Every claim referencing retrieved evidence must include an inline citation like [FCA_2024_Guidance].\n"
             "Do not invent citation ids or facts.\n"
             "Keep the tone confident, concise, and human.\n"
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
             "Do not prefix the answer with explanations such as 'Here’s the best supported answer' or 'Why this answer'.\n"
             "Return ONLY JSON with keys: answer (string) and sources (array of strings formatted 'Title — Publisher (Date)').\n"
             "Do not include debug sections, numbered sources, or redundant source listings in the answer body.\n"
+
+            "Return ONLY JSON with keys: answer (string) and sources (array of strings formatted 'Title — Publisher (Date)').\n"
+            "Do not include debug sections or numbered sources.\n"
+main
             f"Payload: {json.dumps(payload, ensure_ascii=False)}"
         )
         response = self._call_json(prompt, model=settings.gemini_model_answer) or {}
         answer = response.get("answer") if isinstance(response, dict) else None
         if not isinstance(answer, str):
             answer = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
         cleaned_answer = _clean_answer_text(answer)
 
         facts = retriever_result.get("facts") if isinstance(retriever_result, dict) else None
@@ -237,9 +250,24 @@ class GeminiGateway:
 
         return {"answer": cleaned_answer, "sources": final_sources, "raw": response}
 
+        sources = response.get("sources") if isinstance(response, dict) else None
+        if not isinstance(sources, list):
+            sources = []
+        cleaned_sources: List[str] = []
+        for item in sources:
+            if isinstance(item, str) and item.strip():
+                cleaned_sources.append(item.strip())
+            elif isinstance(item, dict):
+                display = item.get("display") or item.get("title") or ""
+                if isinstance(display, str) and display.strip():
+                    cleaned_sources.append(display.strip())
+        return {"answer": answer.strip(), "sources": cleaned_sources[: settings.retriever_fact_cap], "raw": response}
+main
+
 
 gateway = GeminiGateway()
 
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
 
 def _clean_answer_text(answer: str) -> str:
     """Remove boilerplate/debug headings from Gemini answers."""
@@ -457,3 +485,5 @@ __all__ = [
     "_build_sources_from_facts",
 ]
 
+
+main
