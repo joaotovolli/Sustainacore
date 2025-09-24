@@ -1,8 +1,22 @@
 
 # SustainaCore app.py — SMART v2
+import logging
 import os, re, time, json, requests
 from collections import defaultdict
+from pathlib import Path
 from flask import Flask, request, jsonify
+
+# Allow ``app`` to expose submodules from the ``app/`` package directory so
+# imports like ``app.retrieval.app`` work when running the FastAPI facade under
+# Uvicorn. This mirrors the runtime shim used by the WSGI facade.
+try:  # pragma: no cover - exercised by runtime integration
+    _APP_PKG_PATH = Path(__file__).resolve().parent / "app"
+    if _APP_PKG_PATH.exists():
+        __path__ = [str(_APP_PKG_PATH)]  # type: ignore[assignment]
+        if __spec__ is not None:
+            __spec__.submodule_search_locations = list(__path__)  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover - defensive; fallback to default module import
+    _APP_PKG_PATH = None
 try:
     from smalltalk import smalltalk_response
 except Exception:
@@ -18,6 +32,23 @@ try:
     from app.rag import routing as _ask2_routing  # type: ignore
 except Exception:  # pragma: no cover - defensive import
     _ask2_routing = None
+
+try:  # Gemini-first shared service (optional)
+    from app.retrieval.service import (
+        GeminiUnavailableError as _GeminiUnavailableError,
+        RateLimitError as _GeminiRateLimitError,
+        run_pipeline as _gemini_run_pipeline,
+    )
+    from app.retrieval.settings import settings as _gemini_settings
+except Exception:  # pragma: no cover - optional dependency
+    class _GeminiRateLimitError(Exception):  # type: ignore[no-redef]
+        detail = "rate_limited"
+
+    class _GeminiUnavailableError(Exception):  # type: ignore[no-redef]
+        pass
+
+    _gemini_run_pipeline = None
+    _gemini_settings = None
 
 
 def _sanitize_meta_k(value, default=4):
@@ -53,7 +84,10 @@ else:  # pragma: no cover - import fallback
     )
 
 
-def _call_route_ask2_facade(question: str, k_value):
+_LOGGER = logging.getLogger("app.ask2")
+
+
+def _call_route_ask2_facade(question: str, k_value, *, client_ip: str | None = None):
     """Invoke the smart router with graceful fallbacks.
 
     This mirrors the WSGI facade logic so running ``app.py`` directly (e.g. via
@@ -61,19 +95,61 @@ def _call_route_ask2_facade(question: str, k_value):
     """
 
     sanitized_k = _sanitize_meta_k(k_value)
+    question_text = (question or "").strip()
+
+    if (
+        _gemini_run_pipeline is not None
+        and _gemini_settings is not None
+        and _gemini_settings.gemini_first_enabled
+    ):
+        try:
+            payload = _gemini_run_pipeline(
+                question_text, k=sanitized_k, client_ip=client_ip or "unknown"
+            )
+            meta = payload.get("meta") if isinstance(payload, dict) else None
+            if not isinstance(meta, dict):
+                meta = {}
+            meta.setdefault("k", sanitized_k)
+            payload = {
+                "answer": str(payload.get("answer") or ""),
+                "sources": payload.get("sources") or [],
+                "meta": meta,
+            }
+            return payload, 200
+        except _GeminiRateLimitError as exc:  # type: ignore[arg-type]
+            return (
+                {
+                    "answer": "You’ve hit the current rate limit. Please retry in a few seconds.",
+                    "sources": [],
+                    "meta": {
+                        "error": getattr(exc, "detail", "rate_limited"),
+                        "intent": "RATE_LIMIT",
+                        "k": sanitized_k,
+                        "routing": "gemini_first",
+                        "show_debug_block": False,
+                    },
+                },
+                429,
+            )
+        except _GeminiUnavailableError:  # type: ignore[arg-type]
+            pass  # fall back to legacy router
+        except Exception as exc:  # pragma: no cover - defensive logging
+            _LOGGER.exception("Gemini-first pipeline failed; using legacy router", exc_info=exc)
+
     if callable(_route_ask2):
         try:
-            shaped = _route_ask2(question, sanitized_k)
+            shaped = _route_ask2(question_text, sanitized_k)
             if isinstance(shaped, dict):
                 meta = shaped.get("meta")
                 if isinstance(meta, dict):
                     meta.setdefault("k", sanitized_k)
                 else:
                     shaped["meta"] = {"k": sanitized_k}
-                return shaped
-        except Exception:
-            pass
-    return {
+                return shaped, 200
+        except Exception as exc:  # pragma: no cover - defensive logging
+            _LOGGER.exception("Legacy /ask2 router failed", exc_info=exc)
+
+    fallback = {
         "answer": _ASK2_ROUTER_FALLBACK,
         "sources": [],
         "meta": {
@@ -84,6 +160,7 @@ def _call_route_ask2_facade(question: str, k_value):
             "error": "router_unavailable",
         },
     }
+    return fallback, 200
 
 EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
 OLLAMA = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
@@ -816,8 +893,13 @@ def ask2():
         k_value = args.get('k') or args.get('top_k') or args.get('limit')
 
     question = q_raw.strip() if isinstance(q_raw, str) else ''
-    shaped = _call_route_ask2_facade(question, k_value)
-    return jsonify(shaped), 200
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        client_ip = forwarded.split(',')[0].strip()
+    else:
+        client_ip = request.remote_addr or 'unknown'
+    shaped, status = _call_route_ask2_facade(question, k_value, client_ip=client_ip)
+    return jsonify(shaped), status
 
 
 
