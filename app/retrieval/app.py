@@ -1,15 +1,28 @@
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+"""FastAPI facade that exposes the Gemini-first orchestration."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List
+=======
 import logging
 import time
 from collections import deque
 from threading import Lock
 from typing import Any, Dict, Iterable, List
+main
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+from .service import GeminiUnavailableError, RateLimitError, run_pipeline
+=======
 from .gemini_gateway import gateway
 from .observability import observer
 from .oracle_retriever import retriever
+main
 from .settings import settings
 
 
@@ -18,9 +31,22 @@ app = FastAPI()
 
 
 class Answer(BaseModel):
+    """Serialized shape returned to APEX callers."""
+
     answer: str
     sources: List[str] = Field(default_factory=list)
     meta: Dict[str, Any] = Field(default_factory=dict)
+ codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+
+
+def _sanitize_k(value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):  # pragma: no cover - FastAPI enforces type
+        parsed = 4
+    parsed = max(1, parsed)
+    return min(parsed, 10)
+
 
 
 _RATE_BUCKETS: Dict[str, deque] = {}
@@ -59,6 +85,7 @@ def _merge_facts(facts_primary: Iterable[Dict[str, Any]], facts_secondary: Itera
         if len(merged) >= settings.retriever_fact_cap:
             break
     return merged
+ main
 
 
 @app.get("/healthz")
@@ -70,6 +97,19 @@ def healthz() -> Dict[str, Any]:
 async def ask2(request: Request, q: str = Query(""), k: int = Query(4)) -> Answer:
     question = (q or "").strip()
     client_ip = request.client.host if request.client else "unknown"
+ codex/implement-gemini-first-orchestration-for-sustainacore-lrla9o
+    sanitized_k = _sanitize_k(k)
+
+    try:
+        payload = run_pipeline(question, k=sanitized_k, client_ip=client_ip)
+    except RateLimitError as exc:
+        raise HTTPException(status_code=429, detail="rate_limited") from exc
+    except GeminiUnavailableError:
+        return Answer(
+            answer="Gemini-first orchestration is temporarily disabled. Please retry soon.",
+            sources=[],
+            meta={"intent": "DISABLED", "k": sanitized_k, "show_debug_block": settings.show_debug_block},
+
     try:
         _enforce_rate_limit(client_ip)
     except HTTPException as exc:
@@ -90,7 +130,21 @@ async def ask2(request: Request, q: str = Query(""), k: int = Query(4)) -> Answe
             answer="Please share a SustainaCore question so I can help.",
             sources=[],
             meta={"intent": "EMPTY", "k": k},
+ main
         )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("Gemini-first pipeline failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="gemini_pipeline_failure") from exc
+
+    answer_text = str(payload.get("answer") or "").strip()
+    sources_list = payload.get("sources") or []
+    if not isinstance(sources_list, list):
+        sources_list = []
+    meta = payload.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["k"] = sanitized_k
+
 
     if not settings.gemini_first_enabled:
         return Answer(
@@ -234,4 +288,5 @@ async def ask2(request: Request, q: str = Query(""), k: int = Query(4)) -> Answe
         }
     )
 
+ main
     return Answer(answer=answer_text, sources=sources_list, meta=meta)

@@ -160,24 +160,63 @@ class Ask2LLMOrchestratorMiddleware:
             return [json.dumps({"answer":"", "sources":[]}).encode("utf-8")]
 
         if _is_greeting(question) or _is_meta(question):
-            try: ans = self._greet_meta(question)
-            except Exception: ans = "" if self.strict else ""
+            try:
+                ans = self._greet_meta(question)
+            except Exception:
+                ans = "" if self.strict else ""
             start_response("200 OK",[("Content-Type","application/json; charset=utf-8")])
             return [json.dumps({"answer": ans, "sources": []}).encode("utf-8")]
 
+        captured = {"status": "200 OK", "headers": []}
         captured_body = []
-        def cap(status, headers, exc_info=None): return captured_body.append
+
+        def cap(status, headers, exc_info=None):
+            captured["status"] = status
+            captured["headers"] = headers
+
+            def _write(data):
+                if isinstance(data, bytes):
+                    captured_body.append(data)
+                else:
+                    captured_body.append(str(data).encode("utf-8"))
+
+            return _write
+
         inner_env = environ.copy()
         j = json.dumps(req).encode("utf-8")
         inner_env["wsgi.input"] = io.BytesIO(j)
         inner_env["CONTENT_LENGTH"] = str(len(j))
         try:
             inner_iter = self.app(inner_env, cap)
-            for chunk in inner_iter: captured_body.append(chunk)
-            if hasattr(inner_iter,"close"): inner_iter.close()
-            payload = _json_or_none(b"".join(captured_body)) or {}
+            for chunk in inner_iter:
+                if isinstance(chunk, bytes):
+                    captured_body.append(chunk)
+                else:
+                    captured_body.append(str(chunk).encode("utf-8"))
+            if hasattr(inner_iter,"close"):
+                inner_iter.close()
+            body_bytes = b"".join(captured_body)
+            payload = _json_or_none(body_bytes) or {}
         except Exception:
+            body_bytes = b""
             payload = {}
+
+        status = captured.get("status", "200 OK")
+        headers = captured.get("headers") or []
+
+        if not status.startswith("200"):
+            start_response(status, headers or [("Content-Type","application/json; charset=utf-8")])
+            return [body_bytes]
+
+        meta = payload.get("meta") if isinstance(payload, dict) else None
+        if isinstance(meta, dict) and meta.get("gemini_first"):
+            shaped = {
+                "answer": str(payload.get("answer") or ""),
+                "sources": payload.get("sources") if isinstance(payload.get("sources"), list) else [],
+                "meta": meta,
+            }
+            start_response(status, [("Content-Type","application/json; charset=utf-8")])
+            return [json.dumps(shaped, ensure_ascii=False).encode("utf-8")]
 
         ev = _extract_evidence(payload)
         curated = _prioritize_snippets(ev.get("snippets",[]), "general")
@@ -199,3 +238,5 @@ class Ask2LLMOrchestratorMiddleware:
 
         start_response("200 OK",[("Content-Type","application/json; charset=utf-8")])
         return [json.dumps({"answer": answer, "sources": citations}).encode("utf-8")]
+
+
