@@ -9,9 +9,12 @@ class SmalltalkMiddleware:
 
     def __call__(self, environ, start_response):
         try:
-            path   = environ.get("PATH_INFO", "")
+            path = environ.get("PATH_INFO", "")
+            if path == "/ask2":
+                return self.app(environ, start_response)
+
             method = environ.get("REQUEST_METHOD", "GET")
-            if path == "/ask2" and method in ("POST", "GET"):
+            if method in ("POST", "GET"):
                 # Read request body (and re-inject if we don't short-circuit)
                 try:
                     length = int(environ.get("CONTENT_LENGTH") or "0")
