@@ -10,6 +10,11 @@ except Exception:
 from db_helper import top_k_by_vector
 
 try:
+    from gemini_adapter import generate as _gemini_generate  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    _gemini_generate = None
+
+try:
     from app.rag import routing as _ask2_routing  # type: ignore
 except Exception:  # pragma: no cover - defensive import
     _ask2_routing = None
@@ -110,6 +115,7 @@ def embed(text: str):
     return vec
 
 META_KEYS = ("ROLE:", "TASK:", "PREVIOUS ANSWER", "QUESTION TYPE", "CONTEXT TITLES:", "buttons to click", "What would you like to explore?")
+SOURCE_TAG_RE = re.compile(r"\[(?:S|s)\d+\]")
 
 def normalize_question(q: str):
     q0 = (q or "").strip()
@@ -257,14 +263,90 @@ def parse_asof(chunk):
     m=re.search(r'(20\d{2}[-/]\d{2}|20\d{2}-\d{2}-\d{2}|[A-Za-z]{3,9}\s+20\d{2})', txt)
     return m.group(1) if m else None
 
-def sources_block(chunks, maxn=CITES_MAX):
-    seen=set(); src=[]
+def _collect_sources(chunks, maxn=CITES_MAX):
+    seen=set(); collected=[]
     for c in chunks:
-        t=(c.get("title") or "").strip()
-        if t and t not in seen:
-            seen.add(t); src.append(t)
-        if len(src)>=maxn: break
-    return src
+        title=(c.get("title") or "").strip()
+        url=(c.get("source_url") or "").strip()
+        if not title and not url:
+            continue
+        key=(title.lower(), url.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        collected.append({
+            "title": title or (url or "Source"),
+            "url": url,
+        })
+        if len(collected) >= maxn:
+            break
+    return collected
+
+def sources_block(chunks, maxn=CITES_MAX):
+    return [c["title"] for c in _collect_sources(chunks, maxn)]
+
+def sources_detailed(chunks, maxn=CITES_MAX):
+    return _collect_sources(chunks, maxn)
+
+def _strip_source_refs(text: str) -> str:
+    cleaned = SOURCE_TAG_RE.sub("", text or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+def _chunk_snippets_for_llm(chunks, limit=5, max_chars=360):
+    prepared=[]
+    for idx, c in enumerate(chunks):
+        raw=(c.get("chunk_text") or "").strip()
+        if not raw:
+            continue
+        snippet=re.sub(r"\s+", " ", raw)
+        if max_chars and len(snippet) > max_chars:
+            snippet=snippet[:max_chars].rsplit(" ", 1)[0].strip()
+        title=(c.get("title") or "").strip()
+        label=title if title else f"Snippet {idx+1}"
+        prepared.append((label, snippet))
+        if len(prepared) >= limit:
+            break
+    return prepared
+
+def _tailor_with_gemini(question, intent, baseline, chunks, sources):
+    if not baseline or not _gemini_generate:
+        return baseline
+    snippets=_chunk_snippets_for_llm(chunks)
+    if not snippets:
+        return baseline
+    context_blob="\n".join(f"- {label}: {text}" for label, text in snippets)
+    context_payload=[{"title": label, "snippet": text} for label, text in snippets]
+    source_summary=", ".join(s.get("title", "") for s in sources[:3] if s.get("title")) if sources else ""
+    prompt_parts = [
+        "You are the SustainaCore Assistant. Rewrite the baseline answer so it stays factual but sounds conversational and helpful.\n",
+        f"Question: {question.strip()}\n",
+        f"Intent: {intent}\n",
+        "Baseline answer (preserve facts and direct conclusions):\n",
+        _strip_source_refs(baseline) + "\n\n",
+        "Evidence excerpts:\n",
+        context_blob + "\n\n",
+    ]
+    if source_summary:
+        prompt_parts.append(f"Key sources: {source_summary}\n")
+    prompt_parts.extend([
+        "Guidelines:\n",
+        "- Start with a sentence that answers the question directly.\n",
+        "- Refer to the evidence naturally; do not use bracketed citations like [S1].\n",
+        "- Keep the tone professional, friendly, and under 130 words.\n",
+        "- Admit when information is missing.\n",
+        "- Do not fabricate content beyond the excerpts.\n",
+        "- End before the Sources section; the system will append sources.",
+    ])
+    prompt="".join(prompt_parts)
+    try:
+        candidate=_gemini_generate(prompt, context=context_payload) or ""
+    except Exception:
+        return baseline
+    candidate=candidate.strip()
+    if not candidate:
+        return baseline
+    return candidate
 
 def compose_overview(entity, chunks, quotes):
     mem=find_first(chunks,"membership")
@@ -275,26 +357,26 @@ def compose_overview(entity, chunks, quotes):
     if mem: lines.append(f"TECH100 membership: Yes{f' (as of {asof})' if asof else ''}.")
     else:   lines.append("TECH100 membership: Not found in retrieved membership list.")
     if rnk: lines.append(f"Latest rank: {rnk}.")
-    why=["[S{}] {}".format(i, q) for i,q in quotes[:4]]
-    src=sources_block(chunks)
+    why=[f"Source {i}: {q}" for i,q in quotes[:4]]
+    src=sources_detailed(chunks)
     out=[]
     out.append(f"{entity}: overview from SustainaCore’s knowledge base")
     out.extend("- "+w for w in lines)
     if why:
         out.append("Why this answer:")
         out.extend("- "+w for w in why)
-    if src:
-        out.append("Sources: " + "; ".join(src))
-    return "\n".join(out)
+    return "\n".join(out), src
 
-def compose_answer(intent, q, entities, chunks, quotes):
+def compose_answer_baseline(intent, q, entities, chunks, quotes):
     if intent=="about":
-        return ("SustainaCore Assistant helps you explore the TECH100 AI Governance & Ethics Index and related ESG/AI sources.\n"
-                "- Ask about a company’s TECH100 membership or latest rank.\n"
-                "- Request a quick AI & ESG snapshot for any TECH100 company.\n"
-                "- Data comes from Oracle Autonomous DB + Vector Search.\n"), "about"
+        text=("SustainaCore Assistant helps you explore the TECH100 AI Governance & Ethics Index and related ESG/AI sources.\n"
+              "- Ask about a company’s TECH100 membership or latest rank.\n"
+              "- Request a quick AI & ESG snapshot for any TECH100 company.\n"
+              "- Data comes from Oracle Autonomous DB + Vector Search.\n")
+        return text, "about", []
     if intent=="overview" and entities:
-        return compose_overview(entities[0], chunks, quotes), "overview"
+        overview_text, overview_sources = compose_overview(entities[0], chunks, quotes)
+        return overview_text, "overview", overview_sources
     if intent in ("membership","rank") and entities:
         mem=find_first(chunks,"membership") if intent=="membership" else None
         rank=find_first(chunks,"rank")
@@ -307,17 +389,26 @@ def compose_answer(intent, q, entities, chunks, quotes):
         if intent=="rank":
             if rnk: lines.append(f"{entities[0]} latest TECH100 rank: {rnk}.")
             else:   lines.append("No clear rank found in retrieved context.")
-        why=["[S{}] {}".format(i,q) for i,q in quotes[:4]]
-        out="\n".join(lines + (["Why this answer:"]+[f"- {w}" for w in why] if why else []))
-        src=sources_block(chunks)
-        if src: out += "\nSources: " + "; ".join(src)
-        return out, intent
-    bullets=["[S{}] {}".format(i,q) for i,q in quotes[:6]]
+        why=[f"Source {i}: {q}" for i,q in quotes[:4]]
+        body="\n".join(lines + (["Why this answer:"]+[f"- {w}" for w in why] if why else []))
+        return body, intent, sources_detailed(chunks)
+    bullets=[f"Source {i}: {q}" for i,q in quotes[:6]]
     head="Here’s the best supported answer from the retrieved sources."
-    out="\n".join([head] + (["Why this answer:"]+[f"- {b}" for b in bullets] if bullets else []))
-    src=sources_block(chunks)
-    if src: out += "\nSources: " + "; ".join(src)
-    return out, "general"
+    body="\n".join([head] + (["Why this answer:"]+[f"- {b}" for b in bullets] if bullets else []))
+    return body, "general", sources_detailed(chunks)
+
+def compose_answer(intent, q, entities, chunks, quotes):
+    baseline, shape, sources = compose_answer_baseline(intent, q, entities, chunks, quotes)
+    tailored = _tailor_with_gemini(q, intent, baseline, chunks, sources) if intent != "about" else baseline
+    answer = tailored or baseline
+    if sources:
+        footer_lines = ["Sources:"] + ["• " + s["title"] + (f" — {s['url']}" if s.get("url") else "") for s in sources]
+        footer = "\n".join(footer_lines)
+        if answer:
+            answer = answer.rstrip() + "\n\n" + footer
+        else:
+            answer = footer
+    return answer, shape, sources
 class NormalizeMiddleware:
     def __init__(self, app):
         self.app = app
@@ -363,7 +454,7 @@ class OrchestrateMiddleware:
             ans=("I couldn’t find that in SustainaCore’s knowledge base.\n"
                  "- Scope: TECH100 companies and ESG/AI governance sources.\n"
                  "- Tip: try a company name or ask about TECH100 membership or latest rank.")
-            payload={"answer": ans, "contexts": chunks, "mode":"simple"}
+            payload={"answer": ans, "contexts": chunks, "mode":"simple", "sources": []}
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8")
             hdrs=[("Content-Type","application/json"),
                   ("X-Intent", intent), ("X-K", str(retrieval["k"])),
@@ -373,8 +464,8 @@ class OrchestrateMiddleware:
             start_response("200 OK", hdrs)
             return [data]
 
-        answer, shape = compose_answer(intent, q, entities, chunks, quotes)
-        payload={"answer": answer, "contexts": chunks, "mode":"simple"}
+        answer, shape, sources_out = compose_answer(intent, q, entities, chunks, quotes)
+        payload={"answer": answer, "contexts": chunks, "mode":"simple", "sources": sources_out}
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8")
         hdrs=[("Content-Type","application/json"),
               ("X-Intent", intent), ("X-K", str(retrieval["k"])),
@@ -752,8 +843,8 @@ def ask_get_shim():
     chunks = retrieval.get("chunks", [])
     quotes  = extract_quotes(chunks, limit_words=60)
     intent  = detect_intent(q, entities)
-    answer, shape = compose_answer(intent, q, entities, chunks, quotes)
-    return jsonify({"answer": answer, "contexts": chunks, "mode":"simple"})
+    answer, shape, sources_out = compose_answer(intent, q, entities, chunks, quotes)
+    return jsonify({"answer": answer, "contexts": chunks, "mode":"simple", "sources": sources_out})
 
 
 
