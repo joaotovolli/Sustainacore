@@ -123,6 +123,11 @@ def _try_same_app_backends(q):
     return {"answer":"", "sources":[], "meta":{"error":"no_backend"}}
 
 
+FALLBACK_MESSAGE = (
+    "I couldn’t find a direct answer in the indexed docs. Here are the most relevant sources."
+)
+
+
 def _sanitize_meta_k(value, default=4):
     try:
         k_val = int(value)
@@ -221,90 +226,3 @@ if app:
             uptime = 1e-6
         return jsonify({"uptime": float(uptime)})
 
-# --- SustainaCore hotfix: ensure /ask2 never returns an empty "answer" ---
-from flask import request
-import json
-
-FALLBACK_MESSAGE = (
-    "I couldn’t find a direct answer in the indexed docs. Here are the most relevant sources."
-)
-
-@app.after_request
-def _ensure_nonempty_answer(resp):
-    try:
-        if getattr(request, "path", "") == "/ask2" and getattr(resp, "mimetype", "").startswith("application/json"):
-            try:
-                data = resp.get_json(silent=True)
-            except Exception:
-                data = None
-            if data is None:
-                try:
-                    data = json.loads(resp.get_data(as_text=True) or "{}")
-                except Exception:
-                    data = {}
-
-            ans = (data.get("answer") or "").strip()
-            srcs = (data.get("sources") or [])[:3]
-            meta = data.get("meta") or {}
-            if not ans:
-                meta["note"] = "fallback"
-                data.update({"answer": FALLBACK_MESSAGE, "sources": srcs, "meta": meta})
-                resp.set_data(json.dumps(data))
-                resp.mimetype = "application/json"
-                resp.status_code = 200
-    except Exception:
-        # never break the request path
-        pass
-    return resp
-# --- end hotfix ---
-
-# --- SustainaCore hotfix: ensure /ask2 never returns an empty "answer" ---
-import json
-FALLBACK_MESSAGE = "I couldn’t find a direct answer in the indexed docs. Here are the most relevant sources."
-
-def _ensure_nonempty_answer_mw(wsgi_app):
-    def _mw(environ, start_response):
-        chunks = []
-        status_headers = {"status": None, "headers": None}
-
-        def _sr(status, headers, exc_info=None):
-            status_headers["status"] = status
-            status_headers["headers"] = list(headers)
-            return start_response(status, headers, exc_info)
-
-        for part in wsgi_app(environ, _sr):
-            chunks.append(part)
-        body = b"".join(chunks)
-
-        if environ.get("PATH_INFO") == "/ask2":
-            try:
-                data = json.loads(body.decode("utf-8"))
-                ans = (data.get("answer") or "").strip()
-                srcs = (data.get("sources") or [])[:3]
-                meta = data.get("meta") or {}
-                if not ans:
-                    meta["note"] = "fallback"
-                    data.update({"answer": FALLBACK_MESSAGE, "sources": srcs, "meta": meta})
-                    body = json.dumps(data).encode("utf-8")
-                    # fix headers if missing
-                    hdrs = status_headers["headers"]
-                    found_len = False; found_ct = False
-                    for i,(k,v) in enumerate(hdrs):
-                        kl = k.lower()
-                        if kl == "content-length":
-                            hdrs[i] = (k, str(len(body))); found_len = True
-                        if kl == "content-type":
-                            found_ct = True
-                    if not found_len: hdrs.append(("Content-Length", str(len(body))))
-                    if not found_ct: hdrs.append(("Content-Type", "application/json"))
-            except Exception:
-                pass
-
-        return [body]
-    return _mw
-
-try:
-    app = _ensure_nonempty_answer_mw(app)
-except Exception:
-    pass
-# --- end hotfix ---

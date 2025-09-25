@@ -1,0 +1,16 @@
+[Unit]
+Description=SustainaCore Retrieval API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sustainacore-ai
+Environment=TNS_ADMIN=/opt/adb_wallet
+Environment=XDG_CACHE_HOME=/opt/fastembed
+ExecStart=/opt/sustainacore-ai/.venv/bin/uvicorn app.retrieval.app:app --host 127.0.0.1 --port 8080 --workers 1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
