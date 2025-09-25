@@ -9,6 +9,9 @@ import re
 import time
 from pathlib import Path
 
+# Allow this module to expose the sibling package under app/
+__path__ = [str(Path(__file__).resolve().parent / "app")]
+
 import requests
 from collections import defaultdict
 from flask import Flask, request, jsonify
@@ -16,7 +19,10 @@ try:
     from smalltalk import smalltalk_response
 except Exception:
     smalltalk_response = lambda _q: None
-from db_helper import top_k_by_vector
+try:
+    from db_helper import top_k_by_vector as _top_k_by_vector
+except Exception:
+    _top_k_by_vector = None
 
 try:
     from gemini_adapter import generate as _gemini_generate  # type: ignore
@@ -314,14 +320,22 @@ def retrieve(q: str):
     per_variant=[]
     for v in variants:
         vec=embed(v)
-        rows=top_k_by_vector(vec, topk)
+        if _top_k_by_vector is None:
+            rows = []
+        else:
+            rows = _top_k_by_vector(vec, max(1, topk))
         per_variant.append(rows)
     fused=rrf_fuse(per_variant, k=RRF_K)
     if len(fused)<CHUNKS_MAX//2 and topk<FUSION_TOPK_MAX:
         topk=min(FUSION_TOPK_MAX, topk*2)
         per_variant=[]
         for v in variants:
-            vec=embed(v); rows=top_k_by_vector(vec, topk); per_variant.append(rows)
+            vec=embed(v)
+            if _top_k_by_vector is None:
+                rows = []
+            else:
+                rows = _top_k_by_vector(vec, max(1, topk))
+            per_variant.append(rows)
         fused=rrf_fuse(per_variant, k=RRF_K)
     fused=mmr_select(fused[:max(32,FUSION_TOPK_MAX)], max_k=CHUNKS_MAX, lambda_=MMR_LAMBDA, per_doc=DOC_CAP)
     return {"entities": ents, "variants": variants, "chunks": fused, "k": topk}
@@ -584,7 +598,11 @@ def ask():
         body = request.get_json(force=True) or {}
         q = (body.get("question") or body.get("q") or "").strip()
         if not q: return jsonify({"error":"question is required"}), 400
-        vec = embed(q); rows = top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
+        vec = embed(q)
+        if _top_k_by_vector is None:
+            rows = []
+        else:
+            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
         ans = rows[0]["chunk_text"] if rows else "No context found."
         if RETURN_TOP_AS_ANSWER:
             return jsonify({"answer": ans, "contexts": rows, "mode":"simple"})
@@ -935,7 +953,10 @@ def ask_get_shim():
     # Try the fast path; if embeddings service is down/misconfigured, fall back.
     try:
         vec = embed(q)
-        rows = top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
+        if _top_k_by_vector is None:
+            rows = []
+        else:
+            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
         ans = rows[0]["chunk_text"] if rows else "No context found."
         if RETURN_TOP_AS_ANSWER:
             return jsonify({"answer": ans, "contexts": rows, "mode":"simple"})
@@ -997,7 +1018,10 @@ def __sc__apex_post_ask_compat():
 
     try:
         vec = embed(q)
-        rows = top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
+        if _top_k_by_vector is None:
+            rows = []
+        else:
+            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
         # Stable 'answer' for APEX: if your main chain returns text elsewhere,
         # we still guarantee a non-empty answer by falling back to top snippet.
         ans = (rows[0].get("chunk_text") if rows else None) or "No context found."

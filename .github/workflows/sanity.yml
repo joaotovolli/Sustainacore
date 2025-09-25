@@ -1,0 +1,23 @@
+name: Sanity
+on: [push, pull_request]
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Fail on conflict markers
+        run: |
+          ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . || \
+            (echo 'ERROR: conflict markers present' && exit 1)
+      - name: Install deps
+        run: |
+          python -m pip install -U pip wheel
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install fastapi uvicorn pytest
+      - name: Compile tree
+        run: python -m compileall -q .
+      - name: Run tests
+        run: pytest -q
