@@ -25,7 +25,7 @@ app = FastAPI(title="SustainaCore Retrieval Facade", version="1.0")
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "ts": time.time()}
+    return {"ok": True}
 
 @app.get("/ask2")
 def ask2(q: str = Query("", alias="q"), k: int = Query(4, alias="k")) -> Dict[str, Any]:
