@@ -8,6 +8,7 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
 # Allow this module to expose the sibling package under app/
 __path__ = [str(Path(__file__).resolve().parent / "app")]
@@ -113,17 +114,88 @@ else:  # pragma: no cover - import fallback
 
 
 _LOGGER = logging.getLogger("app.ask2")
+_SMALLTALK_GREETING_RE = re.compile(r"^\s*(hi|hello|hey|hola|oi)\b", re.I)
+
+DEFAULT_EMPTY_ANSWER = (
+    "I couldn’t find Sustainacore documents for that yet.\n"
+    "- Scope: TECH100 companies and ESG/AI governance sources.\n"
+    "- Tip: try a company name or ask about TECH100 membership or latest rank."
+)
 
 
-def _call_route_ask2_facade(question: str, k_value, *, client_ip: str | None = None):
+def _ensure_non_empty_answer(value: Optional[str], fallback: Optional[str] = None) -> str:
+    """Return a trimmed answer or a safe fallback message."""
+
+    candidate = (value or "").strip()
+    if candidate:
+        return candidate
+    fallback_text = (fallback or DEFAULT_EMPTY_ANSWER).strip()
+    return fallback_text if fallback_text else DEFAULT_EMPTY_ANSWER
+
+
+def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] = None):
     """Invoke the smart router with graceful fallbacks.
 
-    This mirrors the WSGI facade logic so running ``app.py`` directly (e.g. via
-    ``flask --app app run``) behaves the same as the production entrypoint.
+    Always returns ``(payload, 200)`` with a non-empty answer, list sources, and
+    meta containing ``routing``, ``k``, and ``latency_ms``.
     """
 
     sanitized_k = _sanitize_meta_k(k_value)
     question_text = (question or "").strip()
+    started_at = time.perf_counter()
+
+    def _finalize(
+        payload: Optional[dict],
+        *,
+        routing: str,
+        answer_override: Optional[str] = None,
+        extra_meta: Optional[dict] = None,
+    ):
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
+
+        data = payload if isinstance(payload, dict) else {}
+        answer_value = answer_override
+        if answer_value is None:
+            answer_candidate = data.get("answer") if isinstance(data, dict) else None
+            answer_value = str(answer_candidate) if answer_candidate is not None else ""
+
+        contexts = data.get("contexts") if isinstance(data, dict) else None
+        if not isinstance(contexts, list):
+            contexts = []
+
+        sources_raw = data.get("sources") if isinstance(data, dict) else None
+        if isinstance(sources_raw, list):
+            sources_list = sources_raw
+        else:
+            sources_list = []
+
+        meta_raw = data.get("meta") if isinstance(data, dict) else None
+        meta_dict = dict(meta_raw) if isinstance(meta_raw, dict) else {}
+        if extra_meta:
+            meta_dict.update(extra_meta)
+        meta_dict["routing"] = routing
+        meta_dict["k"] = sanitized_k
+        meta_dict["latency_ms"] = latency_ms
+
+        shaped = {
+            "answer": _ensure_non_empty_answer(answer_value, fallback=DEFAULT_EMPTY_ANSWER),
+            "contexts": contexts,
+            "sources": sources_list,
+            "meta": meta_dict,
+        }
+        return shaped, 200
+
+    if _SMALLTALK_GREETING_RE.search(question_text):
+        try:
+            smalltalk_answer = smalltalk_response(question_text)
+        except Exception:  # pragma: no cover - defensive fallback
+            smalltalk_answer = None
+        payload = {
+            "answer": smalltalk_answer or "Hi there! How can I help with Sustainacore questions?",
+            "sources": [],
+            "contexts": [],
+        }
+        return _finalize(payload, routing="smalltalk")
 
     if (
         _gemini_run_pipeline is not None
@@ -134,33 +206,20 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: str | None = N
             payload = _gemini_run_pipeline(
                 question_text, k=sanitized_k, client_ip=client_ip or "unknown"
             )
-            meta = payload.get("meta") if isinstance(payload, dict) else None
-            if not isinstance(meta, dict):
-                meta = {}
-            meta.setdefault("k", sanitized_k)
-            meta.setdefault("routing", "gemini_first")
-            if meta.get("intent") == "SMALL_TALK":
-                meta["routing"] = "smalltalk"
-            payload = {
-                "answer": str(payload.get("answer") or ""),
-                "sources": payload.get("sources") or [],
-                "meta": meta,
-            }
-            return payload, 200
+            if isinstance(payload, dict):
+                payload.setdefault("meta", {})
+            return _finalize(payload, routing="gemini_first")
         except _GeminiRateLimitError as exc:  # type: ignore[arg-type]
-            return (
-                {
-                    "answer": "You’ve hit the current rate limit. Please retry in a few seconds.",
-                    "sources": [],
-                    "meta": {
-                        "error": getattr(exc, "detail", "rate_limited"),
-                        "intent": "RATE_LIMIT",
-                        "k": sanitized_k,
-                        "routing": "gemini_first",
-                        "show_debug_block": False,
-                    },
-                },
-                429,
+            message = "You’ve hit the current rate limit. Please retry in a few seconds."
+            extra_meta = {
+                "error": getattr(exc, "detail", "rate_limited"),
+                "intent": "RATE_LIMIT",
+            }
+            return _finalize(
+                {"sources": [], "contexts": []},
+                routing="gemini_first",
+                answer_override=message,
+                extra_meta=extra_meta,
             )
         except _GeminiUnavailableError:  # type: ignore[arg-type]
             pass  # fall back to legacy router
@@ -171,27 +230,17 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: str | None = N
         try:
             shaped = _route_ask2(question_text, sanitized_k)
             if isinstance(shaped, dict):
-                meta = shaped.get("meta")
-                if isinstance(meta, dict):
-                    meta.setdefault("k", sanitized_k)
-                else:
-                    shaped["meta"] = {"k": sanitized_k}
-                return shaped, 200
+                return _finalize(shaped, routing="legacy_router")
         except Exception as exc:  # pragma: no cover - defensive logging
             _LOGGER.exception("Legacy /ask2 router failed", exc_info=exc)
 
     fallback = {
         "answer": _ASK2_ROUTER_FALLBACK,
         "sources": [],
-        "meta": {
-            "routing": "router_unavailable",
-            "top_score": None,
-            "gemini_used": False,
-            "k": sanitized_k,
-            "error": "router_unavailable",
-        },
+        "meta": {"error": "router_unavailable"},
+        "contexts": [],
     }
-    return fallback, 200
+    return _finalize(fallback, routing="router_unavailable")
 
 EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
 OLLAMA = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
