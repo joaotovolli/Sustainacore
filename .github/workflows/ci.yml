@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  guard-secrets:
+    name: Ensure sensitive files are ignored
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify that sensitive files are not committed
+        run: |
+          set -euo pipefail
+          files=$(git ls-files -- ':**/.env' ':**/wallet/**')
+          if [ -n "$files" ]; then
+            echo "The following sensitive files are committed:" >&2
+            echo "$files" >&2
+            exit 1
+          fi
+          echo "No tracked .env or wallet files detected."
