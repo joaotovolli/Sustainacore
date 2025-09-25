@@ -33,6 +33,15 @@ SQL
 
 readarray -t migrations < <(find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -name 'V*.sql' | sort)
 
+baseline_version=""
+if ((${#migrations[@]} > 0)); then
+  first_migration=${migrations[0]}
+  if [ -n "${first_migration}" ]; then
+    baseline_version=$(basename "${first_migration}")
+    baseline_version="${baseline_version%%__*}"
+  fi
+fi
+
 for migration in "${migrations[@]}"; do
   [ -n "${migration}" ] || continue
   filename=$(basename "${migration}")
@@ -49,6 +58,32 @@ SQL
 )
 
   if [[ "${migration_version}" == "0" ]]; then
+    if [[ -n "${baseline_version}" && "${version}" == "${baseline_version}" ]]; then
+      existing_objects=$("${SQLCLI_BIN}" -S "${CONN_STRING}" <<'SQL' | tr -d '[:space:]'
+SET HEADING OFF FEEDBACK OFF VERIFY OFF PAGESIZE 0
+SELECT COUNT(*)
+  FROM user_objects
+ WHERE object_type IN (
+          'TABLE', 'VIEW', 'INDEX', 'SEQUENCE', 'TRIGGER',
+          'PACKAGE', 'PACKAGE BODY', 'FUNCTION', 'PROCEDURE',
+          'TYPE', 'TYPE BODY', 'MATERIALIZED VIEW'
+      )
+   AND object_name <> 'SCHEMA_VERSION';
+EXIT
+SQL
+)
+
+      if [[ "${existing_objects}" != "0" ]]; then
+        echo "Existing schema objects detected; marking ${filename} as applied"
+        "${SQLCLI_BIN}" -S "${CONN_STRING}" <<SQL
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+INSERT INTO schema_version(version) VALUES ('${version}');
+COMMIT;
+SQL
+        continue
+      fi
+    fi
+
     abs_path=$(cd "$(dirname "${migration}")" && pwd)/$(basename "${migration}")
     echo "Applying migration ${filename}"
     "${SQLCLI_BIN}" -S "${CONN_STRING}" <<SQL
@@ -58,3 +93,4 @@ SQL
     echo "Skipping migration ${filename}; already applied"
   fi
 done
+I'll provide instructions on applying the fix by refer
