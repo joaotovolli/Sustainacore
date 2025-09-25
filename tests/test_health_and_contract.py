@@ -25,6 +25,9 @@ if p.exists():
         assert "answer" in payload and isinstance(payload["answer"], str)
         assert payload["answer"].strip() != ""
         assert isinstance(payload.get("contexts"), list)
+        for ctx in payload["contexts"]:
+            assert isinstance(ctx, dict)
+            assert "source_url" in ctx
         assert isinstance(payload.get("sources"), list)
         assert isinstance(payload.get("meta"), dict)
 
