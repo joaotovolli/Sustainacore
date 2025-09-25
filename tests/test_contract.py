@@ -19,4 +19,4 @@ def test_healthz():
     client = TestClient(mod.app)
     r = client.get("/healthz")
     assert r.status_code == 200
-    assert r.json().get("status") == "ok"
+    assert r.json() == {"ok": True}
