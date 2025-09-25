@@ -62,7 +62,7 @@ def _verify(answer, titles):
     return answer if out.strip() == "<APPROVE>" else out.strip()
 
 def refine_maybe(answer: str, contexts):
-    \"\"\"Return refined answer if REFINE=on; otherwise return original.\"\"\"
+    """Return refined answer if REFINE=on; otherwise return original."""
     if not REFINE:
         return answer
     if not isinstance(answer, str) or not answer.strip():
