@@ -1,7 +1,15 @@
 
 # SustainaCore app.py — SMART v2
+import importlib
+import importlib.util
+import json
 import logging
-import os, re, time, json, requests
+import os
+import re
+import time
+from pathlib import Path
+
+import requests
 from collections import defaultdict
 from flask import Flask, request, jsonify
 try:
@@ -15,10 +23,37 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     _gemini_generate = None
 
-try:
-    from app.rag import routing as _ask2_routing  # type: ignore
-except Exception:  # pragma: no cover - defensive import
-    _ask2_routing = None
+def _load_ask2_routing_module():
+    """Best-effort loader for ``app.rag.routing`` despite the module/package clash."""
+
+    try:
+        return importlib.import_module("app.rag.routing")
+    except ModuleNotFoundError as exc:
+        # When ``app`` refers to this module, importing ``app.rag`` fails. Fall back to
+        # loading from the package path manually. Re-raise for unrelated missing deps.
+        if exc.name not in {"app", "app.rag", "app.rag.routing"}:
+            raise
+    except Exception:
+        return None
+
+    pkg_root = Path(__file__).resolve().parent / "app"
+    candidate = pkg_root / "rag" / "routing.py"
+    if not candidate.exists():
+        return None
+
+    spec = importlib.util.spec_from_file_location("app_rag_routing", candidate)
+    if spec is None or spec.loader is None:
+        return None
+
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)  # type: ignore[arg-type]
+    except Exception:
+        return None
+    return module
+
+
+_ask2_routing = _load_ask2_routing_module()
 
 try:  # Gemini-first shared service (optional)
     from app.retrieval.service import (
