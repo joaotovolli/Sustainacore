@@ -138,6 +138,9 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: str | None = N
             if not isinstance(meta, dict):
                 meta = {}
             meta.setdefault("k", sanitized_k)
+            meta.setdefault("routing", "gemini_first")
+            if meta.get("intent") == "SMALL_TALK":
+                meta["routing"] = "smalltalk"
             payload = {
                 "answer": str(payload.get("answer") or ""),
                 "sources": payload.get("sources") or [],
