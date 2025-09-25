@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import os
+import sys
 from typing import Literal
+
+
+if sys.version_info >= (3, 10):
+    def _settings_dataclass(cls):
+        return dataclass(cls, slots=True)
+else:  # Python 3.9 fallback (no dataclass slots support)
+    _settings_dataclass = dataclass
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -34,7 +42,7 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-@dataclass(slots=True)
+@_settings_dataclass
 class Settings:
     """Centralised configuration derived from the environment."""
 
@@ -83,4 +91,3 @@ class Settings:
 
 
 settings = Settings()
-

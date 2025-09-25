@@ -88,7 +88,8 @@ def _to_plain(value: Any) -> Any:
             return value.read()
         except Exception:  # pragma: no cover - defensive
             return str(value)
-    if isinstance(value, oracledb.Vector):  # type: ignore[attr-defined]
+    VectorT = getattr(oracledb, "Vector", None)
+    if VectorT and isinstance(value, VectorT):  # type: ignore[arg-type]
         return list(value)
     return value
 
@@ -484,5 +485,4 @@ class OracleRetriever:
 
 
 retriever = OracleRetriever()
-
 
