@@ -8,6 +8,7 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
 # Allow this module to expose the sibling package under app/
 __path__ = [str(Path(__file__).resolve().parent / "app")]
@@ -115,7 +116,7 @@ else:  # pragma: no cover - import fallback
 _LOGGER = logging.getLogger("app.ask2")
 
 
-def _call_route_ask2_facade(question: str, k_value, *, client_ip: str | None = None):
+def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] = None):
     """Invoke the smart router with graceful fallbacks.
 
     This mirrors the WSGI facade logic so running ``app.py`` directly (e.g. via
@@ -203,6 +204,22 @@ CHUNKS_MAX       = int(os.getenv("CHUNKS_MAX", "12"))
 CITES_MAX        = int(os.getenv("CITES_MAX", "6"))
 LATENCY_BUDGET_MS= int(os.getenv("LATENCY_BUDGET_MS", "1200"))
 RETURN_TOP_AS_ANSWER = os.getenv("RETURN_TOP_AS_ANSWER","1") == "1"
+
+DEFAULT_EMPTY_ANSWER = (
+    "I couldn’t find that in SustainaCore’s knowledge base.\n"
+    "- Scope: TECH100 companies and ESG/AI governance sources.\n"
+    "- Tip: try a company name or ask about TECH100 membership or latest rank."
+)
+
+
+def _ensure_non_empty_answer(value: Optional[str], fallback: Optional[str] = None) -> str:
+    """Return a trimmed answer or a safe fallback message."""
+
+    candidate = (value or "").strip()
+    if candidate:
+        return candidate
+    fallback_text = (fallback or DEFAULT_EMPTY_ANSWER).strip()
+    return fallback_text if fallback_text else DEFAULT_EMPTY_ANSWER
 
 app = Flask(__name__)
 
@@ -521,7 +538,7 @@ def compose_answer(intent, q, entities, chunks, quotes):
             answer = answer.rstrip() + "\n\n" + footer
         else:
             answer = footer
-    return answer, shape, sources
+    return _ensure_non_empty_answer(answer, fallback=baseline), shape, sources
 class NormalizeMiddleware:
     def __init__(self, app):
         self.app = app
@@ -564,9 +581,7 @@ class OrchestrateMiddleware:
         intent=detect_intent(q, entities)
 
         if (not chunks) or (entities and not any(entities[0].lower() in ( (c.get("title") or "").lower() + (c.get("chunk_text") or "").lower() ) for c in chunks)):
-            ans=("I couldn’t find that in SustainaCore’s knowledge base.\n"
-                 "- Scope: TECH100 companies and ESG/AI governance sources.\n"
-                 "- Tip: try a company name or ask about TECH100 membership or latest rank.")
+            ans = DEFAULT_EMPTY_ANSWER
             payload={"answer": ans, "contexts": chunks, "mode":"simple", "sources": []}
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8")
             hdrs=[("Content-Type","application/json"),
@@ -590,24 +605,41 @@ class OrchestrateMiddleware:
 
 @app.route("/healthz")
 def healthz():
-    return jsonify({"ok": True, "ts": time.time()})
+    return jsonify({"ok": True})
 
 @app.route("/ask", methods=["POST"])
 def ask():
+    started = time.perf_counter()
     try:
         body = request.get_json(force=True) or {}
         q = (body.get("question") or body.get("q") or "").strip()
-        if not q: return jsonify({"error":"question is required"}), 400
+        if not q:
+            return jsonify({"error": "question is required"}), 400
+
         vec = embed(q)
-        if _top_k_by_vector is None:
-            rows = []
-        else:
-            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
-        ans = rows[0]["chunk_text"] if rows else "No context found."
+        rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE)) if _top_k_by_vector else []
+        took_ms = int((time.perf_counter() - started) * 1000)
+
         if RETURN_TOP_AS_ANSWER:
-            return jsonify({"answer": ans, "contexts": rows, "mode":"simple"})
+            primary_answer = rows[0].get("chunk_text") if rows else None
+            fallback = "No context found."
         else:
-            return jsonify({"answer": "No generator configured.", "contexts": rows, "mode":"simple"})
+            primary_answer = "No generator configured."
+            fallback = "No generator configured."
+
+        answer = _ensure_non_empty_answer(primary_answer, fallback=fallback)
+        payload = {
+            "answer": answer,
+            "contexts": rows,
+            "sources": __sc__build_sources(rows),
+            "meta": {
+                "k": len(rows or []),
+                "took_ms": took_ms,
+                "model_info": {"embed": OLLAMA_EMBED_MODEL},
+            },
+            "mode": "simple",
+        }
+        return jsonify(payload)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -811,7 +843,7 @@ class MultiHitOrchestrator:
 
         fused = _rrf(fused_lists)
         picks = _mmr_select(fused, max_n=12, lam=0.7)
-        answer = _compose(q_in, intent, picks)
+        answer = _ensure_non_empty_answer(_compose(q_in, intent, picks))
 
         out = {'answer': answer, 'contexts': picks, 'mode': 'simple'}
 
@@ -969,7 +1001,7 @@ def ask_get_shim():
     quotes  = extract_quotes(chunks, limit_words=60)
     intent  = detect_intent(q, entities)
     answer, shape, sources_out = compose_answer(intent, q, entities, chunks, quotes)
-    return jsonify({"answer": answer, "contexts": chunks, "mode":"simple", "sources": sources_out})
+    return jsonify({"answer": _ensure_non_empty_answer(answer), "contexts": chunks, "mode":"simple", "sources": sources_out})
 
 
 
@@ -1024,17 +1056,20 @@ def __sc__apex_post_ask_compat():
             rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
         # Stable 'answer' for APEX: if your main chain returns text elsewhere,
         # we still guarantee a non-empty answer by falling back to top snippet.
-        ans = (rows[0].get("chunk_text") if rows else None) or "No context found."
+        primary_answer = rows[0].get("chunk_text") if rows else None
+        ans = _ensure_non_empty_answer(primary_answer, fallback="No context found.")
 
         took_ms = int((time.perf_counter() - t0) * 1000)
         resp = {
             "answer": ans,
+            "contexts": rows,
             "sources": __sc__build_sources(rows),
             "meta": {
                 "k": len(rows or []),
                 "took_ms": took_ms,
                 "model_info": {"embed": os.getenv("OLLAMA_EMBED_MODEL","nomic-embed-text")},
             },
+            "mode": "simple",
         }
         return jsonify(resp), 200
     except Exception as e:

@@ -408,7 +408,10 @@ class OracleRetriever:
         snippet = (row.get("chunk_text") or "").strip()
         if snippet:
             snippet = " ".join(snippet.split())[:600]
-        source_name = (row.get("source_name") or "").strip() or _infer_source_name(row.get("normalized_url") or row.get("source_url")))
+        raw_source_name = (row.get("source_name") or "").strip()
+        source_name = raw_source_name or _infer_source_name(
+            row.get("normalized_url") or row.get("source_url")
+        )
         fact = {
             "citation_id": citation,
             "title": (row.get("title") or "").strip() or "Untitled excerpt",
