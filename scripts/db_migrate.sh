@@ -93,3 +93,4 @@ SQL
     echo "Skipping migration ${filename}; already applied"
   fi
 done
+I'll provide instructions on applying the fix by refer
