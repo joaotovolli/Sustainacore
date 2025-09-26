@@ -8,7 +8,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 # Allow this module to expose the sibling package under app/
 __path__ = [str(Path(__file__).resolve().parent / "app")]
@@ -16,6 +16,26 @@ __path__ = [str(Path(__file__).resolve().parent / "app")]
 import requests
 from collections import defaultdict
 from flask import Flask, request, jsonify
+
+from embedder_settings import (
+    EmbedParityError,
+    get_embed_settings,
+    run_startup_parity_check,
+)
+from embedding_client import embed_text
+from retrieval.config import (
+    INSUFFICIENT_CONTEXT_MESSAGE,
+    RETRIEVAL_SCOPING_ENABLED,
+    RETRIEVAL_TOP_K,
+    SIMILARITY_FLOOR,
+)
+from retrieval.scope import (
+    compute_similarity,
+    dedupe_contexts,
+    detect_intent as scope_detect_intent,
+    extract_entities as scope_extract_entities,
+    infer_scope,
+)
 try:
     from smalltalk import smalltalk_response
 except Exception:
@@ -114,6 +134,15 @@ else:  # pragma: no cover - import fallback
 
 
 _LOGGER = logging.getLogger("app.ask2")
+_READINESS_LOGGER = logging.getLogger("app.readyz")
+_MULTI_LOGGER = logging.getLogger("app.multihit")
+
+_EMBED_SETTINGS = get_embed_settings()
+try:
+    run_startup_parity_check(_EMBED_SETTINGS)
+except EmbedParityError as exc:  # pragma: no cover - fail-fast path
+    raise
+
 _SMALLTALK_GREETING_RE = re.compile(r"^\s*(hi|hello|hey|hola|oi)\b", re.I)
 
 DEFAULT_EMPTY_ANSWER = (
@@ -242,12 +271,15 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] 
     }
     return _finalize(fallback, routing="router_unavailable")
 
-EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
-OLLAMA = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "all-minilm")
+EMBED_DIM = _EMBED_SETTINGS.expected_dimension
+EMBED_MODEL_NAME = _EMBED_SETTINGS.model_name
 
-FUSION_TOPK_BASE = int(os.getenv("FUSION_TOPK_BASE", "8"))
-FUSION_TOPK_MAX  = int(os.getenv("FUSION_TOPK_MAX", "24"))
+try:
+    _legacy_topk = int(os.getenv("FUSION_TOPK_BASE", str(RETRIEVAL_TOP_K)))
+except ValueError:
+    _legacy_topk = RETRIEVAL_TOP_K
+FUSION_TOPK_BASE = max(RETRIEVAL_TOP_K, _legacy_topk)
+FUSION_TOPK_MAX  = int(os.getenv("FUSION_TOPK_MAX", str(max(FUSION_TOPK_BASE * 3, 24))))
 RRF_K            = int(os.getenv("RRF_K", "60"))
 MMR_LAMBDA       = float(os.getenv("MMR_LAMBDA", "0.7"))
 DOC_CAP          = int(os.getenv("DOC_CAP", "3"))
@@ -258,18 +290,9 @@ RETURN_TOP_AS_ANSWER = os.getenv("RETURN_TOP_AS_ANSWER","1") == "1"
 
 app = Flask(__name__)
 
+
 def embed(text: str):
-    text = (text or "").strip()
-    if not text: return [0.0]*EMBED_DIM
-    url = f"{OLLAMA}/api/embeddings"
-    resp = requests.post(url, json={"model": OLLAMA_EMBED_MODEL, "prompt": text}, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    vec = data.get("embedding") or (data.get("data") or [{}])[0].get("embedding")
-    if not isinstance(vec, list): return [0.0]*EMBED_DIM
-    if len(vec) > EMBED_DIM: vec = vec[:EMBED_DIM]
-    if len(vec) < EMBED_DIM: vec = vec + [0.0]*(EMBED_DIM-len(vec))
-    return vec
+    return embed_text(text, settings=_EMBED_SETTINGS)
 
 META_KEYS = ("ROLE:", "TASK:", "PREVIOUS ANSWER", "QUESTION TYPE", "CONTEXT TITLES:", "buttons to click", "What would you like to explore?")
 SOURCE_TAG_RE = re.compile(r"\[(?:S|s)\d+\]")
@@ -289,36 +312,12 @@ def normalize_question(q: str):
         q0 = q1 or "help"
     return q0, changed
 
-ALIAS = {
-    "tech 100": "TECH100", "tech-100": "TECH100", "ai governance & ethics index": "TECH100",
-    "msft":"Microsoft","csco":"Cisco","aapl":"Apple","googl":"Alphabet","goog":"Alphabet","meta":"Meta",
-    "google":"Alphabet","microsoft":"Microsoft","cisco":"Cisco","apple":"Apple","alphabet":"Alphabet","ibm":"IBM",
-}
-
 def detect_intent(q: str, ents):
-    ql = q.lower()
-    if re.search(r'\b(rank|ranking)\b', ql): return "rank"
-    if re.search(r'\bmember(ship)?\b|\bpart of\b', ql): return "membership"
-    if re.search(r'\bcompare|vs\.|versus|difference\b', ql): return "comparison"
-    if re.search(r'\btrend|over time|history\b', ql): return "trend"
-    if re.search(r'\bhow\b|\bwhy\b|\bsteps?\b', ql): return "howwhy"
-    if re.search(r'\bpolicy|regulat|law|directive|act\b', ql): return "policy"
-    if len(q.strip())<=2 and ents: return "overview"
-    if (len(ents)==1) and (len(q.split())<=4): return "overview"
-    if re.search(r'what is this website|what information is available', ql): return "about"
-    return "general"
+    return scope_detect_intent(q, ents)
+
 
 def extract_entities(q: str):
-    ents = []
-    for m in re.finditer(r'\b([A-Z][A-Za-z0-9&\.\-]{1,}(?: [A-Z][A-Za-z0-9&\.\-]{1,}){0,3})\b', q):
-        s = m.group(1).strip()
-        if s: ents.append(ALIAS.get(s.lower(), s))
-    if "tech 100" in q.lower() or "tech-100" in q.lower(): ents.append("TECH100")
-    seen=set(); out=[]
-    for e in ents:
-        if e not in seen:
-            seen.add(e); out.append(e)
-    return out[:5]
+    return scope_extract_entities(q)[:5]
 
 def make_variants(q: str, ents):
     vs=[q.strip()]
@@ -365,32 +364,46 @@ def mmr_select(cands, max_k=CHUNKS_MAX, lambda_=MMR_LAMBDA, per_doc=DOC_CAP):
         cands.pop(best_idx); cand_tokens.pop(best_idx)
     return sel
 
-def retrieve(q: str):
-    ents=extract_entities(q)
-    variants=make_variants(q, ents)
-    topk=FUSION_TOPK_BASE
-    per_variant=[]
+def retrieve(q: str, *, explicit_filters: Optional[Dict[str, str]] = None):
+    ents = extract_entities(q)
+    scope = infer_scope(q, explicit_filters=explicit_filters or {}, entities=ents)
+    variants = make_variants(q, ents)
+    topk = FUSION_TOPK_BASE
+    per_variant = []
+    filters = scope.applied_filters or {}
+
     for v in variants:
-        vec=embed(v)
+        vec = embed(v)
         if _top_k_by_vector is None:
             rows = []
         else:
-            rows = _top_k_by_vector(vec, max(1, topk))
+            rows = _top_k_by_vector(vec, max(1, topk), filters=filters)
         per_variant.append(rows)
-    fused=rrf_fuse(per_variant, k=RRF_K)
-    if len(fused)<CHUNKS_MAX//2 and topk<FUSION_TOPK_MAX:
-        topk=min(FUSION_TOPK_MAX, topk*2)
-        per_variant=[]
+
+    fused = rrf_fuse(per_variant, k=RRF_K)
+    if len(fused) < CHUNKS_MAX // 2 and topk < FUSION_TOPK_MAX:
+        topk = min(FUSION_TOPK_MAX, topk * 2)
+        per_variant = []
         for v in variants:
-            vec=embed(v)
+            vec = embed(v)
             if _top_k_by_vector is None:
                 rows = []
             else:
-                rows = _top_k_by_vector(vec, max(1, topk))
+                rows = _top_k_by_vector(vec, max(1, topk), filters=filters)
             per_variant.append(rows)
-        fused=rrf_fuse(per_variant, k=RRF_K)
-    fused=mmr_select(fused[:max(32,FUSION_TOPK_MAX)], max_k=CHUNKS_MAX, lambda_=MMR_LAMBDA, per_doc=DOC_CAP)
-    return {"entities": ents, "variants": variants, "chunks": fused, "k": topk}
+        fused = rrf_fuse(per_variant, k=RRF_K)
+
+    fused = mmr_select(fused[: max(32, FUSION_TOPK_MAX)], max_k=CHUNKS_MAX, lambda_=MMR_LAMBDA, per_doc=DOC_CAP)
+    fused = dedupe_contexts(fused)
+
+    scope_payload = {
+        "label": scope.label,
+        "source_types": list(scope.source_types),
+        "company": scope.company,
+        "filters": {k: list(v) for k, v in (scope.applied_filters or {}).items()},
+    }
+
+    return {"entities": ents, "variants": variants, "chunks": fused, "k": topk, "scope": scope_payload}
 
 def extract_quotes(chunks, limit_words=60):
     quotes=[]; total=0
@@ -644,6 +657,28 @@ class OrchestrateMiddleware:
 def healthz():
     return jsonify({"ok": True, "ts": time.time()})
 
+
+@app.route("/readyz")
+def readyz():
+    if _top_k_by_vector is None:
+        message = "vector_search_unavailable"
+        _READINESS_LOGGER.error("Readiness probe failed: %s", message)
+        return jsonify({"ok": False, "error": message}), 503
+
+    try:
+        vec = embed("sustainacore readiness probe")
+        rows = _top_k_by_vector(vec, max(1, RETRIEVAL_TOP_K))
+    except Exception as exc:  # pragma: no cover - defensive logging
+        _READINESS_LOGGER.error("Readiness probe failed", exc_info=exc)
+        return jsonify({"ok": False, "error": str(exc)}), 503
+
+    _READINESS_LOGGER.info(
+        "Readiness probe succeeded",
+        extra={"rows": len(rows), "scoping": RETRIEVAL_SCOPING_ENABLED},
+    )
+    return jsonify({"ok": True, "rows": len(rows)}), 200
+
+
 @app.route("/ask", methods=["POST"])
 def ask():
     try:
@@ -725,7 +760,8 @@ def _call_downstream_wsgipost(app, body: bytes, extra_headers=None):
         data = _json.loads(raw.decode('utf-8','ignore'))
     except Exception:
         data = {'raw': raw[:4096].decode('utf-8','ignore')}
-    return status_headers.get('status','200 OK'), dict(status_headers.get('headers',[])), data
+    headers = list(status_headers.get('headers', []) or [])
+    return status_headers.get('status', '200 OK'), headers, data
 
 def _rrf(fused_lists):
     # fused_lists: [ [ctx, ctx, ...], [ctx...], ... ]
@@ -801,78 +837,97 @@ def _compose(q, intent, picks):
 class MultiHitOrchestrator:
     def __init__(self, app):
         self.app = app
+
     def __call__(self, environ, start_response):
-        # bypass on internal calls
-        if environ.get('HTTP_X_ORCH') == 'bypass':
+        if (environ.get('HTTP_X_ORCH') or '').lower() == 'bypass':
             return self.app(environ, start_response)
-        if environ.get('PATH_INFO') != '/ask' or (environ.get('REQUEST_METHOD') or '').upper()!='POST':
+        if environ.get('PATH_INFO') != '/ask' or (environ.get('REQUEST_METHOD') or '').upper() != 'POST':
             return self.app(environ, start_response)
 
-        # parse incoming
         try:
             size = int(environ.get('CONTENT_LENGTH') or '0')
         except Exception:
             size = 0
-        body = environ['wsgi.input'].read(size) if size>0 else b'{}'
+        body = environ.get('wsgi.input', _io.BytesIO()).read(size) if size > 0 else b'{}'
+        environ['wsgi.input'] = _io.BytesIO(body)
+
         try:
-            payload = _json.loads(body.decode('utf-8','ignore'))
+            payload = _json.loads(body.decode('utf-8', 'ignore')) if body else {}
         except Exception:
             payload = {}
-        q_in = _norm_q(str(payload.get('question') or ''))
-        if not q_in:
-            # fall back to downstream as-is
-            payload2 = payload; raw2 = _json.dumps(payload2).encode('utf-8')
-            status, headers, data = _call_downstream_wsgipost(self.app, raw2, {'X-Orch':'bypass'})
-            headers = [(k,v) for (k,v) in headers if k.lower()!='content-length']
-            headers.append(('X-Orch','pass'))
-            resp = _json.dumps(data, ensure_ascii=False).encode('utf-8')
-            headers.append(('Content-Length', str(len(resp))))
-            start_response(status, headers)
-            return [resp]
 
-        intent = _intent(q_in)
-        vs = _variants(q_in)
+        question_raw = _norm_q(str(payload.get('question') or ''))
+        if not question_raw:
+            return self._forward(body, start_response, label='pass')
 
-        # Build and run hits (in-process): k=8 → 16 → 24
-        k_plan = [8,16,24]
-        fused_lists=[]
-        total_hits=0
-        budget_ms=int(os.environ.get('ORCH_BUDGET_MS','1200'))
-        t0=_time.time()
-        for v in vs:
+        try:
+            return self._handle_multihit(question_raw, payload, body, start_response)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            _MULTI_LOGGER.exception("MultiHit orchestrator error", exc_info=exc)
+            return self._forward(body, start_response, label='error')
+
+    def _forward(self, body: bytes, start_response, label: str):
+        status, headers, data = _call_downstream_wsgipost(self.app, body, {'X-Orch': 'bypass'})
+        header_list = [(k, v) for (k, v) in (headers or []) if str(k).lower() != 'content-length']
+        header_list.append(('X-Orch', label))
+        resp = _json.dumps(data, ensure_ascii=False).encode('utf-8')
+        header_list.append(('Content-Length', str(len(resp))))
+        start_response(status, header_list)
+        return [resp]
+
+    def _handle_multihit(self, question_raw: str, payload: Dict[str, Any], body: bytes, start_response):
+        intent = _intent(question_raw)
+        variants = _variants(question_raw)
+        k_plan = [8, 16, 24]
+        fused_lists = []
+        total_hits = 0
+        budget_ms = int(os.environ.get('ORCH_BUDGET_MS', '1200'))
+        started = _time.time()
+
+        for variant in variants:
             for k in k_plan:
-                if ( _time.time()-t0 )*1000 > budget_ms: break
-                hit = {'question': v, 'top_k': k}
-                raw = _json.dumps(hit).encode('utf-8')
-                status, headers, data = _call_downstream_wsgipost(self.app, raw, {'X-Orch':'bypass'})
-                ctxs = data.get('contexts') or []
+                if (_time.time() - started) * 1000 > budget_ms:
+                    break
+                hit_payload = {'question': variant, 'top_k': k}
+                raw = _json.dumps(hit_payload).encode('utf-8')
+                status, headers, data = _call_downstream_wsgipost(self.app, raw, {'X-Orch': 'bypass'})
+                if not status.startswith('2'):
+                    raise RuntimeError(f"downstream status {status}")
+                ctxs = data.get('contexts') if isinstance(data, dict) else None
                 if isinstance(ctxs, list) and ctxs:
                     fused_lists.append(ctxs[:k])
                 total_hits += 1
-            if ( _time.time()-t0 )*1000 > budget_ms: break
+            if (_time.time() - started) * 1000 > budget_ms:
+                break
 
         if not fused_lists:
-            raw2 = _json.dumps({'question': q_in, 'top_k': payload.get('top_k', 8)}).encode('utf-8')
-            status, headers, data = _call_downstream_wsgipost(self.app, raw2, {'X-Orch':'bypass'})
-            headers = [(k,v) for (k,v) in headers if k.lower()!='content-length']
-            headers.extend([('X-Intent', intent), ('X-Orch','fallback'), ('X-Hits', str(total_hits))])
+            fallback = {'question': question_raw, 'top_k': payload.get('top_k', 8)}
+            raw = _json.dumps(fallback).encode('utf-8')
+            status, headers, data = _call_downstream_wsgipost(self.app, raw, {'X-Orch': 'bypass'})
+            header_list = [(k, v) for (k, v) in (headers or []) if str(k).lower() != 'content-length']
+            header_list.extend([('X-Intent', intent), ('X-Orch', 'fallback'), ('X-Hits', str(total_hits))])
             resp = _json.dumps(data, ensure_ascii=False).encode('utf-8')
-            headers.append(('Content-Length', str(len(resp))))
-            start_response(status, headers)
+            header_list.append(('Content-Length', str(len(resp))))
+            start_response(status, header_list)
             return [resp]
 
         fused = _rrf(fused_lists)
         picks = _mmr_select(fused, max_n=12, lam=0.7)
-        answer = _compose(q_in, intent, picks)
+        answer = _compose(question_raw, intent, picks)
 
         out = {'answer': answer, 'contexts': picks, 'mode': 'simple'}
-
-        hdrs = [('Content-Type','application/json'),
-                ('X-Intent', intent), ('X-RRF','on'), ('X-MMR','0.7'),
-                ('X-Hits', str(total_hits)), ('X-BudgetMs', str(int(( _time.time()-t0 )*1000)))]
+        latency_ms = int((_time.time() - started) * 1000)
+        headers = [
+            ('Content-Type', 'application/json'),
+            ('X-Intent', intent),
+            ('X-RRF', 'on'),
+            ('X-MMR', '0.7'),
+            ('X-Hits', str(total_hits)),
+            ('X-BudgetMs', str(latency_ms)),
+        ]
         resp = _json.dumps(out, ensure_ascii=False).encode('utf-8')
-        hdrs.append(('Content-Length', str(len(resp))))
-        start_response('200 OK', hdrs)
+        headers.append(('Content-Length', str(len(resp))))
+        start_response('200 OK', headers)
         return [resp]
 
 # Install orchestrator at the very top of the stack
@@ -1002,20 +1057,28 @@ def ask_get_shim():
     if not q:
         return jsonify({"error":"q is required"}), 400
 
+    explicit_filters = {
+        key: request.args.get(key, "")
+        for key in ("docset", "namespace", "ticker", "company")
+        if request.args.get(key)
+    }
+    scope = infer_scope(q, explicit_filters=explicit_filters, entities=extract_entities(q))
+    filters = scope.applied_filters or {}
+
     # Try the fast path; if embeddings service is down/misconfigured, fall back.
     try:
         vec = embed(q)
         if _top_k_by_vector is None:
             rows = []
         else:
-            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
+            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE), filters=filters)
         ans = rows[0]["chunk_text"] if rows else "No context found."
         if RETURN_TOP_AS_ANSWER:
             return jsonify({"answer": ans, "contexts": rows, "mode":"simple"})
     except Exception:
         pass
 
-    retrieval = retrieve(q)
+    retrieval = retrieve(q, explicit_filters=explicit_filters)
     entities = retrieval.get("entities", [])
     chunks = retrieval.get("chunks", [])
     quotes  = extract_quotes(chunks, limit_words=60)
@@ -1085,7 +1148,7 @@ def __sc__apex_post_ask_compat():
             "meta": {
                 "k": len(rows or []),
                 "took_ms": took_ms,
-                "model_info": {"embed": os.getenv("OLLAMA_EMBED_MODEL","nomic-embed-text")},
+                "model_info": {"embed": EMBED_MODEL_NAME},
             },
         }
         return jsonify(resp), 200
