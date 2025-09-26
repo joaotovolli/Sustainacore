@@ -6,10 +6,13 @@ import os
 import re
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from retrieval.config import INSUFFICIENT_CONTEXT_MESSAGE, RETRIEVAL_TOP_K, SIMILARITY_FLOOR
+from retrieval.scope import dedupe_contexts
+
 from .gemini_cli import gemini_call
 
-DEFAULT_K = 4
-MAX_K = 10
+DEFAULT_K = RETRIEVAL_TOP_K
+MAX_K = max(DEFAULT_K, 12)
 SMALLTALK_WORD_LIMIT = 8
 LOW_OK = float(os.getenv("RAG_LOW_OK", "0.55"))
 HIGH_OK = float(os.getenv("RAG_HIGH_OK", "0.70"))
@@ -153,6 +156,7 @@ def _normalize_hit(hit: Dict[str, Any]) -> Dict[str, Any]:
         "snippet": snippet,
         "score": score,
     }
+    normalized["source_url"] = normalized["url"]
     return normalized
 
 
@@ -194,6 +198,7 @@ def vector_search(query: str, k: int) -> List[Dict[str, Any]]:
         if len(hits) >= top_k:
             break
     hits.sort(key=lambda h: h.get("score") or 0.0, reverse=True)
+    hits = dedupe_contexts(hits)
     return hits
 
 
@@ -341,13 +346,17 @@ def route_ask2(
     search_fn = vector_fn or vector_search
     hits = search_fn(q, sanitized_k)
     sources = _format_sources(hits)
-    top_score = hits[0].get("score") if hits else None
-    meta["top_score"] = top_score
-
     if not hits:
         answer, used = _no_hit_answer(q, gemini_fn)
         meta.update({"routing": "no_hit", "gemini_used": used})
         return {"answer": answer, "sources": [], "meta": meta}
+
+    top_score = hits[0].get("score") if hits else None
+    meta["top_score"] = top_score
+
+    if top_score is None or top_score < SIMILARITY_FLOOR:
+        meta.update({"routing": "insufficient_context", "gemini_used": False})
+        return {"answer": INSUFFICIENT_CONTEXT_MESSAGE, "sources": [], "meta": meta}
 
     threshold = top_score or 0.0
     if threshold >= HIGH_OK:
