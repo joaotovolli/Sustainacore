@@ -1,12 +1,15 @@
 
 # SustainaCore app.py — SMART v2
+import base64
 import importlib
 import importlib.util
 import json
 import logging
 import os
 import re
+import subprocess
 import time
+import zlib
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -137,12 +140,47 @@ else:  # pragma: no cover - import fallback
 _LOGGER = logging.getLogger("app.ask2")
 _READINESS_LOGGER = logging.getLogger("app.readyz")
 _MULTI_LOGGER = logging.getLogger("app.multihit")
+_STARTUP_LOGGER = logging.getLogger("app.startup")
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    raw = raw.strip().lower()
+    if raw in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _log_build_identifier() -> None:
+    build_id = os.getenv("SUSTAINACORE_BUILD_ID")
+    if not build_id:
+        try:
+            build_id = (
+                subprocess.check_output(
+                    ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
+                )
+                .decode("utf-8")
+                .strip()
+            )
+        except Exception:
+            build_id = "unknown"
+    _STARTUP_LOGGER.info("build_id=%s", build_id)
+
+
+_log_build_identifier()
 
 _EMBED_SETTINGS = get_embed_settings()
 try:
     run_startup_parity_check(_EMBED_SETTINGS)
 except EmbedParityError as exc:  # pragma: no cover - fail-fast path
     raise
+
+_SMALL_TALK_ENABLED = _env_flag("SMALL_TALK", True)
+_INLINE_SOURCES_ENABLED = _env_flag("INLINE_SOURCES", False)
 
 _SMALL_TALK_TERMS = {
     "hi",
@@ -163,6 +201,8 @@ _SMALL_TALK_FOLLOW_UPS = (
 def _is_small_talk_message(text: str) -> bool:
     """Return ``True`` when the user greets or requests generic help."""
 
+    if not _SMALL_TALK_ENABLED:
+        return False
     normalized = re.sub(r"[^a-zA-Z\s]", " ", (text or "").strip()).lower()
     normalized = re.sub(r"\s+", " ", normalized).strip()
     return normalized in _SMALL_TALK_TERMS
@@ -206,12 +246,19 @@ def _ensure_non_empty_answer(value: Optional[str], fallback: Optional[str] = Non
 def _strip_source_sections(text: Optional[str]) -> str:
     if not text:
         return ""
+
+    banned_prefixes = (
+        "sources:",
+        "why this answer",
+        "here's the best supported answer",
+        "here’s the best supported answer",
+    )
     lines = []
     skip_bullets = False
     for raw_line in (text or "").splitlines():
         line = raw_line.strip()
         lower = line.lower()
-        if lower.startswith("sources:") or lower.startswith("why this answer"):
+        if any(lower.startswith(prefix) for prefix in banned_prefixes):
             skip_bullets = True
             continue
         if skip_bullets:
@@ -222,8 +269,82 @@ def _strip_source_sections(text: Optional[str]) -> str:
                 continue
             skip_bullets = False
         lines.append(raw_line)
+
     cleaned = "\n".join(lines).strip()
+    if not cleaned:
+        return ""
+
+    def _scrub_inline_markers(value: str) -> str:
+        patterns = [
+            r"(?im)^[\s>*-]*why this answer:?\s*",
+            r"(?im)^[\s>*-]*sources:?\s*.*$",
+            r"(?im)^[\s>*-]*here['’]s the best supported answer:?\s*",
+        ]
+        for pattern in patterns:
+            value = re.sub(pattern, "", value)
+        return re.sub(r"\n{3,}", "\n\n", value)
+
+    cleaned = _scrub_inline_markers(cleaned).strip()
     return cleaned
+
+
+def _safe_header_payload(raw_value: Optional[str]) -> Dict[str, Any]:
+    if not raw_value:
+        return {}
+    text_value = str(raw_value or "").strip()
+    if not text_value:
+        return {}
+
+    def _attempt_json(candidate: bytes) -> Optional[Dict[str, Any]]:
+        try:
+            parsed = json.loads(candidate.decode("utf-8"))
+        except Exception:
+            return None
+        return parsed if isinstance(parsed, dict) else {"value": parsed}
+
+    direct = _attempt_json(text_value.encode("utf-8"))
+    if direct is not None:
+        return direct
+
+    try:
+        decoded = base64.b64decode(text_value)
+    except Exception:
+        return {}
+
+    for candidate in (decoded,):
+        parsed = _attempt_json(candidate)
+        if parsed is not None:
+            return parsed
+
+    try:
+        inflated = zlib.decompress(decoded)
+        parsed = _attempt_json(inflated)
+        if parsed is not None:
+            return parsed
+    except Exception:
+        pass
+
+    return {}
+
+
+def _collect_request_hints(flask_request) -> Dict[str, Any]:
+    hints: Dict[str, Any] = {}
+    if not hasattr(flask_request, "headers"):
+        return hints
+
+    header_map = {
+        "x-ask2-hints": "hints",
+        "x-ask2-meta": "meta",
+        "x-ask2-routing": "routing",
+    }
+
+    for header_name, target_key in header_map.items():
+        value = flask_request.headers.get(header_name)
+        payload = _safe_header_payload(value)
+        if payload:
+            hints[target_key] = payload
+
+    return hints
 
 
 def _extract_top_similarity(contexts: Optional[list]) -> Optional[float]:
@@ -247,7 +368,13 @@ def _extract_top_similarity(contexts: Optional[list]) -> Optional[float]:
     return compute_similarity(distance)
 
 
-def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] = None):
+def _call_route_ask2_facade(
+    question: str,
+    k_value,
+    *,
+    client_ip: Optional[str] = None,
+    header_hints: Optional[Dict[str, Any]] = None,
+):
     """Invoke the smart router with graceful fallbacks.
 
     Always returns ``(payload, 200)`` with a non-empty answer, list sources, and
@@ -290,9 +417,13 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] 
         meta_dict = dict(meta_raw) if isinstance(meta_raw, dict) else {}
         if extra_meta:
             meta_dict.update(extra_meta)
+        meta_dict.setdefault("inline_sources_enabled", _INLINE_SOURCES_ENABLED)
+        meta_dict.setdefault("small_talk_enabled", _SMALL_TALK_ENABLED)
         meta_dict["routing"] = routing
         meta_dict["k"] = sanitized_k
         meta_dict["latency_ms"] = latency_ms
+        if header_hints:
+            meta_dict.setdefault("request_hints", header_hints)
 
         top_similarity = _extract_top_similarity(contexts)
         floor_decision = "ok"
@@ -327,10 +458,13 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] 
                         fallback=INSUFFICIENT_CONTEXT_MESSAGE,
                     )
 
+        normalized_answer = _ensure_non_empty_answer(
+            answer_value, fallback=DEFAULT_EMPTY_ANSWER
+        )
+        normalized_answer = _strip_source_sections(normalized_answer)
+
         shaped = {
-            "answer": _strip_source_sections(
-                _ensure_non_empty_answer(answer_value, fallback=DEFAULT_EMPTY_ANSWER)
-            ),
+            "answer": normalized_answer,
             "sources": sources_list,
             "meta": meta_dict,
         }
@@ -1175,7 +1309,10 @@ def ask2():
         client_ip = forwarded.split(',')[0].strip()
     else:
         client_ip = request.remote_addr or 'unknown'
-    shaped, status = _call_route_ask2_facade(question, k_value, client_ip=client_ip)
+    header_hints = _collect_request_hints(request)
+    shaped, status = _call_route_ask2_facade(
+        question, k_value, client_ip=client_ip, header_hints=header_hints
+    )
     return jsonify(shaped), status
 
 
