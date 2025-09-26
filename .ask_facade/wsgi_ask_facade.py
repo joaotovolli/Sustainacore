@@ -1,5 +1,8 @@
 from importlib import import_module
 import json, urllib.request, urllib.error, urllib.parse
+import logging
+import os
+import subprocess
 from pathlib import Path
 import time
 from flask import request, jsonify
@@ -24,6 +27,28 @@ except Exception:  # pragma: no cover - safety net for bootstrap issues
     route_ask2 = None
 base_app = getattr(app_mod, "app", None)
 _MODULE_START_TS = time.time()
+
+
+def _detect_build_id() -> str:
+    repo_root = Path(__file__).resolve().parent.parent
+    env_override = os.getenv("SUSTAINACORE_BUILD_ID")
+    if env_override:
+        return env_override.strip()
+    try:
+        sha = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        if sha:
+            return sha
+    except Exception:
+        pass
+    return "unknown"
+
+
+_BUILD_ID = _detect_build_id()
+logging.getLogger("sustainacore.ask.facade").info("ask_facade startup build_id=%s", _BUILD_ID)
 
 def _shape(j):
     if not isinstance(j, dict):
@@ -225,4 +250,3 @@ if app:
         if uptime <= 0:
             uptime = 1e-6
         return jsonify({"uptime": float(uptime)})
-
