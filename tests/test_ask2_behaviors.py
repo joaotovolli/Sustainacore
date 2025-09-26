@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 from typing import Dict, Tuple
@@ -35,9 +36,19 @@ def _stub_route_raising(monkeypatch, exc: Exception):
     monkeypatch.setattr(ask_app, "_route_ask2", _inner)
 
 
-def _invoke_ask2(query: str, *, headers=None) -> Tuple[dict, int]:
+def _invoke_ask2(query: str, *, headers=None, method: str = "GET") -> Tuple[dict, int]:
     headers = headers or {}
-    with ask_app.app.test_request_context("/ask2", method="GET", query_string={"q": query}, headers=headers):
+    context_args = {
+        "path": "/ask2",
+        "method": method,
+        "headers": headers,
+    }
+    if method == "POST":
+        context_args["json"] = {"q": query}
+    else:
+        context_args["query_string"] = {"q": query}
+
+    with ask_app.app.test_request_context(**context_args):
         response, status = ask_app.ask2()
         assert isinstance(response, Response)
         return response.get_json(), status
@@ -57,10 +68,16 @@ def test_header_robustness(monkeypatch):
     assert isinstance(body["contexts"], list)
 
     body_with_headers, status_with_headers = _invoke_ask2(
-        "test question", headers={"X-Unexpected": "value", "X-Forwarded-For": "1.2.3.4"}
+        "test question",
+        headers={
+            "X-Unexpected": "value",
+            "X-Forwarded-For": "1.2.3.4",
+            "X-Ask2-Hints": json.dumps({"scope": "tech100"}),
+        },
     )
     assert status_with_headers == 200
     assert body_with_headers["answer"] == "Header path answer"
+    assert body_with_headers["meta"]["request_hints"]["hints"] == {"scope": "tech100"}
 
 
 def test_small_talk_short_circuit(monkeypatch):
@@ -73,11 +90,12 @@ def test_small_talk_short_circuit(monkeypatch):
         assert "Suggested follow-ups" in body["answer"]
         suggestion_lines = [line for line in body["answer"].splitlines() if line.startswith("- ")]
         assert 2 <= len(suggestion_lines) <= 4
+        assert body["meta"]["routing"] == "smalltalk"
 
 
 def test_sources_removed_from_answer(monkeypatch):
     payload = {
-        "answer": "Result\nWhy this answer:\n- detail\nSources:\n- one",
+        "answer": "Result\nWhy this answer:\n- detail\nSources:\n- one\nHere’s the best supported answer",
         "contexts": [{"title": "Doc", "score": 0.75}],
         "sources": [{"title": "Doc", "url": "https://example.com"}],
     }
@@ -87,6 +105,7 @@ def test_sources_removed_from_answer(monkeypatch):
     assert status == 200
     assert "Why this answer" not in body["answer"]
     assert "Sources:" not in body["answer"]
+    assert "Here’s the best supported answer" not in body["answer"]
     assert body["contexts"]
     assert body["sources"]
 

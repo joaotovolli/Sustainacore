@@ -18,7 +18,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 RETRIEVAL_TOP_K = max(8, int(os.getenv("RETRIEVAL_TOP_K", os.getenv("FUSION_TOPK_BASE", "8"))))
-SIMILARITY_FLOOR = float(os.getenv("SIMILARITY_FLOOR", "0.58"))
+SIMILARITY_FLOOR = float(os.getenv("SIMILARITY_FLOOR", "0.65"))
 SIMILARITY_FLOOR_MODE = os.getenv("SIMILARITY_FLOOR_MODE", "monitor").strip().lower()
 if SIMILARITY_FLOOR_MODE not in {"off", "monitor", "enforce"}:
     SIMILARITY_FLOOR_MODE = "monitor"
