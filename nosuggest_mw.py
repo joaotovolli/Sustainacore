@@ -7,14 +7,25 @@ SCFF_RE_LIST = [
     re.compile(r'^what\s+would\s+you\s+like\s+to\s+explore\?\s*$', re.I),
     re.compile(r'^(role|task|previous\s*answer|question\s*type|answer\s*style|rules?)\s*:', re.I),
 ]
+SOURCE_LINE_RE = re.compile(r'^\s*(sources?|why\s+this\s+answer)\s*[:：]', re.I)
 ALLOW_NORESULTS_MSG = os.getenv('NOSUGGEST_ALLOW_NORESULTS_MSG', '1') not in ('0','false','off')
 TOPMATCH_MAX = int(os.getenv('NOSUGGEST_MAX_MATCHES', '5'))
+
+
+def _flag_enabled(value: str, *, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "off", "no"}
+
+
+INLINE_SOURCES_ENABLED = _flag_enabled(os.getenv('INLINE_SOURCES'), default=False)
 def _strip_scaffold(text: str):
     if not isinstance(text, str): return text, False
     stripped = False; out = []
     for ln in text.splitlines():
         t = ln.strip()
         if CHIP_ROW_RE.match(t): stripped=True; continue
+        if not INLINE_SOURCES_ENABLED and SOURCE_LINE_RE.match(t): stripped=True; continue
         if any(rx.search(t) for rx in SCFF_RE_LIST): stripped=True; continue
         out.append(ln)
     cleaned = "\n".join(out).strip()
@@ -94,8 +105,15 @@ class NoSuggestMiddleware:
         finally:
             if hasattr(app_iter,'close'): app_iter.close()
         status=status_headers.get('status','200 OK')
-        headers=status_headers.get('headers',[])
-        hdrs=[(k.lower(),v) for (k,v) in headers]
+        headers_raw=status_headers.get('headers',[])
+        hdrs=[]
+        headers=[]
+        for item in headers_raw:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            k, v = item[0], item[1]
+            headers.append((k, v))
+            hdrs.append((str(k).lower(), v))
         ctype=next((v for (k,v) in hdrs if k=='content-type'), '')
         body=b''.join(body_chunks)
         add_headers=[]
@@ -119,7 +137,7 @@ class NoSuggestMiddleware:
                 if cleaned:
                     j=_mirror_answer(j, cleaned)
                     body=json.dumps(j, ensure_ascii=False).encode('utf-8')
-                    headers=[(k,v) for (k,v) in headers if k.lower()!='content-length']
+                    headers=[(k,v) for (k,v) in headers if str(k).lower()!='content-length']
                     headers.append(('Content-Length', str(len(body))))
             except Exception:
                 pass

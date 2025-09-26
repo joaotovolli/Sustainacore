@@ -1,7 +1,16 @@
-import io, json
+import io, json, os
 from smalltalk import smalltalk_response
 
 ALT_KEYS = ("question","q","message","text","prompt","input")
+
+
+def _flag_enabled(value: str, *, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "off", "no"}
+
+
+SMALL_TALK_ENABLED = _flag_enabled(os.getenv("SMALL_TALK"), default=True)
 
 class SmalltalkMiddleware:
     def __init__(self, app):
@@ -10,9 +19,6 @@ class SmalltalkMiddleware:
     def __call__(self, environ, start_response):
         try:
             path = environ.get("PATH_INFO", "")
-            if path == "/ask2":
-                return self.app(environ, start_response)
-
             method = environ.get("REQUEST_METHOD", "GET")
             if method in ("POST", "GET"):
                 # Read request body (and re-inject if we don't short-circuit)
@@ -46,13 +52,14 @@ class SmalltalkMiddleware:
                             q = v
                             break
 
-                if q:
+                if q and SMALL_TALK_ENABLED:
                     resp = smalltalk_response(q)
                     if resp:
                         payload = json.dumps(resp).encode("utf-8")
                         start_response("200 OK", [
                             ("Content-Type", "application/json; charset=utf-8"),
                             ("Content-Length", str(len(payload))),
+                            ("X-Smalltalk-Handled", path or "/"),
                         ])
                         return [payload]
 

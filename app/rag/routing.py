@@ -16,6 +16,34 @@ HIGH_OK = float(os.getenv("RAG_HIGH_OK", "0.70"))
 GEMINI_TIMEOUT = float(os.getenv("RAG_GEMINI_TIMEOUT", "8"))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-pro")
 
+
+def _flag_enabled(value: Optional[str], *, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "off", "no"}
+
+
+SMALL_TALK_ENABLED = _flag_enabled(os.getenv("SMALL_TALK"), default=True)
+INLINE_SOURCES_ENABLED = _flag_enabled(os.getenv("INLINE_SOURCES"), default=False)
+SIMILARITY_FLOOR_MODE = (os.getenv("SIMILARITY_FLOOR_MODE") or "monitor").strip().lower()
+if SIMILARITY_FLOOR_MODE not in {"monitor", "enforce", "off"}:
+    SIMILARITY_FLOOR_MODE = "monitor"
+
+
+def _parse_floor(value: Optional[str], default: float) -> float:
+    try:
+        floor = float(value)
+    except (TypeError, ValueError):
+        floor = default
+    if floor < 0.0:
+        floor = 0.0
+    if floor > 1.0:
+        floor = 1.0
+    return round(floor, 4)
+
+
+SIMILARITY_FLOOR = _parse_floor(os.getenv("SIMILARITY_FLOOR"), default=0.35)
+
 SMALLTALK_RE = re.compile(
     r"^\s*(?:hi|hello|hey|hola|howdy|yo|sup|thanks|thank you|thank you so much|thanks a lot|"
     r"thank you very much|good morning|good afternoon|good evening|good day|bye|goodbye|"
@@ -73,6 +101,9 @@ SMALLTALK_FALLBACK = (
 EMPTY_QUERY_MESSAGE = (
     "Please share a Sustainacore question or topic so I can help."
 )
+
+INLINE_SECTION_HEADER_RE = re.compile(r"^(sources?|why\s+this\s+answer)\s*[:：]", re.I)
+INLINE_BULLET_RE = re.compile(r"^\s*[-•]", re.UNICODE)
 
 VectorSearchFn = Callable[[str, int], List[Dict[str, Any]]]
 GeminiFn = Callable[[str, Optional[float], Optional[str]], Optional[str]]
@@ -313,6 +344,33 @@ def _high_conf_answer(query: str, hits: Sequence[Dict[str, Any]], gemini_fn: Opt
     return fallback.strip(), False
 
 
+def _strip_inline_sections(text: str) -> str:
+    if not text:
+        return ""
+    lines = text.splitlines()
+    cleaned: List[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if INLINE_SECTION_HEADER_RE.match(stripped):
+            skipping = True
+            continue
+        if skipping:
+            if not stripped or INLINE_BULLET_RE.match(stripped):
+                continue
+            skipping = False
+        if not skipping:
+            cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
+def _finalize_answer(answer: str) -> str:
+    text = (answer or "").strip()
+    if not INLINE_SOURCES_ENABLED:
+        text = _strip_inline_sections(text)
+    return text
+
+
 def route_ask2(
     query: str,
     k: Any = None,
@@ -323,20 +381,26 @@ def route_ask2(
     """Main routing entry point used by the Flask facade."""
 
     q = _strip(query)
-    if not q:
-        return {
-            "answer": EMPTY_QUERY_MESSAGE,
-            "sources": [],
-            "meta": {"routing": "empty", "top_score": None, "gemini_used": False, "k": _sanitize_k(k)},
-        }
-
     sanitized_k = _sanitize_k(k)
-    meta: Dict[str, Any] = {"routing": "", "top_score": None, "gemini_used": False, "k": sanitized_k}
+    meta: Dict[str, Any] = {
+        "routing": "",
+        "top_score": None,
+        "gemini_used": False,
+        "k": sanitized_k,
+        "small_talk_enabled": SMALL_TALK_ENABLED,
+        "inline_sources_enabled": INLINE_SOURCES_ENABLED,
+        "similarity_floor_mode": SIMILARITY_FLOOR_MODE,
+        "similarity_floor": SIMILARITY_FLOOR,
+    }
 
-    if _is_smalltalk(q):
+    if not q:
+        meta.update({"routing": "empty"})
+        return {"answer": _finalize_answer(EMPTY_QUERY_MESSAGE), "sources": [], "meta": meta}
+
+    if SMALL_TALK_ENABLED and _is_smalltalk(q):
         answer, used = _smalltalk_answer(q, gemini_fn)
         meta.update({"routing": "smalltalk", "top_score": None, "gemini_used": used})
-        return {"answer": answer, "sources": [], "meta": meta}
+        return {"answer": _finalize_answer(answer), "sources": [], "meta": meta}
 
     search_fn = vector_fn or vector_search
     hits = search_fn(q, sanitized_k)
@@ -344,17 +408,31 @@ def route_ask2(
     top_score = hits[0].get("score") if hits else None
     meta["top_score"] = top_score
 
+    floor_applicable = SIMILARITY_FLOOR_MODE in {"monitor", "enforce"}
+    if floor_applicable and top_score is not None and top_score < SIMILARITY_FLOOR:
+        meta.update(
+            {
+                "similarity_floor_triggered": True,
+                "similarity_floor_value": SIMILARITY_FLOOR,
+            }
+        )
+        if SIMILARITY_FLOOR_MODE == "enforce":
+            hits = []
+            sources = []
+            top_score = None
+            meta["top_score"] = None
+
     if not hits:
         answer, used = _no_hit_answer(q, gemini_fn)
         meta.update({"routing": "no_hit", "gemini_used": used})
-        return {"answer": answer, "sources": [], "meta": meta}
+        return {"answer": _finalize_answer(answer), "sources": [], "meta": meta}
 
     threshold = top_score or 0.0
     if threshold >= HIGH_OK:
         answer, used = _high_conf_answer(q, hits, gemini_fn)
         meta.update({"routing": "high_conf", "gemini_used": used})
-        return {"answer": answer, "sources": sources, "meta": meta}
+        return {"answer": _finalize_answer(answer), "sources": sources, "meta": meta}
 
     answer, used = _low_conf_answer(q, hits, gemini_fn)
     meta.update({"routing": "low_conf", "gemini_used": used})
-    return {"answer": answer, "sources": sources, "meta": meta}
+    return {"answer": _finalize_answer(answer), "sources": sources, "meta": meta}

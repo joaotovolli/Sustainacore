@@ -823,7 +823,15 @@ class MultiHitOrchestrator:
             # fall back to downstream as-is
             payload2 = payload; raw2 = _json.dumps(payload2).encode('utf-8')
             status, headers, data = _call_downstream_wsgipost(self.app, raw2, {'X-Orch':'bypass'})
-            headers = [(k,v) for (k,v) in headers if k.lower()!='content-length']
+            filtered = []
+            for item in headers:
+                if not isinstance(item, (list, tuple)) or len(item) < 2:
+                    continue
+                k, v = item[0], item[1]
+                if str(k).lower() == 'content-length':
+                    continue
+                filtered.append((k, v))
+            headers = filtered
             headers.append(('X-Orch','pass'))
             resp = _json.dumps(data, ensure_ascii=False).encode('utf-8')
             headers.append(('Content-Length', str(len(resp))))
@@ -854,7 +862,15 @@ class MultiHitOrchestrator:
         if not fused_lists:
             raw2 = _json.dumps({'question': q_in, 'top_k': payload.get('top_k', 8)}).encode('utf-8')
             status, headers, data = _call_downstream_wsgipost(self.app, raw2, {'X-Orch':'bypass'})
-            headers = [(k,v) for (k,v) in headers if k.lower()!='content-length']
+            filtered = []
+            for item in headers:
+                if not isinstance(item, (list, tuple)) or len(item) < 2:
+                    continue
+                k, v = item[0], item[1]
+                if str(k).lower() == 'content-length':
+                    continue
+                filtered.append((k, v))
+            headers = filtered
             headers.extend([('X-Intent', intent), ('X-Orch','fallback'), ('X-Hits', str(total_hits))])
             resp = _json.dumps(data, ensure_ascii=False).encode('utf-8')
             headers.append(('Content-Length', str(len(resp))))
