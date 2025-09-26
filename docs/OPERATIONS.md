@@ -20,7 +20,15 @@
 - Requests can override scope via query or JSON parameters: `docset`, `namespace`, `ticker`, or `company`.
 - Set `RETRIEVAL_SCOPING=off` to temporarily disable scoping if wider searches are required.
 - `RETRIEVAL_TOP_K` controls the initial candidate pool (defaults to 8). Increase cautiously if additional recall is required.
-- `SIMILARITY_FLOOR` (default 0.58) prevents low-signal matches. If the best score falls below the floor the service returns the “insufficient context” message instead of forcing an answer.
+- `SIMILARITY_FLOOR` (default 0.58) defines the similarity threshold used for retrieval quality checks.
+- `SIMILARITY_FLOOR_MODE` controls how the floor is applied:
+  - `off` — bypass the check entirely.
+  - `monitor` *(default)* — log when the top-1 score falls below the floor but continue returning the retrieved answer and contexts.
+  - `enforce` — replace low-similarity answers with the standard insufficient-context message and omit `contexts`/sources to avoid citing weak evidence.
+
+## Small-talk handling
+- `/ask2` now short-circuits greetings and simple help messages (`hi`, `hello`, `hey`, `thanks`, `thank you`, `help`, `goodbye`).
+- These requests return a short professional acknowledgement and 2–4 suggested follow-up prompts without calling retrieval or emitting `contexts`.
 
 ## Observability
 - Embedding parity, readiness results, and multi-hit orchestrator fallbacks emit structured logs (`sustainacore.embed`, `app.readyz`, `app.multihit`).

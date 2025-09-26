@@ -28,6 +28,7 @@ from retrieval.config import (
     RETRIEVAL_SCOPING_ENABLED,
     RETRIEVAL_TOP_K,
     SIMILARITY_FLOOR,
+    SIMILARITY_FLOOR_MODE,
 )
 from retrieval.scope import (
     compute_similarity,
@@ -143,7 +144,47 @@ try:
 except EmbedParityError as exc:  # pragma: no cover - fail-fast path
     raise
 
-_SMALLTALK_GREETING_RE = re.compile(r"^\s*(hi|hello|hey|hola|oi)\b", re.I)
+_SMALL_TALK_TERMS = {
+    "hi",
+    "hello",
+    "hey",
+    "thanks",
+    "thank you",
+    "help",
+    "goodbye",
+}
+_SMALL_TALK_FOLLOW_UPS = (
+    "Check whether a company is in the TECH100.",
+    "Ask for the latest TECH100 ranking for a company.",
+    "Request an ESG or AI governance summary.",
+)
+
+
+def _is_small_talk_message(text: str) -> bool:
+    """Return ``True`` when the user greets or requests generic help."""
+
+    normalized = re.sub(r"[^a-zA-Z\s]", " ", (text or "").strip()).lower()
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized in _SMALL_TALK_TERMS
+
+
+def _build_small_talk_answer(prefix: Optional[str] = None) -> str:
+    opening = (prefix or "Hello! I’m the Sustainacore assistant. How can I help today?").strip()
+    lines = [opening, "", "Suggested follow-ups:"]
+    for item in _SMALL_TALK_FOLLOW_UPS:
+        lines.append(f"- {item}")
+    return "\n".join(lines).strip()
+
+
+def _coerce_small_talk_text(candidate: Optional[object]) -> str:
+    if isinstance(candidate, str):
+        return candidate.strip()
+    if isinstance(candidate, dict):
+        for key in ("answer", "content", "message", "text"):
+            value = candidate.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
 
 DEFAULT_EMPTY_ANSWER = (
     "I couldn’t find Sustainacore documents for that yet.\n"
@@ -160,6 +201,50 @@ def _ensure_non_empty_answer(value: Optional[str], fallback: Optional[str] = Non
         return candidate
     fallback_text = (fallback or DEFAULT_EMPTY_ANSWER).strip()
     return fallback_text if fallback_text else DEFAULT_EMPTY_ANSWER
+
+
+def _strip_source_sections(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    lines = []
+    skip_bullets = False
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        lower = line.lower()
+        if lower.startswith("sources:") or lower.startswith("why this answer"):
+            skip_bullets = True
+            continue
+        if skip_bullets:
+            if not line:
+                skip_bullets = False
+                continue
+            if line.startswith("-") or line.startswith("•"):
+                continue
+            skip_bullets = False
+        lines.append(raw_line)
+    cleaned = "\n".join(lines).strip()
+    return cleaned
+
+
+def _extract_top_similarity(contexts: Optional[list]) -> Optional[float]:
+    if not contexts:
+        return None
+    candidate = contexts[0]
+    if not isinstance(candidate, dict):
+        return None
+    if candidate.get("score") is not None:
+        try:
+            return max(0.0, min(1.0, float(candidate["score"])))
+        except (TypeError, ValueError):
+            pass
+    for key in ("similarity", "confidence"):
+        if candidate.get(key) is not None:
+            try:
+                return max(0.0, min(1.0, float(candidate[key])))
+            except (TypeError, ValueError):
+                continue
+    distance = candidate.get("dist") or candidate.get("distance")
+    return compute_similarity(distance)
 
 
 def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] = None):
@@ -179,6 +264,9 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] 
         routing: str,
         answer_override: Optional[str] = None,
         extra_meta: Optional[dict] = None,
+        intent_label: str = "qa",
+        retrieval_skipped: bool = False,
+        include_contexts: bool = True,
     ):
         latency_ms = int((time.perf_counter() - started_at) * 1000)
 
@@ -206,25 +294,78 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] 
         meta_dict["k"] = sanitized_k
         meta_dict["latency_ms"] = latency_ms
 
+        top_similarity = _extract_top_similarity(contexts)
+        floor_decision = "ok"
+        allow_contexts = include_contexts
+
+        if allow_contexts:
+            if contexts:
+                if (
+                    top_similarity is not None
+                    and SIMILARITY_FLOOR_MODE != "off"
+                    and top_similarity < SIMILARITY_FLOOR
+                ):
+                    floor_decision = "below_floor"
+                    if SIMILARITY_FLOOR_MODE == "enforce":
+                        allow_contexts = False
+                        sources_list = []
+                        answer_value_local = _ensure_non_empty_answer(
+                            answer_override
+                            or INSUFFICIENT_CONTEXT_MESSAGE,
+                            fallback=INSUFFICIENT_CONTEXT_MESSAGE,
+                        )
+                        answer_value = answer_value_local
+                else:
+                    floor_decision = "ok"
+            else:
+                if SIMILARITY_FLOOR_MODE == "enforce":
+                    floor_decision = "below_floor"
+                    allow_contexts = False
+                    sources_list = []
+                    answer_value = _ensure_non_empty_answer(
+                        answer_override or INSUFFICIENT_CONTEXT_MESSAGE,
+                        fallback=INSUFFICIENT_CONTEXT_MESSAGE,
+                    )
+
         shaped = {
-            "answer": _ensure_non_empty_answer(answer_value, fallback=DEFAULT_EMPTY_ANSWER),
-            "contexts": contexts,
+            "answer": _strip_source_sections(
+                _ensure_non_empty_answer(answer_value, fallback=DEFAULT_EMPTY_ANSWER)
+            ),
             "sources": sources_list,
             "meta": meta_dict,
         }
+
+        if allow_contexts and intent_label == "qa":
+            shaped["contexts"] = contexts
+
+        _LOGGER.info(
+            "ask2_response intent=%s routing=%s top1=%s retrieval_skipped=%s floor_decision=%s",
+            intent_label,
+            routing,
+            "{:.3f}".format(top_similarity) if isinstance(top_similarity, float) else "None",
+            retrieval_skipped,
+            floor_decision,
+        )
+
         return shaped, 200
 
-    if _SMALLTALK_GREETING_RE.search(question_text):
+    if _is_small_talk_message(question_text):
         try:
             smalltalk_answer = smalltalk_response(question_text)
         except Exception:  # pragma: no cover - defensive fallback
             smalltalk_answer = None
-        payload = {
-            "answer": smalltalk_answer or "Hi there! How can I help with Sustainacore questions?",
-            "sources": [],
-            "contexts": [],
-        }
-        return _finalize(payload, routing="smalltalk")
+        base_text = _coerce_small_talk_text(smalltalk_answer)
+        answer_text = _build_small_talk_answer(base_text or None)
+        payload = {"answer": answer_text, "sources": []}
+        extra_meta = {"intent": "SMALL_TALK"}
+        return _finalize(
+            payload,
+            routing="smalltalk",
+            extra_meta=extra_meta,
+            intent_label="small_talk",
+            retrieval_skipped=True,
+            include_contexts=False,
+        )
 
     if (
         _gemini_run_pipeline is not None
@@ -260,6 +401,8 @@ def _call_route_ask2_facade(question: str, k_value, *, client_ip: Optional[str] 
             shaped = _route_ask2(question_text, sanitized_k)
             if isinstance(shaped, dict):
                 return _finalize(shaped, routing="legacy_router")
+        except ValueError as exc:
+            _LOGGER.warning("Legacy /ask2 router invalid hint; using fallback", exc_info=exc)
         except Exception as exc:  # pragma: no cover - defensive logging
             _LOGGER.exception("Legacy /ask2 router failed", exc_info=exc)
 
@@ -535,15 +678,11 @@ def compose_overview(entity, chunks, quotes):
     if mem: lines.append(f"TECH100 membership: Yes{f' (as of {asof})' if asof else ''}.")
     else:   lines.append("TECH100 membership: Not found in retrieved membership list.")
     if rnk: lines.append(f"Latest rank: {rnk}.")
-    why=[f"Source {i}: {q}" for i,q in quotes[:4]]
     src=sources_detailed(chunks)
-    out=[]
-    out.append(f"{entity}: overview from SustainaCore’s knowledge base")
-    out.extend("- "+w for w in lines)
-    if why:
-        out.append("Why this answer:")
-        out.extend("- "+w for w in why)
-    return "\n".join(out), src
+    heading=f"{entity}: overview from SustainaCore’s knowledge base"
+    details="\n".join("- "+w for w in lines)
+    body="\n".join(filter(None, [heading, details])).strip()
+    return body, src
 
 def compose_answer_baseline(intent, q, entities, chunks, quotes):
     if intent=="about":
@@ -567,25 +706,16 @@ def compose_answer_baseline(intent, q, entities, chunks, quotes):
         if intent=="rank":
             if rnk: lines.append(f"{entities[0]} latest TECH100 rank: {rnk}.")
             else:   lines.append("No clear rank found in retrieved context.")
-        why=[f"Source {i}: {q}" for i,q in quotes[:4]]
-        body="\n".join(lines + (["Why this answer:"]+[f"- {w}" for w in why] if why else []))
+        body="\n".join(lines).strip()
         return body, intent, sources_detailed(chunks)
-    bullets=[f"Source {i}: {q}" for i,q in quotes[:6]]
     head="Here’s the best supported answer from the retrieved sources."
-    body="\n".join([head] + (["Why this answer:"]+[f"- {b}" for b in bullets] if bullets else []))
+    body=head
     return body, "general", sources_detailed(chunks)
 
 def compose_answer(intent, q, entities, chunks, quotes):
     baseline, shape, sources = compose_answer_baseline(intent, q, entities, chunks, quotes)
     tailored = _tailor_with_gemini(q, intent, baseline, chunks, sources) if intent != "about" else baseline
     answer = tailored or baseline
-    if sources:
-        footer_lines = ["Sources:"] + ["• " + s["title"] + (f" — {s['url']}" if s.get("url") else "") for s in sources]
-        footer = "\n".join(footer_lines)
-        if answer:
-            answer = answer.rstrip() + "\n\n" + footer
-        else:
-            answer = footer
     return answer, shape, sources
 class NormalizeMiddleware:
     def __init__(self, app):
