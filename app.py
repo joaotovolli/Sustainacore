@@ -892,7 +892,40 @@ class OrchestrateMiddleware:
         quotes=extract_quotes(chunks, limit_words=60)
         intent=detect_intent(q, entities)
 
-        if (not chunks) or (entities and not any(entities[0].lower() in ( (c.get("title") or "").lower() + (c.get("chunk_text") or "").lower() ) for c in chunks)):
+        def _ctx_has_entity(ctx, normalized_ent):
+            if not normalized_ent:
+                return False
+            title = ctx.get("title") or ""
+            text = (
+                ctx.get("chunk_text")
+                or ctx.get("text")
+                or ctx.get("content")
+                or ctx.get("summary")
+                or ""
+            )
+            return _fuzzy_contains(title, normalized_ent) or _fuzzy_contains(text, normalized_ent)
+
+        normalized_entity = ""
+        if entities:
+            normalized_entity = _normalize_company_name(
+                _canonicalize_question_entity(entities[0])
+            )
+
+        membership_hit = False
+        if chunks and normalized_entity:
+            for ctx in chunks:
+                title = ctx.get("title") or ""
+                if "Membership › TECH100" in title and _fuzzy_contains(title, normalized_entity):
+                    membership_hit = True
+                    break
+
+        chunks_ok = bool(chunks)
+        if normalized_entity:
+            chunks_ok = any(_ctx_has_entity(ctx, normalized_entity) for ctx in chunks)
+            if not chunks_ok and membership_hit:
+                chunks_ok = True
+
+        if (not chunks) or not chunks_ok:
             ans=("I couldn’t find that in SustainaCore’s knowledge base.\n"
                  "- Scope: TECH100 companies and ESG/AI governance sources.\n"
                  "- Tip: try a company name or ask about TECH100 membership or latest rank.")
@@ -907,6 +940,10 @@ class OrchestrateMiddleware:
             return [data]
 
         answer, shape, sources_out = compose_answer(intent, q, entities, chunks, quotes)
+        if answer:
+            cleaned_answer, stripped_flag = _strip_scaffold(answer)
+            if stripped_flag and cleaned_answer:
+                answer = cleaned_answer
         payload={"answer": answer, "contexts": chunks, "mode":"simple", "sources": sources_out}
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8")
         hdrs=[("Content-Type","application/json"),
