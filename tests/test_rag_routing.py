@@ -4,6 +4,8 @@ import sys
 import types
 from pathlib import Path
 
+from retrieval.config import INSUFFICIENT_CONTEXT_MESSAGE
+
 # Ensure the legacy ``app`` module exposes the ``app.rag`` namespace without
 # importing heavy runtime dependencies.
 pkg_path = Path(__file__).resolve().parents[1] / "app"
@@ -101,10 +103,10 @@ def test_low_confidence_with_gemini():
         vector_fn=_stub_vector(hits),
         gemini_fn=_stub_gemini("Answer is inconclusive but here are options."),
     )
-    assert result["meta"]["routing"] == "low_conf"
-    assert result["meta"]["gemini_used"] is True
+    assert result["meta"]["routing"] == "insufficient_context"
+    assert result["meta"]["gemini_used"] is False
     assert result["meta"]["top_score"] == 0.4
-    assert len(result["sources"]) >= 1
+    assert result["sources"] == []
 
 
 def test_low_confidence_fallback():
@@ -117,11 +119,10 @@ def test_low_confidence_fallback():
         vector_fn=_stub_vector(hits),
         gemini_fn=_stub_gemini(None),
     )
-    assert result["meta"]["routing"] == "low_conf"
+    assert result["meta"]["routing"] == "insufficient_context"
     assert result["meta"]["gemini_used"] is False
-    assert "inconclusive" in result["answer"].lower()
-    assert "organization" in result["answer"].lower()
-    assert len(result["sources"]) == 1
+    assert result["answer"] == INSUFFICIENT_CONTEXT_MESSAGE
+    assert result["sources"] == []
 
 
 def test_high_confidence_with_gemini():
