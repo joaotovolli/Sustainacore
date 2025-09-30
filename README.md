@@ -1,107 +1,252 @@
-# SustainaCore Gateway
+# SustainaCore Gateway — `/ask2` (Oracle-First RAG, with Optional LLM/Gemini Layers)
 
-This repository exposes the `/ask2` entry-point that APEX uses to power the
-SustainaCore assistant. The service now runs a **Gemini-first retrieval and
-generation orchestration** while keeping Oracle Autonomous Database + 23ai
-vector search as the single system of record.
+This service powers the SustainaCore assistant endpoint **`/ask2`**, used by **Oracle APEX**.  
+**Current default:** **Oracle-first RAG** — retrieval and shaping are driven by Oracle Autonomous Database (23ai vector search) and lightweight Python glue.  
+Optional layers (feature-toggled): **LLM Refiner (OpenAI)**, **Ollama micro-orchestrator**, and a **Gemini gateway** you can enable when needed.
 
-## Gemini-First Orchestration
+---
 
-### Request Flow
+## TL;DR
 
-1. **Intent classification** – Every query is sent to Gemini via the CLI to
-   decide between `SMALL_TALK` and `INFO_REQUEST`.
-2. **Small talk** – Gemini produces a 1–2 sentence reply. No retrieval happens
-   and no citations are returned.
-3. **Grounded Q&A** – Gemini returns a retrieval plan (filters + 3–5 query
-   variants). The local Oracle retriever executes the plan, deduplicates and
-   diversifies the top results (≤2 chunks per source, ≤1 per URL, keep the later
-   duplicates). Gemini then composes the final answer with inline citations and
-   a cleaned `Sources` list.
+- **Contract (stable):** `POST /ask2` → `{ answer, sources, meta }`
+- **Default mode:** Oracle-first (no Gemini planning).  
+- **Optional:**  
+  - **LLM Refiner** (`ask2_llm_refiner.py`) — composes/compacts answer text over retrieved contexts (OpenAI).  
+  - **Ollama “micro”** (`ask2_llm_orchestrator.py`) — local LLM small-talk + safe synthesis.  
+  - **Gemini gateway** (`app/retrieval/*`) — intent/routing/planning if `GEMINI_FIRST_ENABLED=1`.  
+- **APEX integration:** call `/ask2` directly or via APEX proxy (recommended for CSP/rate-limits).
 
-### Oracle Retriever Contract
+---
 
-* **Inputs** – `filters` (strict metadata), `query_variants` (3–5 strings) and
-  `k` (default 24).
-* **Scope first** – Metadata filters are applied in SQL before the vector KNN
-  call.
-* **Vector search** – Executes `VECTOR_DISTANCE` over the `ESG_DOCS`
-  embedding column (MiniLM 384) using the cosine metric.
-* **Deduplication** – Canonical key is the lowercase of
-  `COALESCE(NORMALIZED_URL, SOURCE_ID, DOC_ID)`. Later duplicates override
-  earlier ones. Near-duplicates collapse when title + hash(first 200 chars)
-  match. Final payload is capped at 6 sources (8 internal facts) with ≤2
-  chunks per source and ≤1 per exact URL.
-* **Outputs** –
+## Architecture
 
-  ```json
-  {
-    "facts": [
-      {
-        "citation_id": "FCA_2024_Guidance",
-        "title": "…",
-        "source_name": "FCA",
-        "url": "https://…",
-        "date": "2024-11-18",
-        "snippet": "…"
-      }
-    ],
-    "context_note": "- filters applied: …\n- knn_top_k=24 → dedup=6 → final=6",
-    "latency_ms": 410,
-    "candidates": 24,
-    "deduped": 8
+APEX (Public UI)
+│ REST (JSON)
+▼
+Flask/FastAPI app
+├─ Oracle-first pipeline (default)
+│ 1) Normalize/guard question
+│ 2) Oracle 23ai: VECTOR(384) + KNN (COSINE/DOT)
+│ 3) Deduplicate, cap per source & per URL
+│ 4) Shape {answer, sources} (no hallucinations; “no answer” on low similarity)
+│
+├─ (Optional) LLM Refiner (OpenAI): tighten/compact answer over retrieved snippets
+├─ (Optional) Ollama micro-orchestrator: small-talk + JSON-safe synthesis
+└─ (Optional) Gemini gateway: intent/routing/planning (feature flag)
+
+yaml
+Copy code
+
+**Data store:** Oracle ADB 23ai tables with `VECTOR(384)` embeddings + KNN index; ESG/news/doc metadata; constraints and FT/context indexes for speed.
+
+---
+
+## Endpoints
+
+### `POST /ask2`
+**Request**
+```json
+{
+  "q": "Summarize TECH100 policy changes on AI governance since 2025-07",
+  "k": 24
+}
+Response
+
+json
+Copy code
+{
+  "answer": "TECH100 firms disclosed policy refreshes focused on model oversight and incident reporting. Examples include ...",
+  "sources": [
+    "Responsible AI — Company A (2025-08-12)",
+    "AI Governance Update — Company B (2025-07-30)"
+  ],
+  "meta": {
+    "k": 6,
+    "took_ms": 1280,
+    "model_info": {"embed": "AI$MINILM_L6_V2"}
   }
-  ```
+}
+GET /healthz
+Liveness/readiness (used by systemd and CI).
 
-### Output Schema
+Modes & Feature Flags
+Layer	File(s)	When to use	How to enable
+Oracle-first (default)	app.py, app/retrieval/oracle_retriever.py	Fast, deterministic, lowest cost	Do nothing (default path)
+LLM Refiner (OpenAI)	ask2_llm_refiner.py	Improve fluency/compactness of answer	Set OPENAI_API_KEY and run as WSGI middleware
+Ollama micro-orchestrator	ask2_llm_orchestrator.py	Local small-talk + safe synthesis	Set OLLAMA_URL and wrap app with middleware
+Gemini gateway	app/retrieval/*	Intent/routing/planning at front door	GEMINI_FIRST_ENABLED=1 (off by default)
 
-The Gemini composer returns only two customer-facing fields:
+Additional knobs (see Environment):
 
-* `answer` – short narrative with inline citations (`[citation_id]`).
-* `sources` – clean list formatted `Title — Publisher (Date)` (3–6 items,
-  deduplicated).
+Retrieval caps: RETRIEVER_MAX_FACTS, RETRIEVER_FACT_CAP, RETRIEVER_PER_SOURCE_CAP
 
-`meta` is preserved for APEX but contains only diagnostics (latency breakdowns,
-retriever context notes, debug toggles). Debug artifacts are available under
-`meta.debug` only when `SHOW_DEBUG_BLOCK=1`.
+KNN metric/K: ORACLE_KNN_METRIC (COSINE/DOT), ORACLE_KNN_K
 
-### Feature Flags
+Rate limits: ASK2_RATE_WINDOW, ASK2_RATE_MAX
 
-| Flag | Default | Purpose |
-| --- | --- | --- |
-| `GEMINI_FIRST_ENABLED` | `1` | Master switch. Flip to `0` to roll back to the pre-Gemini behaviour without redeploying. |
-| `SHOW_DEBUG_BLOCK` | `0` | Exposes `meta.debug` for the developer “Deep/Debug” toggle. Keep `0` in production. |
-| `ALLOW_HOP2` | `1` | Enables Gemini-requested second-hop retrieval when additional evidence is required. |
+Request Shaping & Dedup (Oracle-First)
+Scope-first SQL + KNN over VECTOR(384) embeddings.
 
-Rate limiting is controlled via `ASK2_RATE_WINDOW` (seconds) and
-`ASK2_RATE_MAX` (requests per window). Retrieval caps can be tuned with
-`RETRIEVER_MAX_FACTS`, `RETRIEVER_FACT_CAP`, and `RETRIEVER_PER_SOURCE_CAP`.
+Dedup rules:
 
-### Runbook
+Canonical key = lower(NORMALIZED_URL or SOURCE_ID or DOC_ID).
 
-* **Run locally**
+Later duplicates override earlier ones.
 
-  ```bash
-  uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
-  ```
+Near-dupe collapse on (title, hash(first 200 chars)).
 
-* **Acceptance checks** – Validate the membership, definition, and controversy
-  scenarios plus small-talk responses. Confirm deduplication by querying with
-  URLs that only differ by tracking parameters. Target end-to-end p50 latency is
-  ≤4.5s (Oracle ≤1.2s, Gemini compose ≤2.5s, remaining glue ≤0.8s).
+Final cap: ≤ 6 sources, ≤ 2 chunks per source, ≤ 1 per exact URL.
 
-* **Observability** – Every `/ask2` call logs intent, filters, K values, final
-  source counts, latency breakdowns, and hop counts. A daily “Top-10 Misses”
-  plus Gemini/Oracle usage snapshot is emitted at UTC midnight.
+Guardrails: If similarity below threshold → concise “no answer” response.
 
-* **Rollback** – Set `GEMINI_FIRST_ENABLED=0` and reload the service. The stack
-  will short-circuit the Gemini planner/composer while preserving the `/ask2`
-  contract.
+Environment
+Create and source an env file (never commit to Git):
 
-## Environment
+ini
+Copy code
+# --- Oracle ---
+DB_USER=...
+DB_PASS=...
+DB_DSN=dbri4x6_high
+TNS_ADMIN=/path/to/Wallet_dbRI4X6
+ORACLE_KNN_METRIC=COSINE
+ORACLE_KNN_K=24
+ORACLE_EMBED_MODEL=AI$MINILM_L6_V2
 
-Copy `config/env.sample` and adjust the Oracle wallet location, DB credentials,
-Gemini CLI binary, and API key for your environment. All Gemini interactions
-use the CLI (`gemini`), so make sure the binary is available on `$PATH` or
-override `GEMINI_BIN`.
+# --- Rate limits & caps ---
+ASK2_RATE_WINDOW=10
+ASK2_RATE_MAX=8
+RETRIEVER_MAX_FACTS=8
+RETRIEVER_FACT_CAP=6
+RETRIEVER_PER_SOURCE_CAP=2
 
+# --- Optional LLM Refiner (OpenAI) ---
+OPENAI_API_KEY=...
+SCAI_LLM_MODEL=gpt-4o-mini
+SCAI_LLM_MAX_TOKENS=700
+
+# --- Optional Ollama micro-orchestrator ---
+OLLAMA_URL=http://127.0.0.1:11434
+LLM_MODEL=llama3.1:8b
+
+# --- Optional Gemini gateway (OFF by default) ---
+GEMINI_FIRST_ENABLED=0
+GEMINI_API_KEY=...
+GEMINI_MODEL_INTENT=gemini-1.5-flash
+GEMINI_MODEL_COMPOSE=gemini-1.5-pro
+ASK2_LATENCY_BUDGET_MS=4500
+Local Dev
+bash
+Copy code
+python3 -m venv .venv && source .venv/bin/activate
+pip install -U pip && pip install -r requirements.txt
+
+# Export your env (see above), then:
+uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
+# or Flask entry for legacy routes:
+python app.py
+Smoke tests:
+
+bash
+Copy code
+pytest -q
+curl -s http://127.0.0.1:8080/healthz
+curl -s -X POST http://127.0.0.1:8080/ask2 -H "Content-Type: application/json" -d '{"q":"hello","k":8}'
+Deployment (VM + systemd)
+Copy code to /opt/sustainacore-ai/ and an env file with secrets (never in Git).
+
+Ensure Oracle Instant Client + Wallet on the VM (TNS_ADMIN).
+
+(Optional) Install Ollama/OpenAI/Gemini depending on your selected mode.
+
+Restart:
+
+bash
+Copy code
+sudo systemctl daemon-reload
+sudo systemctl restart sustainacore-ai.service
+sudo systemctl status sustainacore-ai.service --no-pager
+Verify:
+
+bash
+Copy code
+curl http://localhost:8080/healthz
+CORS: ask2_cors_mw.py reflects allowed origins; use the APEX proxy in production for CSP, quotas, and origin control.
+
+APEX Integration
+Direct call: REST data source calling /ask2.
+
+Proxy (recommended): APEX→Proxy Process→Gateway — centralizes CSP/rate-limits, hides VM endpoint, and simplifies key rotation.
+
+Render answer and the cleaned sources list; optionally toggle a debug region for meta during development.
+
+Agentic DevOps — Codex Cloud → GitHub → Codex CLI/VM
+Goal: Short, auditable iterations with automatic build/test/deploy, no secrets in Git.
+
+Operating model
+
+Codex Cloud
+
+You describe the change (scope + acceptance & rollback).
+
+Codex creates a short PR in GitHub (small diff, clear commit message).
+
+GitHub (source of truth)
+
+Repo layout:
+
+bash
+Copy code
+api/                  # FastAPI/Flask app + middlewares
+app/                  # Retrieval & routing packages
+db/                   # DDL, views (no data, no wallets)
+apex/                 # Dated APEX exports
+tools/, ops/scripts/  # VM deploy helpers
+tests/                # Contract & integration tests
+CI runs: lint, unit tests (pytest -q), basic contract tests for /ask2.
+
+Codex CLI on VM
+
+Applies the approved PR, runs ops/scripts/deploy_vm.sh, restarts systemd, posts logs.
+
+If a regression is detected, it proposes a rollback PR or toggles flags (e.g., GEMINI_FIRST_ENABLED=0) to keep /ask2 contract green.
+
+Ground rules
+
+No secrets/wallets in Git. Use systemd env files & APEX Web Credentials.
+
+Always include Acceptance & Rollback notes in each PR description.
+
+Prefer new PRs over reopening conflicted ones; keep diffs small and reviewable.
+
+Keep APEX exports date-stamped; DB DDL idempotent; tests fast.
+
+Agent crib sheet (same as AGENTS.md)
+
+Build: python3 -m venv .venv && source .venv/bin/activate && pip -U pip wheel && pip -r requirements.txt && pytest -q || true
+
+Run (dev): uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
+
+Deploy (VM): ops/scripts/deploy_vm.sh
+
+Security
+Public endpoints are read-only; ingestion, if any, is key-gated.
+
+Strict CORS and APEX proxy recommended for production.
+
+On low similarity or empty evidence, the service declines to answer.
+
+Troubleshooting
+DB connectivity: check TNS_ADMIN, DB_DSN, wallet ACLs, listener reachability.
+
+Slow answers: verify KNN index, caps (RETRIEVER_*), and dedup rules; avoid over-K.
+
+LLM timeouts: disable refiner, fall back to Oracle-first (toggle off LLM/Gemini).
+
+Conflicts in Git: abandon conflicted PR, open a fresh short PR with Codex Cloud.
+
+License
+TBD (MIT/Apache-2.0 recommended).
+
+bash
+Copy code
