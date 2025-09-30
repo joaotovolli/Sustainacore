@@ -1,59 +1,61 @@
-# SustainaCore Gateway — `/ask2` (Oracle-First RAG, with Optional LLM/Gemini Layers)
+# SustainaCore Gateway — `/ask2`
 
-This service powers the SustainaCore assistant endpoint **`/ask2`**, used by **Oracle APEX**.  
-**Current default:** **Oracle-first RAG** — retrieval and shaping are driven by Oracle Autonomous Database (23ai vector search) and lightweight Python glue.  
-Optional layers (feature-toggled): **LLM Refiner (OpenAI)**, **Ollama micro-orchestrator**, and a **Gemini gateway** you can enable when needed.
+The SustainaCore Gateway is the production entry point for APEX experiences that rely on the `/ask2` retrieval augmented generation (RAG) service. The default pipeline is **Oracle-first**: question normalization, similarity search, and answer shaping are executed inside Oracle Autonomous Database 23ai with a thin Python layer for orchestration. Optional feature flags let you introduce downstream LLM refiners, small‑talk orchestration, or Gemini planning when you need additional polish.
 
 ---
 
-## TL;DR
+## Quick Reference
 
-- **Contract (stable):** `POST /ask2` → `{ answer, sources, meta }`
-- **Default mode:** Oracle-first (no Gemini planning).  
-- **Optional:**  
-  - **LLM Refiner** (`ask2_llm_refiner.py`) — composes/compacts answer text over retrieved contexts (OpenAI).  
-  - **Ollama “micro”** (`ask2_llm_orchestrator.py`) — local LLM small-talk + safe synthesis.  
-  - **Gemini gateway** (`app/retrieval/*`) — intent/routing/planning if `GEMINI_FIRST_ENABLED=1`.  
-- **APEX integration:** call `/ask2` directly or via APEX proxy (recommended for CSP/rate-limits).
+| Contract | `POST /ask2` → `{ answer, sources, meta }` |
+| --- | --- |
+| Default mode | Oracle-first pipeline (no Gemini planning) |
+| Optional layers | LLM Refiner (OpenAI), Ollama "micro" orchestrator, Gemini intent/routing gateway |
+| Primary client | Oracle APEX (direct call or APEX proxy) |
+
+### Why you might enable optional layers
+
+- **LLM Refiner (`ask2_llm_refiner.py`)** – tightens tone and compactness over Oracle-retrieved snippets (OpenAI powered).
+- **Ollama micro-orchestrator (`ask2_llm_orchestrator.py`)** – injects small-talk and safe JSON synthesis through a local Ollama runtime.
+- **Gemini gateway (`app/retrieval/*`)** – adds intent classification, routing, and multi-tool planning (`GEMINI_FIRST_ENABLED=1`).
 
 ---
 
-## Architecture
+## Architecture at a Glance
 
+```
 APEX (Public UI)
 │ REST (JSON)
 ▼
-Flask/FastAPI app
+Flask / FastAPI app
 ├─ Oracle-first pipeline (default)
-│ 1) Normalize/guard question
-│ 2) Oracle 23ai: VECTOR(384) + KNN (COSINE/DOT)
-│ 3) Deduplicate, cap per source & per URL
-│ 4) Shape {answer, sources} (no hallucinations; “no answer” on low similarity)
+│ 1. Normalize + guard the incoming question
+│ 2. Oracle 23ai VECTOR(384) + KNN (COSINE or DOT)
+│ 3. Deduplicate hits; cap per source + per URL
+│ 4. Shape `{answer, sources}` (decline gracefully on low similarity)
 │
-├─ (Optional) LLM Refiner (OpenAI): tighten/compact answer over retrieved snippets
-├─ (Optional) Ollama micro-orchestrator: small-talk + JSON-safe synthesis
-└─ (Optional) Gemini gateway: intent/routing/planning (feature flag)
+├─ (Optional) LLM Refiner — OpenAI completion over retrieved context
+├─ (Optional) Ollama micro-orchestrator — small-talk + JSON safety layer
+└─ (Optional) Gemini gateway — intent/routing/planning when flagged on
+```
 
-yaml
-Copy code
-
-**Data store:** Oracle ADB 23ai tables with `VECTOR(384)` embeddings + KNN index; ESG/news/doc metadata; constraints and FT/context indexes for speed.
+**Primary datastore**: Oracle Autonomous Database 23ai with `VECTOR(384)` embeddings, KNN index, ESG/news/document metadata, plus FT/context indexes.
 
 ---
 
-## Endpoints
+## API
 
 ### `POST /ask2`
+
 **Request**
 ```json
 {
   "q": "Summarize TECH100 policy changes on AI governance since 2025-07",
   "k": 24
 }
-Response
+```
 
-json
-Copy code
+**Response**
+```json
 {
   "answer": "TECH100 firms disclosed policy refreshes focused on model oversight and incident reporting. Examples include ...",
   "sources": [
@@ -66,44 +68,41 @@ Copy code
     "model_info": {"embed": "AI$MINILM_L6_V2"}
   }
 }
-GET /healthz
-Liveness/readiness (used by systemd and CI).
+```
 
-Modes & Feature Flags
-Layer	File(s)	When to use	How to enable
-Oracle-first (default)	app.py, app/retrieval/oracle_retriever.py	Fast, deterministic, lowest cost	Do nothing (default path)
-LLM Refiner (OpenAI)	ask2_llm_refiner.py	Improve fluency/compactness of answer	Set OPENAI_API_KEY and run as WSGI middleware
-Ollama micro-orchestrator	ask2_llm_orchestrator.py	Local small-talk + safe synthesis	Set OLLAMA_URL and wrap app with middleware
-Gemini gateway	app/retrieval/*	Intent/routing/planning at front door	GEMINI_FIRST_ENABLED=1 (off by default)
+### `GET /healthz`
+Simple readiness/liveness endpoint (used by CI and systemd).
 
-Additional knobs (see Environment):
+---
 
-Retrieval caps: RETRIEVER_MAX_FACTS, RETRIEVER_FACT_CAP, RETRIEVER_PER_SOURCE_CAP
+## Modes, Feature Flags, and Tuning
 
-KNN metric/K: ORACLE_KNN_METRIC (COSINE/DOT), ORACLE_KNN_K
+| Layer | Files | When to use | How to enable |
+| --- | --- | --- | --- |
+| Oracle-first (default) | `app.py`, `app/retrieval/oracle_retriever.py` | Fastest, deterministic baseline | Enabled automatically |
+| LLM Refiner (OpenAI) | `ask2_llm_refiner.py` | Improve fluency/compactness of answers | Export `OPENAI_API_KEY` and wrap as WSGI middleware |
+| Ollama micro-orchestrator | `ask2_llm_orchestrator.py` | Local small-talk + guarded synthesis | Provide `OLLAMA_URL`, apply middleware |
+| Gemini gateway | `app/retrieval/*` | Intent routing & planning | Set `GEMINI_FIRST_ENABLED=1` |
 
-Rate limits: ASK2_RATE_WINDOW, ASK2_RATE_MAX
+**Retrieval knobs**
+- `RETRIEVER_MAX_FACTS`, `RETRIEVER_FACT_CAP`, `RETRIEVER_PER_SOURCE_CAP`
+- `ORACLE_KNN_METRIC` (`COSINE` or `DOT`), `ORACLE_KNN_K`
+- Rate limiting: `ASK2_RATE_WINDOW`, `ASK2_RATE_MAX`
 
-Request Shaping & Dedup (Oracle-First)
-Scope-first SQL + KNN over VECTOR(384) embeddings.
+**Deduplication policy**
+- Canonical key = lower(`NORMALIZED_URL` or `SOURCE_ID` or `DOC_ID`).
+- Later duplicates override earlier ones.
+- Near-dupe collapse on `(title, hash(first 200 chars))`.
+- Final response cap: ≤ 6 sources, ≤ 2 chunks per source, ≤ 1 per exact URL.
+- Guardrail: low similarity ⇒ concise "no answer" message.
 
-Dedup rules:
+---
 
-Canonical key = lower(NORMALIZED_URL or SOURCE_ID or DOC_ID).
+## Environment Configuration
 
-Later duplicates override earlier ones.
+Create a local env file (never commit to Git) and source it before running the service:
 
-Near-dupe collapse on (title, hash(first 200 chars)).
-
-Final cap: ≤ 6 sources, ≤ 2 chunks per source, ≤ 1 per exact URL.
-
-Guardrails: If similarity below threshold → concise “no answer” response.
-
-Environment
-Create and source an env file (never commit to Git):
-
-ini
-Copy code
+```ini
 # --- Oracle ---
 DB_USER=...
 DB_PASS=...
@@ -135,118 +134,105 @@ GEMINI_API_KEY=...
 GEMINI_MODEL_INTENT=gemini-1.5-flash
 GEMINI_MODEL_COMPOSE=gemini-1.5-pro
 ASK2_LATENCY_BUDGET_MS=4500
-Local Dev
-bash
-Copy code
-python3 -m venv .venv && source .venv/bin/activate
-pip install -U pip && pip install -r requirements.txt
+```
 
-# Export your env (see above), then:
-uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
-# or Flask entry for legacy routes:
-python app.py
-Smoke tests:
+---
 
-bash
-Copy code
-pytest -q
-curl -s http://127.0.0.1:8080/healthz
-curl -s -X POST http://127.0.0.1:8080/ask2 -H "Content-Type: application/json" -d '{"q":"hello","k":8}'
-Deployment (VM + systemd)
-Copy code to /opt/sustainacore-ai/ and an env file with secrets (never in Git).
+## Local Development
 
-Ensure Oracle Instant Client + Wallet on the VM (TNS_ADMIN).
+1. **Bootstrap**
+   ```bash
+   python3 -m venv .venv && source .venv/bin/activate
+   pip install -U pip
+   pip install -r requirements.txt
+   ```
+2. **Run the service**
+   ```bash
+   uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
+   # or legacy Flask entrypoint
+   python app.py
+   ```
+3. **Smoke tests**
+   ```bash
+   pytest -q
+   curl -s http://127.0.0.1:8080/healthz
+   curl -s -X POST http://127.0.0.1:8080/ask2 \
+     -H "Content-Type: application/json" \
+     -d '{"q":"hello","k":8}'
+   ```
 
-(Optional) Install Ollama/OpenAI/Gemini depending on your selected mode.
+---
 
-Restart:
+## Deployment (VM + systemd)
 
-bash
-Copy code
-sudo systemctl daemon-reload
-sudo systemctl restart sustainacore-ai.service
-sudo systemctl status sustainacore-ai.service --no-pager
-Verify:
+1. Copy the repository into `/opt/sustainacore-ai/` and configure a local env file with secrets (do **not** commit secrets).
+2. Ensure Oracle Instant Client + wallet assets (via `TNS_ADMIN`) are present.
+3. Optionally install dependencies for OpenAI, Ollama, or Gemini modes.
+4. Restart the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl restart sustainacore-ai.service
+   sudo systemctl status sustainacore-ai.service --no-pager
+   ```
+5. Verify:
+   ```bash
+   curl http://localhost:8080/healthz
+   ```
 
-bash
-Copy code
-curl http://localhost:8080/healthz
-CORS: ask2_cors_mw.py reflects allowed origins; use the APEX proxy in production for CSP, quotas, and origin control.
+**CORS**: `ask2_cors_mw.py` defines allowed origins. In production prefer the APEX proxy to centralize CSP, quotas, and origin controls.
 
-APEX Integration
-Direct call: REST data source calling /ask2.
+---
 
-Proxy (recommended): APEX→Proxy Process→Gateway — centralizes CSP/rate-limits, hides VM endpoint, and simplifies key rotation.
+## APEX Integration Tips
 
-Render answer and the cleaned sources list; optionally toggle a debug region for meta during development.
+- Direct mode: create a REST data source that points at `/ask2`.
+- Proxy mode (recommended): APEX → Proxy Process → Gateway. This keeps CSP and rate limits centralized, hides VM endpoints, and simplifies key rotation.
+- Render answers plus the sanitized source list. A debug region showing `meta` is handy during development.
 
-Agentic DevOps — Codex Cloud → GitHub → Codex CLI/VM
-Goal: Short, auditable iterations with automatic build/test/deploy, no secrets in Git.
+---
 
-Operating model
+## Agentic DevOps Flow
 
-Codex Cloud
+Short iterations keep `/ask2` reliable:
 
-You describe the change (scope + acceptance & rollback).
+1. **Codex Cloud** – describe the change (scope, acceptance, rollback). A focused PR is generated.
+2. **GitHub** – single source of truth. CI runs linting, `pytest -q`, and basic `/ask2` contract tests.
+3. **Codex CLI on the VM** – applies the PR, executes `ops/scripts/deploy_vm.sh`, restarts systemd, and posts logs.
+4. On regression: create a rollback PR or toggle safety flags (e.g., `GEMINI_FIRST_ENABLED=0`).
 
-Codex creates a short PR in GitHub (small diff, clear commit message).
-
-GitHub (source of truth)
-
-Repo layout:
-
-bash
-Copy code
+**Repo layout**
+```
 api/                  # FastAPI/Flask app + middlewares
 app/                  # Retrieval & routing packages
-db/                   # DDL, views (no data, no wallets)
 apex/                 # Dated APEX exports
-tools/, ops/scripts/  # VM deploy helpers
+db/                   # DDL, views (no data, no wallets)
+ops/, tools/          # VM deployment helpers
 tests/                # Contract & integration tests
-CI runs: lint, unit tests (pytest -q), basic contract tests for /ask2.
+```
 
-Codex CLI on VM
+**Ground rules**
+- Never commit secrets or wallet bundles.
+- Every PR description should carry Acceptance + Rollback notes.
+- Prefer new, reviewable PRs over reopening conflicted ones.
+- Keep APEX exports date-stamped; ensure DB DDL is idempotent; keep tests quick.
 
-Applies the approved PR, runs ops/scripts/deploy_vm.sh, restarts systemd, posts logs.
+---
 
-If a regression is detected, it proposes a rollback PR or toggles flags (e.g., GEMINI_FIRST_ENABLED=0) to keep /ask2 contract green.
+## Security & Troubleshooting
 
-Ground rules
+**Security posture**
+- Public endpoints are read-only; ingestion endpoints remain key-gated.
+- Enforce CORS via the middleware and lean on the APEX proxy in production.
+- Low similarity signals trigger a concise "no answer" response to avoid hallucinations.
 
-No secrets/wallets in Git. Use systemd env files & APEX Web Credentials.
+**Troubleshooting checklist**
+- **Oracle connectivity**: confirm `TNS_ADMIN`, `DB_DSN`, wallet ACLs, and listener reachability.
+- **Slow answers**: validate the KNN index, retrieval caps, and dedup policy; avoid excessive `k` values.
+- **LLM timeouts**: disable refiners and fall back to Oracle-first while investigating.
+- **Git conflicts**: abandon conflicted PRs and raise a fresh, small diff.
 
-Always include Acceptance & Rollback notes in each PR description.
+---
 
-Prefer new PRs over reopening conflicted ones; keep diffs small and reviewable.
+## License
 
-Keep APEX exports date-stamped; DB DDL idempotent; tests fast.
-
-Agent crib sheet (same as AGENTS.md)
-
-Build: python3 -m venv .venv && source .venv/bin/activate && pip -U pip wheel && pip -r requirements.txt && pytest -q || true
-
-Run (dev): uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
-
-Deploy (VM): ops/scripts/deploy_vm.sh
-
-Security
-Public endpoints are read-only; ingestion, if any, is key-gated.
-
-Strict CORS and APEX proxy recommended for production.
-
-On low similarity or empty evidence, the service declines to answer.
-
-Troubleshooting
-DB connectivity: check TNS_ADMIN, DB_DSN, wallet ACLs, listener reachability.
-
-Slow answers: verify KNN index, caps (RETRIEVER_*), and dedup rules; avoid over-K.
-
-LLM timeouts: disable refiner, fall back to Oracle-first (toggle off LLM/Gemini).
-
-Conflicts in Git: abandon conflicted PR, open a fresh short PR with Codex Cloud.
-
-License
-TBD (MIT/Apache-2.0 recommended).
-
-bash
-Copy code
+License TBD (MIT or Apache-2.0 recommended).
