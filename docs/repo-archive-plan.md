@@ -20,6 +20,7 @@ Search excluded .git, .github, and archive directories.
 | `app.py.2025-09-09-183036.bak` | 29452 | 0 | Move to archive/code_backups/ |
 | `app.py.2025-09-09-213710.bak` | 26837 | 0 | Move to archive/code_backups/ |
 | `app.py.2025-09-09-213920.bak` | 27803 | 0 | Move to archive/code_backups/ |
+
 | `app.py.bak.20250829175041` | 5061 | 0 | Move to archive/code_backups/ |
 
 ## Deferred items (outside allowed extensions)
@@ -48,3 +49,4 @@ The following dated snapshots end with the `.pre-YYYY-MM-DD-hhmmss` suffix. They
 | `app.py.pre-2025-08-31-204618` | 30584 | 0 | Extension `.pre-…` not in approved move list |
 
 If the archive policy expands to include `.pre` snapshots, re-run the zero-reference search to relocate them safely.
+
