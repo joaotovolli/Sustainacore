@@ -21,4 +21,3 @@ Search excluded .git, .github, and archive directories.
 | `app.py.2025-09-09-213710.bak` | 26837 | 0 | Move to archive/code_backups/ |
 | `app.py.2025-09-09-213920.bak` | 27803 | 0 | Move to archive/code_backups/ |
 
-No deferred items; all listed files have zero in-repo references.
