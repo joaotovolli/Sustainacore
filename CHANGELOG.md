@@ -1,16 +1,16 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+## [Unreleased]
+- Repository hygiene improvements and documentation refresh.
+- Archive catalog established for dated binary artifacts.
+
 ## 2025-09-10 – Gemini-first orchestration
+- Added Gemini CLI planning + composition as the only generation path.
+- Implemented Oracle 23ai retriever with filter-first vector search, aggressive deduplication, and clean citation payloads.
+- Introduced per-request telemetry, daily Top-10 Miss reports, and IP rate limiting.
+- Updated `/ask2` output schema to `answer + sources` with developer diagnostics in `meta.debug` only.
+- Documented configuration, feature flags, and runbook in the new README.
 
-* Added Gemini CLI planning + composition as the only generation path.
-* Implemented Oracle 23ai retriever with filter-first vector search, aggressive
-  deduplication, and clean citation payloads.
-* Introduced per-request telemetry, daily Top-10 Miss reports, and IP rate
-  limiting.
-* Updated `/ask2` output schema to `answer + sources` with developer diagnostics
-  in `meta.debug` only.
-* Documented configuration, feature flags, and runbook in the new README.
-
-**Rollback:** set `GEMINI_FIRST_ENABLED=0` and reload the service to return to
-the previous behaviour without redeploying code.
-
+**Rollback:** set `GEMINI_FIRST_ENABLED=0` and reload the service to return to the previous behaviour without redeploying code.
