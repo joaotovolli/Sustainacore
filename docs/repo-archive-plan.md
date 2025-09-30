@@ -20,8 +20,4 @@ Search excluded .git, .github, and archive directories.
 | `app.py.2025-09-09-183036.bak` | 29452 | 0 | Move to archive/code_backups/ |
 | `app.py.2025-09-09-213710.bak` | 26837 | 0 | Move to archive/code_backups/ |
 | `app.py.2025-09-09-213920.bak` | 27803 | 0 | Move to archive/code_backups/ |
-| `app.py.bak.20250829175041` | 5061 | 0 | Move to archive/code_backups/ |
 
-No deferred items; all listed files have zero in-repo references.
-
-Additional dated artifacts such as `app.py.pre-2025-08-31-*` were reviewed. Their `.pre` suffix falls outside the allowed archive extensions, so they remain in place while retaining the option to revisit if the policy expands.
