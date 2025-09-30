@@ -21,3 +21,32 @@ Search excluded .git, .github, and archive directories.
 | `app.py.2025-09-09-213710.bak` | 26837 | 0 | Move to archive/code_backups/ |
 | `app.py.2025-09-09-213920.bak` | 27803 | 0 | Move to archive/code_backups/ |
 
+| `app.py.bak.20250829175041` | 5061 | 0 | Move to archive/code_backups/ |
+
+## Deferred items (outside allowed extensions)
+
+The following dated snapshots end with the `.pre-YYYY-MM-DD-hhmmss` suffix. They have zero references in the repository, but their `.pre` suffix is outside the allowed archive extensions from the hygiene plan, so they remain in place for now.
+
+| File | Size (bytes) | References | Reason |
+| --- | ---: | --- | --- |
+| `app.py.pre-2025-08-31-095851` | 30569 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-100454` | 30569 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-114038` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-120205` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-120513` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-175223` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-175257` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-175601` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-175717` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-175954` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-182519` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-182915` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-191340` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-191842` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-192220` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-193134` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-193459` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+| `app.py.pre-2025-08-31-204618` | 30584 | 0 | Extension `.pre-…` not in approved move list |
+
+If the archive policy expands to include `.pre` snapshots, re-run the zero-reference search to relocate them safely.
+
