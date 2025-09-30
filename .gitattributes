@@ -1,0 +1,11 @@
+archive/** linguist-vendored
+releases/** linguist-vendored
+*.zip binary
+*.tgz binary
+*.gz  binary
+*.7z  binary
+*.tar binary
+*.tar.gz binary
+*.dmp binary
+*.dump binary
+*.pdf binary
