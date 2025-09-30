@@ -49,16 +49,4 @@ The following dated snapshots end with the `.pre-YYYY-MM-DD-hhmmss` suffix. They
 
 If the archive policy expands to include `.pre` snapshots, re-run the zero-reference search to relocate them safely.
 
-## Root directory spot-check
 
-The repository root still contains several historical helper files. None satisfy the "dated binary" move rules (they are either missing a calendar date or use unsupported extensions), so they stay put but are documented here for clarity.
-
-| File | Size (bytes) | References | Reason |
-| --- | ---: | --- | --- |
-| `app.py.bak` | 26501 | 0 | Not dated — fails YYYY or YYYY-MM-DD rule |
-| `app.py.bak.1756549558` | 5061 | 0 | Epoch-style suffix not allowed by policy |
-| `app.py.pre-patch` | 15198 | 0 | No date pattern — treated as active helper |
-| `app.py.sidecar.1756548248` | 15940 | 0 | `.sidecar` extension outside approved move list |
-| `app.py.sidecar.1756548289` | 5061 | 0 | `.sidecar` extension outside approved move list |
-
-If future hygiene passes broaden the policy (e.g., to include epoch timestamps or `.sidecar` suffixes), repeat the cross-reference search before relocating these files.
