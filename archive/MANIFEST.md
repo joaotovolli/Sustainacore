@@ -1,3 +1,4 @@
+<!-- cspell:ignore gemcli SustainaCore APEX -->
 # Archive Manifest
 
 This manifest maps original locations to their archived destinations, including file sizes and last-modified timestamps (UTC).

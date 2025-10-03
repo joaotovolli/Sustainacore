@@ -1,3 +1,4 @@
+<!-- cspell:ignore gemcli SustainaCore APEX -->
 # Repository Archive Plan
 
 The following dated binary or backup artifacts were identified by scripted search (extensions: .7z, .bak, .csv, .dmp, .dump, .log, .pdf, .sql, .tar, .tar.gz, .tgz, .zip).
