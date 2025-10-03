@@ -14,6 +14,21 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
 5. Run the regression suite with `pytest -q` before committing changes.
 
+## Eval Pack
+To validate persona quality and request normalization end-to-end:
+
+1. Launch the API locally: `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
+2. In a separate shell, enable the feature flags and run the harness:
+   ```bash
+   export PERSONA_V1=1 REQUEST_NORMALIZE=1
+   python scripts/run_eval.py
+   ```
+3. The script reads `eval/eval.jsonl`, posts each case to `/ask2`, and fails if grounding, latency, or formatting regress.
+
+Set `ASK2_URL` if your server runs on a different host or port.
+
+> **CI note:** The persona eval workflow runs only when the `ASK2_URL` repository secret is configured with an absolute `/ask2` endpoint. Without it, the job is skipped automatically.
+
 ## Features
 - **RAG pipelines** orchestrating curated ESG corpora with LLM-powered reasoning.
 - **Adapter-first architecture** across embedding, retrieval, and orchestration modules.
