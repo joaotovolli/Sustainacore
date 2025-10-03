@@ -1,0 +1,33 @@
+name: Persona eval
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  run-eval:
+    runs-on: ubuntu-latest
+    env:
+      ASK2_URL: ${{ secrets.ASK2_URL }}
+      EVAL_FLAGS: "REQUEST_NORMALIZE,PERSONA_V1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip wheel
+          pip install -r requirements.txt
+
+      - name: Validate ASK2_URL
+        run: |
+          if [ -z "${ASK2_URL}" ] || ! echo "${ASK2_URL}" | grep -Eq '^https?://'; then
+            echo "ASK2_URL must be set to an absolute URL (e.g., https://ai.sustainacore.org/ask2)." >&2
+            exit 2
+          fi
+
+      - name: Run eval pack
+        run: python scripts/run_eval.py

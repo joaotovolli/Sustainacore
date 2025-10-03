@@ -3,19 +3,19 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
+from urllib.parse import urlparse
 
 import requests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVAL_PATH = REPO_ROOT / "eval" / "eval.jsonl"
-BASE_URL = os.getenv("EVAL_BASE_URL", "http://localhost:8080").rstrip("/")
-ASK2_URL = f"{BASE_URL}/ask2"
 FLAG_ENV = os.getenv("EVAL_FLAGS", "")
 FLAG_LIST = [flag.strip() for flag in FLAG_ENV.split(",") if flag.strip()]
 LATENCY_BUDGET_SECONDS = float(os.getenv("ASK2_LATENCY_BUDGET", "5"))
@@ -36,16 +36,16 @@ def _load_cases() -> Iterable[Dict[str, Any]]:
             yield json.loads(line)
 
 
-def _post_case(case: Dict[str, Any]) -> requests.Response:
+def _post_case(case: Dict[str, Any], ask2_url: str) -> requests.Response:
     headers: Dict[str, str] = {}
     if FLAG_LIST:
         headers["X-Eval-Flags"] = ",".join(FLAG_LIST)
     if case.get("content_type") == "text/plain":
         body = case.get("raw", "")
         headers["Content-Type"] = "text/plain"
-        return requests.post(ASK2_URL, data=body, headers=headers, timeout=10)
+        return requests.post(ask2_url, data=body, headers=headers, timeout=15)
     payload = case.get("payload", {})
-    return requests.post(ASK2_URL, json=payload, headers=headers, timeout=10)
+    return requests.post(ask2_url, json=payload, headers=headers, timeout=15)
 
 
 def _validate_core(case_id: str, body: Dict[str, Any], latency: float, failures: List[str]) -> None:
@@ -84,12 +84,53 @@ def _validate_malformed(case_id: str, response: requests.Response, latency: floa
         failures.append(f"{case_id}: latency {latency:.2f}s exceeds budget {LATENCY_BUDGET_SECONDS:.2f}s")
 
 
-def main() -> int:
+def _resolve_url(cli_url: str | None) -> str:
+    env_url = os.getenv("ASK2_URL", "").strip()
+    if env_url:
+        candidate = env_url
+    elif cli_url:
+        candidate = cli_url.strip()
+    else:
+        base = os.getenv("EVAL_BASE_URL", "http://localhost:8080").rstrip("/")
+        candidate = f"{base}/ask2"
+
+    parsed = urlparse(candidate)
+    if not parsed.scheme or not parsed.netloc:
+        raise EvalFailure(
+            "ASK2_URL must be an absolute URL (e.g., https://example.org/ask2); "
+            f"got: {candidate!r}"
+        )
+    return candidate
+
+
+def main(argv: List[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run SustainaCore ask2 eval pack")
+    parser.add_argument("--url", help="Absolute /ask2 URL to target", default=None)
+    args = parser.parse_args(argv)
+
+    try:
+        ask2_url = _resolve_url(args.url)
+    except EvalFailure as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(f"Running eval against {ask2_url}")
+
+    try:
+        cases = list(_load_cases())
+    except EvalFailure as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     failures: List[str] = []
-    for case in _load_cases():
+    for case in cases:
         case_id = case.get("id", "unknown")
         start = time.perf_counter()
-        response = _post_case(case)
+        try:
+            response = _post_case(case, ask2_url)
+        except requests.RequestException as exc:
+            failures.append(f"{case_id}: request failed ({exc})")
+            continue
         latency = time.perf_counter() - start
 
         try:

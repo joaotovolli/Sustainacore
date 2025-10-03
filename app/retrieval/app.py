@@ -1,10 +1,10 @@
-import asyncio
 import json
 import os
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from anyio import to_thread
 
 from app.persona import apply_persona
 from app.request_normalizer import BAD_INPUT_ERROR, normalize_request
@@ -252,7 +252,7 @@ async def ask2_post(request: Request) -> Dict[str, Any]:
         )
 
     try:
-        result = await asyncio.to_thread(
+        result = await to_thread.run_sync(
             run_pipeline,
             question_text,
             k=top_k,
