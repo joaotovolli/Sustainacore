@@ -27,6 +27,8 @@ To validate persona quality and request normalization end-to-end:
 
 Set `ASK2_URL` if your server runs on a different host or port.
 
+> **CI note:** The persona eval workflow runs only when the `ASK2_URL` repository secret is configured with an absolute `/ask2` endpoint. Without it, the job is skipped automatically.
+
 ## Features
 - **RAG pipelines** orchestrating curated ESG corpora with LLM-powered reasoning.
 - **Adapter-first architecture** across embedding, retrieval, and orchestration modules.

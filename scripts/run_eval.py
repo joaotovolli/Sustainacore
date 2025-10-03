@@ -25,6 +25,10 @@ class EvalFailure(Exception):
     """Raised when an evaluation case fails."""
 
 
+class EvalSkip(Exception):
+    """Raised when evaluation should be skipped without error."""
+
+
 def _load_cases() -> Iterable[Dict[str, Any]]:
     if not EVAL_PATH.exists():
         raise EvalFailure(f"Missing eval pack at {EVAL_PATH}")
@@ -84,23 +88,29 @@ def _validate_malformed(case_id: str, response: requests.Response, latency: floa
         failures.append(f"{case_id}: latency {latency:.2f}s exceeds budget {LATENCY_BUDGET_SECONDS:.2f}s")
 
 
+def _is_absolute_url(candidate: str) -> bool:
+    parsed = urlparse(candidate)
+    return bool(parsed.scheme) and bool(parsed.netloc)
+
+
 def _resolve_url(cli_url: str | None) -> str:
     env_url = os.getenv("ASK2_URL", "").strip()
     if env_url:
-        candidate = env_url
-    elif cli_url:
-        candidate = cli_url.strip()
-    else:
-        base = os.getenv("EVAL_BASE_URL", "http://localhost:8080").rstrip("/")
-        candidate = f"{base}/ask2"
+        if not _is_absolute_url(env_url):
+            raise EvalSkip("SKIP: ASK2_URL not set to an absolute URL; skipping network eval.")
+        return env_url
 
-    parsed = urlparse(candidate)
-    if not parsed.scheme or not parsed.netloc:
-        raise EvalFailure(
-            "ASK2_URL must be an absolute URL (e.g., https://example.org/ask2); "
-            f"got: {candidate!r}"
-        )
-    return candidate
+    if cli_url:
+        candidate = cli_url.strip()
+        if not candidate:
+            raise EvalFailure("Provided --url value is empty; supply an absolute URL.")
+        if not _is_absolute_url(candidate):
+            raise EvalFailure(
+                "The --url argument must be an absolute URL, e.g., https://example.org/ask2."
+            )
+        return candidate
+
+    raise EvalSkip("SKIP: ASK2_URL not set; skipping network eval.")
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -110,6 +120,9 @@ def main(argv: List[str] | None = None) -> int:
 
     try:
         ask2_url = _resolve_url(args.url)
+    except EvalSkip as exc:
+        print(str(exc))
+        return 0
     except EvalFailure as exc:
         print(str(exc), file=sys.stderr)
         return 2

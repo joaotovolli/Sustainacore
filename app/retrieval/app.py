@@ -174,25 +174,22 @@ async def ask2_post(request: Request) -> Dict[str, Any]:
 
     payload: Any
     if content_type == "text/plain":
-        payload = {"question": raw_body.decode("utf-8", "ignore") if raw_body else ""}
+        decoded = raw_body.decode("utf-8", "ignore") if raw_body else ""
+        payload = {"question": decoded}
     elif raw_body:
         try:
-            payload = json.loads(raw_body)
+            decoded = raw_body.decode("utf-8", "ignore")
+            payload = json.loads(decoded or "{}")
         except ValueError:
             payload = {}
     else:
         payload = {}
 
     effective_payload: Dict[str, Any]
-    if isinstance(payload, dict):
-        effective_payload = dict(payload)
-    else:
-        effective_payload = {}
-
     if REQUEST_NORMALIZE_ENABLED:
         normalized, error = await normalize_request(request, payload, raw_body=raw_body)
         if error:
-            top_k = _sanitize_k(normalized.get("top_k"))
+            top_k = _sanitize_k((normalized or {}).get("top_k"))
             response = _build_payload(
                 answer="",
                 raw_sources=[],
@@ -206,6 +203,10 @@ async def ask2_post(request: Request) -> Dict[str, Any]:
             response.setdefault("sources", [])
             return response
         effective_payload = normalized
+    elif isinstance(payload, dict):
+        effective_payload = dict(payload)
+    else:
+        effective_payload = {}
 
     question_value = effective_payload.get("question")
     if question_value is None:
