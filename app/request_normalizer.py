@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, Tuple
 
 from fastapi import Request
@@ -9,18 +10,29 @@ from fastapi import Request
 BAD_INPUT_ERROR = "bad input"
 
 
-async def normalize_request(request: Request, payload: Any) -> Tuple[Dict[str, Any], str | None]:
+async def normalize_request(
+    request: Request,
+    payload: Any,
+    *,
+    raw_body: bytes | None = None,
+) -> Tuple[Dict[str, Any], str | None]:
     """Return a normalized payload or an error string."""
 
     content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
     normalized: Dict[str, Any]
 
     if content_type == "text/plain":
-        body_bytes = await request.body()
-        body_text = body_bytes.decode("utf-8", "ignore").strip()
+        if raw_body is None:
+            raw_body = await request.body()
+        body_text = raw_body.decode("utf-8", "ignore") if raw_body else ""
         normalized = {"question": body_text}
     elif isinstance(payload, dict):
         normalized = dict(payload)
+    elif raw_body:
+        try:
+            normalized = json.loads(raw_body)
+        except ValueError:
+            normalized = {}
     else:
         normalized = {}
 

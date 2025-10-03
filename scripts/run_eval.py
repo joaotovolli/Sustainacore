@@ -14,7 +14,10 @@ import requests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVAL_PATH = REPO_ROOT / "eval" / "eval.jsonl"
-ASK2_URL = os.getenv("ASK2_URL", "http://127.0.0.1:8080/ask2")
+BASE_URL = os.getenv("EVAL_BASE_URL", "http://localhost:8080").rstrip("/")
+ASK2_URL = f"{BASE_URL}/ask2"
+FLAG_ENV = os.getenv("EVAL_FLAGS", "")
+FLAG_LIST = [flag.strip() for flag in FLAG_ENV.split(",") if flag.strip()]
 LATENCY_BUDGET_SECONDS = float(os.getenv("ASK2_LATENCY_BUDGET", "5"))
 
 
@@ -35,6 +38,8 @@ def _load_cases() -> Iterable[Dict[str, Any]]:
 
 def _post_case(case: Dict[str, Any]) -> requests.Response:
     headers: Dict[str, str] = {}
+    if FLAG_LIST:
+        headers["X-Eval-Flags"] = ",".join(FLAG_LIST)
     if case.get("content_type") == "text/plain":
         body = case.get("raw", "")
         headers["Content-Type"] = "text/plain"
@@ -61,8 +66,20 @@ def _validate_core(case_id: str, body: Dict[str, Any], latency: float, failures:
 
 
 def _validate_malformed(case_id: str, response: requests.Response, latency: float, failures: List[str]) -> None:
-    if response.status_code >= 500:
-        failures.append(f"{case_id}: received server error {response.status_code}")
+    if response.status_code != 200:
+        failures.append(f"{case_id}: expected 200, got {response.status_code}")
+        return
+    try:
+        body = response.json()
+    except ValueError:
+        failures.append(f"{case_id}: malformed response body")
+        return
+    if not isinstance(body.get("contexts"), list):
+        failures.append(f"{case_id}: contexts should be a list")
+    if "answer" not in body:
+        failures.append(f"{case_id}: missing answer field")
+    if "sources" not in body:
+        failures.append(f"{case_id}: missing sources field")
     if latency >= LATENCY_BUDGET_SECONDS:
         failures.append(f"{case_id}: latency {latency:.2f}s exceeds budget {LATENCY_BUDGET_SECONDS:.2f}s")
 

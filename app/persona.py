@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 
 FALLBACK_MESSAGE = (
     "I couldn’t find that in SustainaCore’s knowledge base… Try refining your question."
@@ -37,34 +37,31 @@ def _extract_sentences(answer: str) -> List[str]:
     return _dedupe_preserve_order(sentences)
 
 
-def _format_sources(contexts: List[Dict[str, str]]) -> List[str]:
+def _format_sources(contexts: List[Dict[str, str]]) -> Tuple[List[str], List[str]]:
+    json_sources: List[str] = []
     lines: List[str] = []
-    for idx, context in enumerate(contexts, start=1):
+    for idx, context in enumerate(contexts[:3], start=1):
         title = context.get("title") or context.get("source_title") or ""
         url = context.get("source_url") or context.get("url") or ""
         display_title = title.strip() if isinstance(title, str) else ""
         display_url = url.strip() if isinstance(url, str) else ""
-        if not display_url:
-            continue
         if not display_title:
-            display_title = display_url
-        lines.append(f"{idx}. {display_title} — {display_url}")
-    return lines
+            display_title = display_url or f"Source {idx}"
+        json_sources.append(display_title)
+        if display_url:
+            lines.append(f"{idx}. {display_title} — {display_url}")
+        else:
+            lines.append(f"{idx}. {display_title}")
+    return json_sources, lines
 
 
-def apply_persona(answer: str, contexts: List[Dict[str, str]]) -> str:
+def apply_persona(answer: str, contexts: List[Dict[str, str]]) -> Tuple[str, List[str]]:
     """Render the answer using the SustainaCore analyst persona template."""
 
-    if not contexts:
-        return FALLBACK_MESSAGE
-
     cleaned_answer = (answer or "").strip()
-    if not cleaned_answer:
-        return FALLBACK_MESSAGE
-
-    sentences = _extract_sentences(cleaned_answer)
+    sentences = _extract_sentences(cleaned_answer) if cleaned_answer else []
     if not sentences:
-        sentences = [cleaned_answer]
+        sentences = [FALLBACK_MESSAGE]
 
     overview = sentences[0]
     remaining = sentences[1:] or sentences[:1]
@@ -80,22 +77,22 @@ def apply_persona(answer: str, contexts: List[Dict[str, str]]) -> str:
     highlight_lines: List[str] = []
     for idx, highlight in enumerate(highlights):
         citation = citation_labels[idx] if idx < len(citation_labels) else citation_labels[-1] if citation_labels else ""
+        bullet = f"- {highlight.strip()}" if highlight.strip() else "- See sources for more detail."
         if citation:
-            highlight_lines.append(f"- {highlight} {citation}")
-        else:
-            highlight_lines.append(f"- {highlight}")
+            bullet = f"{bullet} {citation}"
+        highlight_lines.append(bullet)
 
-    formatted_sources = _format_sources(contexts)
+    json_sources, formatted_sources = _format_sources(contexts)
     if not formatted_sources:
-        return FALLBACK_MESSAGE
+        formatted_sources = ["No sources available."]
 
     lines: List[str] = [overview_line, "", "Highlights:"]
     lines.extend(highlight_lines or ["- See sources for more detail."])
     lines.append("")
     lines.append("Sources:")
-    lines.extend(formatted_sources[: max(3, len(formatted_sources))])
+    lines.extend(formatted_sources)
 
-    return "\n".join(lines)
+    return "\n".join(lines), json_sources
 
 
 __all__ = ["apply_persona", "FALLBACK_MESSAGE"]

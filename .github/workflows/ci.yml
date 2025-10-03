@@ -46,6 +46,8 @@ jobs:
         env:
           PERSONA_V1: "1"
           REQUEST_NORMALIZE: "1"
+          EVAL_BASE_URL: ${{ secrets.EVAL_BASE_URL }}
+          EVAL_FLAGS: "REQUEST_NORMALIZE,PERSONA_V1"
         run: python scripts/run_eval.py
       - name: Shutdown API
         if: always()

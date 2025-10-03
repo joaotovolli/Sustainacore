@@ -1,8 +1,10 @@
+import asyncio
+import json
 import os
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 
 from app.persona import apply_persona
 from app.request_normalizer import BAD_INPUT_ERROR, normalize_request
@@ -125,18 +127,25 @@ def _build_payload(
     if limit_sources is not None:
         sources = sources[:limit_sources]
         contexts = contexts[:limit_sources]
+
+    persona_sources: Optional[List[str]] = None
     if PERSONA_ENABLED and note == "ok":
-        answer = apply_persona(answer, contexts)
+        answer, persona_sources = apply_persona(answer, contexts)
     payload_meta: Dict[str, Any] = {}
     if isinstance(meta, dict):
         payload_meta.update(meta)
     payload_meta["provider"] = payload_meta.get("provider") or "oracle"
     payload_meta["note"] = note
     payload_meta["k"] = top_k
+    sources_payload: List[Any]
+    if persona_sources is not None:
+        sources_payload = persona_sources
+    else:
+        sources_payload = sources
     return {
         "answer": answer,
         "contexts": contexts,
-        "sources": sources,
+        "sources": sources_payload,
         "meta": payload_meta,
     }
 
@@ -159,10 +168,21 @@ def metrics() -> Dict[str, float]:
 
 
 @app.post("/ask2")
-async def ask2_post(
-    request: Request,
-    payload: Dict[str, Any] = Body(default_factory=dict),
-) -> Dict[str, Any]:
+async def ask2_post(request: Request) -> Dict[str, Any]:
+    raw_body = await request.body()
+    content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+
+    payload: Any
+    if content_type == "text/plain":
+        payload = {"question": raw_body.decode("utf-8", "ignore") if raw_body else ""}
+    elif raw_body:
+        try:
+            payload = json.loads(raw_body)
+        except ValueError:
+            payload = {}
+    else:
+        payload = {}
+
     effective_payload: Dict[str, Any]
     if isinstance(payload, dict):
         effective_payload = dict(payload)
@@ -170,7 +190,7 @@ async def ask2_post(
         effective_payload = {}
 
     if REQUEST_NORMALIZE_ENABLED:
-        normalized, error = await normalize_request(request, payload)
+        normalized, error = await normalize_request(request, payload, raw_body=raw_body)
         if error:
             top_k = _sanitize_k(normalized.get("top_k"))
             response = _build_payload(
@@ -182,6 +202,8 @@ async def ask2_post(
                 meta={"reason": "bad_input"},
             )
             response["error"] = BAD_INPUT_ERROR
+            response.setdefault("contexts", [])
+            response.setdefault("sources", [])
             return response
         effective_payload = normalized
 
@@ -230,7 +252,12 @@ async def ask2_post(
         )
 
     try:
-        result = run_pipeline(question_text, k=top_k, client_ip=client_ip)
+        result = await asyncio.to_thread(
+            run_pipeline,
+            question_text,
+            k=top_k,
+            client_ip=client_ip,
+        )
     except RateLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
     except GeminiUnavailableError:
