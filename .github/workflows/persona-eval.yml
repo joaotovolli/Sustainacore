@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  ASK2_URL: ${{ secrets.ASK2_URL }}
+  ASK2_URL: ${{ secrets.ASK2_URL }}  # e.g., https://ai.sustainacore.org/ask2
   EVAL_FLAGS: "REQUEST_NORMALIZE,PERSONA_V1"
 
 jobs:

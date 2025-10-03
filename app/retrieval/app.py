@@ -1,13 +1,22 @@
 import json
+import logging
 import os
+import subprocess
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from fastapi import FastAPI, HTTPException, Query, Request
 from anyio import to_thread
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from app.persona import apply_persona
 from app.request_normalizer import BAD_INPUT_ERROR, normalize_request
+
+try:  # Import lazily to avoid hard failures when optional deps are missing.
+    from app.retrieval.settings import settings as _SETTINGS
+except Exception:  # pragma: no cover - defensive fallback when settings fails.
+    _SETTINGS = None
 
 # Router is optional; app must still boot if it’s missing or broken.
 try:
@@ -37,6 +46,99 @@ FALLBACK = (
 
 PERSONA_ENABLED = os.getenv("PERSONA_V1") == "1"
 REQUEST_NORMALIZE_ENABLED = os.getenv("REQUEST_NORMALIZE") == "1"
+
+LOGGER = logging.getLogger("ask2")
+
+
+def _resolve_git_sha() -> str:
+    """Best effort resolution of the git SHA for observability surfaces."""
+
+    env_candidates = [
+        os.getenv("SUSTAINACORE_GIT_SHA"),
+        os.getenv("GIT_SHA"),
+    ]
+    for candidate in env_candidates:
+        if candidate:
+            stripped = candidate.strip()
+            if stripped:
+                return stripped
+
+    file_candidates = [
+        os.getenv("SUSTAINACORE_GIT_SHA_FILE"),
+        os.getenv("GIT_SHA_FILE"),
+    ]
+
+    repo_root = Path(__file__).resolve().parents[2]
+    file_candidates.extend(
+        [
+            str(repo_root / "config" / "git-sha"),
+            str(repo_root / "config" / "git_sha"),
+        ]
+    )
+
+    for file_candidate in file_candidates:
+        if not file_candidate:
+            continue
+        path = Path(file_candidate)
+        if not path.exists():
+            continue
+        try:
+            contents = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if contents:
+            return contents
+
+    try:
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(repo_root),
+            stderr=subprocess.DEVNULL,
+        )
+        candidate = output.decode("utf-8").strip()
+        return candidate or "unknown"
+    except Exception:  # pragma: no cover - git unavailable in some deployments
+        return "unknown"
+
+
+def _resolve_provider() -> str:
+    """Determine which LLM provider is active for reporting."""
+
+    explicit = os.getenv("ASK2_PROVIDER")
+    if explicit:
+        explicit = explicit.strip().upper()
+        if explicit in {"GEMINI", "OLLAMA"}:
+            return explicit
+
+    if _SETTINGS and getattr(_SETTINGS, "gemini_first_enabled", False):
+        return "GEMINI"
+
+    if run_pipeline is not None:
+        return "GEMINI"
+
+    return "OLLAMA"
+
+
+def _resolve_model(provider: str) -> str:
+    if provider == "GEMINI":
+        if _SETTINGS and getattr(_SETTINGS, "gemini_model_answer", None):
+            return _SETTINGS.gemini_model_answer
+        for name in ("GEMINI_ANSWER_MODEL", "GEMINI_MODEL"):
+            value = os.getenv(name)
+            if value:
+                return value
+        return "gemini"
+
+    for name in ("SCAI_OLLAMA_MODEL", "OLLAMA_MODEL", "OLLAMA_EMBED_MODEL"):
+        value = os.getenv(name)
+        if value:
+            return value
+    return "ollama"
+
+
+_GIT_SHA = _resolve_git_sha()
+_PROVIDER = _resolve_provider()
+_MODEL_NAME = _resolve_model(_PROVIDER)
 
 ASK_EMPTY = "Please provide a question so I can help."  # Friendly guardrail
 
@@ -154,6 +256,67 @@ _START_TS = time.time()
 app = FastAPI(title="SustainaCore Retrieval Facade", version="1.0")
 
 
+def _finalize_response(payload: Dict[str, Any], started: float) -> JSONResponse:
+    answer_value = payload.get("answer")
+    if not isinstance(answer_value, str):
+        payload["answer"] = "" if answer_value is None else str(answer_value)
+
+    contexts_value = payload.get("contexts")
+    if not isinstance(contexts_value, list):
+        contexts: List[Dict[str, Any]] = []
+    else:
+        contexts = contexts_value
+    payload["contexts"] = contexts
+
+    sources_value = payload.get("sources")
+    if not isinstance(sources_value, list):
+        payload["sources"] = []
+
+    if "meta" not in payload or not isinstance(payload["meta"], dict):
+        payload["meta"] = {}
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+
+    top_titles: List[str] = []
+    for context in contexts[:3]:
+        if not isinstance(context, dict):
+            continue
+        candidate = context.get("title") or context.get("source_title") or context.get("source_url")
+        if isinstance(candidate, str):
+            stripped = candidate.strip()
+            if stripped:
+                top_titles.append(stripped)
+    LOGGER.info(
+        "ask2.response %s",
+        json.dumps(
+            {
+                "contexts_count": len(contexts),
+                "top_titles": top_titles,
+                "lat_ms": latency_ms,
+                "persona": PERSONA_ENABLED,
+                "normalize": REQUEST_NORMALIZE_ENABLED,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    return JSONResponse(payload, media_type="application/json")
+
+
+@app.get("/health")
+async def health() -> JSONResponse:
+    payload = {
+        "ok": True,
+        "git": _GIT_SHA,
+        "provider": _PROVIDER,
+        "model": _MODEL_NAME,
+        "flags": {
+            "PERSONA_V1": PERSONA_ENABLED,
+            "REQUEST_NORMALIZE": REQUEST_NORMALIZE_ENABLED,
+        },
+    }
+    return JSONResponse(payload, media_type="application/json")
+
+
 @app.get("/healthz")
 def healthz() -> Dict[str, bool]:
     return {"ok": True}
@@ -168,7 +331,8 @@ def metrics() -> Dict[str, float]:
 
 
 @app.post("/ask2")
-async def ask2_post(request: Request) -> Dict[str, Any]:
+async def ask2_post(request: Request) -> JSONResponse:
+    started = time.perf_counter()
     raw_body = await request.body()
     content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
 
@@ -201,7 +365,7 @@ async def ask2_post(request: Request) -> Dict[str, Any]:
             response["error"] = BAD_INPUT_ERROR
             response.setdefault("contexts", [])
             response.setdefault("sources", [])
-            return response
+            return _finalize_response(response, started)
         effective_payload = normalized
     elif isinstance(payload, dict):
         effective_payload = dict(payload)
@@ -233,23 +397,29 @@ async def ask2_post(request: Request) -> Dict[str, Any]:
         client_ip = request.client.host if request.client and request.client.host else "unknown"
 
     if not question_text:
-        return _build_payload(
-            answer=ASK_EMPTY,
-            raw_sources=[],
-            raw_contexts=[],
-            top_k=top_k,
-            note="fallback",
-            meta={"reason": "empty_question"},
+        return _finalize_response(
+            _build_payload(
+                answer=ASK_EMPTY,
+                raw_sources=[],
+                raw_contexts=[],
+                top_k=top_k,
+                note="fallback",
+                meta={"reason": "empty_question"},
+            ),
+            started,
         )
 
     if run_pipeline is None:
-        return _build_payload(
-            answer=FALLBACK,
-            raw_sources=[],
-            raw_contexts=[],
-            top_k=top_k,
-            note="fallback",
-            meta={"reason": "pipeline_unavailable"},
+        return _finalize_response(
+            _build_payload(
+                answer=FALLBACK,
+                raw_sources=[],
+                raw_contexts=[],
+                top_k=top_k,
+                note="fallback",
+                meta={"reason": "pipeline_unavailable"},
+            ),
+            started,
         )
 
     try:
@@ -262,22 +432,28 @@ async def ask2_post(request: Request) -> Dict[str, Any]:
     except RateLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
     except GeminiUnavailableError:
-        return _build_payload(
-            answer=FALLBACK,
-            raw_sources=[],
-            raw_contexts=[],
-            top_k=top_k,
-            note="fallback",
-            meta={"reason": "gemini_unavailable"},
+        return _finalize_response(
+            _build_payload(
+                answer=FALLBACK,
+                raw_sources=[],
+                raw_contexts=[],
+                top_k=top_k,
+                note="fallback",
+                meta={"reason": "gemini_unavailable"},
+            ),
+            started,
         )
     except Exception:
-        return _build_payload(
-            answer=FALLBACK,
-            raw_sources=[],
-            raw_contexts=[],
-            top_k=top_k,
-            note="fallback",
-            meta={"reason": "pipeline_error"},
+        return _finalize_response(
+            _build_payload(
+                answer=FALLBACK,
+                raw_sources=[],
+                raw_contexts=[],
+                top_k=top_k,
+                note="fallback",
+                meta={"reason": "pipeline_error"},
+            ),
+            started,
         )
 
     answer_text = str(result.get("answer") or "").strip()
@@ -288,22 +464,28 @@ async def ask2_post(request: Request) -> Dict[str, Any]:
     if not answer_text:
         fallback_meta = dict(meta)
         fallback_meta["reason"] = "empty_answer"
-        return _build_payload(
-            answer=FALLBACK,
+        return _finalize_response(
+            _build_payload(
+                answer=FALLBACK,
+                raw_sources=raw_sources,
+                raw_contexts=raw_contexts,
+                top_k=top_k,
+                note="fallback",
+                meta=fallback_meta,
+            ),
+            started,
+        )
+
+    return _finalize_response(
+        _build_payload(
+            answer=answer_text,
             raw_sources=raw_sources,
             raw_contexts=raw_contexts,
             top_k=top_k,
-            note="fallback",
-            meta=fallback_meta,
-        )
-
-    return _build_payload(
-        answer=answer_text,
-        raw_sources=raw_sources,
-        raw_contexts=raw_contexts,
-        top_k=top_k,
-        note="ok",
-        meta=meta,
+            note="ok",
+            meta=meta,
+        ),
+        started,
     )
 
 @app.get("/ask2")
