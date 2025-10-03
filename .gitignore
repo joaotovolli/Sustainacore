@@ -1,28 +1,19 @@
-# OS/Editors
 .DS_Store
 Thumbs.db
 *.swp
 .vscode/
 .idea/
-
-# Python
 __pycache__/
 *.pyc
 .venv/
 .env
-
-# Node
 node_modules/
 dist/
 build/
-
-# Logs & dumps
 *.log
 *.bak
 *.dump
 *.dmp
-
-# Prefer Releases for big binaries (we keep curated archives only)
 *.zip
 *.tgz
 *.7z

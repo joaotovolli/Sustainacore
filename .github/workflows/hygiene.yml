@@ -1,7 +1,5 @@
 name: Hygiene
-on:
-  pull_request:
-  push:
+on: [push, pull_request]
 jobs:
   spellcheck:
     runs-on: ubuntu-latest
