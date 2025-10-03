@@ -18,18 +18,9 @@ if p.exists():
         assert r.status_code == 200
         assert r.json() == {"ok": True}
 
-    def test_ask_contract():
+    def test_ask_endpoint_removed():
         r = client.post("/ask", json={"question": "ping", "top_k": 1})
-        assert r.status_code == 200
-        payload = r.json()
-        assert "answer" in payload and isinstance(payload["answer"], str)
-        assert payload["answer"].strip() != ""
-        assert isinstance(payload.get("contexts"), list)
-        for ctx in payload["contexts"]:
-            assert isinstance(ctx, dict)
-            assert "source_url" in ctx
-        assert isinstance(payload.get("sources"), list)
-        assert isinstance(payload.get("meta"), dict)
+        assert r.status_code == 404
 
     def test_ask2_contract():
         r = client.get("/ask2", params={"q":"test","k":1})
