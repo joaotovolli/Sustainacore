@@ -1,7 +1,13 @@
+import json
+import os
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
+from anyio import to_thread
+
+from app.persona import apply_persona
+from app.request_normalizer import BAD_INPUT_ERROR, normalize_request
 
 # Router is optional; app must still boot if it’s missing or broken.
 try:
@@ -28,6 +34,9 @@ FALLBACK = (
     "I couldn’t find a grounded answer in the indexed docs yet. "
     "Try adding a company/topic (e.g., Microsoft, TECH100) or a specific field."
 )
+
+PERSONA_ENABLED = os.getenv("PERSONA_V1") == "1"
+REQUEST_NORMALIZE_ENABLED = os.getenv("REQUEST_NORMALIZE") == "1"
 
 ASK_EMPTY = "Please provide a question so I can help."  # Friendly guardrail
 
@@ -118,16 +127,25 @@ def _build_payload(
     if limit_sources is not None:
         sources = sources[:limit_sources]
         contexts = contexts[:limit_sources]
+
+    persona_sources: Optional[List[str]] = None
+    if PERSONA_ENABLED and note == "ok":
+        answer, persona_sources = apply_persona(answer, contexts)
     payload_meta: Dict[str, Any] = {}
     if isinstance(meta, dict):
         payload_meta.update(meta)
     payload_meta["provider"] = payload_meta.get("provider") or "oracle"
     payload_meta["note"] = note
     payload_meta["k"] = top_k
+    sources_payload: List[Any]
+    if persona_sources is not None:
+        sources_payload = persona_sources
+    else:
+        sources_payload = sources
     return {
         "answer": answer,
         "contexts": contexts,
-        "sources": sources,
+        "sources": sources_payload,
         "meta": payload_meta,
     }
 
@@ -150,25 +168,62 @@ def metrics() -> Dict[str, float]:
 
 
 @app.post("/ask2")
-def ask2_post(
-    request: Request,
-    payload: Dict[str, Any] = Body(default_factory=dict),
-) -> Dict[str, Any]:
-    if not isinstance(payload, dict):
+async def ask2_post(request: Request) -> Dict[str, Any]:
+    raw_body = await request.body()
+    content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+
+    payload: Any
+    if content_type == "text/plain":
+        decoded = raw_body.decode("utf-8", "ignore") if raw_body else ""
+        payload = {"question": decoded}
+    elif raw_body:
+        try:
+            decoded = raw_body.decode("utf-8", "ignore")
+            payload = json.loads(decoded or "{}")
+        except ValueError:
+            payload = {}
+    else:
         payload = {}
 
-    question_value = payload.get("question")
+    effective_payload: Dict[str, Any]
+    if REQUEST_NORMALIZE_ENABLED:
+        normalized, error = await normalize_request(request, payload, raw_body=raw_body)
+        if error:
+            top_k = _sanitize_k((normalized or {}).get("top_k"))
+            response = _build_payload(
+                answer="",
+                raw_sources=[],
+                raw_contexts=[],
+                top_k=top_k,
+                note="fallback",
+                meta={"reason": "bad_input"},
+            )
+            response["error"] = BAD_INPUT_ERROR
+            response.setdefault("contexts", [])
+            response.setdefault("sources", [])
+            return response
+        effective_payload = normalized
+    elif isinstance(payload, dict):
+        effective_payload = dict(payload)
+    else:
+        effective_payload = {}
+
+    question_value = effective_payload.get("question")
     if question_value is None:
-        question_value = payload.get("q")
+        question_value = effective_payload.get("query")
     if question_value is None:
-        question_value = payload.get("text")
+        question_value = effective_payload.get("q")
+    if question_value is None:
+        question_value = effective_payload.get("text")
     question_text = question_value.strip() if isinstance(question_value, str) else ""
 
-    raw_top_k = payload.get("top_k")
+    raw_top_k = effective_payload.get("top_k")
     if raw_top_k is None:
-        raw_top_k = payload.get("k")
+        raw_top_k = effective_payload.get("topK")
     if raw_top_k is None:
-        raw_top_k = payload.get("limit")
+        raw_top_k = effective_payload.get("k")
+    if raw_top_k is None:
+        raw_top_k = effective_payload.get("limit")
     top_k = _sanitize_k(raw_top_k)
 
     forwarded = request.headers.get("x-forwarded-for", "")
@@ -198,7 +253,12 @@ def ask2_post(
         )
 
     try:
-        result = run_pipeline(question_text, k=top_k, client_ip=client_ip)
+        result = await to_thread.run_sync(
+            run_pipeline,
+            question_text,
+            k=top_k,
+            client_ip=client_ip,
+        )
     except RateLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
     except GeminiUnavailableError:

@@ -1,0 +1,10 @@
+{"id": "core_membership_microsoft", "type": "core", "payload": {"question": "Is Microsoft part of the SustainaCore TECH100 index?"}}
+{"id": "core_membership_tesla", "type": "core", "payload": {"question": "Is Tesla tracked in SustainaCore's TECH100 coverage?"}}
+{"id": "core_methodology", "type": "core", "payload": {"query": "How does SustainaCore calculate ESG momentum ratings?"}}
+{"id": "core_company_snapshot", "type": "core", "payload": {"question": "Give me a quick SustainaCore snapshot for Schneider Electric."}}
+{"id": "core_climate_resilience", "type": "core", "payload": {"question": "What methodology does SustainaCore use to score climate resilience?"}}
+{"id": "core_scope3_focus", "type": "core", "payload": {"question": "Which industries does SustainaCore emphasize for Scope 3 monitoring?"}}
+{"id": "core_topk_string", "type": "core", "payload": {"question": "List the top TECH100 decarbonization leaders.", "topK": "3"}}
+{"id": "core_text_plain", "type": "core", "content_type": "text/plain", "raw": "Provide an overview of SustainaCore's governance assessment approach."}
+{"id": "malformed_empty", "type": "malformed", "payload": {}}
+{"id": "malformed_numeric_topk", "type": "malformed", "payload": {"topK": "two"}}
