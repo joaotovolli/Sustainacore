@@ -1,30 +1,36 @@
 # Sustainacore
 
-![CI](https://img.shields.io/badge/status-experimental-blue)
+![CI](https://img.shields.io/badge/status-production_ready-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Contributions](https://img.shields.io/badge/contributions-welcome-brightgreen)
 
 ## Executive Summary
-Sustainacore delivers ESG knowledge retrieval and orchestration services that stitch together retrieval augmented generation (RAG), workflow automation, and governance tooling. This repository captures the shared infrastructure, adapters, and middleware used to power the Sustainacore platform.
-
-## Features
-- **RAG pipelines** that combine curated ESG corpora with LLM orchestration.
-- **Adapter-first architecture** for swapping retrieval, embedding, and orchestration providers.
-- **Operational tooling** for failover routing, observability, and compliance logging.
-- **Extensible middleware** designed for incremental experiments without impacting core pathways.
-
-## Tech Stack
-- **Python** applications orchestrating retrieval, refinement, and middleware layers.
-- **FastAPI & WSGI** entrypoints serving API traffic.
-- **Vector and relational stores** for embeddings and operational metadata.
-- **Infrastructure scripts** targeting cloud VMs and containerized deployments.
+Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, APEX integrations, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments.
 
 ## Quick Start
-> Detailed quick start documentation is under active development. Use the placeholders below until automated setup scripts are published.
+1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`.
+2. Install dependencies: `pip install -U pip && pip install -r requirements.txt`.
+3. Export environment variables from `.env` (or copy from `.env.sample`).
+4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
+5. Run the regression suite with `pytest -q` before committing changes.
 
-1. Clone the repository and create a Python virtual environment.
-2. Install dependencies from `requirements.txt`.
-3. Review environment variables in deployment notes before running any services.
+## Features
+- **RAG pipelines** orchestrating curated ESG corpora with LLM-powered reasoning.
+- **Adapter-first architecture** across embedding, retrieval, and orchestration modules.
+- **Operational middleware** delivering failover routing, observability, and compliance logging.
+- **Infrastructure tooling** for VM deployment, CI/CD hygiene, and data refresh workflows.
+
+## Stack
+- **Runtime:** Python 3.11, FastAPI, Uvicorn, WSGI fallbacks.
+- **Storage:** Oracle APEX workspace, Oracle DB schemas, vector stores for embeddings.
+- **Tooling:** GitHub Actions, pytest, cspell, Terraform/VM scripts under `infra/`.
+- **Integrations:** Oracle APEX app export (`app/apex/f101_latest.sql`) aligned with the live workspace.
+
+## Screenshots & Demos
+> Coming soon. Drop exports under `docs/images/` and update the placeholders below.
+>
+> ![APEX dashboard placeholder](docs/images/apex-dashboard-placeholder.png)
+> ![Ask2 pipeline placeholder](docs/images/ask2-pipeline-placeholder.png)
 
 ## Roadmap
 - Harden observability and tracing for production workloads.
@@ -32,47 +38,30 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that st
 - Publish managed dataset snapshots and schema migrations.
 - Document infrastructure-as-code paths for multi-region rollouts.
 
-## Contributing
-We welcome thoughtful contributions! Please review [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and coding standards. For major changes, open an issue to discuss your proposal before submitting a pull request.
-
-## Code of Conduct
-Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). We are committed to fostering an inclusive and respectful community.
-
-## Security
-Security disclosures should follow the process defined in [SECURITY.md](SECURITY.md). Please avoid filing public issues for potential vulnerabilities.
+## Project Structure
+- `app/` – FastAPI retrieval service plus adapters. Latest APEX export lives in `app/apex/`.
+- `db/` – `schema/`, `migrations/`, and `seed/` directories for Oracle database assets.
+- `datasets/` – Placeholder for lightweight demo CSVs referenced in docs.
+- `infra/` – VM, CI, and deployment automation.
+- `scripts/` – Utility scripts for maintenance and developer tooling.
+- `archive/` – Curated historical assets with a manifest for provenance.
 
 ## Releases & Archives
-Large, dated binary artifacts are curated under the [`archive/`](archive) directory with subfolders for APEX exports, SQL dumps, VM backups, and legacy code backups. Consult `archive/MANIFEST.md` for an up-to-date index of preserved files.
+Curated dated artifacts are now standardized under `archive/`:
 
-## Legacy Quick Reference
-The `/ask2` contract remains the backbone of Sustainacore integrations.
+| Category | Canonical | Archive Path |
+| --- | --- | --- |
+| Oracle APEX export | `app/apex/f101_latest.sql` | `archive/apex_exports/` |
+| Database schema | `db/schema/schema.sql` | `archive/sql_dumps/` |
+| VM bundles & backups | — | `archive/vm_backups/` |
+| Legacy code & misc assets | — | `archive/misc/` (see nested folders) |
 
-| Item | Details |
-| --- | --- |
-| Contract | `POST /ask2` → `{ answer, sources, meta }` |
-| Default mode | Oracle-first retrieval pipeline (no Gemini planning) |
-| Optional layers | LLM refiner (OpenAI), Ollama micro-orchestrator, Gemini intent gateway |
-| Primary client | Oracle APEX (direct call or APEX proxy) |
+Refer to [`archive/MANIFEST.md`](archive/MANIFEST.md) for an authoritative mapping of originals → archived locations with timestamps.
 
-## Operational Notes
-### Local development
-1. `python3 -m venv .venv && source .venv/bin/activate`
-2. `pip install -U pip && pip install -r requirements.txt`
-3. Launch `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080` or run `python app.py` for the legacy entrypoint.
-4. Run `pytest -q` and smoke-test `/healthz` plus `/ask2` with sample payloads.
-
-### Deployment tips
-- Copy the repository into `/opt/sustainacore-ai/` on target VMs and configure environment files locally.
-- Ensure Oracle Instant Client wallets and `TNS_ADMIN` paths are available before starting services.
-- Restart via `systemctl restart sustainacore-ai.service` and confirm status with `systemctl status --no-pager`.
-
-### Security & troubleshooting
-- Enforce CORS through `ask2_cors_mw.py` and prefer proxying traffic via APEX in production.
-- Low similarity signals should respond with "no answer" to avoid hallucinations.
-- Disable optional LLM refiners when isolating latency or timeout issues.
-
-## Documentation
-Additional reference material lives in [`docs/`](docs). Start with [docs/README.md](docs/README.md) for links to operational runbooks and security resources.
+## Governance
+- The `/ask2` contract remains the backbone: `POST /ask2` → `{ "answer", "sources", "meta" }`.
+- Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+- Security disclosures should follow [SECURITY.md](SECURITY.md).
 
 ## License
 This project is available under the [MIT License](LICENSE).
