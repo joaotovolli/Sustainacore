@@ -14,6 +14,8 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
 5. Run the regression suite with `pytest -q` before committing changes.
 
+For production deployments, `config/prod.env.example` captures the supported feature flags (persona and normalization). Copy the file to your environment tooling as needed.
+
 ## Eval Pack
 To validate persona quality and request normalization end-to-end:
 
@@ -28,6 +30,16 @@ To validate persona quality and request normalization end-to-end:
 Set `ASK2_URL` if your server runs on a different host or port.
 
 > **CI note:** The persona eval workflow runs only when the `ASK2_URL` repository secret is configured with an absolute `/ask2` endpoint. Without it, the job is skipped automatically.
+
+### Production feature flags
+
+After merging to main, rollout the repo-managed persona and normalization flags on the VM:
+
+```bash
+./scripts/deploy_flags.sh PERSONA_V1=1 REQUEST_NORMALIZE=1
+```
+
+The helper writes `/etc/systemd/system/sustainacore-ai.service.d/15-persona.conf`, reloads the unit, and echoes the effective environment overrides.
 
 ## Features
 - **RAG pipelines** orchestrating curated ESG corpora with LLM-powered reasoning.
