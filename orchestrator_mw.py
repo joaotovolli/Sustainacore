@@ -5,7 +5,7 @@
 # - Normalize noisy UI prompts.
 # - Light intent classification + entity extraction.
 # - Generate 3–5 query variants.
-# - Hit downstream /ask multiple times; fuse contexts via RRF; apply MMR diversity.
+# - Hit downstream /ask2 multiple times; fuse contexts via RRF; apply MMR diversity.
 # - Compose evidence-first answer scaffold (answer → bullets with [S1..] → source map).
 # - Bounded latency and chunk budgets; never touch systemd or NGINX.
 
@@ -188,7 +188,7 @@ class _Cap:
 def _mk_environ(body: bytes) -> dict:
     return {
         "REQUEST_METHOD": "POST",
-        "PATH_INFO": "/ask",
+        "PATH_INFO": "/ask2",
         "SERVER_NAME": "127.0.0.1",
         "SERVER_PORT": "8080",
         "wsgi.version": (1, 0),
@@ -216,8 +216,8 @@ class MultiHitMiddleware:
 
     def __call__(self, environ, start_response):
         t0 = _now_ms()
-        # only intercept POST /ask
-        if not (environ.get("PATH_INFO")=="/ask" and (environ.get("REQUEST_METHOD") or "").upper()=="POST"):
+        # only intercept POST /ask2
+        if not (environ.get("PATH_INFO")=="/ask2" and (environ.get("REQUEST_METHOD") or "").upper()=="POST"):
             return self.app(environ, start_response)
 
         # read body once
