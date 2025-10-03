@@ -24,8 +24,8 @@ def app(environ, start_response):
     status  = sh.get("status", "200 OK")
     headers = sh.get("headers", [])
 
-    # Intercept only successful JSON responses from POST /ask
-    if method == "POST" and path == "/ask" and status.startswith("200"):
+    # Intercept only successful JSON responses from POST /ask2
+    if method == "POST" and path == "/ask2" and status.startswith("200"):
         try:
             obj = json.loads(body.decode("utf-8"))
             ans = obj.get("answer")

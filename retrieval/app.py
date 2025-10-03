@@ -875,7 +875,7 @@ class OrchestrateMiddleware:
     def __init__(self, app): self.app=app
     def __call__(self, environ, start_response):
         path=environ.get("PATH_INFO",""); method=(environ.get("REQUEST_METHOD") or "GET").upper()
-        if not (path=="/ask" and method=="POST"):
+        if not (path=="/ask2" and method=="POST"):
             return self.app(environ, start_response)
 
         import io as _io
@@ -995,25 +995,6 @@ def readyz():
     return jsonify({"ok": True, "rows": len(rows)}), 200
 
 
-@app.route("/ask", methods=["POST"])
-def ask():
-    try:
-        body = request.get_json(force=True) or {}
-        q = (body.get("question") or body.get("q") or "").strip()
-        if not q: return jsonify({"error":"question is required"}), 400
-        vec = embed(q)
-        if _top_k_by_vector is None:
-            rows = []
-        else:
-            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
-        ans = rows[0]["chunk_text"] if rows else "No context found."
-        if RETURN_TOP_AS_ANSWER:
-            return jsonify({"answer": ans, "contexts": rows, "mode":"simple"})
-        else:
-            return jsonify({"answer": "No generator configured.", "contexts": rows, "mode":"simple"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # Install middlewares
 app.wsgi_app = NormalizeMiddleware(app.wsgi_app)
 app.wsgi_app = OrchestrateMiddleware(app.wsgi_app)
@@ -1057,7 +1038,7 @@ def _call_downstream_wsgipost(app, body: bytes, extra_headers=None):
     # Build a fresh WSGI environ and call the next app in stack directly (no network)
     env = {
         'REQUEST_METHOD':'POST',
-        'PATH_INFO':'/ask',
+        'PATH_INFO':'/ask2',
         'SERVER_NAME':'localhost','SERVER_PORT':'8080','SERVER_PROTOCOL':'HTTP/1.1',
         'wsgi.version':(1,0),'wsgi.url_scheme':'http','wsgi.input':_io.BytesIO(body),
         'CONTENT_TYPE':'application/json','CONTENT_LENGTH':str(len(body)),
@@ -1157,7 +1138,7 @@ class MultiHitOrchestrator:
     def __call__(self, environ, start_response):
         if (environ.get('HTTP_X_ORCH') or '').lower() == 'bypass':
             return self.app(environ, start_response)
-        if environ.get('PATH_INFO') != '/ask' or (environ.get('REQUEST_METHOD') or '').upper() != 'POST':
+        if environ.get('PATH_INFO') != '/ask2' or (environ.get('REQUEST_METHOD') or '').upper() != 'POST':
             return self.app(environ, start_response)
 
         try:
@@ -1369,108 +1350,3 @@ def ask2():
 
 
 
-@app.route("/ask", methods=["GET"], endpoint="ask_get_shim")
-def ask_get_shim():
-    from flask import request, jsonify
-    q = (request.args.get("question") or request.args.get("q") or "").strip()
-    if not q:
-        return jsonify({"error":"q is required"}), 400
-
-    explicit_filters = {
-        key: request.args.get(key, "")
-        for key in ("docset", "namespace", "ticker", "company")
-        if request.args.get(key)
-    }
-    scope = infer_scope(q, explicit_filters=explicit_filters, entities=extract_entities(q))
-    filters = scope.applied_filters or {}
-
-    # Try the fast path; if embeddings service is down/misconfigured, fall back.
-    try:
-        vec = embed(q)
-        if _top_k_by_vector is None:
-            rows = []
-        else:
-            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE), filters=filters)
-        ans = rows[0]["chunk_text"] if rows else "No context found."
-        if RETURN_TOP_AS_ANSWER:
-            return jsonify({"answer": ans, "contexts": rows, "mode":"simple"})
-    except Exception:
-        pass
-
-    retrieval = retrieve(q, explicit_filters=explicit_filters)
-    entities = retrieval.get("entities", [])
-    chunks = retrieval.get("chunks", [])
-    quotes  = extract_quotes(chunks, limit_words=60)
-    intent  = detect_intent(q, entities)
-    answer, shape, sources_out = compose_answer(intent, q, entities, chunks, quotes)
-    return jsonify({"answer": answer, "contexts": chunks, "mode":"simple", "sources": sources_out})
-
-
-
-
-# --- BEGIN: APEX POST /ask compatibility (no URL change) ---------------------
-import os, time
-
-def __sc__build_sources(rows):
-    out = []
-    for r in rows or []:
-        doc_id = str(r.get("doc_id",""))
-        chunk_ix = r.get("chunk_ix", 0)
-        rid = f"{doc_id}-{chunk_ix}" if doc_id else str(chunk_ix)
-        dist = r.get("dist")
-        try:
-            score = round(1.0 - float(dist), 4) if dist is not None else None
-        except Exception:
-            score = None
-        snippet = (r.get("chunk_text") or "")[:400]
-        out.append({
-            "id": rid,
-            "score": score,
-            "snippet": snippet,
-            "title": r.get("title"),
-            "url": r.get("source_url"),
-        })
-    return out
-
-@app.before_request
-def __sc__apex_post_ask_compat():
-    # keep a single path (/ask), adjust only POST behavior for APEX
-    from flask import request, jsonify
-    if request.path != "/ask" or request.method != "POST":
-        return  # don't touch anything else
-
-    t0 = time.perf_counter()
-
-    # Accept q from args OR JSON body (both cases APEX might use)
-    body = {}
-    if request.is_json:
-        body = request.get_json(silent=True) or {}
-    q = (request.args.get("q") or request.args.get("question")
-         or body.get("q") or body.get("question") or "").strip()
-    if not q:
-        return jsonify({"error": "q is required"}), 400
-
-    try:
-        vec = embed(q)
-        if _top_k_by_vector is None:
-            rows = []
-        else:
-            rows = _top_k_by_vector(vec, max(1, FUSION_TOPK_BASE))
-        # Stable 'answer' for APEX: if your main chain returns text elsewhere,
-        # we still guarantee a non-empty answer by falling back to top snippet.
-        ans = (rows[0].get("chunk_text") if rows else None) or "No context found."
-
-        took_ms = int((time.perf_counter() - t0) * 1000)
-        resp = {
-            "answer": ans,
-            "sources": __sc__build_sources(rows),
-            "meta": {
-                "k": len(rows or []),
-                "took_ms": took_ms,
-                "model_info": {"embed": EMBED_MODEL_NAME},
-            },
-        }
-        return jsonify(resp), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-# --- END: APEX POST /ask compatibility ---------------------------------------

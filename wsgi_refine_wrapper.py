@@ -141,8 +141,8 @@ def application(environ, start_response):
     status = captured.get("status","200 OK")
     headers = captured.get("headers",[])
 
-    # Only touch POST /ask JSON 200 responses when REFINE=on
-    path_ok   = environ.get("PATH_INFO","") in ("/ask",)
+    # Only touch POST /ask2 JSON 200 responses when REFINE=on
+    path_ok   = environ.get("PATH_INFO","") in ("/ask2",)
     method_ok = environ.get("REQUEST_METHOD","") == "POST"
     if not (REFINE and path_ok and method_ok and status.startswith("200")):
         start_response(status, headers); return [body]

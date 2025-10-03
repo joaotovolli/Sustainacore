@@ -82,8 +82,7 @@ class NoSuggestMiddleware:
     def __call__(self,environ,start_response):
         path=environ.get('PATH_INFO',''); alias_info={}
         if path == '/ask2':
-            environ['PATH_INFO']='/ask'
-            alias_info={'X-NoSuggest-Path':'/ask2','X-NoSuggest-Rewrite':'/ask'}
+            alias_info={'X-NoSuggest-Path':'/ask2'}
         status_headers={}; body_chunks=[]
         def _cap_start(status,headers,exc_info=None):
             status_headers['status']=status; status_headers['headers']=headers[:]

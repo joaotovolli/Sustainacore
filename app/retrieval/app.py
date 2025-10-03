@@ -149,8 +149,8 @@ def metrics() -> Dict[str, float]:
     return {"uptime": float(uptime)}
 
 
-@app.post("/ask")
-def ask(
+@app.post("/ask2")
+def ask2_post(
     request: Request,
     payload: Dict[str, Any] = Body(default_factory=dict),
 ) -> Dict[str, Any]:
