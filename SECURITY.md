@@ -3,7 +3,7 @@
 We take security seriously and appreciate responsible disclosures.
 
 ## Reporting a vulnerability
-- Email the core team at security@sustainacore.example with details about the potential issue.
+- Email the core team at info@sustainacore.org with details about the potential issue.
 - Include reproduction steps, logs, and affected components when possible.
 - Please allow at least 5 business days for an initial response.
 
