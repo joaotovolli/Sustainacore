@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+from embedding_client import embed_text
+
 try:  # pragma: no cover - optional dependency
     import oracledb  # type: ignore
 except Exception as exc:  # pragma: no cover - optional dependency
@@ -262,24 +264,15 @@ class OracleRetriever:
 
     # ---- embedding --------------------------------------------------------
 
-    def _embed(self, conn: "_oracledb.Connection", text: str) -> Optional[Sequence[float]]:  # type: ignore[name-defined]
+    def _embed(self, text: str) -> Optional[Sequence[float]]:
         text = (text or "").strip()
         if not text:
             return None
         try:
-            cur = conn.cursor()
-            sql = settings.oracle_embed_sql
-            binds = {"model": settings.oracle_embed_model, "text": text}
-            cur.execute(sql, binds)
-            row = cur.fetchone()
-            if not row:
-                return None
-            vec = _to_plain(row[0])
-            if isinstance(vec, (list, tuple)):
-                return [float(x) for x in vec]
-        except Exception as exc:  # pragma: no cover - requires DB
-            LOGGER.error("Oracle embed failed: %s", exc)
-        return None
+            return embed_text(text, timeout=5.0)
+        except Exception as exc:  # pragma: no cover - network error path
+            LOGGER.error("Embedding request failed: %s", exc)
+            return None
 
     # ---- SQL construction -------------------------------------------------
 
@@ -519,19 +512,27 @@ class OracleRetriever:
                 hop_count=hop_count,
                 raw_facts=None,
             )
+        embeddings = []
+        for variant in variants:
+            embedding = self._embed(variant)
+            if embedding is None:
+                LOGGER.warning("Failed to embed variant: %s", variant)
+                continue
+            embeddings.append(embedding)
+
+        if not embeddings:
+            LOGGER.warning("No embeddings computed for query variants")
+            raise RuntimeError("embedding_failed")
+
         try:
             with _connection() as conn:
-                for variant in variants:
-                    embedding = self._embed(conn, variant)
-                    if embedding is None:
-                        LOGGER.warning("Failed to embed variant: %s", variant)
-                        continue
+                for embedding in embeddings:
                     chunk_rows = self._vector_query(conn, embedding, filters, k_eff)
                     rows.extend(chunk_rows)
         except Exception as exc:  # pragma: no cover - requires DB
             log_fn = LOGGER.warning if _is_credential_error(exc) else LOGGER.error
             log_fn("Oracle retrieval failed: %s", exc)
-            rows = []
+            raise
         deduped = self._deduplicate_rows(rows)
         facts = [self._row_to_fact(row, idx) for idx, row in enumerate(deduped[: settings.retriever_fact_cap])]
         context_note = self._build_context_note(filters, k_eff, len(rows), len(deduped), len(facts))
