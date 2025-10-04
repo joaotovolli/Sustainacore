@@ -97,6 +97,7 @@ def test_pipeline_compose_failure(monkeypatch):
     assert shaped["meta"]["routing"] == "gemini_first_fail"
     assert shaped["contexts"]
     assert "Sources:" not in shaped["answer"]
+    assert shaped["meta"].get("note") == "gemini_compose_failed"
 
 
 def test_fs_backfill_enabled(monkeypatch):
