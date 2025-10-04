@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import deque
 from threading import Lock
@@ -67,6 +68,39 @@ def _merge_facts(
         if len(merged) >= settings.retriever_fact_cap:
             break
     return merged
+
+
+def _facts_to_contexts(facts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    contexts: List[Dict[str, Any]] = []
+    for fact in facts or []:
+        if not isinstance(fact, dict):
+            continue
+        context: Dict[str, Any] = {}
+        url_value = fact.get("source_url") or fact.get("url") or fact.get("link")
+        if isinstance(url_value, str):
+            url_clean = url_value.strip()
+            if url_clean:
+                context["source_url"] = url_clean
+        title_value = fact.get("title") or fact.get("source_title") or fact.get("name")
+        if isinstance(title_value, str):
+            title_clean = title_value.strip()
+            if title_clean:
+                context["title"] = title_clean
+        snippet_value = fact.get("snippet") or fact.get("text") or fact.get("content")
+        if isinstance(snippet_value, str):
+            snippet_clean = snippet_value.strip()
+            if snippet_clean:
+                context["snippet"] = snippet_clean
+        citation_value = fact.get("citation_id")
+        if isinstance(citation_value, str):
+            citation_clean = citation_value.strip()
+            if citation_clean:
+                context["citation_id"] = citation_clean
+        if context:
+            contexts.append(context)
+        if len(contexts) >= settings.retriever_fact_cap:
+            break
+    return contexts
 
 
 def _build_meta(
@@ -177,6 +211,7 @@ def run_pipeline(
         return {
             "answer": "Please share a SustainaCore question so I can help.",
             "sources": [],
+            "contexts": [],
             "meta": {"intent": "EMPTY", "k": k, "show_debug_block": settings.show_debug_block},
         }
 
@@ -213,6 +248,7 @@ def run_pipeline(
         return {
             "answer": reply,
             "sources": [],
+            "contexts": [],
             "meta": {
                 "intent": intent,
                 "latency_ms": total_ms,
@@ -272,8 +308,12 @@ def run_pipeline(
     if not answer_text:
         answer_text = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
 
+    answer_text = _strip_sources_block(answer_text)
+
     if not isinstance(sources_list, list):
         sources_list = []
+
+    contexts = _facts_to_contexts(final_facts)
 
     meta = _build_meta(
         intent=intent,
@@ -291,7 +331,25 @@ def run_pipeline(
     meta.setdefault("plan", plan)
     meta["gemini"]["compose"] = composed.get("raw")
 
-    return {"answer": answer_text, "sources": sources_list[: settings.retriever_fact_cap], "meta": meta}
+    compose_metrics = gateway.last_meta
+    if compose_metrics:
+        meta.setdefault("gemini", {})["compose_meta"] = compose_metrics
+
+    return {
+        "answer": answer_text,
+        "sources": sources_list[: settings.retriever_fact_cap],
+        "contexts": contexts,
+        "meta": meta,
+    }
+
+
+_SOURCE_BLOCK_RE = re.compile(r"(?:\r?\n){1,}\s*Sources?:.*$", re.IGNORECASE | re.DOTALL)
+
+
+def _strip_sources_block(answer: str) -> str:
+    if not isinstance(answer, str) or not answer:
+        return ""
+    return _SOURCE_BLOCK_RE.sub("", answer).strip()
 
 
 __all__ = [
