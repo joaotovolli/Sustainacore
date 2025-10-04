@@ -1,5 +1,7 @@
 from typing import Any, Dict, Tuple
 
+from app.retrieval import fs_retriever
+
 try:
     from app.retrieval.service import run_pipeline, _strip_sources_block  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
@@ -41,6 +43,10 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
                 "contexts": [],
                 "meta": {"routing": "gemini_first_fail", "error": str(exc)},
             }
+            try:
+                shaped["contexts"] = fs_retriever.search(question, top_k=k)
+            except Exception:
+                pass
             return shaped, 599
 
         if isinstance(payload, dict):
@@ -50,6 +56,11 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
         meta = dict(shaped.get("meta") or {})
         meta["routing"] = "gemini_first"
         shaped["meta"] = meta
+        if not shaped.get("contexts"):
+            try:
+                shaped["contexts"] = fs_retriever.search(question, top_k=k)
+            except Exception:
+                shaped.setdefault("contexts", [])
         return shaped, 200
 
     shaped = {
@@ -58,4 +69,8 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
         "contexts": [],
         "meta": {"routing": "gemini_first_unavailable"},
     }
+    try:
+        shaped["contexts"] = fs_retriever.search(question, top_k=k)
+    except Exception:
+        pass
     return shaped, 598

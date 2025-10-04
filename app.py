@@ -1424,7 +1424,7 @@ def ask2():
 
     header_hints = _collect_request_hints(request)
     shaped, status = _call_route_ask2_facade(
-        question, k_value, client_ip=client_ip, header_hints=header_hints
+        question, k_eff, client_ip=client_ip, header_hints=header_hints
     )
     shaped = shaped if isinstance(shaped, dict) else {}
     answer = (shaped.get("answer") or "").strip()
