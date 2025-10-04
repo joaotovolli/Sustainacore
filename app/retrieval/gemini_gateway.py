@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from typing import Any, Dict, List, Optional
-
-from app.rag.gemini_cli import gemini_call
+from app.rag.gemini_cli import GeminiCLIError, gemini_call, get_last_error
 
 from .settings import settings
 
@@ -28,15 +27,96 @@ def _parse_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _extract_usage(payload: Optional[Dict[str, Any]]) -> Dict[str, Optional[int]]:
+    usage: Dict[str, Optional[int]] = {"input_tokens": None, "output_tokens": None}
+    if not isinstance(payload, dict):
+        return usage
+    usage_block = payload.get("usage") or payload.get("usageMetadata")
+    if not isinstance(usage_block, dict):
+        return usage
+
+    input_candidates = [
+        usage_block.get("promptTokenCount"),
+        usage_block.get("promptTokens"),
+        usage_block.get("input_tokens"),
+    ]
+    output_candidates = [
+        usage_block.get("candidatesTokenCount"),
+        usage_block.get("completionTokenCount"),
+        usage_block.get("output_tokens"),
+    ]
+
+    for value in input_candidates:
+        try:
+            usage["input_tokens"] = int(value)  # type: ignore[arg-type]
+            break
+        except (TypeError, ValueError):
+            continue
+
+    for value in output_candidates:
+        try:
+            usage["output_tokens"] = int(value)  # type: ignore[arg-type]
+            break
+        except (TypeError, ValueError):
+            continue
+
+    return usage
+
+
 class GeminiGateway:
     """Lightweight helper that enforces consistent prompts and parsing."""
 
     def __init__(self) -> None:
         self._timeout = settings.gemini_timeout
+        self._last_meta: Dict[str, Any] = {}
 
     def _call_json(self, prompt: str, *, model: str) -> Optional[Dict[str, Any]]:
+        start = perf_counter()
         text = gemini_call(prompt, timeout=self._timeout, model=model)
-        return _parse_json(text)
+        latency_ms = int((perf_counter() - start) * 1000)
+
+        if not text:
+            error = get_last_error()
+            code: Optional[int]
+            err_line: str
+            if isinstance(error, GeminiCLIError):
+                code = error.returncode
+                err_line = error.first_line or error.stderr.strip() or error.args[0]
+            else:
+                code = None
+                err_line = "no_output"
+            LOGGER.warning('gemini=fail code=%s err="%s"', code if code is not None else "none", err_line)
+            self._last_meta = {"model": model, "lat_ms": latency_ms, "status": "fail", "code": code}
+            return None
+
+        payload = _parse_json(text)
+        usage = _extract_usage(payload)
+
+        if payload is None:
+            LOGGER.warning('gemini=fail code=%s err="%s"', 0, "invalid_json")
+            self._last_meta = {"model": model, "lat_ms": latency_ms, "status": "fail", "code": 0}
+            return None
+
+        in_tok = usage.get("input_tokens")
+        out_tok = usage.get("output_tokens")
+        LOGGER.info(
+            "gemini=ok model=%s lat_ms=%d in_tok=%s out_tok=%s",
+            model,
+            latency_ms,
+            in_tok if in_tok is not None else "-",
+            out_tok if out_tok is not None else "-",
+        )
+        meta: Dict[str, Any] = {"model": model, "lat_ms": latency_ms, "status": "ok"}
+        if in_tok is not None:
+            meta["input_tokens"] = in_tok
+        if out_tok is not None:
+            meta["output_tokens"] = out_tok
+        self._last_meta = meta
+        return payload
+
+    @property
+    def last_meta(self) -> Dict[str, Any]:
+        return dict(self._last_meta)
 
     # ---- public API -----------------------------------------------------
 
