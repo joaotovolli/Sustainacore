@@ -15,6 +15,7 @@ def _read_env_file_var(path, key):
 # -------------------------------------------------------------------------------
 import logging
 import os
+from functools import lru_cache
 
 try:  # pragma: no cover - dependency optional
     import oracledb  # type: ignore
@@ -88,6 +89,24 @@ def _conn():
         raise
 
 
+@lru_cache(maxsize=None)
+def get_vector_column(table: str = "ESG_DOCS") -> dict:
+    """Return vector column metadata for the given table."""
+
+    if oracledb is None:
+        raise RuntimeError("oracledb_unavailable")
+
+    table_name = (table or "ESG_DOCS").upper()
+    column = os.getenv("ORACLE_VECTOR_COLUMN", "EMBEDDING").upper()
+    dimension_env = os.getenv("ORACLE_VECTOR_DIMENSION")
+    try:
+        dimension = int(dimension_env) if dimension_env else None
+    except (TypeError, ValueError):
+        dimension = None
+    return {"table": table_name, "column": column, "dimension": dimension}
+
+
+
 def get_connection():
     """Return a new Oracle connection using configured credentials."""
 
@@ -112,29 +131,34 @@ def _build_filter_clause(filters):
 
     binds = {}
     clauses = []
+    counter = 0
 
-    def _add_in(column: str, values, prefix: str):
-        if isinstance(values, str):
-            iterable = [values]
-        else:
-            iterable = list(values or [])
-        items = []
-        for idx, value in enumerate(iterable):
-            if value in (None, ""):
-                continue
-            key = f"{prefix}{idx}"
-            items.append(f":{key}")
-            binds[key] = value
-        if items:
-            clauses.append(f"{column} IN ({', '.join(items)})")
+    def _bind(value):
+        nonlocal counter
+        key = f"p{counter}"
+        counter += 1
+        binds[key] = value
+        return f":{key}"
 
-    if "source_type" in filters:
-        _add_in("source_type", filters["source_type"], "st")
-
-    if "source_id" in filters:
-        values = [str(v).upper() for v in filters["source_id"]]
-        column = "UPPER(source_id)"
-        _add_in(column, values, "sid")
+    for key, value in (filters or {}).items():
+        if value in (None, ""):
+            continue
+        key_u = str(key).upper()
+        if key_u == "DOC_ID":
+            clause = f"DOC_ID = {_bind(str(value))}"
+            clauses.append(clause)
+        elif key_u == "SOURCE_ID":
+            clause = f"UPPER(SOURCE_ID) = {_bind(str(value).upper())}"
+            clauses.append(clause)
+        elif key_u == "SOURCE_TYPE":
+            values = value if isinstance(value, list) else [value]
+            tokens = [str(v).strip() for v in values if str(v).strip()]
+            if tokens:
+                binds_list = ", ".join(_bind(tok) for tok in tokens)
+                clauses.append(f"UPPER(SOURCE_TYPE) IN ({binds_list})")
+        elif key_u == "TITLE_LIKE":
+            clause = f"TITLE LIKE {_bind(str(value))}"
+            clauses.append(clause)
 
     if not clauses:
         return "", {}
@@ -144,43 +168,48 @@ def _build_filter_clause(filters):
 
 def top_k_by_vector(vec, k=5, *, filters=None):
     if oracledb is None:
-        return []
+        raise RuntimeError("oracledb_unavailable")
 
-    k = max(1, int(k))
-    where_clause, binds = _build_filter_clause(filters)
-    sql = f"""
-        SELECT doc_id,
-               chunk_ix,
-               title,
-               source_url,
-               source_type,
-               source_id,
-               chunk_text,
-               VECTOR_DISTANCE(embedding, :v) AS dist
-        FROM   esg_docs{where_clause}
-        ORDER  BY VECTOR_DISTANCE(embedding, :v)
-        FETCH  FIRST {k} ROWS ONLY
-    """
+    info = get_vector_column()
+    table_name = info.get("table") or "ESG_DOCS"
+    column_name = info.get("column") or "EMBEDDING"
+    expected_dim = info.get("dimension")
+
     try:
-        with _conn() as conn:
-            cur = conn.cursor()
-            vector_type = getattr(oracledb, "DB_TYPE_VECTOR", None)
-            if vector_type is not None:
-                try:
-                    cur.setinputsizes(v=vector_type)
-                except Exception:  # pragma: no cover - older driver fallback
-                    cur.setinputsizes(v=vector_type)
-            params = {"v": vec}
-            params.update(binds)
-            cur.execute(sql, params)
-            cols = [d[0].lower() for d in cur.description]
-            out = []
-            for row in cur.fetchall():
-                out.append({key: _to_plain(val) for key, val in zip(cols, row)})
-            return out
+        query_vector = [float(x) for x in vec]
     except Exception as exc:
-        _log_oracle_issue(exc)
-        return []
+        raise TypeError("vec must be an iterable of floats") from exc
+
+    if expected_dim and len(query_vector) != expected_dim:
+        LOGGER.warning(
+            "Query vector dimension mismatch: expected=%s got=%s",
+            expected_dim,
+            len(query_vector),
+        )
+
+    k = max(1, int(k or 1))
+    where_clause, binds = _build_filter_clause(filters or {})
+    sql = (
+        f"SELECT doc_id, chunk_ix, title, source_url, source_type, source_id, chunk_text,                VECTOR_DISTANCE({column_name}, :v) AS dist FROM {table_name}{where_clause}                ORDER BY VECTOR_DISTANCE({column_name}, :v) FETCH FIRST {k} ROWS ONLY"
+    )
+
+    with _conn() as conn:
+        cur = conn.cursor()
+        vector_type = getattr(oracledb, "DB_TYPE_VECTOR", None)
+        if vector_type is not None:
+            cur.setinputsizes(v=vector_type)  # type: ignore[arg-type]
+        params = dict(binds)
+        params.update({"v": query_vector})
+        try:
+            cur.execute(sql, params)
+        except Exception as exc:
+            LOGGER.error("Oracle vector query failed: %s", exc)
+            raise
+        columns = [d[0].lower() for d in cur.description]
+        rows = []
+        for row in cur.fetchall():
+            rows.append({key: _to_plain(val) for key, val in zip(columns, row)})
+    return rows
 
 
 def fetch_vector_metadata(table="ESG_DOCS", column="EMBEDDING"):
