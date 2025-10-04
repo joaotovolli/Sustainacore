@@ -15,6 +15,12 @@ import app as ask_app
 
 @pytest.fixture(autouse=True)
 def disable_external_calls(monkeypatch):
+    from app.retrieval import adapter as retrieval_adapter
+
+    def _raise_pipeline(*_args, **_kwargs):
+        raise RuntimeError("pipeline disabled")
+
+    monkeypatch.setattr(retrieval_adapter, "run_pipeline", _raise_pipeline)
     monkeypatch.setattr(ask_app, "_gemini_run_pipeline", None)
     monkeypatch.setattr(ask_app, "embed_text", lambda text, settings=None: [0.0])
     monkeypatch.setattr(ask_app, "_top_k_by_vector", lambda *args, **kwargs: [])
