@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from embedding_client import embed_text
+from .embedding_client import embed_text
 
 try:  # pragma: no cover - optional dependency
     import oracledb  # type: ignore
@@ -342,7 +342,7 @@ class OracleRetriever:
         if self._has_column(self.text_column):
             cols.append(f"{self.text_column} AS CHUNK_TEXT")
         cols.append(
-            f"VECTOR_DISTANCE({self.embedding_column}, :vec, '{self.metric}') AS DIST"
+            f"VECTOR_DISTANCE(:vec, {self.embedding_column}, '{self.metric}') AS DIST"
         )
         return ", ".join(cols)
 
@@ -356,15 +356,16 @@ class OracleRetriever:
         binds: Dict[str, Any] = {}
         filter_clause = self._build_filter_clause(filters, binds)
         where = f"WHERE {filter_clause}" if filter_clause else ""
+        limit = max(1, int(k or 1))
         sql = (
             f"SELECT {self._select_clause()} FROM {self.table} {where} "
-            f"ORDER BY VECTOR_DISTANCE({self.embedding_column}, :vec, '{self.metric}') "
-            "FETCH FIRST :k ROWS ONLY"
+            f"ORDER BY VECTOR_DISTANCE(:vec, {self.embedding_column}, '{self.metric}') "
+            f"FETCH FIRST {limit} ROWS ONLY"
         )
         cur = conn.cursor()
         if hasattr(oracledb, "DB_TYPE_VECTOR"):
             cur.setinputsizes(vec=oracledb.DB_TYPE_VECTOR)  # type: ignore[union-attr]
-        binds.update({"vec": embedding, "k": int(k)})
+        binds.update({"vec": embedding})
         cur.execute(sql, binds)
         columns = [desc[0].lower() for desc in cur.description]
         rows: List[Dict[str, Any]] = []

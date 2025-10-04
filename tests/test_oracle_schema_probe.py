@@ -95,7 +95,7 @@ def test_top_k_by_vector_executes_query(monkeypatch):
     result = db_helper.top_k_by_vector([0.1, 0.2, 0.3], k=2)
 
     cursor = cursor_holder["cursor"]
-    assert "VECTOR_DISTANCE(EMBEDDING, :v)" in cursor.executed_sql
+    assert "VECTOR_DISTANCE(:v, EMBEDDING)" in cursor.executed_sql
     assert "AI_VECTOR" not in cursor.executed_sql
     assert "FETCH FIRST 2 ROWS ONLY" in cursor.executed_sql
     assert result[0]["doc_id"] == 1

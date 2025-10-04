@@ -190,7 +190,9 @@ def top_k_by_vector(vec, k=5, *, filters=None):
     k = max(1, int(k or 1))
     where_clause, binds = _build_filter_clause(filters or {})
     sql = (
-        f"SELECT doc_id, chunk_ix, title, source_url, source_type, source_id, chunk_text,                VECTOR_DISTANCE({column_name}, :v) AS dist FROM {table_name}{where_clause}                ORDER BY VECTOR_DISTANCE({column_name}, :v) FETCH FIRST {k} ROWS ONLY"
+        "SELECT doc_id, chunk_ix, title, source_url, source_type, source_id, chunk_text, "
+        f"VECTOR_DISTANCE(:v, {column_name}) AS dist FROM {table_name}{where_clause} "
+        f"ORDER BY VECTOR_DISTANCE(:v, {column_name}) FETCH FIRST {k} ROWS ONLY"
     )
 
     with _conn() as conn:
