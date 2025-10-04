@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 import zlib
@@ -19,6 +20,8 @@ __path__ = [str(Path(__file__).resolve().parent / "app")]
 import requests
 from collections import defaultdict
 from flask import Flask, request, jsonify
+
+from app.retrieval.adapter import ask2_pipeline_first
 
 from embedder_settings import (
     EmbedParityError,
@@ -172,6 +175,24 @@ def _log_build_identifier() -> None:
 
 
 _log_build_identifier()
+
+
+def _log_disk_space_warning() -> None:
+    try:
+        repo_root = Path(__file__).resolve().parent
+        usage = shutil.disk_usage(repo_root)
+    except Exception as exc:  # pragma: no cover - diagnostics only
+        _STARTUP_LOGGER.debug("disk_space_probe_failed: %s", exc)
+        return
+
+    free_bytes = usage.free
+    if free_bytes < 2 * 1024 * 1024 * 1024:
+        _STARTUP_LOGGER.warning("disk_free_bytes=%d path=%s", free_bytes, repo_root)
+    else:
+        _STARTUP_LOGGER.info("disk_free_bytes=%d path=%s", free_bytes, repo_root)
+
+
+_log_disk_space_warning()
 
 _EMBED_SETTINGS = get_embed_settings()
 try:
@@ -1341,11 +1362,26 @@ def ask2():
         k_value = args.get('k') or args.get('top_k') or args.get('limit')
 
     question = q_raw.strip() if isinstance(q_raw, str) else ''
+    try:
+        k_eff = int(k_value) if k_value is not None else 4
+    except Exception:
+        k_eff = 4
+    if k_eff < 1:
+        k_eff = 1
+    if k_eff > 10:
+        k_eff = 10
+
     forwarded = request.headers.get('X-Forwarded-For', '')
-    if forwarded:
-        client_ip = forwarded.split(',')[0].strip()
-    else:
-        client_ip = request.remote_addr or 'unknown'
+    client_ip = (
+        forwarded.split(',')[0].strip()
+        if forwarded
+        else (request.remote_addr or 'unknown')
+    )
+
+    shaped, status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
+    if status == 200 and shaped.get("answer"):
+        return jsonify(shaped), 200
+
     header_hints = _collect_request_hints(request)
     shaped, status = _call_route_ask2_facade(
         question, k_value, client_ip=client_ip, header_hints=header_hints
