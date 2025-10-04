@@ -135,8 +135,9 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
             facts = _contexts_to_facts(fs_contexts)
         else:
             total_ms = int((time.perf_counter() - start) * 1000)
+            placeholder = [{"title": "Context unavailable", "snippet": "Oracle retrieval did not return any facts."}]
             meta = _base_meta(
-                "gemini_first",
+                "gemini_first_fail",
                 total_ms,
                 result.latency_ms,
                 0,
@@ -150,7 +151,7 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
                     "note": "no_contexts",
                 },
             )
-            return {"answer": "", "sources": [], "contexts": [], "meta": meta}, 200
+            return {"answer": "", "sources": [], "contexts": placeholder, "meta": meta}, 200
 
     contexts = _facts_to_contexts(facts)
 
