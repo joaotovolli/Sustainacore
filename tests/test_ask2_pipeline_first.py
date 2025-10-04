@@ -35,6 +35,7 @@ def test_pipeline_first_success(monkeypatch):
     assert payload["answer"] == "Hello"
     assert "Sources:" not in payload["answer"]
     assert isinstance(payload.get("contexts"), list)
+    assert payload["contexts"], "pipeline response should include contexts"
     assert payload.get("meta", {}).get("routing") == "gemini_first"
 
 
@@ -50,3 +51,7 @@ def test_pipeline_first_fallback(monkeypatch):
     payload = response.get_json()
     assert response.status_code == 200
     assert isinstance(payload.get("answer", ""), str)
+    for key in ("answer", "sources", "contexts", "meta"):
+        assert key in payload
+    assert isinstance(payload.get("contexts"), list)
+    assert isinstance(payload.get("sources"), list)

@@ -1350,6 +1350,30 @@ except Exception as e:
 
 # register ask2_simple route\ntry:\n    import route_simple; route_simple.register(app)\n    print("ask2_simple route registered")\nexcept Exception as e:\n    print("route_simple register failed:", e)\n
 
+def _is_insufficient(shaped: Optional[Dict[str, Any]]) -> bool:
+    """Return True when the pipeline output needs legacy fallback."""
+
+    if not isinstance(shaped, dict):
+        return True
+
+    answer = (shaped.get("answer") or "").strip()
+    contexts = shaped.get("contexts")
+    if not isinstance(contexts, list):
+        contexts = []
+
+    if contexts and answer:
+        fallback_markers = {
+            DEFAULT_EMPTY_ANSWER.strip().lower(),
+            INSUFFICIENT_CONTEXT_MESSAGE.strip().lower(),
+        }
+        router_fallback = (_ASK2_ROUTER_FALLBACK or "").strip().lower()
+        if router_fallback:
+            fallback_markers.add(router_fallback)
+        if answer.strip().lower() not in fallback_markers:
+            return False
+    return True
+
+
 @app.route('/ask2', methods=['GET', 'POST'])
 def ask2():
     if request.method == 'POST':
@@ -1377,16 +1401,38 @@ def ask2():
         if forwarded
         else (request.remote_addr or 'unknown')
     )
+    try:
+        shaped, status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
+    except Exception:
+        shaped = {
+            "answer": "",
+            "sources": [],
+            "contexts": [],
+            "meta": {"routing": "gemini_first_fail"},
+        }
+        status = 599
 
-    shaped, status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
-    if status == 200 and shaped.get("answer"):
+    if status == 200 and shaped.get("answer") and not _is_insufficient(shaped):
+        shaped["answer"] = (shaped.get("answer") or "").strip()
+        if not isinstance(shaped.get("contexts"), list):
+            shaped["contexts"] = []
+        if not isinstance(shaped.get("sources"), list):
+            shaped["sources"] = []
+        if not isinstance(shaped.get("meta"), dict):
+            shaped["meta"] = {}
         return jsonify(shaped), 200
 
     header_hints = _collect_request_hints(request)
     shaped, status = _call_route_ask2_facade(
         question, k_value, client_ip=client_ip, header_hints=header_hints
     )
-    return jsonify(shaped), status
+    shaped = shaped if isinstance(shaped, dict) else {}
+    answer = (shaped.get("answer") or "").strip()
+    sources = shaped.get("sources") if isinstance(shaped.get("sources"), list) else []
+    contexts = shaped.get("contexts") if isinstance(shaped.get("contexts"), list) else []
+    meta = shaped.get("meta") if isinstance(shaped.get("meta"), dict) else {}
+    normalized = {"answer": answer, "sources": sources, "contexts": contexts, "meta": meta}
+    return jsonify(normalized), status
 
 
 
@@ -1427,6 +1473,29 @@ def ask_get_shim():
     return jsonify({"answer": answer, "contexts": chunks, "mode":"simple", "sources": sources_out})
 
 
+
+
+# --- compat: safe_top_k_by_vector wrapper ---
+try:
+    import inspect as _inspect
+
+    _orig_tkbv = _top_k_by_vector
+
+    if callable(_orig_tkbv):
+
+        def top_k_by_vector_compat(question, k, *args, **kwargs):
+            if "filters" in kwargs:
+                try:
+                    sig = _inspect.signature(_orig_tkbv)
+                    if "filters" not in sig.parameters:
+                        kwargs.pop("filters", None)
+                except Exception:
+                    kwargs.pop("filters", None)
+            return _orig_tkbv(question, k, *args, **kwargs)
+
+        _top_k_by_vector = top_k_by_vector_compat
+except Exception:
+    pass
 
 
 # --- BEGIN: APEX POST /ask compatibility (no URL change) ---------------------

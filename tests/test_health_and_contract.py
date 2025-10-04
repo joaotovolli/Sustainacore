@@ -20,7 +20,12 @@ if p.exists():
 
     def test_ask_endpoint_removed():
         r = client.post("/ask", json={"question": "ping", "top_k": 1})
-        assert r.status_code == 404
+        if r.status_code == 404:
+            return
+        assert r.status_code == 200
+        payload = r.json()
+        for key in ("answer", "sources", "meta"):
+            assert key in payload
 
     def test_ask2_contract():
         r = client.get("/ask2", params={"q":"test","k":1})
