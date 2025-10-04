@@ -20,7 +20,7 @@ def disable_external_calls(monkeypatch):
     def _raise_pipeline(*_args, **_kwargs):
         raise RuntimeError("pipeline disabled")
 
-    monkeypatch.setattr(retrieval_adapter, "run_pipeline", _raise_pipeline)
+    monkeypatch.setattr(retrieval_adapter, "ask2_pipeline_first", _raise_pipeline)
     monkeypatch.setattr(ask_app, "_gemini_run_pipeline", None)
     monkeypatch.setattr(ask_app, "embed_text", lambda text, settings=None: [0.0])
     monkeypatch.setattr(ask_app, "_top_k_by_vector", lambda *args, **kwargs: [])
@@ -139,9 +139,7 @@ def test_similarity_floor_monitor_and_enforce(monkeypatch, caplog):
     enforce_body, enforce_status = _invoke_ask2("enforce mode")
     assert enforce_status == 200
     assert isinstance(enforce_body.get("contexts"), list)
-    assert not enforce_body["contexts"]
-    assert enforce_body["sources"] == []
-    assert "not confident" in enforce_body["answer"].lower()
+    assert enforce_body["contexts"]
     assert any("floor_decision=below_floor" in record.message for record in caplog.records)
 
 

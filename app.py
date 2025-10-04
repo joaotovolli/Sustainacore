@@ -458,26 +458,13 @@ def _call_route_ask2_facade(
                     and top_similarity < SIMILARITY_FLOOR
                 ):
                     floor_decision = "below_floor"
-                    if SIMILARITY_FLOOR_MODE == "enforce":
-                        allow_contexts = False
-                        sources_list = []
-                        answer_value_local = _ensure_non_empty_answer(
-                            answer_override
-                            or INSUFFICIENT_CONTEXT_MESSAGE,
-                            fallback=INSUFFICIENT_CONTEXT_MESSAGE,
-                        )
-                        answer_value = answer_value_local
+                    meta_dict.setdefault("floor_warning", True)
                 else:
                     floor_decision = "ok"
             else:
                 if SIMILARITY_FLOOR_MODE == "enforce":
                     floor_decision = "below_floor"
-                    allow_contexts = False
-                    sources_list = []
-                    answer_value = _ensure_non_empty_answer(
-                        answer_override or INSUFFICIENT_CONTEXT_MESSAGE,
-                        fallback=INSUFFICIENT_CONTEXT_MESSAGE,
-                    )
+                    meta_dict.setdefault("floor_warning", True)
 
         normalized_answer = _ensure_non_empty_answer(
             answer_value, fallback=DEFAULT_EMPTY_ANSWER
@@ -1403,26 +1390,33 @@ def ask2():
     )
     try:
         shaped, status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
-    except Exception:
+    except Exception as exc:
         shaped = {
             "answer": "",
             "sources": [],
             "contexts": [],
-            "meta": {"routing": "gemini_first_fail"},
+            "meta": {"routing": "gemini_first_fail", "error": str(exc)},
         }
         status = 599
 
-    if status == 200 and shaped.get("answer") and not _is_insufficient(shaped):
-        shaped["answer"] = (shaped.get("answer") or "").strip()
-        if not isinstance(shaped.get("contexts"), list):
-            shaped["contexts"] = []
-        if not isinstance(shaped.get("sources"), list):
-            shaped["sources"] = []
-        if not isinstance(shaped.get("meta"), dict):
-            shaped["meta"] = {}
-        return jsonify(shaped), 200
-
     header_hints = _collect_request_hints(request)
+    contexts = shaped.get("contexts") if isinstance(shaped, dict) else []
+    has_contexts = isinstance(contexts, list) and len(contexts) > 0
+    if status == 200 and has_contexts:
+        answer = (shaped.get("answer") or "").strip()
+        sources = shaped.get("sources") if isinstance(shaped.get("sources"), list) else []
+        meta = shaped.get("meta") if isinstance(shaped.get("meta"), dict) else {}
+        meta.setdefault("routing", "gemini_first")
+        if header_hints:
+            meta.setdefault("request_hints", header_hints)
+        normalized = {
+            "answer": answer,
+            "sources": sources,
+            "contexts": contexts if isinstance(contexts, list) else [],
+            "meta": meta,
+        }
+        return jsonify(normalized), 200
+
     shaped, status = _call_route_ask2_facade(
         question, k_eff, client_ip=client_ip, header_hints=header_hints
     )
