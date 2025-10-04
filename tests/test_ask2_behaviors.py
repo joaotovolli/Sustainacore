@@ -92,7 +92,7 @@ def test_small_talk_short_circuit(monkeypatch):
     for phrase in ["hi", "hello!", "thanks", "help", "goodbye"]:
         body, status = _invoke_ask2(phrase)
         assert status == 200
-        assert "contexts" not in body
+        assert isinstance(body.get("contexts"), list)
         assert "Suggested follow-ups" in body["answer"]
         suggestion_lines = [line for line in body["answer"].splitlines() if line.startswith("- ")]
         assert 2 <= len(suggestion_lines) <= 4
@@ -138,7 +138,8 @@ def test_similarity_floor_monitor_and_enforce(monkeypatch, caplog):
     caplog.clear()
     enforce_body, enforce_status = _invoke_ask2("enforce mode")
     assert enforce_status == 200
-    assert "contexts" not in enforce_body
+    assert isinstance(enforce_body.get("contexts"), list)
+    assert not enforce_body["contexts"]
     assert enforce_body["sources"] == []
     assert "not confident" in enforce_body["answer"].lower()
     assert any("floor_decision=below_floor" in record.message for record in caplog.records)

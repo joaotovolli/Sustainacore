@@ -124,7 +124,7 @@ def detect_gemini_flags() -> bool:
 
         _FLAG_PLAN = plan
         supports_json = any(key in plan for key in ("json_long", "json_short"))
-        supports_model = any(key in plan for key in ("model_long", "model_short"))
+        supports_model_alias = any(key in plan for key in ("model_long", "model_short"))
         supports_prompt_long = "prompt_long" in plan
         supports_prompt_short = "prompt_short" in plan
 
@@ -132,7 +132,7 @@ def detect_gemini_flags() -> bool:
         _LOGGER.info(
             "gemini_cli_capabilities supports_json=%s supports_model_alias=%s supports_prompt_long=%s supports_prompt_short=%s",
             supports_json,
-            supports_model,
+            supports_model_alias,
             supports_prompt_long,
             supports_prompt_short,
         )

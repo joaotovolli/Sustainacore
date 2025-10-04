@@ -15,6 +15,7 @@ def normalize_shape(payload: Dict[str, Any]) -> Dict[str, Any]:
     data = payload or {}
     answer_text = data.get("answer") or data.get("text") or data.get("summary") or ""
     answer_text = _strip_sources_block(answer_text)
+    answer_text = answer_text.strip()
     sources = data.get("sources") or data.get("chunks") or data.get("results") or []
     if not isinstance(sources, list):
         sources = []
@@ -41,16 +42,20 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
                 "meta": {"routing": "gemini_first_fail", "error": str(exc)},
             }
             return shaped, 599
+
         if isinstance(payload, dict):
             shaped = normalize_shape(payload)
-            meta = dict(shaped.get("meta") or {})
-            meta["routing"] = "gemini_first"
-            shaped["meta"] = meta
-            return shaped, 200
+        else:
+            shaped = normalize_shape({})
+        meta = dict(shaped.get("meta") or {})
+        meta["routing"] = "gemini_first"
+        shaped["meta"] = meta
+        return shaped, 200
+
     shaped = {
         "answer": "",
         "sources": [],
         "contexts": [],
-        "meta": {"routing": "no_pipeline"},
+        "meta": {"routing": "gemini_first_unavailable"},
     }
     return shaped, 598
