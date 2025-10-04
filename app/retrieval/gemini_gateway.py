@@ -14,7 +14,7 @@ from app.rag.gemini_cli import GeminiCLIError, gemini_call, get_last_error
 from .settings import settings
 
 
-LOGGER = logging.getLogger("gemini-gateway")
+LOGGER = logging.getLogger("app.gemini")
 
 
 def _parse_json(text: Optional[str]) -> Optional[Dict[str, Any]]:

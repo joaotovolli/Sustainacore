@@ -7,17 +7,39 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-import oracledb
+try:  # pragma: no cover - optional dependency
+    import oracledb  # type: ignore
+except Exception as exc:  # pragma: no cover - optional dependency
+    oracledb = None  # type: ignore
+    _ORACLE_IMPORT_ERROR = exc
+else:  # pragma: no cover - optional dependency
+    _ORACLE_IMPORT_ERROR = None
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import oracledb as _oracledb  # type: ignore
 
 from .settings import settings
 
 
 LOGGER = logging.getLogger("oracle-retriever")
+_ORACLE_AVAILABLE = oracledb is not None
+
+
+def _is_credential_error(exc: Exception) -> bool:
+    text = str(exc)
+    if "DPY-4001" in text or "ORA-01017" in text or "invalid username" in text.lower():
+        return True
+    first_arg = exc.args[0] if exc.args else None
+    code = getattr(first_arg, "code", None)
+    if isinstance(code, str) and code.upper() in {"DPY-4001", "ORA-01017"}:
+        return True
+    return False
 
 
 def _read_env_file_var(path: str, key: str) -> Optional[str]:
@@ -35,14 +57,17 @@ def _read_env_file_var(path: str, key: str) -> Optional[str]:
     return None
 
 
-def _connection() -> oracledb.Connection:
+def _connection() -> "_oracledb.Connection":  # type: ignore[name-defined]
+    if not _ORACLE_AVAILABLE:
+        raise RuntimeError("oracledb_unavailable")
+
     password = (
         os.environ.get("DB_PASSWORD")
         or os.environ.get("DB_PASS")
         or os.environ.get("DB_PWD")
         or _read_env_file_var("/etc/sustainacore/db.env", "DB_PASSWORD")
     )
-    return oracledb.connect(
+    return oracledb.connect(  # type: ignore[union-attr]
         user=os.environ.get("DB_USER", "WKSP_ESGAPEX"),
         password=password,
         dsn=os.environ.get("DB_DSN", "dbri4x6_high"),
@@ -158,12 +183,35 @@ class OracleRetriever:
         self.chunk_ix_column = settings.oracle_chunk_ix_column.upper()
         self.metric = settings.oracle_knn_metric
         self._available_columns: set[str] = set()
-        self._refresh_columns()
-        self._verify_embeddings()
+        self._metadata_ready = False
+        self._metadata_lock = threading.Lock()
+        if not _ORACLE_AVAILABLE and _ORACLE_IMPORT_ERROR:
+            LOGGER.info("Oracle driver unavailable: %s", _ORACLE_IMPORT_ERROR)
 
     # ---- metadata helpers -------------------------------------------------
 
+    def _ensure_metadata(self) -> None:
+        if self._metadata_ready or not _ORACLE_AVAILABLE:
+            return
+        with self._metadata_lock:
+            if self._metadata_ready:
+                return
+            try:
+                self._refresh_columns()
+                self._verify_embeddings()
+            except Exception as exc:  # pragma: no cover - requires DB
+                if _is_credential_error(exc):
+                    LOGGER.info("Oracle metadata unavailable: %s", exc)
+                else:
+                    LOGGER.warning("Oracle metadata warmup failed: %s", exc)
+            finally:
+                self._metadata_ready = True
+
     def _refresh_columns(self) -> None:
+        if not _ORACLE_AVAILABLE:
+            self._available_columns = set()
+            return
+        db_error = getattr(oracledb, "DatabaseError", Exception)
         try:
             with _connection() as conn:
                 owner = conn.username.upper()
@@ -175,7 +223,7 @@ class OracleRetriever:
                         table=self.table,
                     )
                     cols = [row[0].upper() for row in cur]
-                except oracledb.DatabaseError:
+                except db_error:
                     cur = conn.cursor()
                     cur.execute("SELECT column_name FROM USER_TAB_COLUMNS WHERE TABLE_NAME = :table", table=self.table)
                     cols = [row[0].upper() for row in cur]
@@ -188,6 +236,8 @@ class OracleRetriever:
         return column.upper() in self._available_columns
 
     def _verify_embeddings(self) -> None:
+        if not _ORACLE_AVAILABLE:
+            return
         if not self._has_column(self.embedding_column):
             LOGGER.warning("Embedding column %s not found in %s", self.embedding_column, self.table)
             return
@@ -212,7 +262,7 @@ class OracleRetriever:
 
     # ---- embedding --------------------------------------------------------
 
-    def _embed(self, conn: oracledb.Connection, text: str) -> Optional[Sequence[float]]:
+    def _embed(self, conn: "_oracledb.Connection", text: str) -> Optional[Sequence[float]]:  # type: ignore[name-defined]
         text = (text or "").strip()
         if not text:
             return None
@@ -305,7 +355,7 @@ class OracleRetriever:
 
     def _vector_query(
         self,
-        conn: oracledb.Connection,
+        conn: "_oracledb.Connection",  # type: ignore[name-defined]
         embedding: Sequence[float],
         filters: Dict[str, Any],
         k: int,
@@ -319,7 +369,8 @@ class OracleRetriever:
             "FETCH FIRST :k ROWS ONLY"
         )
         cur = conn.cursor()
-        cur.setinputsizes(vec=oracledb.DB_TYPE_VECTOR)
+        if hasattr(oracledb, "DB_TYPE_VECTOR"):
+            cur.setinputsizes(vec=oracledb.DB_TYPE_VECTOR)  # type: ignore[union-attr]
         binds.update({"vec": embedding, "k": int(k)})
         cur.execute(sql, binds)
         columns = [desc[0].lower() for desc in cur.description]
@@ -456,6 +507,18 @@ class OracleRetriever:
         variants = [v for v in query_variants if isinstance(v, str) and v.strip()]
         if not variants:
             variants = [""]
+        self._ensure_metadata()
+        if not _ORACLE_AVAILABLE:
+            note = "- oracle_unavailable"
+            return RetrievalResult(
+                facts=[],
+                context_note=note,
+                latency_ms=0,
+                candidates=0,
+                deduped=0,
+                hop_count=hop_count,
+                raw_facts=None,
+            )
         try:
             with _connection() as conn:
                 for variant in variants:
@@ -466,7 +529,8 @@ class OracleRetriever:
                     chunk_rows = self._vector_query(conn, embedding, filters, k_eff)
                     rows.extend(chunk_rows)
         except Exception as exc:  # pragma: no cover - requires DB
-            LOGGER.error("Oracle retrieval failed: %s", exc)
+            log_fn = LOGGER.warning if _is_credential_error(exc) else LOGGER.error
+            log_fn("Oracle retrieval failed: %s", exc)
             rows = []
         deduped = self._deduplicate_rows(rows)
         facts = [self._row_to_fact(row, idx) for idx, row in enumerate(deduped[: settings.retriever_fact_cap])]
