@@ -61,6 +61,7 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
                 shaped["contexts"] = fs_retriever.search(question, top_k=k)
             except Exception:
                 shaped.setdefault("contexts", [])
+
         return shaped, 200
 
     shaped = {
