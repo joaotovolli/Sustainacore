@@ -180,6 +180,9 @@ def _extract_ask2_params():
 
 
 def _ask2_facade_handler():
+    view = getattr(app_mod, "ask2", None)
+    if callable(view):
+        return view()
     q, k_value = _extract_ask2_params()
     shaped = _call_route_ask2(q, k_value)
     return jsonify(shaped), 200
@@ -225,4 +228,3 @@ if app:
         if uptime <= 0:
             uptime = 1e-6
         return jsonify({"uptime": float(uptime)})
-

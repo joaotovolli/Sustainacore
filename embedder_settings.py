@@ -6,7 +6,10 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Tuple
 
-import oracledb
+try:  # pragma: no cover - optional dependency for import-time use
+    import oracledb  # type: ignore
+except Exception:  # pragma: no cover - allow running without Oracle client
+    oracledb = None  # type: ignore
 
 try:
     import db_helper
