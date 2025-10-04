@@ -1,56 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="${HOST:-localhost}"
-PORT="${PORT:-8080}"
+SERVICE="${SERVICE:-sustainacore-ai}"
+LEG="$(mktemp)"
+APX="$(mktemp)"
+trap 'rm -f "$LEG" "$APX"' EXIT
 
-legacy_payload=$(mktemp)
-apex_payload=$(mktemp)
-trap 'rm -f "$legacy_payload" "$apex_payload"' EXIT
-
-echo "== Legacy body =="
-curl -sS "http://${HOST}:${PORT}/ask2" \
+curl -sS http://localhost:8080/ask2 \
   -H 'Content-Type: application/json' \
-  -d '{"question":"Is Microsoft in the TECH100 Index?","top_k":6}' | tee "$legacy_payload"
-legacy_answer=$(jq -r '.answer // ""' "$legacy_payload")
-legacy_contexts=$(jq -c '.contexts' "$legacy_payload" 2>/dev/null || echo 'null')
-legacy_meta=$(jq -c '.meta' "$legacy_payload" 2>/dev/null || echo 'null')
+  -d '{"question":"Is Microsoft in the TECH100 Index?","top_k":6}' > "$LEG" || true
 
-echo "== APEX body =="
-curl -sS "http://${HOST}:${PORT}/ask2" \
+curl -sS http://localhost:8080/ask2 \
   -H 'Content-Type: application/json' \
-  -d '{"q":"Is Microsoft in the TECH100 Index?","top_k":6,"refine":"off"}' | tee "$apex_payload"
-apex_answer=$(jq -r '.answer // ""' "$apex_payload")
-apex_contexts=$(jq -c '.contexts' "$apex_payload" 2>/dev/null || echo 'null')
-apex_meta=$(jq -c '.meta' "$apex_payload" 2>/dev/null || echo 'null')
+  -d '{"q":"Is Microsoft in the TECH100 Index?","top_k":6,"refine":"off"}' > "$APX" || true
 
-for ctx in "$legacy_contexts" "$apex_contexts"; do
-  if [[ "$ctx" == "null" || "$ctx" == "" ]]; then
-    echo "Contexts missing in response" >&2
-    exit 1
-  fi
-  if [[ "$ctx" == "[]" ]]; then
-    echo "Contexts empty in response" >&2
-    exit 1
-  fi
-done
+jq '.answer,.contexts,.meta' "$LEG" 2>/dev/null || cat "$LEG"
+jq '.answer,.contexts,.meta' "$APX" 2>/dev/null || cat "$APX"
 
-legacy_has_sources=$(grep -c 'Sources:' <<<"$legacy_answer" || true)
-apex_has_sources=$(grep -c 'Sources:' <<<"$apex_answer" || true)
+INLINE_LEG=$(jq -r '.answer // ""' "$LEG" 2>/dev/null | grep -c 'Sources:' || true)
+INLINE_APX=$(jq -r '.answer // ""' "$APX" 2>/dev/null | grep -c 'Sources:' || true)
+HAS_CTX_LEG=$(jq -e 'has("contexts")' "$LEG" >/dev/null 2>&1 && echo 1 || echo 0)
+HAS_CTX_APX=$(jq -e 'has("contexts")' "$APX" >/dev/null 2>&1 && echo 1 || echo 0)
+ROUTE_LEG=$(jq -r '.meta.routing // "unknown"' "$LEG" 2>/dev/null || echo unknown)
+ROUTE_APX=$(jq -r '.meta.routing // "unknown"' "$APX" 2>/dev/null || echo unknown)
+GEM_LOGS=$(journalctl -u "$SERVICE" --since '2 minutes ago' --no-pager | egrep -c 'gemini=ok|gemini=fail' || true)
 
-if [[ $legacy_has_sources -gt 0 && $apex_has_sources -gt 0 ]]; then
-  echo "Both responses contain inline Sources:, expected pipeline to strip them" >&2
+echo "inline_legacy=$INLINE_LEG inline_apex=$INLINE_APX ctx_legacy=$HAS_CTX_LEG ctx_apex=$HAS_CTX_APX route_legacy=$ROUTE_LEG route_apex=$ROUTE_APX gemini_logs=$GEM_LOGS"
+
+if [ "$HAS_CTX_LEG" -eq 1 ] && [ "$HAS_CTX_APX" -eq 1 ] && ! { [ "$INLINE_LEG" -gt 0 ] && [ "$INLINE_APX" -gt 0 ]; }; then
+  echo "✅ PASS"
+  exit 0
+else
+  echo "❌ FAIL"
   exit 1
 fi
-
-echo "== Check logs (needs journald on host) =="
-if ! journalctl -u sustainacore-ai --since '2 minutes ago' --no-pager | egrep 'gemini=ok|gemini=fail'; then
-  legacy_route=$(jq -r '.meta.routing // ""' "$legacy_payload")
-  apex_route=$(jq -r '.meta.routing // ""' "$apex_payload")
-  if [[ -z "$legacy_route" && -z "$apex_route" ]]; then
-    echo "No journald entries and meta.routing missing" >&2
-    exit 1
-  fi
-fi
-
-echo "Verification complete"

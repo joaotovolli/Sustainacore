@@ -55,3 +55,24 @@ def test_pipeline_first_fallback(monkeypatch):
         assert key in payload
     assert isinstance(payload.get("contexts"), list)
     assert isinstance(payload.get("sources"), list)
+
+
+
+def test_pipeline_fs_fallback_populates_contexts(monkeypatch):
+    from app.retrieval import adapter, fs_retriever
+
+    def fake_pipeline(question, k, client_ip=None):
+        return {
+            "answer": "Fallback answer",
+            "sources": [],
+            "contexts": [],
+            "meta": {},
+        }
+
+    monkeypatch.setattr(adapter, "run_pipeline", fake_pipeline, raising=False)
+    monkeypatch.setattr(fs_retriever, "search", lambda question, top_k=6: [{"id": "fs-1"}])
+
+    shaped, status = adapter.ask2_pipeline_first("Ping", 3, client_ip="1.2.3.4")
+    assert status == 200
+    assert shaped["contexts"] == [{"id": "fs-1"}]
+    assert shaped["meta"]["routing"] == "gemini_first"
