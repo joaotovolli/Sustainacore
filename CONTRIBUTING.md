@@ -35,6 +35,11 @@ Thanks for your interest in improving Sustainacore! This document outlines how t
 - Use descriptive names and add comments where intent might be unclear.
 - Prefer configuration-driven changes over ad-hoc scripts when expanding automation.
 
+## Writing & terminology
+- Repository spellchecking is configured via [`.cspell.json`](.cspell.json) so our domain terms stay green in CI.
+- Use "evaluations" in narrative prose; the term "eval pack" is intentionally allowed for the CI workflow name and related docs.
+- When a new project-specific term is necessary, add it to `.cspell.json` rather than suppressing the Hygiene workflow or excluding entire files.
+
 ## Community expectations
 We expect contributors to follow our [Code of Conduct](CODE_OF_CONDUCT.md). Be respectful, collaborative, and open to feedback.
 

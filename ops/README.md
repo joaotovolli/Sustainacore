@@ -92,7 +92,7 @@ The persona workflow still validates that `ASK2_URL`, `OPENAI_API_KEY`, and `ORG
 
 ## CI eval (stub mode)
 
-Continuous integration runs enable a deterministic retrieval stub so Persona evals pass without the Oracle/vector stack. When the workflow exports `CI_EVAL_FIXTURES=1`, the `/ask2` handler short-circuits to a small fixture (`eval/fixtures/ci_stub.json`) that returns:
+Continuous integration runs enable a deterministic retrieval stub so Persona evaluations pass without the Oracle/vector stack. When the workflow exports `CI_EVAL_FIXTURES=1`, the `/ask2` handler short-circuits to a small fixture (`eval/fixtures/ci_stub.json`) that returns:
 
 - A canned answer that already includes a **Sources:** section.
 - At least three string contexts (or more if the request sets a higher `top_k`).
