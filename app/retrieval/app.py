@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -46,6 +47,9 @@ FALLBACK = (
 
 PERSONA_ENABLED = os.getenv("PERSONA_V1") == "1"
 REQUEST_NORMALIZE_ENABLED = os.getenv("REQUEST_NORMALIZE") == "1"
+CI_EVAL_FIXTURES_ENABLED = os.getenv("CI_EVAL_FIXTURES") == "1"
+
+_CI_FIXTURE_PATH = Path(__file__).resolve().parents[2] / "eval" / "fixtures" / "ci_stub.json"
 
 LOGGER = logging.getLogger("ask2")
 
@@ -253,6 +257,114 @@ def _build_payload(
 
 _START_TS = time.time()
 
+
+@lru_cache(maxsize=1)
+def _load_ci_fixture() -> Dict[str, Any]:
+    """Load the CI stub fixture when stub mode is enabled."""
+
+    try:
+        with _CI_FIXTURE_PATH.open("r", encoding="utf-8") as handle:
+            fixture = json.load(handle)
+    except FileNotFoundError:
+        fixture = {}
+    except json.JSONDecodeError:
+        LOGGER.warning("ci_stub fixture file is not valid JSON; falling back to defaults")
+        fixture = {}
+
+    answer_prefix = fixture.get("answer_prefix") if isinstance(fixture, dict) else None
+    if not isinstance(answer_prefix, str) or not answer_prefix.strip():
+        answer_prefix = (
+            "This is a stubbed SustainaCore answer for \"{question}\". "
+            "It validates the Persona eval contract in CI."
+        )
+
+    contexts = fixture.get("contexts") if isinstance(fixture, dict) else None
+    if not isinstance(contexts, list) or not contexts:
+        contexts = [
+            "CI fixture context {n}: sustainability commitments snapshot for \"{question}\".",
+            "CI fixture context {n}: governance summary touching climate risk around \"{question}\".",
+            "CI fixture context {n}: emissions disclosure excerpt relevant to \"{question}\".",
+        ]
+
+    sources = fixture.get("sources") if isinstance(fixture, dict) else None
+    normalized_sources: List[Dict[str, str]] = []
+    if isinstance(sources, list):
+        for idx, source in enumerate(sources, start=1):
+            if not isinstance(source, dict):
+                continue
+            title = source.get("title") or source.get("name")
+            url = source.get("url") or source.get("href") or source.get("source_url")
+            if not isinstance(title, str) or not title.strip():
+                title = f"CI Fixture Document {idx}"
+            if not isinstance(url, str) or not url.strip():
+                url = f"fixture://doc{idx}"
+            normalized_sources.append({"title": title.strip(), "url": url.strip()})
+            if len(normalized_sources) >= 3:
+                break
+
+    if not normalized_sources:
+        normalized_sources = [
+            {"title": "CI Fixture Document 1", "url": "fixture://doc1"},
+            {"title": "CI Fixture Document 2", "url": "fixture://doc2"},
+            {"title": "CI Fixture Document 3", "url": "fixture://doc3"},
+        ]
+
+    return {
+        "answer_prefix": answer_prefix,
+        "contexts": contexts,
+        "sources": normalized_sources,
+    }
+
+
+def _render_ci_stub(question_text: str, requested_top_k: int) -> Dict[str, Any]:
+    """Return a deterministic stub response for CI eval jobs."""
+
+    fixture = _load_ci_fixture()
+    effective_question = question_text.strip() or "this query"
+    effective_k = max(3, _sanitize_k(requested_top_k))
+
+    contexts: List[str] = []
+    templates = fixture["contexts"]
+    if not templates:
+        templates = [
+            "CI fixture context {n}: sustainability commitments snapshot for \"{question}\".",
+            "CI fixture context {n}: governance summary touching climate risk around \"{question}\".",
+            "CI fixture context {n}: emissions disclosure excerpt relevant to \"{question}\".",
+        ]
+    for idx in range(effective_k):
+        template = templates[idx % len(templates)]
+        if not isinstance(template, str) or not template:
+            template = "CI fixture context {n}: supporting detail for \"{question}\"."
+        contexts.append(
+            template.format(question=effective_question, n=idx + 1, index=idx + 1)
+        )
+
+    sources = [dict(item) for item in fixture["sources"]]
+    lines: List[str] = []
+    for idx, source in enumerate(sources, start=1):
+        title = source.get("title", "").strip()
+        url = source.get("url", "").strip()
+        lines.append(f"{idx}) {title} — {url}")
+    sources_lines = "\n".join(lines)
+
+    answer_prefix = fixture["answer_prefix"].format(question=effective_question)
+    answer = f"{answer_prefix}\n\nSources:\n{sources_lines}".strip()
+
+    meta = {
+        "note": "ci_stub",
+        "k": effective_k,
+        "mode": "ci_stub",
+        "persona": PERSONA_ENABLED,
+        "normalize": REQUEST_NORMALIZE_ENABLED,
+    }
+
+    return {
+        "answer": answer,
+        "contexts": contexts,
+        "sources": sources,
+        "meta": meta,
+    }
+
 app = FastAPI(title="SustainaCore Retrieval Facade", version="1.0")
 
 
@@ -408,6 +520,10 @@ async def ask2_post(request: Request) -> JSONResponse:
             ),
             started,
         )
+
+    if CI_EVAL_FIXTURES_ENABLED:
+        LOGGER.info("ask2.ci_stub %s", json.dumps({"k": top_k, "question_len": len(question_text)}))
+        return _finalize_response(_render_ci_stub(question_text, top_k), started)
 
     if run_pipeline is None:
         return _finalize_response(
