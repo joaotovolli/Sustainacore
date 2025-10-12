@@ -16,7 +16,7 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 
 For production deployments, `config/prod.env.example` captures the supported feature flags (persona and normalization). Copy the file to your environment tooling as needed.
 
-## Eval Pack 
+## Eval Pack  
 To validate persona quality and request normalization end-to-end:
 
 1. Launch the API locally: `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
