@@ -5,7 +5,7 @@
 ![Contributions](https://img.shields.io/badge/contributions-welcome-brightgreen)
 
 ## Executive Summary
-Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, APEX integrations, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments.
+Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, APEX integrations, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments. 
 
 ## Quick Start
 1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`.
