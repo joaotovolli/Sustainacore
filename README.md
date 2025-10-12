@@ -8,7 +8,7 @@
 Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, APEX integrations, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments. 
 
 ## Quick Start
-1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`.
+1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`. 
 2. Install dependencies: `pip install -U pip && pip install -r requirements.txt`.
 3. Export environment variables from `.env` (or copy from `.env.sample`).
 4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
