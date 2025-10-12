@@ -22,8 +22,90 @@ permissions:
   issues: write # allow deploy alerts to reach PRs
 
 jobs:
+  noop_on_skip:
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.gate.outputs.should_deploy }}
+      reason: ${{ steps.gate.outputs.reason }}
+    steps:
+      - name: Evaluate deploy gate
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          WORKFLOW_RUN_EVENT: ${{ github.event.workflow_run.event || '' }}
+          WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha || '' }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          should="false"
+          reasons=()
+
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            if [[ "$WORKFLOW_RUN_CONCLUSION" != "success" ]]; then
+              reasons+=("Upstream workflow concluded with '$WORKFLOW_RUN_CONCLUSION'.")
+            fi
+            if [[ "$WORKFLOW_RUN_EVENT" != "push" ]]; then
+              reasons+=("Upstream workflow triggered by '$WORKFLOW_RUN_EVENT'; only push events are deployed.")
+            fi
+            if [[ "$WORKFLOW_RUN_BRANCH" != "main" ]]; then
+              reasons+=("Upstream workflow targeted branch '$WORKFLOW_RUN_BRANCH'; only main is deployed.")
+            fi
+            if [[ ${#reasons[@]} -eq 0 ]]; then
+              should="true"
+            fi
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            reasons+=("Manual dispatch is disabled for deploys; rerun the Canary workflow on main.")
+          else
+            reasons+=("Unsupported triggering event '$EVENT_NAME'.")
+          fi
+
+          if [[ -z "${VM_HOST:-}" ]]; then
+            reasons+=("Missing required secret 'VM_HOST'.")
+          fi
+          if [[ -z "${VM_SSH_KEY:-}" ]]; then
+            reasons+=("Missing required secret 'VM_SSH_KEY'.")
+          fi
+
+          if [[ ${#reasons[@]} -ne 0 ]]; then
+            should="false"
+          fi
+
+          if [[ "$should" == "true" ]]; then
+            summary="### Deploy gate\nReady to deploy commit \`$TARGET_SHA\`."
+            echo "Deploy gate passed; proceeding with deploy of $TARGET_SHA."
+          else
+            summary="### Deploy gate\nSkipping deploy for commit \`$TARGET_SHA\`."
+            if [[ ${#reasons[@]} -gt 0 ]]; then
+              summary+="\n\nReasons:"
+              for reason in "${reasons[@]}"; do
+                summary+="\n- ${reason}"
+              done
+            fi
+            printf '%s\n' "Skipping deploy: ${reasons[*]:-no reasons recorded}."
+          fi
+
+          printf '%s\n' "$summary" >>"$GITHUB_STEP_SUMMARY"
+          echo "should_deploy=$should" >>"$GITHUB_OUTPUT"
+          if [[ ${#reasons[@]} -gt 0 ]]; then
+            joined="${reasons[*]}"
+            if [[ ${#reasons[@]} -gt 1 ]]; then
+              joined=$(printf '%s; ' "${reasons[@]}")
+              joined=${joined%'; '}
+            fi
+            printf 'reason=%s\n' "$joined" >>"$GITHUB_OUTPUT"
+          else
+            echo "reason=" >>"$GITHUB_OUTPUT"
+          fi
+
   deploy:
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || github.event_name == 'workflow_dispatch' }}
+    needs: noop_on_skip
+    if: ${{ needs.noop_on_skip.outputs.should_deploy == 'true' }}
     runs-on: ubuntu-latest
     env:
       TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
