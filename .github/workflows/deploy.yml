@@ -1,87 +1,203 @@
-name: Deploy
+name: Deploy after Canary
+
 on:
+  workflow_run:
+    workflows:
+      - Canary + Self-Heal
+    types:
+      - completed
   workflow_dispatch:
-  push:
-    branches: [main]
+    inputs:
+      sha:
+        description: Commit SHA to deploy (defaults to main head)
+        required: false
+
+concurrency:
+  group: deploy-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   deploy:
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
-      VM_HOST: ${{ secrets.VM_HOST }}
-      VM_USER: ${{ secrets.VM_USER }}
-      VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-
+      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
+    outputs:
+      ready: ${{ steps.preflight.outputs.ready }}
+      deploy-status: ${{ steps.run-deploy.outputs.status }}
+      deploy-snippet: ${{ steps.run-deploy.outputs.snippet }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup SSH
+      - name: Preflight secrets
+        id: preflight
+        shell: bash
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
         run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_vm
-          chmod 600 ~/.ssh/id_vm
-          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
-
-      - name: Deploy to VM
-        run: |
-          ssh -i ~/.ssh/id_vm -o StrictHostKeyChecking=yes "${VM_USER}@${VM_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          cd /opt/sustainacore-ai
-          git fetch --all
-          git reset --hard origin/main
-          python3 -m venv .venv
-          source .venv/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python - <<'PY'
-import importlib, sys
-missing = []
-for module in ("fastapi", "uvicorn"):
-    try:
-        importlib.import_module(module)
-    except Exception as exc:  # pragma: no cover - deployment guardrail
-        missing.append(f"{module}: {exc}")
-if missing:
-    print("::error::Failed to import dependencies::" + "; ".join(missing))
-    sys.exit(1)
-PY
-          sudo systemctl daemon-reload || true
-          sudo systemctl restart sustainacore-ai.service
-          if ! sudo systemctl is-active --quiet sustainacore-ai.service; then
-            echo '::error::sustainacore-ai.service failed to start'
+          missing=()
+          [[ -z "${VM_HOST:-}" ]] && missing+=("VM_HOST")
+          [[ -z "${VM_SSH_KEY:-}" ]] && missing+=("VM_SSH_KEY")
+          if ((${#missing[@]})); then
+            {
+              echo "### Deploy preflight";
+              echo "Missing required secrets:";
+              for secret in "${missing[@]}"; do
+                echo "- \`${secret}\`";
+              done;
+            } >>"$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=true" >>"$GITHUB_OUTPUT"
+      - name: Stop when secrets missing
+        if: ${{ steps.preflight.outputs.ready != 'true' }}
+        run: echo "Skipping deploy because required secrets are missing."
+      - name: Checkout repository at canary commit
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+      - name: Write SSH key
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
+        id: ssh-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/vm_key"
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" >"$key"
+          chmod 600 "$key"
+          echo "path=$key" >>"$GITHUB_OUTPUT"
+      - name: Run deploy script
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
+        id: run-deploy
+        shell: bash
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          SSH_KEY_PATH: ${{ steps.ssh-key.outputs.path }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SSH_KEY_PATH:-}" ]]; then
+            echo "SSH key path missing" >&2
             exit 1
           fi
-          curl --fail --retry 8 --retry-delay 5 --retry-connrefused "http://127.0.0.1:8080/healthz"
-          curl --fail --retry 8 --retry-delay 5 --retry-connrefused -s -X POST "http://127.0.0.1:8080/ask" \
-            -H 'Content-Type: application/json' --data '{"question":"ping","top_k":1}' \
-            | python3 - <<'PY'
-import json, sys
-try:
-    payload = json.load(sys.stdin)
-except Exception as exc:  # pragma: no cover - deployment guardrail
-    print(f"::error::Failed to parse /ask response: {exc}")
-    sys.exit(1)
-answer = str(payload.get("answer") or "").strip()
-if not answer:
-    print("::error::/ask returned an empty answer")
-    sys.exit(1)
-PY
-          REMOTE
-
-      - name: Verify public health
+          export VM_HOST
+          export SSH_KEY="$SSH_KEY_PATH"
+          chmod +x ops/scripts/deploy_vm.sh
+          log_file="$RUNNER_TEMP/deploy.log"
+          set +e
+          ops/scripts/deploy_vm.sh 2>&1 | tee "$log_file"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          if [[ $status -ne 0 ]]; then
+            echo "snippet<<'EOF'" >>"$GITHUB_OUTPUT"
+            tail -n 40 "$log_file" >>"$GITHUB_OUTPUT"
+            echo 'EOF' >>"$GITHUB_OUTPUT"
+          fi
+      - name: Fail deploy if script errored
+        if: ${{ steps.preflight.outputs.ready == 'true' && steps.run-deploy.outputs.status != '0' }}
         run: |
-          curl --fail --retry 12 --retry-delay 5 "https://ai.sustainacore.org/healthz"
-
-      - name: Service logs (on failure)
-        if: failure()
-        run: |
-          ssh -i ~/.ssh/id_vm -o StrictHostKeyChecking=yes "${VM_USER}@${VM_HOST}" \
-            'journalctl -u sustainacore-ai.service -n 200 --no-pager' | tee deploy_logs.txt
-
-      - name: Upload logs
+          echo "ops/scripts/deploy_vm.sh failed" >&2
+          exit 1
+      - name: Cleanup SSH key
         if: always()
-        uses: actions/upload-artifact@v4
+        run: |
+          rm -f "${{ steps.ssh-key.outputs.path }}"
+      - name: Deploy failure alert
+        if: ${{ failure() && github.event_name == 'workflow_run' && steps.preflight.outputs.ready == 'true' }}
+        uses: actions/github-script@v7
         with:
-          name: deploy-logs
-          path: deploy_logs.txt
-          if-no-files-found: ignore
+          script: |
+            const prs = context.payload.workflow_run.pull_requests || [];
+            if (!prs.length) {
+              core.info('No pull request associated with the triggering canary.');
+              return;
+            }
+            const marker = '<!-- deploy-alert -->';
+            const issue_number = prs[0].number;
+            const body = `${marker}
+@joaotovolli @codex
+
+🚨 **Deploy workflow failed** for canary commit \`${{ env.TARGET_SHA }}\`.
+
+<details>
+<summary>Error snippet</summary>
+
+\`\`\`
+${{ steps.run-deploy.outputs.snippet || 'See Actions logs for details.' }}
+\`\`\`
+</details>
+
+🔗 [Deploy logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+
+**Fix Plan v1**
+1. Codex: audit the failing deploy step and propose a targeted fix.
+2. Push Attempt 1 with minimal changes and rerun the canary pipeline to retrigger deploy.
+3. Update this comment with \`Attempt N → result\` after each push (max 3).
+4. If deploy stays red after Attempt 3, provide a rollback/manual recovery checklist.`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }
+      - name: Announce deploy success
+        if: ${{ success() && github.event_name == 'workflow_run' && steps.preflight.outputs.ready == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prs = context.payload.workflow_run.pull_requests || [];
+            if (!prs.length) {
+              core.info('No pull request to update for deploy success.');
+              return;
+            }
+            const marker = '<!-- deploy-status -->';
+            const issue_number = prs[0].number;
+            const body = `${marker}
+🚀 Canary commit \`${{ env.TARGET_SHA }}\` deployed via ops/scripts/deploy_vm.sh.
+
+_Run ID: [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})_`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }

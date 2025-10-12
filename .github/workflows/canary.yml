@@ -1,129 +1,246 @@
-name: Canary roundtrip
+name: Canary + Self-Heal
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'ops/**'
+      - 'db/**'
+      - '.github/**'
   pull_request:
-    types: [opened, synchronize, labeled, reopened, ready_for_review]
+    paths:
+      - 'app/**'
+      - 'ops/**'
+      - 'db/**'
+      - '.github/**'
+  workflow_dispatch:
+  schedule:
+    - cron: '30 06 * * *'
+
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
   pull-requests: write
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  actions: read
 
 jobs:
-  canary:
-    if: ${{ contains(github.event.pull_request.labels.*.name, 'canary') }}
+  preflight:
+    name: Preflight secrets & permissions
     runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.evaluate.outputs.ready }}
+      missing: ${{ steps.evaluate.outputs.missing }}
     steps:
-      - name: Preflight secrets
-        id: preflight
+      - name: Evaluate required secrets
+        id: evaluate
+        uses: actions/github-script@v7
         env:
           VM_HOST: ${{ secrets.VM_HOST }}
           VM_USER: ${{ secrets.VM_USER }}
           VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-        run: |
-          python - <<'PY'
-import os
-
-required = {
-    "VM_HOST": "Public hostname or IP address for the SustainaCore VM",
-    "VM_USER": "SSH username with canary permissions",
-    "VM_SSH_KEY": "Private key material with access to the VM user",
-}
-missing = [name for name in required if not os.getenv(name, "").strip()]
-ready = not missing
-reason = "Missing secrets: " + ", ".join(missing) if missing else ""
-with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-    fh.write(f"ready={'true' if ready else 'false'}\n")
-    fh.write("missing=" + ("\n".join(missing) if missing else "") + "\n")
-    fh.write(f"reason={reason}\n")
-print("Preflight status:", "ready" if ready else reason or "unknown issue")
-PY
-
-      - name: Comment missing secrets
-        if: ${{ steps.preflight.outputs.ready != 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          MISSING: ${{ steps.preflight.outputs.missing }}
-        run: |
-          cat <<'BODY' > comment.md
-⚠️ Canary workflow skipped: repository secrets are missing.
-
-Please add the following secrets in **Settings → Secrets and variables → Actions**:
-BODY
-          if [ -n "$MISSING" ]; then
-            python - <<'PY' >> comment.md
-import os
-missing = [line.strip() for line in os.environ["MISSING"].splitlines() if line.strip()]
-for name in missing:
-    print(f"- `{name}`")
-PY
-          fi
-          cat <<'BODY' >> comment.md
-
-Required values:
-- `VM_HOST`: public hostname or IP address of the SustainaCore OCI VM.
-- `VM_USER`: SSH user with permission to append to `~/canary/roundtrip.log`.
-- `VM_SSH_KEY`: private key for the VM user (preferably in OpenSSH format).
-
-After adding the secrets, re-run the workflow by reapplying the `canary` label or triggering a new run.
-BODY
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file comment.md
-
-      - name: Ensure skip after notification
-        if: ${{ steps.preflight.outputs.ready != 'true' }}
-        run: echo "Skipping SSH canary because secrets are missing."
-
-      - name: Append VM roundtrip log
-        id: ssh
-        if: ${{ steps.preflight.outputs.ready == 'true' }}
-        uses: appleboy/ssh-action@v1.1.0
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ORG_ID: ${{ secrets.ORG_ID }}
         with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
-          port: ${{ secrets.VM_SSH_PORT != '' && secrets.VM_SSH_PORT || '22' }}
-          script_stop: true
-          envs: GITHUB_RUN_ID,GITHUB_RUN_NUMBER,GITHUB_SHA
           script: |
-            set -euo pipefail
-            mkdir -p ~/canary
-            timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            entry="GitHub canary run $GITHUB_RUN_ID (#$GITHUB_RUN_NUMBER) at ${timestamp} from ${GITHUB_SHA}"
-            echo "$entry" >> ~/canary/roundtrip.log
-            tail -n 5 ~/canary/roundtrip.log
+            const required = [
+              { key: 'VM_HOST', note: 'Public hostname or IP for ai.sustainacore.org' },
+              { key: 'VM_USER', note: 'SSH user (usually `opc`) with append rights to ~/canary/roundtrip.log' },
+              { key: 'VM_SSH_KEY', note: 'OpenSSH private key paired with VM_USER' },
+            ];
+            const optional = [
+              { key: 'OPENAI_API_KEY', note: 'Needed for persona/self-test jobs' },
+              { key: 'ORG_ID', note: 'Partner/org identifier consumed by persona checks' },
+            ];
+            const missing = required.filter(entry => !process.env[entry.key]);
+            const missingOptional = optional.filter(entry => !process.env[entry.key]);
+            const formatList = entries => entries.map(entry => `- ${entry.key} — ${entry.note}`).join('\n');
+            const missingRequiredText = missing.length ? formatList(missing) : 'None';
+            const missingOptionalText = missingOptional.length ? formatList(missingOptional) : 'None';
+            core.setOutput('ready', missing.length === 0 ? 'true' : 'false');
+            core.setOutput('missing', JSON.stringify({ required: missing, optional: missingOptional }));
+            core.setOutput('missing_required_text', missingRequiredText);
+            core.setOutput('missing_optional_text', missingOptionalText);
+            if (missing.length === 0) {
+              core.summary.addHeading('Preflight checks');
+              core.summary.addRaw('All required secrets are present.');
+              await core.summary.write();
+            } else {
+              core.summary.addHeading('Preflight checks');
+              core.summary.addRaw('Required secrets missing, skipping canary.');
+              core.summary.addBreak();
+              for (const entry of missing) {
+                core.summary.addList([`Secret \`${entry.key}\` missing (${entry.note}).`]);
+              }
+              if (missingOptional.length) {
+                core.summary.addBreak();
+                core.summary.addRaw('Optional (recommended) secrets still unset:');
+                core.summary.addList(missingOptional.map(entry => `\`${entry.key}\` — ${entry.note}`));
+              }
+              await core.summary.write();
+            }
+      - name: Comment missing secrets guidance
+        if: ${{ steps.evaluate.outputs.ready != 'true' && github.event_name == 'pull_request' }}
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            <!-- canary-preflight -->
+            ⚠️ Canary preflight could not find the required deployment secrets, so the run completed without touching the VM.
 
-      - name: Post success comment
-        if: ${{ steps.preflight.outputs.ready == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          SSH_OUTPUT: ${{ steps.ssh.outputs.stdout }}
+            **Missing secrets**
+            ${{ steps.evaluate.outputs.missing_required_text }}
+
+            Add these under **Settings → Secrets and variables → Actions** and rerun the workflow. Optional (but recommended) secrets still unset:
+            ${{ steps.evaluate.outputs.missing_optional_text }}
+
+            _Tip: Preflight exits successfully to avoid noisy failures._
+
+  canary:
+    name: Canary on VM
+    needs: preflight
+    if: ${{ needs.preflight.outputs.ready == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.run.outputs.status }}
+      snippet: ${{ steps.run.outputs.snippet }}
+      roundtrip_tail: ${{ steps.tail.outputs.tail }}
+    steps:
+      - name: Prepare SSH key
+        id: key
         run: |
-          cat <<'BODY' > comment.md
-✅ Canary roundtrip succeeded.
-
-Latest log excerpt from `~/canary/roundtrip.log`:
-```
-BODY
-          printf '%s\n' "$SSH_OUTPUT" >> comment.md
-          cat <<'BODY' >> comment.md
-```
-
-Logs recorded on the SustainaCore VM confirm GitHub → VM connectivity.
-BODY
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file comment.md
-
-      - name: Comment failure details
-        if: ${{ steps.preflight.outputs.ready == 'true' && failure() }}
+          set -euo pipefail
+          key="$RUNNER_TEMP/vm_key"
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > "$key"
+          chmod 600 "$key"
+          echo "path=$key" >> "$GITHUB_OUTPUT"
+      - name: Run canary probe
+        id: run
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          SSH_KEY_PATH: ${{ steps.key.outputs.path }}
+        shell: bash
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "❌ Canary roundtrip failed. Check the workflow logs for details." || true
+          set -euo pipefail
+          if [[ -z "${VM_HOST:-}" ]]; then
+            echo "VM_HOST is required" >&2
+            exit 1
+          fi
+          if [[ -z "${VM_USER:-}" ]]; then
+            echo "VM_USER is required" >&2
+            exit 1
+          fi
+          if [[ -z "${SSH_KEY_PATH:-}" ]]; then
+            echo "SSH key path missing" >&2
+            exit 1
+          fi
+          remote_script="$RUNNER_TEMP/remote_canary.sh"
+          cat >"$remote_script" <<EOF
+set -euo pipefail
+mkdir -p ~/canary
+timestamp=\$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "\$timestamp ${GITHUB_SHA}" >> ~/canary/roundtrip.log
+if [ -f ~/ops/canary_apply.sh ]; then
+  echo "[canary] executing ~/ops/canary_apply.sh"
+  bash ~/ops/canary_apply.sh
+else
+  echo "[canary] ~/ops/canary_apply.sh not present; skipping"
+fi
+EOF
+          log_file="$RUNNER_TEMP/canary.log"
+          set +e
+          ssh -vvv -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$VM_USER@$VM_HOST" 'bash -s' <"$remote_script" 2>&1 | tee "$log_file"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          if [[ $status -ne 0 ]]; then
+            echo "snippet<<'EOF'" >>"$GITHUB_OUTPUT"
+            tail -n 20 "$log_file" >>"$GITHUB_OUTPUT"
+            echo 'EOF' >>"$GITHUB_OUTPUT"
+          fi
+      - name: Tail remote roundtrip log
+        id: tail
+        if: ${{ steps.run.outputs.status == '0' }}
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          SSH_KEY_PATH: ${{ steps.key.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tail_output=$(ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$VM_USER@$VM_HOST" 'tail -n 5 ~/canary/roundtrip.log')
+          printf '%s\n' "$tail_output"
+          {
+            echo 'tail<<EOF'
+            printf '%s\n' "$tail_output"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Fail canary if remote command failed
+        if: ${{ steps.run.outputs.status != '0' }}
+        run: |
+          echo "Remote canary command failed" >&2
+          exit 1
+      - name: Cleanup SSH material
+        if: always()
+        run: |
+          rm -f "${{ steps.key.outputs.path }}"
+      - name: Comment success on PR
+        if: ${{ github.event_name == 'pull_request' && success() }}
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            <!-- canary-status -->
+            ✅ Canary succeeded on `${{ github.sha }}`. Latest entries from `~/canary/roundtrip.log`:
+
+            ```
+            ${{ steps.tail.outputs.tail != '' && steps.tail.outputs.tail || 'tail unavailable (non-PR run)' }}
+            ```
+
+            _Run ID: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_
+
+  alert:
+    name: Failure alert + self-heal bootstrap
+    needs:
+      - preflight
+      - canary
+    if: ${{ failure() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize failure to PR
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            <!-- canary-alert -->
+            @joaotovolli @codex
+
+            🚨 **Canary workflow failed** for commit `${{ github.sha }}`.
+
+            | Job | Result |
+            | --- | ------ |
+            | Preflight | ${{ needs.preflight.result }} |
+            | Canary | ${{ needs.canary.result }} |
+
+            <details>
+            <summary>Error snippet</summary>
+
+            ```
+            ${{ needs.canary.outputs.snippet || 'See linked logs for details.' }}
+            ```
+            </details>
+
+            🔗 [Full logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            **Fix Plan v1**
+            1. Codex: review the failing job/step output above.
+            2. Codex: propose a targeted fix (YAML, permissions, SSH options, missing packages, etc.) and push Attempt 1.
+            3. Re-run the canary workflow. Update this comment as `Attempt N → result` after each push (up to 3 attempts).
+            4. If still red after Attempt 3, post a rollback/manual checklist instead of pushing further changes.
+
+            _Self-heal guardrail: do not force-push over reviewed commits. Coordinate in this thread if human intervention is needed._
