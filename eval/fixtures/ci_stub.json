@@ -1,0 +1,15 @@
+{
+  "answer_prefix": "This is a stubbed SustainaCore answer for \"{question}\". It validates the Persona eval contract in CI.",
+  "contexts": [
+    "CI fixture context {n}: sustainability commitments snapshot for \"{question}\".",
+    "CI fixture context {n}: governance summary touching climate risk around \"{question}\".",
+    "CI fixture context {n}: emissions disclosure excerpt relevant to \"{question}\".",
+    "CI fixture context {n}: supply chain highlight that references \"{question}\".",
+    "CI fixture context {n}: policy commentary aligned with \"{question}\"."
+  ],
+  "sources": [
+    {"title": "CI Fixture Document 1", "url": "fixture://doc1"},
+    {"title": "CI Fixture Document 2", "url": "fixture://doc2"},
+    {"title": "CI Fixture Document 3", "url": "fixture://doc3"}
+  ]
+}
