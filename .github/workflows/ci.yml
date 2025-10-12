@@ -7,6 +7,75 @@ on:
       - main
 
 jobs:
+  preflight:
+    name: Preflight checks
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Verify required secrets
+        id: check
+        env:
+          EVAL_BASE_URL: ${{ secrets.EVAL_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+
+          if [ -z "${EVAL_BASE_URL}" ]; then
+            missing+=("EVAL_BASE_URL")
+          fi
+
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "missing_secrets=" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Preflight Check"
+              echo "All required secrets are configured. Persona eval will run."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "missing_secrets=$(IFS=,; echo "${missing[*]}")" >> "$GITHUB_OUTPUT"
+
+            {
+              echo "## Preflight Check"
+              echo "The workflow skipped the Persona eval because the following secrets are missing:"
+              for secret in "${missing[@]}"; do
+                printf -- '- `%s`\n' "$secret"
+              done
+              echo
+              echo "Configure these secrets under **Settings → Secrets and variables → Actions** to enable the eval job."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Leave configuration guidance
+        if: ${{ github.event_name == 'pull_request' && steps.check.outputs.should_run == 'false' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const missing = (process.env.MISSING_SECRETS || '')
+              .split(',')
+              .filter(Boolean)
+              .map(name => `- \`${name}\``)
+              .join('\n');
+
+            const body = [
+              '⚠️ **Persona eval skipped**',
+              '',
+              'The preflight check skipped the Persona eval because the following required secrets are not set:',
+              missing || '- (none reported)',
+              '',
+              'Add these secrets in **Settings → Secrets and variables → Actions** for the repository or organization to enable the eval job.'
+            ].join('\n');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+        env:
+          MISSING_SECRETS: ${{ steps.check.outputs.missing_secrets }}
   guard-secrets:
     name: Ensure sensitive files are ignored
     runs-on: ubuntu-latest
@@ -24,6 +93,10 @@ jobs:
           echo "No tracked .env or wallet files detected."
   chat-eval:
     name: Persona eval
+    needs:
+      - preflight
+      - guard-secrets
+    if: needs.preflight.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
