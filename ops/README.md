@@ -1,61 +1,76 @@
 # SustainaCore Operations Guide
 
-This document captures the operational steps and automation hooks required for the forward (GitHub → VM) and reverse (VM → GitHub) canary loops, along with tips to keep notification noise low.
+This guide explains the forward canary → deploy automation, the reverse "VM → GitHub" loop, and the guardrails that keep alerts actionable without flooding inboxes.
 
-## Repository secrets required for canary automation
+## Triggers, filters, and concurrency
 
-Set the following repository secrets under **Settings → Secrets and variables → Actions** before applying the `canary` label to a pull request:
+The canary workflow (`.github/workflows/canary.yml`) runs automatically on:
+
+- Pushes to `main` that touch `app/**`, `ops/**`, `db/**`, or `.github/**`.
+- Pull requests that modify the same paths.
+- Manual runs via **Actions → Canary + Self-Heal → Run workflow**.
+- A nightly cron at 06:30 UTC.
+
+Concurrency is enforced per ref (`concurrency: canary-${{ github.ref }}`) so only the most recent push for a branch runs at a time. Success on a commit triggers the deploy workflow via `workflow_run`; deploy uses its own `concurrency: deploy-${{ ... }}` group to avoid overlapping SSH sessions.
+
+## Required repository secrets
+
+Configure the following under **Settings → Secrets and variables → Actions**:
 
 | Secret | Description |
 | ------ | ----------- |
-| `VM_HOST` | Public hostname or IP address of the SustainaCore OCI virtual machine. |
-| `VM_USER` | SSH user on the VM with permission to append to `~/canary/roundtrip.log`. |
-| `VM_SSH_KEY` | Private key for `VM_USER` in OpenSSH format (include the `-----BEGIN OPENSSH PRIVATE KEY-----` header). |
-| `VM_SSH_PORT` *(optional)* | SSH port if the VM is not exposed on port 22. |
-| `OPENAI_API_KEY` | Used by the persona evaluation workflow for LLM-backed checks. |
-| `ORG_ID` | Partner organization identifier consumed by persona evaluations. |
-| `ASK2_URL` | Absolute URL of the `/ask2` endpoint (e.g., `https://ai.sustainacore.org/ask2`). |
+| `VM_HOST` | Public hostname or IP for `ai.sustainacore.org`. |
+| `VM_USER` | SSH user with append access to `~/canary/roundtrip.log` (typically `opc`). |
+| `VM_SSH_KEY` | OpenSSH private key that matches `VM_USER`. |
+| `OPENAI_API_KEY` *(optional)* | Required by persona/self-eval workflows. |
+| `ORG_ID` *(optional)* | Organization identifier consumed by persona tests. |
 
-> ℹ️ Secrets missing during a run cause the workflow to post a guidance comment instead of failing. Add the secrets and reapply the `canary` label to retrigger.
+The canary workflow performs a preflight that checks these secrets. If anything is missing it posts a guidance comment on the pull request (`<!-- canary-preflight -->`) and exits successfully so you do not receive a red ❌.
 
-## Forward loop (GitHub → VM) canary test
+## Forward loop (GitHub → VM) canary
 
-1. Push your branch and open a pull request.
-2. Add the `canary` label to the PR.
-3. The `.github/workflows/canary.yml` workflow runs and SSHs into the VM.
-4. On success, the workflow appends a timestamped entry to `~/canary/roundtrip.log` and posts the tail of the log back to the PR as proof.
-5. To manually confirm from the VM:
+1. Push a change (or open/update a PR) that touches one of the filtered paths.
+2. The `canary` job prepares an ephemeral SSH key file, connects as `${VM_USER}@${VM_HOST}`, and appends `timestamp SHA` to `~/canary/roundtrip.log`. If `~/ops/canary_apply.sh` exists on the VM it is executed.
+3. On success the workflow posts a comment containing the tail of `~/canary/roundtrip.log` (`<!-- canary-status -->`) and links back to the run.
+4. You can verify from the VM with:
    ```bash
    tail -n 20 ~/canary/roundtrip.log
    ```
-6. If the workflow comments about missing secrets, follow the instructions in the comment, update the repository secrets, and add the `canary` label again.
+5. Need to re-run manually? Open the workflow run in GitHub Actions and choose **Re-run jobs** or trigger `workflow_dispatch` from the Actions tab.
+
+## Self-heal loop and alerts
+
+If any job fails on a pull request:
+
+- A structured comment (`<!-- canary-alert -->`) mentions `@joaotovolli` and `@codex` with the failing job result, a 20-line error snippet, and links to the logs.
+- The comment also contains **Fix Plan v1** instructing Codex to attempt up to three targeted fixes (small commits, reruns, and status updates) before switching to a rollback/manual checklist.
+
+Because preflight skips gracefully, only real execution failures trigger these alerts.
+
+## Deploy chain (after canary)
+
+`.github/workflows/deploy.yml` listens for successful completions of the canary workflow on `main`.
+
+- Deploy reuses the secrets preflight; missing credentials result in a skipped run with a step summary.
+- The job checks out the exact commit that passed canary (`github.event.workflow_run.head_sha`) and runs `ops/scripts/deploy_vm.sh`, passing the SSH key path via `SSH_KEY`.
+- On failure, the workflow updates/creates a `<!-- deploy-alert -->` comment on the originating PR with the latest log snippet and another self-heal plan.
+- On success, the `<!-- deploy-status -->` comment confirms deployment and links the run.
+
+Manual deploys are also available through **Actions → Deploy after Canary → Run workflow**, optionally providing a `sha` input.
 
 ## Reverse loop (VM → GitHub → Codex Cloud)
 
-Authenticate the VM with GitHub CLI (`gh auth login --with-token` using a PAT that can create branches and PRs). Then execute the following script from the VM to create a round-trip pull request and request a Codex review:
+Authenticate the VM with GitHub CLI (`gh auth login --with-token`) and run the helper script captured in [`ops/VM_TO_CLOUD.md`](VM_TO_CLOUD.md). The script:
 
-```bash
-set -euo pipefail
-git config --global user.name "VM Canary Bot"
-git config --global user.email "vm+canary@sustainacore.org"
-cd ~/Sustainacore
-git fetch origin
-git checkout -B canary/vm-to-cloud-$(date -u +%Y%m%d_%H%M) origin/main
-mkdir -p canary
-echo "VM -> GitHub -> Codex Cloud @ $(date -u +'%Y-%m-%dT%H:%M:%SZ')" > canary/VM_TO_CLOUD.md
-git add canary/VM_TO_CLOUD.md
-git commit -m "canary(vm): reverse loop test"
-git push -u origin HEAD
-pr_url=$(gh pr create --title "Canary: VM → GitHub → Codex Cloud" --body "Please @codex review and push exactly one improvement.")
-echo "PR: $pr_url"
-gh pr edit --add-label codex-review
-```
+1. Creates a branch from the latest `origin/main`.
+2. Writes a status note to `canary/VM_TO_CLOUD.md`.
+3. Pushes the branch and opens a PR requesting a Codex review.
 
-After the PR opens, Codex Cloud (or a human standing in for Codex) should add a single follow-up improvement commit or leave a precise change request before merge.
+Codex should respond by pushing exactly one improvement commit or leaving a precise change request before the PR is merged, completing the reverse validation loop.
 
 ## VM helper script (`~/ops/canary_apply.sh`)
 
-Ensure the VM exposes an idempotent helper script that records each apply attempt:
+Keep an idempotent script on the VM that the canary job can call:
 
 ```bash
 #!/usr/bin/env bash
@@ -65,7 +80,7 @@ timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 echo "canary_apply $timestamp" >> "$HOME/canary/apply.log"
 ```
 
-Save this as `~/ops/canary_apply.sh`, make it executable (`chmod +x ~/ops/canary_apply.sh`), and invoke it from deployment tooling to keep a durable audit trail. View the history with:
+Make it executable (`chmod +x ~/ops/canary_apply.sh`). Inspect recent activity with:
 
 ```bash
 tail -n 40 ~/canary/apply.log
@@ -73,15 +88,12 @@ tail -n 40 ~/canary/apply.log
 
 ## Persona evaluation preflight
 
-The persona evaluation workflow validates that `ASK2_URL`, `OPENAI_API_KEY`, and `ORG_ID` secrets are set and that `ASK2_URL` is an absolute URL. When those requirements are unmet, the workflow records a skip reason instead of failing. Update repository secrets accordingly before rerunning the job.
+The persona workflow still validates that `ASK2_URL`, `OPENAI_API_KEY`, and `ORG_ID` are populated. Missing values add a skip notice to the workflow summary instead of failing so that CI remains clean.
 
 ## Reducing GitHub notification noise
 
-To keep alerts actionable without altering organization-wide settings:
+- GitHub only @mentions `@joaotovolli` and `@codex` when a canary/deploy job fails. Success comments omit @mentions.
+- Adjust email delivery under <https://github.com/settings/notifications> ("Participating and @mentions" keeps alerts targeted).
+- Create inbox filters for `label:canary` or the HTML comment markers if you prefer a custom triage view.
 
-1. Visit **https://github.com/settings/notifications** and switch your default participation level to **Participating and @mentions** for email.
-2. Add custom notification filters (e.g., "label:canary" or "label:codex-review") so that GitHub only emails you for the automation labels you care about.
-3. If you forward notifications to email, create a mail rule that matches `subject:[Sustainacore]` and only flags items containing `canary` or `codex-review` so that routine CI does not clutter your inbox.
-4. Leverage the **Saved filters** panel in the GitHub notifications inbox to quickly jump to canary or persona evaluation updates.
-
-Documenting your filters inside your personal notes (instead of editing org-level settings) keeps the setup reversible and low-risk.
+Documenting these knobs keeps the automation reversible and low-risk.
