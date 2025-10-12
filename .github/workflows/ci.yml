@@ -120,9 +120,26 @@ jobs:
           PERSONA_V1: "1"
           REQUEST_NORMALIZE: "1"
           EVAL_BASE_URL: ${{ secrets.EVAL_BASE_URL }}
-          ASK2_URL: ${{ secrets.EVAL_BASE_URL }}
           EVAL_FLAGS: "REQUEST_NORMALIZE,PERSONA_V1"
-        run: python scripts/run_eval.py
+          ASK2_URL: ${{ secrets.EVAL_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          ask2_url="${ASK2_URL:-}"
+          if [ -z "${ask2_url}" ]; then
+            ask2_url="http://127.0.0.1:8080/ask2"
+          else
+            ask2_url="${ask2_url%/}"
+            case "${ask2_url}" in
+              */ask2) ;;
+              *)
+                ask2_url="${ask2_url}/ask2"
+                ;;
+            esac
+          fi
+
+          export ASK2_URL="${ask2_url}"
+          python scripts/run_eval.py
       - name: Shutdown API
         if: always()
         run: |
