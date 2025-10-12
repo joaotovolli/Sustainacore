@@ -23,6 +23,7 @@
     "multihit",
     "embedder",
     "pipefail",
-    "mktemp"
+    "mktemp",
+    "joaotovolli"
   ]
 }
