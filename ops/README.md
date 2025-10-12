@@ -90,6 +90,16 @@ tail -n 40 ~/canary/apply.log
 
 The persona workflow still validates that `ASK2_URL`, `OPENAI_API_KEY`, and `ORG_ID` are populated. Missing values add a skip notice to the workflow summary instead of failing so that CI remains clean.
 
+## CI eval (stub mode)
+
+Continuous integration runs enable a deterministic retrieval stub so Persona evaluations pass without the Oracle/vector stack. When the workflow exports `CI_EVAL_FIXTURES=1`, the `/ask2` handler short-circuits to a small fixture (`eval/fixtures/ci_stub.json`) that returns:
+
+- A canned answer that already includes a **Sources:** section.
+- At least three string contexts (or more if the request sets a higher `top_k`).
+- A non-empty `sources` array with stable `fixture://` URLs.
+
+Deployments and local runs without the flag continue to exercise the real retrieval pipeline.
+
 ## Reducing GitHub notification noise
 
 - GitHub only @mentions `@joaotovolli` and `@codex` when a canary/deploy job fails. Success comments omit @mentions.

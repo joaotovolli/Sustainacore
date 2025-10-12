@@ -111,17 +111,60 @@ jobs:
         run: |
           uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080 &
           echo $! > uvicorn.pid
-          sleep 5
+          sleep 1
         env:
           PERSONA_V1: "1"
           REQUEST_NORMALIZE: "1"
+          CI_EVAL_FIXTURES: "1"
       - name: Run eval pack
         env:
           PERSONA_V1: "1"
           REQUEST_NORMALIZE: "1"
           EVAL_BASE_URL: ${{ secrets.EVAL_BASE_URL }}
           EVAL_FLAGS: "REQUEST_NORMALIZE,PERSONA_V1"
-        run: python scripts/run_eval.py
+          ASK2_URL: ${{ secrets.EVAL_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          ask2_url="${ASK2_URL:-}"
+          if [ -z "${ask2_url}" ]; then
+            ask2_url="http://127.0.0.1:8080/ask2"
+          else
+            ask2_url="${ask2_url%/}"
+            case "${ask2_url}" in
+              */ask2) ;;
+              *)
+                ask2_url="${ask2_url}/ask2"
+                ;;
+            esac
+          fi
+
+          export ASK2_URL="${ask2_url}"
+
+          base_url="${ask2_url%/ask2}"
+          health_url="${base_url}/healthz"
+          echo "Waiting for API health at ${health_url} ..."
+          ready=0
+          for attempt in $(seq 1 20); do
+            if curl -fsS "${health_url}" >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            status=$(curl -sS -o /dev/null -w "%{http_code}" -X HEAD "${ask2_url}" 2>/dev/null || true)
+            if [ "${status}" = "200" ] || [ "${status}" = "405" ]; then
+              ready=1
+              break
+            fi
+            sleep 0.5
+          done
+
+          if [ "${ready}" -ne 1 ]; then
+            echo "API failed to report healthy within timeout" >&2
+            curl -v "${health_url}" || true
+            exit 1
+          fi
+
+          python scripts/run_eval.py
       - name: Shutdown API
         if: always()
         run: |
