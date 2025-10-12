@@ -19,6 +19,7 @@ Thanks for your interest in improving Sustainacore! This document outlines how t
 - Include screenshots or logs for UI or operational changes when possible.
 - Describe how you verified your changes and call out any known limitations.
 - Ensure CI checks pass before requesting review.
+- To request an autonomous Codex review, add the `codex-review` label or comment `@codex review` on the pull request. Reviews stay quiet until one of these triggers is present.
 
 ## Code style
 - Follow Python formatting conventions agreed upon in the repository.

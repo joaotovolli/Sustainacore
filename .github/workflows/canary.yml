@@ -1,0 +1,129 @@
+name: Canary roundtrip
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'canary') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preflight secrets
+        id: preflight
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          python - <<'PY'
+import os
+
+required = {
+    "VM_HOST": "Public hostname or IP address for the SustainaCore VM",
+    "VM_USER": "SSH username with canary permissions",
+    "VM_SSH_KEY": "Private key material with access to the VM user",
+}
+missing = [name for name in required if not os.getenv(name, "").strip()]
+ready = not missing
+reason = "Missing secrets: " + ", ".join(missing) if missing else ""
+with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+    fh.write(f"ready={'true' if ready else 'false'}\n")
+    fh.write("missing=" + ("\n".join(missing) if missing else "") + "\n")
+    fh.write(f"reason={reason}\n")
+print("Preflight status:", "ready" if ready else reason or "unknown issue")
+PY
+
+      - name: Comment missing secrets
+        if: ${{ steps.preflight.outputs.ready != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MISSING: ${{ steps.preflight.outputs.missing }}
+        run: |
+          cat <<'BODY' > comment.md
+⚠️ Canary workflow skipped: repository secrets are missing.
+
+Please add the following secrets in **Settings → Secrets and variables → Actions**:
+BODY
+          if [ -n "$MISSING" ]; then
+            python - <<'PY' >> comment.md
+import os
+missing = [line.strip() for line in os.environ["MISSING"].splitlines() if line.strip()]
+for name in missing:
+    print(f"- `{name}`")
+PY
+          fi
+          cat <<'BODY' >> comment.md
+
+Required values:
+- `VM_HOST`: public hostname or IP address of the SustainaCore OCI VM.
+- `VM_USER`: SSH user with permission to append to `~/canary/roundtrip.log`.
+- `VM_SSH_KEY`: private key for the VM user (preferably in OpenSSH format).
+
+After adding the secrets, re-run the workflow by reapplying the `canary` label or triggering a new run.
+BODY
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file comment.md
+
+      - name: Ensure skip after notification
+        if: ${{ steps.preflight.outputs.ready != 'true' }}
+        run: echo "Skipping SSH canary because secrets are missing."
+
+      - name: Append VM roundtrip log
+        id: ssh
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_SSH_PORT != '' && secrets.VM_SSH_PORT || '22' }}
+          script_stop: true
+          envs: GITHUB_RUN_ID,GITHUB_RUN_NUMBER,GITHUB_SHA
+          script: |
+            set -euo pipefail
+            mkdir -p ~/canary
+            timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            entry="GitHub canary run $GITHUB_RUN_ID (#$GITHUB_RUN_NUMBER) at ${timestamp} from ${GITHUB_SHA}"
+            echo "$entry" >> ~/canary/roundtrip.log
+            tail -n 5 ~/canary/roundtrip.log
+
+      - name: Post success comment
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SSH_OUTPUT: ${{ steps.ssh.outputs.stdout }}
+        run: |
+          cat <<'BODY' > comment.md
+✅ Canary roundtrip succeeded.
+
+Latest log excerpt from `~/canary/roundtrip.log`:
+```
+BODY
+          printf '%s\n' "$SSH_OUTPUT" >> comment.md
+          cat <<'BODY' >> comment.md
+```
+
+Logs recorded on the SustainaCore VM confirm GitHub → VM connectivity.
+BODY
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file comment.md
+
+      - name: Comment failure details
+        if: ${{ steps.preflight.outputs.ready == 'true' && failure() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "❌ Canary roundtrip failed. Check the workflow logs for details." || true
