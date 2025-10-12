@@ -19,7 +19,7 @@ concurrency:
 permissions:
   contents: read
   pull-requests: write
-  issues: write
+  issues: write # allow deploy alerts to reach PRs
 
 jobs:
   deploy:
