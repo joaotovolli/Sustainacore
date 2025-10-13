@@ -29,7 +29,7 @@ To validate persona quality and request normalization end-to-end:
 
 Set `ASK2_URL` if your server runs on a different host or port.
 
-> **CI note:** The persona eval workflow runs only when the `ASK2_URL` repository secret is configured with an absolute `/ask2` endpoint. Without it, the job is skipped automatically.
+> **CI note:** The persona eval workflow runs only when the `ASK2_URL` repository secret is configured with an absolute `/ask2` endpoint. Without it, the job is skipped automatically. Pushes and pull requests receive a guard check named "Persona guard" that reports success while reminding maintainers that persona evaluation is manual-only.
 
 ### Production feature flags
 
