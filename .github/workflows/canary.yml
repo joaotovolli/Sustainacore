@@ -34,6 +34,10 @@ jobs:
       run_canary: ${{ steps.evaluate.outputs.run_canary }}
       skip_reason: ${{ steps.evaluate.outputs.skip_reason }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Filter changed paths
         id: paths
         uses: dorny/paths-filter@v3
@@ -44,18 +48,26 @@ jobs:
               - 'ops/**'
               - 'db/**'
               - '.github/**'
+      - name: Guard paths-filter result
+        id: guard
+        run: |
+          if [ -z "${{ steps.paths.outputs.relevant }}" ]; then
+            echo "run_canary=false" >>"$GITHUB_OUTPUT"
+            echo "skip_reason=paths-filter error (no git context)" >>"$GITHUB_OUTPUT"
+          fi
       - name: Evaluate gate
         id: evaluate
         env:
-          CHANGED_RELEVANT: ${{ steps.paths.outputs.relevant || 'false' }}
+          CHANGED_RELEVANT: ${{ steps.paths.outputs.relevant || steps.guard.outputs.run_canary || 'false' }}
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || '' }}
           BASE_REPO: ${{ github.repository }}
+          GUARD_REASON: ${{ steps.guard.outputs.skip_reason || '' }}
         run: |
           set -euo pipefail
 
           should_run="$CHANGED_RELEVANT"
-          reason=""
+          reason="$GUARD_REASON"
 
           if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
             should_run="true"
