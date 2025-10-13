@@ -30,10 +30,10 @@ jobs:
         id: gate
         env:
           EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
-          WORKFLOW_RUN_EVENT: ${{ github.event.workflow_run.event || '' }}
-          WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
-          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha || '' }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || '' }}
+          WORKFLOW_RUN_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || '' }}
+          WORKFLOW_RUN_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || '' }}
+          WORKFLOW_RUN_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
           TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
           VM_HOST: ${{ secrets.VM_HOST }}
           VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
