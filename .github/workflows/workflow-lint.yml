@@ -1,0 +1,22 @@
+name: Workflow Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        run: |
+          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+      - name: Run actionlint
+        run: ./actionlint -color -shellcheck=
+      - name: Install yamllint
+        run: pipx install yamllint || python -m pip install --user yamllint
+      - name: Run yamllint
+        run: |
+          ~/.local/bin/yamllint -d "{extends: default, rules: {line-length: disable, truthy: disable}}" .github/workflows

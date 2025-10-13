@@ -37,31 +37,32 @@ jobs:
           ASK2_URL: ${{ secrets.ASK2_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ORG_ID: ${{ secrets.ORG_ID }}
+        shell: bash
         run: |
           python - <<'PY'
-import os
-from urllib.parse import urlparse
+            import os
+            from urllib.parse import urlparse
 
-required = ["ASK2_URL", "OPENAI_API_KEY", "ORG_ID"]
-missing = [name for name in required if not os.getenv(name, "").strip()]
-messages = []
-if missing:
-    messages.append("missing secrets: " + ", ".join(missing))
-url = os.getenv("ASK2_URL", "").strip()
-if url:
-    parsed = urlparse(url)
-    if not (parsed.scheme and parsed.netloc):
-        messages.append("ASK2_URL must be an absolute URL (e.g., https://example.org/ask2)")
-else:
-    messages.append("ASK2_URL not configured")
-ready = not messages
-reason = "; ".join(messages) if messages else ""
-with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-    fh.write(f"ready={'true' if ready else 'false'}\n")
-    fh.write("missing=" + ("|".join(missing) if missing else "") + "\n")
-    fh.write(f"reason={reason}\n")
-print("Preflight status:", "ready" if ready else reason or "unknown issue")
-PY
+            required = ["ASK2_URL", "OPENAI_API_KEY", "ORG_ID"]
+            missing = [name for name in required if not os.getenv(name, "").strip()]
+            messages = []
+            if missing:
+                messages.append("missing secrets: " + ", ".join(missing))
+            url = os.getenv("ASK2_URL", "").strip()
+            if url:
+                parsed = urlparse(url)
+                if not (parsed.scheme and parsed.netloc):
+                    messages.append("ASK2_URL must be an absolute URL (e.g., https://example.org/ask2)")
+            else:
+                messages.append("ASK2_URL not configured")
+            ready = not messages
+            reason = "; ".join(messages) if messages else ""
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                fh.write(f"ready={'true' if ready else 'false'}\n")
+                fh.write("missing=" + ("|".join(missing) if missing else "") + "\n")
+                fh.write(f"reason={reason}\n")
+            print("Preflight status:", "ready" if ready else reason or "unknown issue")
+          PY
 
   persona-eval:
     name: Run persona eval
