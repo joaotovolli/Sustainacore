@@ -19,9 +19,6 @@ on:
   schedule:
     - cron: '30 06 * * *'
 
-concurrency:
-  group: canary-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -30,7 +27,68 @@ permissions:
   actions: read
 
 jobs:
+  gate:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_canary: ${{ steps.evaluate.outputs.run_canary }}
+      skip_reason: ${{ steps.evaluate.outputs.skip_reason }}
+    steps:
+      - name: Filter changed paths
+        id: paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters:
+            relevant:
+              - 'app/**'
+              - 'ops/**'
+              - 'db/**'
+              - '.github/**'
+      - name: Evaluate gate
+        id: evaluate
+        env:
+          CHANGED_RELEVANT: ${{ steps.paths.outputs.relevant || 'false' }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          should_run="$CHANGED_RELEVANT"
+          reason=""
+
+          if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            should_run="true"
+          elif [[ "$EVENT_NAME" == "pull_request" && "$HEAD_REPO" != "$BASE_REPO" ]]; then
+            should_run="false"
+            reason="Fork PR detected; deployment secrets unavailable"
+          fi
+
+          if [[ "$should_run" != "true" ]]; then
+            if [[ -z "$reason" ]]; then
+              if [[ "$CHANGED_RELEVANT" == "true" ]]; then
+                reason="Secrets/context unavailable"
+              else
+                reason="No matching files"
+              fi
+            fi
+            printf 'skip_reason=%s\n' "$reason" >>"$GITHUB_OUTPUT"
+            {
+              echo '### Canary gate'
+              printf 'Skipping canary: %s\n' "$reason"
+            } >>"$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo '### Canary gate'
+              echo 'Conditions satisfied; proceeding with canary.'
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+          printf 'run_canary=%s\n' "$should_run" >>"$GITHUB_OUTPUT"
+
   preflight:
+    needs: gate
+    if: needs.gate.outputs.run_canary == 'true'
     name: Preflight secrets & permissions
     runs-on: ubuntu-latest
     outputs:
@@ -204,6 +262,18 @@ EOF
             ```
 
             _Run ID: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_
+
+  noop:
+    name: Record skip
+    needs: gate
+    if: needs.gate.outputs.run_canary != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Announce skip
+        run: |
+          set -euo pipefail
+          reason="${{ needs.gate.outputs.skip_reason || 'No matching files' }}"
+          echo "Canary skipped: $reason"
 
   alert:
     name: Failure alert + self-heal bootstrap

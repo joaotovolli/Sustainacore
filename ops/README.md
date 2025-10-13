@@ -22,7 +22,7 @@ Configure the following under **Settings → Secrets and variables → Actions**
 | `VM_HOST` | Public hostname or IP for `ai.sustainacore.org`. |
 | `VM_USER` | SSH user with append access to `~/canary/roundtrip.log` (typically `opc`). |
 | `VM_SSH_KEY` | OpenSSH private key that matches `VM_USER`. |
-| `OPENAI_API_KEY` *(optional)* | Required by persona/self-eval workflows. |
+| `OPENAI_API_KEY` *(optional)* | Required by persona/self-evaluation workflows. |
 | `ORG_ID` *(optional)* | Organization identifier consumed by persona tests. |
 
 The canary workflow performs a preflight that checks these secrets. If anything is missing it posts a guidance comment on the pull request (`<!-- canary-preflight -->`) and exits successfully so you do not receive a red ❌.

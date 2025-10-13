@@ -1,7 +1,6 @@
 name: Persona eval
 
 on:
-  pull_request:
   workflow_dispatch:
 
 concurrency:
