@@ -49,7 +49,7 @@ jobs:
         env:
           CHANGED_RELEVANT: ${{ steps.paths.outputs.relevant || 'false' }}
           EVENT_NAME: ${{ github.event_name }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || '' }}
           BASE_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
