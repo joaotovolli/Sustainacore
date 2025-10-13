@@ -11,7 +11,7 @@ on:
       - completed
 
 concurrency:
-  group: deploy-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: deploy-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -21,6 +21,7 @@ permissions:
 
 jobs:
   noop_on_skip:
+    if: ${{ github.event_name == 'workflow_run' }}
     runs-on: ubuntu-latest
     outputs:
       should_deploy: ${{ steps.gate.outputs.should_deploy }}
@@ -101,7 +102,7 @@ jobs:
 
   deploy:
     needs: noop_on_skip
-    if: ${{ needs.noop_on_skip.outputs.should_deploy == 'true' }}
+    if: ${{ github.event_name == 'workflow_run' && needs.noop_on_skip.outputs.should_deploy == 'true' }}
     runs-on: ubuntu-latest
     env:
       TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
@@ -200,26 +201,28 @@ jobs:
             }
             const marker = '<!-- deploy-alert -->';
             const issue_number = prs[0].number;
-            const body = `${marker}
-@joaotovolli @codex
-
-🚨 **Deploy workflow failed** for canary commit \`${{ env.TARGET_SHA }}\`.
-
-<details>
-<summary>Error snippet</summary>
-
-\`\`\`
-${{ steps.run-deploy.outputs.snippet || 'See Actions logs for details.' }}
-\`\`\`
-</details>
-
-🔗 [Deploy logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
-
-**Fix Plan v1**
-1. Codex: audit the failing deploy step and propose a targeted fix.
-2. Push Attempt 1 with minimal changes and rerun the canary pipeline to retrigger deploy.
-3. Update this comment with \`Attempt N → result\` after each push (max 3).
-4. If deploy stays red after Attempt 3, provide a rollback/manual recovery checklist.`;
+            const body = [
+              marker,
+              '@joaotovolli @codex',
+              '',
+              `🚨 **Deploy workflow failed** for canary commit \`${{ env.TARGET_SHA }}\`.`,
+              '',
+              '<details>',
+              '<summary>Error snippet</summary>',
+              '',
+              '```',
+              `${{ steps.run-deploy.outputs.snippet || 'See Actions logs for details.' }}`,
+              '```',
+              '</details>',
+              '',
+              `🔗 [Deploy logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              '',
+              '**Fix Plan v1**',
+              '1. Codex: audit the failing deploy step and propose a targeted fix.',
+              '2. Push Attempt 1 with minimal changes and rerun the canary pipeline to retrigger deploy.',
+              '3. Update this comment with `Attempt N → result` after each push (max 3).',
+              '4. If deploy stays red after Attempt 3, provide a rollback/manual recovery checklist.'
+            ].join('\n');
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -255,10 +258,12 @@ ${{ steps.run-deploy.outputs.snippet || 'See Actions logs for details.' }}
             }
             const marker = '<!-- deploy-status -->';
             const issue_number = prs[0].number;
-            const body = `${marker}
-🚀 Canary commit \`${{ env.TARGET_SHA }}\` deployed via ops/scripts/deploy_vm.sh.
-
-_Run ID: [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})_`;
+            const body = [
+              marker,
+              `🚀 Canary commit \`${{ env.TARGET_SHA }}\` deployed via ops/scripts/deploy_vm.sh.`,
+              '',
+              `_Run ID: [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})_`
+            ].join('\n');
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -284,7 +289,7 @@ _Run ID: [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context
 
   record-skip:
     needs: noop_on_skip
-    if: ${{ needs.noop_on_skip.outputs.should_deploy != 'true' }}
+    if: ${{ github.event_name == 'workflow_run' && needs.noop_on_skip.outputs.should_deploy != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Announce skip
