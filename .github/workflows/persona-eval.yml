@@ -33,36 +33,39 @@ jobs:
     steps:
       - name: Inspect required secrets
         id: check
+        uses: actions/github-script@v7
         env:
           ASK2_URL: ${{ secrets.ASK2_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ORG_ID: ${{ secrets.ORG_ID }}
-        shell: bash
-        run: |
-          python - <<'PY'
-            import os
-            from urllib.parse import urlparse
-
-            required = ["ASK2_URL", "OPENAI_API_KEY", "ORG_ID"]
-            missing = [name for name in required if not os.getenv(name, "").strip()]
-            messages = []
-            if missing:
-                messages.append("missing secrets: " + ", ".join(missing))
-            url = os.getenv("ASK2_URL", "").strip()
-            if url:
-                parsed = urlparse(url)
-                if not (parsed.scheme and parsed.netloc):
-                    messages.append("ASK2_URL must be an absolute URL (e.g., https://example.org/ask2)")
-            else:
-                messages.append("ASK2_URL not configured")
-            ready = not messages
-            reason = "; ".join(messages) if messages else ""
-            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-                fh.write(f"ready={'true' if ready else 'false'}\n")
-                fh.write("missing=" + ("|".join(missing) if missing else "") + "\n")
-                fh.write(f"reason={reason}\n")
-            print("Preflight status:", "ready" if ready else reason or "unknown issue")
-          PY
+        with:
+          script: |
+            const required = ["ASK2_URL", "OPENAI_API_KEY", "ORG_ID"];
+            const env = process.env;
+            const missing = required.filter((name) => !(env[name] || "").trim());
+            const messages = [];
+            if (missing.length) {
+              messages.push("missing secrets: " + missing.join(", "));
+            }
+            const url = (env.ASK2_URL || "").trim();
+            if (!url) {
+              messages.push("ASK2_URL not configured");
+            } else {
+              try {
+                const parsed = new URL(url);
+                if (!parsed.protocol || !parsed.host) {
+                  messages.push("ASK2_URL must be absolute (e.g., https://example.org/ask2)");
+                }
+              } catch (error) {
+                messages.push("ASK2_URL must be absolute (e.g., https://example.org/ask2)");
+              }
+            }
+            const ready = messages.length === 0;
+            const reason = messages.join("; ");
+            core.setOutput("ready", ready ? "true" : "false");
+            core.setOutput("missing", missing.join("|"));
+            core.setOutput("reason", reason);
+            core.info("Preflight status: " + (ready ? "ready" : reason || "unknown issue"));
 
   persona-eval:
     name: Run persona eval
