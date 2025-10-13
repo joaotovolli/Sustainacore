@@ -1,9 +1,7 @@
 name: Sanity
 on:
   pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 jobs:
   sanity:
     runs-on: ubuntu-latest
