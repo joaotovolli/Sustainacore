@@ -865,6 +865,20 @@ def compose_answer_baseline(intent, q, entities, chunks, quotes):
         return body, intent, sources_detailed(chunks)
     head="Here’s the best supported answer from the retrieved sources."
     body=head
+    if chunks:
+        bullets=[]
+        for chunk in chunks[:4]:
+            snippet=(chunk.get("chunk_text") or "").strip()
+            if not snippet:
+                continue
+            sentence=snippet.split("\n")[0].strip()
+            if not sentence:
+                continue
+            if len(sentence) > 220:
+                sentence=sentence[:217].rsplit(" ",1)[0].strip()+"…"
+            bullets.append(f"- {sentence}")
+        if bullets:
+            body=head+"\n"+"\n".join(bullets)
     return body, "general", sources_detailed(chunks)
 
 def compose_answer(intent, q, entities, chunks, quotes):
@@ -1402,37 +1416,61 @@ def ask2():
         else (request.remote_addr or 'unknown')
     )
     try:
-        shaped, status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
-    except Exception:
-        shaped = {
-            "answer": "",
-            "sources": [],
-            "contexts": [],
-            "meta": {"routing": "gemini_first_fail"},
-        }
-        status = 599
+        shaped, _status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
+    except Exception as exc:
+        _LOGGER.exception('ask2_pipeline_first_failed', exc_info=exc)
+        shaped = {}
 
-    if status == 200 and shaped.get("answer") and not _is_insufficient(shaped):
-        shaped["answer"] = (shaped.get("answer") or "").strip()
-        if not isinstance(shaped.get("contexts"), list):
-            shaped["contexts"] = []
-        if not isinstance(shaped.get("sources"), list):
-            shaped["sources"] = []
-        if not isinstance(shaped.get("meta"), dict):
-            shaped["meta"] = {}
-        return jsonify(shaped), 200
+    shaped = shaped if isinstance(shaped, dict) else {}
+    answer_val = _strip_source_sections(str(shaped.get('answer') or '')).strip()
+    contexts_val = shaped.get('contexts') if isinstance(shaped.get('contexts'), list) else []
+    sources_val = shaped.get('sources') if isinstance(shaped.get('sources'), list) else []
+    meta_val = shaped.get('meta') if isinstance(shaped.get('meta'), dict) else {}
+    meta_val.setdefault('routing', 'gemini_first')
+    normalized_pipeline = {
+        'answer': answer_val,
+        'sources': sources_val,
+        'contexts': contexts_val,
+        'meta': meta_val,
+    }
+
+    if contexts_val:
+        response = jsonify(normalized_pipeline)
+        response.headers['X-Orch'] = 'pass'
+        response.headers['X-Orig'] = '1'
+        return response, 200
 
     header_hints = _collect_request_hints(request)
     shaped, status = _call_route_ask2_facade(
         question, k_eff, client_ip=client_ip, header_hints=header_hints
     )
     shaped = shaped if isinstance(shaped, dict) else {}
-    answer = (shaped.get("answer") or "").strip()
-    sources = shaped.get("sources") if isinstance(shaped.get("sources"), list) else []
+    answer = _strip_source_sections((shaped.get('answer') or '').strip())
+    sources = shaped.get('sources') if isinstance(shaped.get('sources'), list) else []
     contexts = shaped.get("contexts") if isinstance(shaped.get("contexts"), list) else []
+    if contexts:
+        if not answer or answer == INSUFFICIENT_CONTEXT_MESSAGE:
+            bullets = []
+            for chunk in contexts[:4]:
+                snippet = (chunk.get("chunk_text") or "").strip()
+                if not snippet:
+                    continue
+                sentence = snippet.split("\n")[0].strip()
+                if not sentence:
+                    continue
+                if len(sentence) > 220:
+                    sentence = sentence[:217].rsplit(" ", 1)[0].strip() + "…"
+                bullets.append(f"- {sentence}")
+            if bullets:
+                answer = "Here’s what the retrieved Sustainacore sources highlight:\n" + "\n".join(bullets)
+        if not sources:
+            sources = sources_detailed(contexts)
     meta = shaped.get("meta") if isinstance(shaped.get("meta"), dict) else {}
     normalized = {"answer": answer, "sources": sources, "contexts": contexts, "meta": meta}
-    return jsonify(normalized), status
+    response = jsonify(normalized)
+    response.headers['X-Orch'] = 'pass'
+    response.headers['X-Orig'] = '1'
+    return response, status
 
 
 

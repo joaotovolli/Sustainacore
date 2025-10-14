@@ -374,6 +374,41 @@ def _extract_top_similarity(contexts: Optional[list]) -> Optional[float]:
     return compute_similarity(distance)
 
 
+def _sources_from_contexts(contexts: list, limit: int = 5) -> list:
+    seen = set()
+    collected = []
+    for ctx in contexts:
+        title = (ctx.get("title") or "").strip()
+        url = (ctx.get("source_url") or "").strip()
+        if not title and not url:
+            continue
+        key = (title.lower(), url.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        collected.append({"title": title or (url or "Source"), "url": url})
+        if len(collected) >= limit:
+            break
+    return collected
+
+
+def _summarize_contexts(contexts: list, limit: int = 3) -> str:
+    lines = []
+    for ctx in contexts[:limit]:
+        snippet = (ctx.get("chunk_text") or "").strip()
+        if not snippet:
+            continue
+        sentence = snippet.split("\n")[0].strip()
+        if not sentence:
+            continue
+        if len(sentence) > 220:
+            sentence = sentence[:217].rsplit(" ", 1)[0].strip() + "…"
+        lines.append(f"- {sentence}")
+    if not lines:
+        return ""
+    return "Here’s what the retrieved Sustainacore sources highlight:\n" + "\n".join(lines)
+
+
 def _call_route_ask2_facade(
     question: str,
     k_value,
@@ -418,6 +453,14 @@ def _call_route_ask2_facade(
             sources_list = sources_raw
         else:
             sources_list = []
+
+        if contexts:
+            if not answer_value or answer_value.strip() == INSUFFICIENT_CONTEXT_MESSAGE:
+                synthesized = _summarize_contexts(contexts)
+                if synthesized:
+                    answer_value = synthesized
+        if contexts and not sources_list:
+            sources_list = _sources_from_contexts(contexts)
 
         meta_raw = data.get("meta") if isinstance(data, dict) else None
         meta_dict = dict(meta_raw) if isinstance(meta_raw, dict) else {}
@@ -1347,6 +1390,4 @@ def ask2():
         question, k_value, client_ip=client_ip, header_hints=header_hints
     )
     return jsonify(shaped), status
-
-
 
