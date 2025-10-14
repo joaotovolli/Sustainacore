@@ -40,6 +40,40 @@ def _load_cases() -> Iterable[Dict[str, Any]]:
             yield json.loads(line)
 
 
+def _canonicalize_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure the payload uses canonical ask2 field names."""
+
+    payload: Dict[str, Any] = dict(raw_payload)
+
+    question_value = ""
+    for key in ("question", "query", "q", "text"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            question_value = value.strip()
+            break
+    if question_value:
+        payload["question"] = question_value
+
+    top_k_value: Any = None
+    for key in ("top_k", "topK", "topk", "k", "limit"):
+        if key in payload:
+            top_k_value = payload[key]
+            break
+    if top_k_value is not None:
+        try:
+            top_k = int(top_k_value)
+        except Exception:
+            top_k = None
+        if top_k is not None:
+            if top_k < 1:
+                top_k = 1
+            elif top_k > 10:
+                top_k = 10
+            payload["top_k"] = top_k
+
+    return payload
+
+
 def _post_case(case: Dict[str, Any], ask2_url: str) -> requests.Response:
     headers: Dict[str, str] = {}
     if FLAG_LIST:
@@ -49,6 +83,8 @@ def _post_case(case: Dict[str, Any], ask2_url: str) -> requests.Response:
         headers["Content-Type"] = "text/plain"
         return requests.post(ask2_url, data=body, headers=headers, timeout=15)
     payload = case.get("payload", {})
+    if isinstance(payload, dict):
+        payload = _canonicalize_payload(payload)
     return requests.post(ask2_url, json=payload, headers=headers, timeout=15)
 
 

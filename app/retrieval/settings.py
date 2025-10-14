@@ -70,11 +70,11 @@ class Settings:
     oracle_scope_filters: tuple[str, ...] = field(default_factory=lambda: tuple(f.strip().upper() for f in os.environ.get("ORACLE_ALLOWED_FILTERS", "SOURCE_TYPE,TICKER,DATE_FROM,DATE_TO,DOC_ID,SOURCE_ID").split(",") if f.strip()))
 
     oracle_embed_model: str = field(default_factory=lambda: os.environ.get("ORACLE_EMBED_MODEL", "AI$MINILM_L6_V2"))
-    oracle_embed_proc: str = field(default_factory=lambda: os.environ.get("ORACLE_EMBED_PROC", "AI_VECTOR.EMBED_TEXT"))
+    oracle_embed_proc: str = field(default_factory=lambda: os.environ.get("ORACLE_EMBED_PROC", "LOCAL_EMBEDDINGS"))
     oracle_embed_sql: str = field(
         default_factory=lambda: os.environ.get(
             "ORACLE_EMBED_SQL",
-            "SELECT AI_VECTOR.EMBED_TEXT(:model, :text) FROM DUAL",
+            "LOCAL_EMBEDDINGS",
         )
     )
     oracle_knn_metric: Literal["COSINE", "DOT"] = field(default_factory=lambda: os.environ.get("ORACLE_KNN_METRIC", "COSINE").upper() == "DOT" and "DOT" or "COSINE")

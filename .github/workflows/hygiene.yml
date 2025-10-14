@@ -1,5 +1,7 @@
 name: Hygiene
-on: [push, pull_request]
+on:
+  pull_request:
+  workflow_dispatch:
 jobs:
   spellcheck:
     runs-on: ubuntu-latest
@@ -8,3 +10,4 @@ jobs:
       - uses: streetsidesoftware/cspell-action@v6
         with:
           files: "**/*.md"
+          config: .cspell.json
