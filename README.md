@@ -5,10 +5,10 @@
 ![Contributions](https://img.shields.io/badge/contributions-welcome-brightgreen)
 
 ## Executive Summary
-Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, APEX integrations, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments.
+Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, APEX integrations, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments. 
 
 ## Quick Start
-1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`.
+1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`. 
 2. Install dependencies: `pip install -U pip && pip install -r requirements.txt`.
 3. Export environment variables from `.env` (or copy from `.env.sample`).
 4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
@@ -16,7 +16,7 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 
 For production deployments, `config/prod.env.example` captures the supported feature flags (persona and normalization). Copy the file to your environment tooling as needed.
 
-## Eval Pack
+## Eval Pack 
 To validate persona quality and request normalization end-to-end:
 
 1. Launch the API locally: `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
@@ -29,7 +29,7 @@ To validate persona quality and request normalization end-to-end:
 
 Set `ASK2_URL` if your server runs on a different host or port.
 
-> **CI note:** The persona eval workflow runs only when the `ASK2_URL` repository secret is configured with an absolute `/ask2` endpoint. Without it, the job is skipped automatically.
+> **CI note:** The persona eval workflow runs only when the `ASK2_URL` repository secret is configured with an absolute `/ask2` endpoint. Without it, the job is skipped automatically. Pushes and pull requests receive a guard check named "Persona guard" that reports success while reminding maintainers that persona evaluation is manual-only.
 
 ### Production feature flags
 
@@ -46,6 +46,17 @@ The helper writes `/etc/systemd/system/sustainacore-ai.service.d/15-persona.conf
 - **Adapter-first architecture** across embedding, retrieval, and orchestration modules.
 - **Operational middleware** delivering failover routing, observability, and compliance logging.
 - **Infrastructure tooling** for VM deployment, CI/CD hygiene, and data refresh workflows.
+
+### Chat routing upgrades
+- `/ask2` now calls the smart router first when `ASK2_ENABLE_SMALLTALK=true`, ensuring greetings such as "hi", "olá", or "ciao" return a concise smalltalk reply with no sources and `meta.routing="smalltalk"`.
+- Normal Q&A responses reformat sources via the router formatter, dedupe duplicate citations, and honor `ASK2_MAX_SOURCES` plus `ASK2_SOURCE_LABEL_MODE=concise` for compact labels.
+- A similarity guard enforces `SIMILARITY_FLOOR`: if the top retrieval score falls below the floor, the API responds with a clarifier instead of ungrounded sources and sets `meta.routing="low_conf"`.
+
+#### Environment variables
+- `ASK2_ENABLE_SMALLTALK` – Toggle router-first smalltalk detection (default `true`).
+- `ASK2_MAX_SOURCES` – Cap the number of formatted sources returned (default `6`).
+- `ASK2_SOURCE_LABEL_MODE` – Controls label style (`concise` adds "Title › Section", default `default`).
+- `SIMILARITY_FLOOR` – Existing retrieval floor reused by the clarifier guard.
 
 ## Stack
 - **Runtime:** Python 3.11, FastAPI, Uvicorn, WSGI fallbacks.

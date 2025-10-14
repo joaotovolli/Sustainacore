@@ -22,6 +22,9 @@ def _read_env_file_var(path: str, key: str) -> Optional[str]:
         return None
     return None
 # -------------------------------------------------------------------------------
+import logging
+import os
+from functools import lru_cache
 
 try:  # pragma: no cover - dependency optional
     import oracledb  # type: ignore
@@ -95,6 +98,24 @@ def _conn():
     except Exception as exc:
         _log_oracle_issue(exc)
         raise
+
+
+@lru_cache(maxsize=None)
+def get_vector_column(table: str = "ESG_DOCS") -> dict:
+    """Return vector column metadata for the given table."""
+
+    if oracledb is None:
+        raise RuntimeError("oracledb_unavailable")
+
+    table_name = (table or "ESG_DOCS").upper()
+    column = os.getenv("ORACLE_VECTOR_COLUMN", "EMBEDDING").upper()
+    dimension_env = os.getenv("ORACLE_VECTOR_DIMENSION")
+    try:
+        dimension = int(dimension_env) if dimension_env else None
+    except (TypeError, ValueError):
+        dimension = None
+    return {"table": table_name, "column": column, "dimension": dimension}
+
 
 
 def get_connection():
@@ -284,6 +305,36 @@ def _build_filter_clause(filters: Optional[Dict[str, Any]]) -> Tuple[str, Dict[s
         bind_key = f"{key}"
         binds[bind_key] = text
         clauses.append(f"{column} {op} :{bind_key}")
+    binds = {}
+    clauses = []
+    counter = 0
+
+    def _bind(value):
+        nonlocal counter
+        key = f"p{counter}"
+        counter += 1
+        binds[key] = value
+        return f":{key}"
+
+    for key, value in (filters or {}).items():
+        if value in (None, ""):
+            continue
+        key_u = str(key).upper()
+        if key_u == "DOC_ID":
+            clause = f"DOC_ID = {_bind(str(value))}"
+            clauses.append(clause)
+        elif key_u == "SOURCE_ID":
+            clause = f"UPPER(SOURCE_ID) = {_bind(str(value).upper())}"
+            clauses.append(clause)
+        elif key_u == "SOURCE_TYPE":
+            values = value if isinstance(value, list) else [value]
+            tokens = [str(v).strip() for v in values if str(v).strip()]
+            if tokens:
+                binds_list = ", ".join(_bind(tok) for tok in tokens)
+                clauses.append(f"UPPER(SOURCE_TYPE) IN ({binds_list})")
+        elif key_u == "TITLE_LIKE":
+            clause = f"TITLE LIKE {_bind(str(value))}"
+            clauses.append(clause)
 
     if not clauses:
         return "", {}
@@ -342,6 +393,48 @@ def top_k_by_vector(vec: Sequence[float], k: int = 5, *, filters: Optional[Dict[
         _log_oracle_issue(exc)
         raise
 
+    info = get_vector_column()
+    table_name = info.get("table") or "ESG_DOCS"
+    column_name = info.get("column") or "EMBEDDING"
+    expected_dim = info.get("dimension")
+
+    try:
+        query_vector = [float(x) for x in vec]
+    except Exception as exc:
+        raise TypeError("vec must be an iterable of floats") from exc
+
+    if expected_dim and len(query_vector) != expected_dim:
+        LOGGER.warning(
+            "Query vector dimension mismatch: expected=%s got=%s",
+            expected_dim,
+            len(query_vector),
+        )
+
+    k = max(1, int(k or 1))
+    where_clause, binds = _build_filter_clause(filters or {})
+    sql = (
+        "SELECT doc_id, chunk_ix, title, source_url, source_type, source_id, chunk_text, "
+        f"VECTOR_DISTANCE(:v, {column_name}) AS dist FROM {table_name}{where_clause} "
+        f"ORDER BY VECTOR_DISTANCE(:v, {column_name}) FETCH FIRST {k} ROWS ONLY"
+    )
+
+    with _conn() as conn:
+        cur = conn.cursor()
+        vector_type = getattr(oracledb, "DB_TYPE_VECTOR", None)
+        if vector_type is not None:
+            cur.setinputsizes(v=vector_type)  # type: ignore[arg-type]
+        params = dict(binds)
+        params.update({"v": query_vector})
+        try:
+            cur.execute(sql, params)
+        except Exception as exc:
+            LOGGER.error("Oracle vector query failed: %s", exc)
+            raise
+        columns = [d[0].lower() for d in cur.description]
+        rows = []
+        for row in cur.fetchall():
+            rows.append({key: _to_plain(val) for key, val in zip(columns, row)})
+    return rows
 
 # ---------------------------------------------------------------------------
 # Metadata lookups ----------------------------------------------------------

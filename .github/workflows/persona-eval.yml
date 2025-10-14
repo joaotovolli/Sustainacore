@@ -1,17 +1,82 @@
 name: Persona eval
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
-env:
-  ASK2_URL: ${{ secrets.ASK2_URL }}  # e.g., https://ai.sustainacore.org/ask2
-  EVAL_FLAGS: "REQUEST_NORMALIZE,PERSONA_V1"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  persona-eval:
-    if: ${{ env.ASK2_URL != '' && (startsWith(env.ASK2_URL, 'http://') || startsWith(env.ASK2_URL, 'https://')) }}
+  persona-noop:
+    name: Persona guard
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    steps:
+      - name: Skip persona eval
+        run: |
+          echo "Persona eval is manual; skipping"
+          exit 0
+
+  preflight:
+    name: Preflight checks
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+      missing: ${{ steps.check.outputs.missing }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - name: Inspect required secrets
+        id: check
+        uses: actions/github-script@v7
+        env:
+          ASK2_URL: ${{ secrets.ASK2_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ORG_ID: ${{ secrets.ORG_ID }}
+        with:
+          script: |
+            const required = ["ASK2_URL", "OPENAI_API_KEY", "ORG_ID"];
+            const env = process.env;
+            const missing = required.filter((name) => !(env[name] || "").trim());
+            const messages = [];
+            if (missing.length) {
+              messages.push("missing secrets: " + missing.join(", "));
+            }
+            const url = (env.ASK2_URL || "").trim();
+            if (!url) {
+              messages.push("ASK2_URL not configured");
+            } else {
+              try {
+                const parsed = new URL(url);
+                if (!parsed.protocol || !parsed.host) {
+                  messages.push("ASK2_URL must be absolute (e.g., https://example.org/ask2)");
+                }
+              } catch (error) {
+                messages.push("ASK2_URL must be absolute (e.g., https://example.org/ask2)");
+              }
+            }
+            const ready = messages.length === 0;
+            const reason = messages.join("; ");
+            core.setOutput("ready", ready ? "true" : "false");
+            core.setOutput("missing", missing.join("|"));
+            core.setOutput("reason", reason);
+            core.info("Preflight status: " + (ready ? "ready" : reason || "unknown issue"));
+
+  persona-eval:
+    name: Run persona eval
+    needs: preflight
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.preflight.outputs.ready == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      ASK2_URL: ${{ secrets.ASK2_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ORG_ID: ${{ secrets.ORG_ID }}
+      EVAL_FLAGS: "REQUEST_NORMALIZE,PERSONA_V1"
     steps:
       - uses: actions/checkout@v4
 
@@ -31,8 +96,13 @@ jobs:
         run: python scripts/run_eval.py
 
   persona-eval-skip:
-    if: ${{ env.ASK2_URL == '' || (startsWith(env.ASK2_URL, 'http://') == false && startsWith(env.ASK2_URL, 'https://') == false) }}
+    name: Skip summary
+    needs: preflight
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.preflight.outputs.ready != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Skip message
-        run: echo "SKIP: ASK2_URL not set to an absolute URL; skipping persona eval."
+        env:
+          REASON: ${{ needs.preflight.outputs.reason }}
+        run: |
+          echo "SKIP: persona eval not run. ${REASON:-Check repository secrets configuration.}"

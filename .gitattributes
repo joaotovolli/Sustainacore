@@ -9,3 +9,4 @@ releases/** linguist-vendored
 *.dmp binary
 *.dump binary
 *.pdf binary
+*.sql.gz filter=lfs diff=lfs merge=lfs -text

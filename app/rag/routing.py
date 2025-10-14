@@ -20,8 +20,8 @@ GEMINI_TIMEOUT = float(os.getenv("RAG_GEMINI_TIMEOUT", "8"))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-pro")
 
 SMALLTALK_RE = re.compile(
-    r"^\s*(?:hi|hello|hey|hola|howdy|yo|sup|thanks|thank you|thank you so much|thanks a lot|"
-    r"thank you very much|good morning|good afternoon|good evening|good day|bye|goodbye|"
+    r"^\s*(?:hi|hello|hey|hola|oi|olá|ciao|howdy|yo|sup|thanks|thank you|thank you so much|"
+    r"thanks a lot|thank you very much|good morning|good afternoon|good evening|good day|bye|goodbye|"
     r"see you|see ya|appreciate it|much appreciated|cheers)(?:[\s,.!]+(?:there|team|everyone|folks|all))?[\s,.!]*$",
     re.IGNORECASE,
 )
@@ -30,6 +30,9 @@ SMALLTALK_WORDS = {
     "hello",
     "hey",
     "hola",
+    "oi",
+    "olá",
+    "ciao",
     "howdy",
     "yo",
     "sup",
@@ -103,15 +106,97 @@ def _is_smalltalk(query: str) -> bool:
     return all(word.strip(".,!?") in SMALLTALK_WORDS for word in words)
 
 
-def _format_sources(hits: Sequence[Dict[str, Any]]) -> List[str]:
+try:
+    _DEFAULT_MAX_SOURCES = int(os.getenv("ASK2_MAX_SOURCES", "6"))
+except ValueError:
+    _DEFAULT_MAX_SOURCES = 6
+
+if _DEFAULT_MAX_SOURCES < 1:
+    _DEFAULT_MAX_SOURCES = 1
+
+_DEFAULT_SOURCE_LABEL_MODE = os.getenv("ASK2_SOURCE_LABEL_MODE", "default").strip().lower() or "default"
+
+
+def _resolve_max_sources(value: Optional[int]) -> int:
+    if isinstance(value, int):
+        return max(1, value)
+    return max(1, _DEFAULT_MAX_SOURCES)
+
+
+def _resolve_label_mode(value: Optional[str]) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip().lower()
+    return _DEFAULT_SOURCE_LABEL_MODE
+
+
+def _extract_section(hit: Dict[str, Any]) -> str:
+    section_keys = (
+        "section",
+        "section_title",
+        "heading",
+        "subheading",
+        "chapter",
+        "category",
+        "topic",
+    )
+    for key in section_keys:
+        value = _strip(hit.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _build_label(title: str, section: str, *, mode: str) -> str:
+    if mode == "concise" and section and section.lower() != title.lower():
+        return f"{title} › {section}"
+    return title
+
+
+def _format_sources(
+    hits: Sequence[Dict[str, Any]],
+    *,
+    max_sources: Optional[int] = None,
+    label_mode: Optional[str] = None,
+) -> List[str]:
     formatted: List[str] = []
-    for idx, hit in enumerate(hits[:3], start=1):
-        title = _strip(hit.get("title") or hit.get("name") or hit.get("id") or f"Document {idx}")
-        url = _strip(hit.get("url") or hit.get("link") or hit.get("source_url"))
+    resolved_max = _resolve_max_sources(max_sources)
+    resolved_mode = _resolve_label_mode(label_mode)
+
+    if not hits:
+        return formatted
+
+    sanitized: List[Dict[str, Any]] = []
+    for hit in hits:
+        if not isinstance(hit, dict):
+            continue
+        copy = dict(hit)
+        title = _strip(
+            copy.get("title")
+            or copy.get("name")
+            or copy.get("id")
+            or copy.get("document_title")
+            or copy.get("source_title")
+            or "Source"
+        )
+        section = _extract_section(copy)
+        url = _strip(copy.get("url") or copy.get("link") or copy.get("source_url"))
+        copy["title"] = title or "Source"
+        copy.setdefault("source_url", url)
+        copy.setdefault("url", url)
+        copy.setdefault("section", section)
+        sanitized.append(copy)
+
+    deduped = dedupe_contexts(sanitized)
+
+    for idx, hit in enumerate(deduped[:resolved_max], start=1):
+        title = _strip(hit.get("title") or f"Document {idx}") or f"Document {idx}"
+        section = _strip(hit.get("section"))
+        url = _strip(hit.get("url") or hit.get("source_url"))
+        label = _build_label(title, section, mode=resolved_mode)
         if url:
-            formatted.append(f"Source {idx}: {title} ({url})")
+            formatted.append(f"Source {idx}: {label} ({url})")
         else:
-            formatted.append(f"Source {idx}: {title}")
+            formatted.append(f"Source {idx}: {label}")
     return formatted
 
 
@@ -345,7 +430,7 @@ def route_ask2(
 
     search_fn = vector_fn or vector_search
     hits = search_fn(q, sanitized_k)
-    sources = _format_sources(hits)
+    sources = _format_sources(hits, max_sources=sanitized_k)
     if not hits:
         answer, used = _no_hit_answer(q, gemini_fn)
         meta.update({"routing": "no_hit", "gemini_used": used})
@@ -367,3 +452,14 @@ def route_ask2(
     answer, used = _low_conf_answer(q, hits, gemini_fn)
     meta.update({"routing": "low_conf", "gemini_used": used})
     return {"answer": answer, "sources": sources, "meta": meta}
+
+
+def format_sources(
+    hits: Sequence[Dict[str, Any]],
+    *,
+    max_sources: Optional[int] = None,
+    label_mode: Optional[str] = None,
+) -> List[str]:
+    """Public wrapper to reuse router source formatting."""
+
+    return _format_sources(hits, max_sources=max_sources, label_mode=label_mode)

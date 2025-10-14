@@ -124,6 +124,8 @@ def _sanitize_meta_k(value, default=4):
 if _ask2_routing is not None:
     _route_ask2 = getattr(_ask2_routing, "route_ask2", None)
     _sanitize_meta_k = getattr(_ask2_routing, "_sanitize_k", _sanitize_meta_k)
+    _format_router_sources = getattr(_ask2_routing, "format_sources", None)
+    _router_is_smalltalk = getattr(_ask2_routing, "_is_smalltalk", None)
     _ASK2_ROUTER_FALLBACK = getattr(
         _ask2_routing,
         "NO_HIT_FALLBACK",
@@ -133,6 +135,8 @@ if _ask2_routing is not None:
     )
 else:  # pragma: no cover - import fallback
     _route_ask2 = None
+    _format_router_sources = None
+    _router_is_smalltalk = None
     _ASK2_ROUTER_FALLBACK = (
         "I couldn’t find Sustainacore documents for that yet. If you can share the "
         "organization or company name, the ESG or TECH100 topic, and the report or "
@@ -156,6 +160,23 @@ def _env_flag(name: str, default: bool) -> bool:
     if raw in {"0", "false", "f", "no", "n", "off"}:
         return False
     return default
+
+
+_ASK2_ENABLE_SMALLTALK = _env_flag("ASK2_ENABLE_SMALLTALK", True)
+try:
+    _ASK2_MAX_SOURCES = int(os.getenv("ASK2_MAX_SOURCES", "6"))
+except ValueError:
+    _ASK2_MAX_SOURCES = 6
+
+if _ASK2_MAX_SOURCES < 1:
+    _ASK2_MAX_SOURCES = 1
+
+_ASK2_SOURCE_LABEL_MODE = os.getenv("ASK2_SOURCE_LABEL_MODE", "default").strip().lower() or "default"
+
+_LOW_CONFIDENCE_MESSAGE = (
+    "I didn’t find enough Sustainacore context for that. Want a general answer (no SC sources) "
+    "or search a specific company/document?"
+)
 
 
 def _log_build_identifier() -> None:
@@ -389,6 +410,17 @@ def _extract_top_similarity(contexts: Optional[list]) -> Optional[float]:
     return compute_similarity(distance)
 
 
+def _below_similarity_floor(score: Optional[float]) -> bool:
+    if SIMILARITY_FLOOR_MODE == "off":
+        return False
+    if score is None:
+        return True
+    try:
+        return float(score) < float(SIMILARITY_FLOOR)
+    except (TypeError, ValueError):
+        return True
+
+
 def _call_route_ask2_facade(
     question: str,
     k_value,
@@ -458,26 +490,13 @@ def _call_route_ask2_facade(
                     and top_similarity < SIMILARITY_FLOOR
                 ):
                     floor_decision = "below_floor"
-                    if SIMILARITY_FLOOR_MODE == "enforce":
-                        allow_contexts = False
-                        sources_list = []
-                        answer_value_local = _ensure_non_empty_answer(
-                            answer_override
-                            or INSUFFICIENT_CONTEXT_MESSAGE,
-                            fallback=INSUFFICIENT_CONTEXT_MESSAGE,
-                        )
-                        answer_value = answer_value_local
+                    meta_dict.setdefault("floor_warning", True)
                 else:
                     floor_decision = "ok"
             else:
                 if SIMILARITY_FLOOR_MODE == "enforce":
                     floor_decision = "below_floor"
-                    allow_contexts = False
-                    sources_list = []
-                    answer_value = _ensure_non_empty_answer(
-                        answer_override or INSUFFICIENT_CONTEXT_MESSAGE,
-                        fallback=INSUFFICIENT_CONTEXT_MESSAGE,
-                    )
+                    meta_dict.setdefault("floor_warning", True)
 
         normalized_answer = _ensure_non_empty_answer(
             answer_value, fallback=DEFAULT_EMPTY_ANSWER
@@ -1409,6 +1428,34 @@ def ask2():
     if k_eff > 10:
         k_eff = 10
 
+    header_hints = _collect_request_hints(request)
+
+    if (
+        _ASK2_ENABLE_SMALLTALK
+        and callable(_router_is_smalltalk)
+        and callable(_route_ask2)
+        and question
+    ):
+        try:
+            if _router_is_smalltalk(question):
+                routed = _route_ask2(question, k_eff)
+                if isinstance(routed, dict):
+                    routed_meta = routed.get("meta") if isinstance(routed.get("meta"), dict) else {}
+                    meta = dict(routed_meta)
+                    meta.setdefault("routing", "smalltalk")
+                    if header_hints:
+                        meta.setdefault("request_hints", header_hints)
+                    answer_text = _strip_source_sections((routed.get("answer") or "").strip())
+                    payload = {
+                        "answer": answer_text,
+                        "sources": [],
+                        "contexts": [],
+                        "meta": meta,
+                    }
+                    return jsonify(payload), 200
+        except Exception as exc:  # pragma: no cover - defensive logging
+            _LOGGER.debug("smalltalk routing failed; continuing pipeline", exc_info=exc)
+
     forwarded = request.headers.get('X-Forwarded-For', '')
     client_ip = (
         forwarded.split(',')[0].strip()
@@ -1439,8 +1486,69 @@ def ask2():
         response.headers['X-Orch'] = 'pass'
         response.headers['X-Orig'] = '1'
         return response, 200
+        shaped, status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
+    except Exception as exc:
+        shaped = {
+            "answer": "",
+            "sources": [],
+            "contexts": [],
+            "meta": {"routing": "gemini_first_fail", "error": str(exc)},
+        }
+        status = 599
 
-    header_hints = _collect_request_hints(request)
+    contexts_raw = shaped.get("contexts") if isinstance(shaped, dict) else []
+    contexts_list: list = contexts_raw if isinstance(contexts_raw, list) else []
+    normalized_contexts: list = []
+    for entry in contexts_list:
+        if not isinstance(entry, dict):
+            continue
+        candidate = dict(entry)
+        url_value = candidate.get("source_url") or candidate.get("url") or ""
+        candidate.setdefault("source_url", url_value)
+        normalized_contexts.append(candidate)
+
+    deduped_contexts = dedupe_contexts(normalized_contexts) if normalized_contexts else []
+    has_contexts = status == 200 and bool(deduped_contexts)
+
+    if has_contexts:
+        answer = _strip_source_sections((shaped.get("answer") or "").strip())
+        meta_raw = shaped.get("meta") if isinstance(shaped.get("meta"), dict) else {}
+        meta = dict(meta_raw)
+        top_similarity = _extract_top_similarity(deduped_contexts)
+        meta.setdefault("routing", "gemini_first")
+        meta["top_score"] = top_similarity
+        meta.setdefault("k", k_eff)
+        if header_hints:
+            meta.setdefault("request_hints", header_hints)
+
+        if _below_similarity_floor(top_similarity):
+            meta.update({"routing": "low_conf", "floor_warning": True})
+            guard_payload = {
+                "answer": _LOW_CONFIDENCE_MESSAGE,
+                "sources": [],
+                "contexts": [],
+                "meta": meta,
+            }
+            return jsonify(guard_payload), 200
+
+        if callable(_format_router_sources):
+            sources = _format_router_sources(
+                deduped_contexts,
+                max_sources=_ASK2_MAX_SOURCES,
+                label_mode=_ASK2_SOURCE_LABEL_MODE,
+            )
+        else:
+            raw_sources = shaped.get("sources") if isinstance(shaped.get("sources"), list) else []
+            sources = [str(item) for item in raw_sources[:_ASK2_MAX_SOURCES]]
+
+        normalized = {
+            "answer": answer,
+            "sources": sources,
+            "contexts": deduped_contexts,
+            "meta": meta,
+        }
+        return jsonify(normalized), 200
+
     shaped, status = _call_route_ask2_facade(
         question, k_eff, client_ip=client_ip, header_hints=header_hints
     )
