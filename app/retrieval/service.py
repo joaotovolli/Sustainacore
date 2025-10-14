@@ -105,14 +105,16 @@ def _contexts_to_facts_for_service(contexts: Iterable[Dict[str, Any]]) -> List[D
     return facts
 
 
-def _oracle_search_variants(variants: Iterable[str], k: int) -> SimpleNamespace:
+def _oracle_search_variants(
+    variants: Iterable[str], k: int, filters: Optional[Dict[str, Any]] = None
+) -> SimpleNamespace:
     variants = [v for v in variants if isinstance(v, str) and v.strip()]
     total_contexts: List[Dict[str, Any]] = []
     total_latency = 0
     notes: List[str] = []
     mode: Optional[str] = None
     for variant in variants or []:
-        result = retriever.retrieve(variant, k)
+        result = retriever.retrieve(variant, k, filters=filters)
         total_latency += result.latency_ms
         total_contexts.extend(result.contexts)
         if result.note:
@@ -334,7 +336,7 @@ def run_pipeline(
     variants = plan.get("query_variants") or [sanitized_q]
 
     retrieval_start = time.time()
-    oracle_result = _oracle_search_variants(variants, plan_k)
+    oracle_result = _oracle_search_variants(variants, plan_k, filters)
     latencies["oracle_ms"] = oracle_result.latency_ms
     facts = oracle_result.facts
     context_note = oracle_result.context_note
@@ -346,7 +348,7 @@ def run_pipeline(
         hop_variants = hop_plan.get("query_variants") or []
         hop_filters = hop_plan.get("filters") or {}
         if hop_variants:
-            extra_result = _oracle_search_variants(hop_variants, plan_k)
+            extra_result = _oracle_search_variants(hop_variants, plan_k, hop_filters)
             latencies["oracle_hop2_ms"] = extra_result.latency_ms
             facts = _merge_facts(facts, extra_result.facts)
             hop_count = 2

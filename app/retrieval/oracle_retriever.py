@@ -6,9 +6,9 @@ import logging
 import math
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Mapping
 
-from db_helper import get_connection
+from db_helper import _build_filter_clause, get_connection
 
 from .db_capability import Capability, capability_snapshot as _capability_snapshot, get_capability
 from .embedding_client import embed_text
@@ -66,6 +66,14 @@ def _normalize_score(value: Any, *, invert_distance: bool = False, max_scale: fl
     return round(numeric, 4)
 
 
+def _prepare_filter_clause(filters: Optional[Dict[str, Any]]) -> tuple[str, Dict[str, Any]]:
+    clause, binds = _build_filter_clause(filters or {})
+    clause = clause.strip()
+    if clause.upper().startswith("WHERE "):
+        clause = clause[6:].strip()
+    return clause, binds
+
+
 class OracleRetriever:
     """Retrieve ESG contexts using Oracle vectors with graceful fallback."""
 
@@ -83,13 +91,21 @@ class OracleRetriever:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def retrieve(self, question: str, k: int, *, prefer_vector: Optional[bool] = None) -> RetrievalResult:
+    def retrieve(
+        self,
+        question: str,
+        k: int,
+        *,
+        prefer_vector: Optional[bool] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> RetrievalResult:
         clean_question = (question or "").strip()
         capability = get_capability()
         if not clean_question:
             return RetrievalResult([], "none", 0, capability, note="empty_question")
 
         prefer_vector = settings.rag_prefer_vector if prefer_vector is None else bool(prefer_vector)
+        filter_payload = dict(filters.items()) if isinstance(filters, Mapping) else None
 
         start = time.perf_counter()
         contexts: List[Dict[str, Any]] = []
@@ -106,7 +122,7 @@ class OracleRetriever:
 
         if use_vector:
             try:
-                contexts = self._vector_search(clean_question, k, capability)
+                contexts = self._vector_search(clean_question, k, capability, filter_payload)
                 mode = "vector"
                 note = "vector_search"
             except Exception as exc:
@@ -119,10 +135,10 @@ class OracleRetriever:
             text_mode = self._select_text_mode(capability)
             try:
                 if text_mode == "oracle_text":
-                    contexts = self._oracle_text_search(clean_question, k, capability)
+                    contexts = self._oracle_text_search(clean_question, k, capability, filter_payload)
                     mode = "oracle_text"
                 else:
-                    contexts = self._like_search(clean_question, k, capability)
+                    contexts = self._like_search(clean_question, k, capability, filter_payload)
                     mode = "like"
                 note = note or f"{mode}_fallback"
             except Exception as exc:
@@ -144,7 +160,13 @@ class OracleRetriever:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _vector_search(self, question: str, k: int, capability: Capability) -> List[Dict[str, Any]]:
+    def _vector_search(
+        self,
+        question: str,
+        k: int,
+        capability: Capability,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         if oracledb is None:
             raise RuntimeError("oracledb_unavailable")
 
@@ -166,6 +188,11 @@ class OracleRetriever:
             self._warned_dim_mismatch = True
 
         limit = max(1, min(int(k or settings.oracle_knn_k), 64))
+        filter_clause, filter_binds = _prepare_filter_clause(filters)
+        conditions = [f"{capability.vec_col} IS NOT NULL"]
+        if filter_clause:
+            conditions.append(filter_clause)
+        where_sql = " WHERE " + " AND ".join(conditions)
         select = [
             f"{self.doc_id_column} AS DOC_ID",
             f"{self.chunk_ix_column} AS CHUNK_IX",
@@ -178,7 +205,7 @@ class OracleRetriever:
         sql = (
             "SELECT "
             + ", ".join(select)
-            + f" FROM {self.table} WHERE {capability.vec_col} IS NOT NULL "
+            + f" FROM {self.table}{where_sql} "
             + f"ORDER BY VECTOR_DISTANCE(:vec, {capability.vec_col}, '{self.metric}') "
             + f"FETCH FIRST {limit} ROWS ONLY"
         )
@@ -188,7 +215,9 @@ class OracleRetriever:
                 cursor = conn.cursor()
                 if hasattr(oracledb, "DB_TYPE_VECTOR"):
                     cursor.setinputsizes(vec=oracledb.DB_TYPE_VECTOR)  # type: ignore[attr-defined]
-                cursor.execute(sql, {"vec": embedding})
+                params = {"vec": embedding}
+                params.update(filter_binds)
+                cursor.execute(sql, params)
                 columns = [col[0].lower() for col in cursor.description]
                 rows = [dict(zip(columns, map(_to_plain, rec))) for rec in cursor.fetchall()]
         except Exception as exc:
@@ -204,8 +233,19 @@ class OracleRetriever:
             return override
         return "oracle_text" if capability.oracle_text_supported else "like"
 
-    def _oracle_text_search(self, question: str, k: int, capability: Capability) -> List[Dict[str, Any]]:
+    def _oracle_text_search(
+        self,
+        question: str,
+        k: int,
+        capability: Capability,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         limit = max(1, min(int(k or settings.oracle_knn_k), 64))
+        filter_clause, filter_binds = _prepare_filter_clause(filters)
+        conditions = [f"CONTAINS({self.text_column}, :query, 1) > 0"]
+        if filter_clause:
+            conditions.append(filter_clause)
+        where_sql = " WHERE " + " AND ".join(conditions)
         select = [
             f"{self.doc_id_column} AS DOC_ID",
             f"{self.title_column} AS TITLE",
@@ -218,12 +258,13 @@ class OracleRetriever:
             "SELECT "
             + ", ".join(select)
             + f" FROM {self.table}"
-            + f" WHERE CONTAINS({self.text_column}, :query, 1) > 0"
+            + where_sql
             + " ORDER BY SCORE(1) DESC"
             + f" FETCH FIRST {limit} ROWS ONLY"
         )
 
         params = {"query": question}
+        params.update(filter_binds)
         try:
             with get_connection() as conn:
                 cursor = conn.cursor()
@@ -235,9 +276,16 @@ class OracleRetriever:
 
         return self._shape_contexts(rows, score_key="score", max_scale=100.0)
 
-    def _like_search(self, question: str, k: int, capability: Capability) -> List[Dict[str, Any]]:
+    def _like_search(
+        self,
+        question: str,
+        k: int,
+        capability: Capability,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         limit = max(1, min(int(k or settings.oracle_knn_k), 64))
         pattern = f"%{question.strip().upper()}%"
+        filter_clause, filter_binds = _prepare_filter_clause(filters)
         select = [
             f"{self.doc_id_column} AS DOC_ID",
             f"{self.title_column} AS TITLE",
@@ -246,31 +294,38 @@ class OracleRetriever:
             f"{self.text_column} AS CHUNK_TEXT",
             "MATCH_SCORE AS SCORE",
         ]
-        sql = (
-            "WITH ranked AS ("
-            f" SELECT {self.doc_id_column} AS DOC_ID,"
-            f"        {self.title_column} AS TITLE,"
-            f"        {self.source_column} AS SOURCE_NAME,"
-            f"        {self.url_column} AS SOURCE_URL,"
-            f"        {self.text_column} AS CHUNK_TEXT,"
-            "        CASE"
-            f"            WHEN UPPER({self.title_column}) LIKE :title THEN 100"
-            f"            WHEN UPPER({self.source_column}) LIKE :title THEN 80"
-            f"            WHEN UPPER({self.text_column}) LIKE :body THEN 60"
-            "            ELSE 30"
-            "        END AS MATCH_SCORE"
-            f"   FROM {self.table}"
-            f"  WHERE UPPER({self.title_column}) LIKE :title"
-            f"     OR UPPER({self.source_column}) LIKE :title"
-            f"     OR UPPER({self.text_column}) LIKE :body"
-            ")"
-            " SELECT "
-            + ", ".join(select)
-            + " FROM ranked"
-            " ORDER BY MATCH_SCORE DESC"
-            f" FETCH FIRST {limit} ROWS ONLY"
+        where_condition = (
+            f"  WHERE (UPPER({self.title_column}) LIKE :title"
+            f"\n     OR UPPER({self.source_column}) LIKE :title"
+            f"\n     OR UPPER({self.text_column}) LIKE :body)"
+        )
+        if filter_clause:
+            where_condition += f"\n    AND {filter_clause}"
+        sql = "\n".join(
+            [
+                "WITH ranked AS (",
+                f" SELECT {self.doc_id_column} AS DOC_ID,",
+                f"        {self.title_column} AS TITLE,",
+                f"        {self.source_column} AS SOURCE_NAME,",
+                f"        {self.url_column} AS SOURCE_URL,",
+                f"        {self.text_column} AS CHUNK_TEXT,",
+                "        CASE",
+                f"            WHEN UPPER({self.title_column}) LIKE :title THEN 100",
+                f"            WHEN UPPER({self.source_column}) LIKE :title THEN 80",
+                f"            WHEN UPPER({self.text_column}) LIKE :body THEN 60",
+                "            ELSE 30",
+                "        END AS MATCH_SCORE",
+                f"   FROM {self.table}",
+                where_condition,
+                ")",
+                " SELECT " + ", ".join(select),
+                " FROM ranked",
+                " ORDER BY MATCH_SCORE DESC",
+                f" FETCH FIRST {limit} ROWS ONLY",
+            ]
         )
         params = {"title": pattern, "body": pattern}
+        params.update(filter_binds)
 
         with get_connection() as conn:
             cursor = conn.cursor()
@@ -320,10 +375,16 @@ class OracleRetriever:
 retriever = OracleRetriever()
 
 
-def retrieve(question: str, k: int, *, prefer_vector: Optional[bool] = None) -> RetrievalResult:
+def retrieve(
+    question: str,
+    k: int,
+    *,
+    prefer_vector: Optional[bool] = None,
+    filters: Optional[Dict[str, Any]] = None,
+) -> RetrievalResult:
     """Module-level convenience wrapper returning a :class:`RetrievalResult`."""
 
-    return retriever.retrieve(question, k, prefer_vector=prefer_vector)
+    return retriever.retrieve(question, k, prefer_vector=prefer_vector, filters=filters)
 
 
 def capability_snapshot() -> Dict[str, Any]:
