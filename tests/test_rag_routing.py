@@ -39,17 +39,20 @@ def _stub_gemini(response):
     return _inner
 
 
-def test_smalltalk_with_gemini_success():
+def test_smalltalk_returns_static_greeting():
+    def _gemini_should_not_run(*_args, **_kwargs):
+        raise AssertionError("smalltalk must not call Gemini")
+
     result = routing.route_ask2(
         "hello there",
         k=2,
         vector_fn=_stub_vector([]),
-        gemini_fn=_stub_gemini("Hi! How can I help with Sustainacore today?"),
+        gemini_fn=_gemini_should_not_run,
     )
     assert result["meta"]["routing"] == "smalltalk"
-    assert result["answer"]
+    assert result["answer"] == "Hello! I can help with Sustainacore, TECH100, and ESG questions."
     assert result["sources"] == []
-    assert result["meta"]["gemini_used"] is True
+    assert result["meta"]["gemini_used"] is False
     assert result["meta"]["k"] == 2
 
 
@@ -61,7 +64,7 @@ def test_smalltalk_with_fallback():
         gemini_fn=_stub_gemini(None),
     )
     assert result["meta"]["routing"] == "smalltalk"
-    assert result["answer"]
+    assert result["answer"] == "Hello! I can help with Sustainacore, TECH100, and ESG questions."
     assert result["sources"] == []
     assert result["meta"]["gemini_used"] is False
 

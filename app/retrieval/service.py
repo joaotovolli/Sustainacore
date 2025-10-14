@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from collections import deque
@@ -372,6 +373,22 @@ def run_pipeline(
     total_ms = int((time.time() - t0) * 1000)
     latencies["total_ms"] = total_ms
 
+    if os.getenv("ASK2_SYNTH_FALLBACK", "0") not in {"0", "false", "False"}:
+        facts_list = retriever_payload.get("facts") or []
+        fallback_lines = []
+        for fact in facts_list[:4]:
+            if not isinstance(fact, dict):
+                continue
+            title = (fact.get("title") or fact.get("source_name") or "").strip()
+            snippet = (fact.get("snippet") or fact.get("chunk_text") or "").strip()
+            if title and snippet:
+                fallback_lines.append(f"- {title}: {snippet[:180]}")
+            elif title:
+                fallback_lines.append(f"- {title}")
+            elif snippet:
+                fallback_lines.append(f"- {snippet[:180]}")
+        if (not answer_text or answer_text == "I’m sorry, I couldn’t generate an answer from the retrieved facts.") and fallback_lines:
+            answer_text = "Here’s the best supported summary from SustainaCore:\n" + "\n".join(fallback_lines)
     if not answer_text:
         answer_text = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
 
