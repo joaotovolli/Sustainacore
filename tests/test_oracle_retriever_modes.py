@@ -93,6 +93,7 @@ def test_vector_mode(monkeypatch):
     )
     monkeypatch.setattr(oracle_retriever, "get_capability", lambda refresh=False: capability)
     monkeypatch.setattr(oracle_retriever, "get_connection", lambda: _VectorConnection())
+    monkeypatch.setattr(oracle_retriever, "oracledb", object(), raising=False)
 
     result = oracle_retriever.retriever.retrieve("How many reports?", 3)
     assert result.mode == "vector"
