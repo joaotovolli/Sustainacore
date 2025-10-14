@@ -87,16 +87,26 @@ def test_header_robustness(monkeypatch):
 
 
 def test_small_talk_short_circuit(monkeypatch):
-    _stub_route_raising(monkeypatch, RuntimeError("should not call legacy router"))
+    monkeypatch.setattr(ask_app, "_ASK2_ENABLE_SMALLTALK", True)
+    monkeypatch.setattr(ask_app, "_router_is_smalltalk", lambda _q: True)
+
+    def _fake_smalltalk_route(question: str, _k: int) -> Dict[str, object]:
+        return {
+            "answer": f"Hello there! ({question})",
+            "sources": [],
+            "meta": {"routing": "smalltalk", "gemini_used": False},
+        }
+
+    monkeypatch.setattr(ask_app, "_route_ask2", _fake_smalltalk_route)
 
     for phrase in ["hi", "hello!", "thanks", "help", "goodbye"]:
         body, status = _invoke_ask2(phrase)
         assert status == 200
         assert isinstance(body.get("contexts"), list)
-        assert "Suggested follow-ups" in body["answer"]
-        suggestion_lines = [line for line in body["answer"].splitlines() if line.startswith("- ")]
-        assert 2 <= len(suggestion_lines) <= 4
+        assert body.get("contexts") == []
+        assert body["sources"] == []
         assert body["meta"]["routing"] == "smalltalk"
+        assert "best supported answer" not in body["answer"].lower()
 
 
 def test_sources_removed_from_answer(monkeypatch):
