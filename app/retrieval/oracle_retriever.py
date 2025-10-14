@@ -1,18 +1,11 @@
-"""Oracle 23ai retriever that honours the Gemini-first contract."""
+"""Oracle retriever that embeds questions locally before querying Oracle."""
 
 from __future__ import annotations
 
-import datetime as _dt
-import hashlib
-import json
 import logging
-import os
-import threading
-import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from typing import Any, Dict, List, Optional
 
+from db_helper import top_k_by_vector
 from .embedding_client import embed_text
 
 try:  # pragma: no cover - optional dependency
@@ -23,129 +16,61 @@ except Exception as exc:  # pragma: no cover - optional dependency
 else:  # pragma: no cover - optional dependency
     _ORACLE_IMPORT_ERROR = None
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    import oracledb as _oracledb  # type: ignore
-
-from .settings import settings
+from .embedding_client import embed_text
 
 
-LOGGER = logging.getLogger("oracle-retriever")
-_ORACLE_AVAILABLE = oracledb is not None
+LOGGER = logging.getLogger("app.oracle_retriever")
 
 
-def _is_credential_error(exc: Exception) -> bool:
-    text = str(exc)
-    if "DPY-4001" in text or "ORA-01017" in text or "invalid username" in text.lower():
-        return True
-    first_arg = exc.args[0] if exc.args else None
-    code = getattr(first_arg, "code", None)
-    if isinstance(code, str) and code.upper() in {"DPY-4001", "ORA-01017"}:
-        return True
-    return False
-
-
-def _read_env_file_var(path: str, key: str) -> Optional[str]:
+def _sanitize_distance(value: Any) -> Optional[float]:
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                k, _, v = line.partition("=")
-                if k.strip() == key:
-                    return v.strip()
-    except OSError:
-        return None
-    return None
-
-
-def _connection() -> "_oracledb.Connection":  # type: ignore[name-defined]
-    if not _ORACLE_AVAILABLE:
-        raise RuntimeError("oracledb_unavailable")
-
-    password = (
-        os.environ.get("DB_PASSWORD")
-        or os.environ.get("DB_PASS")
-        or os.environ.get("DB_PWD")
-        or _read_env_file_var("/etc/sustainacore/db.env", "DB_PASSWORD")
-    )
-    return oracledb.connect(  # type: ignore[union-attr]
-        user=os.environ.get("DB_USER", "WKSP_ESGAPEX"),
-        password=password,
-        dsn=os.environ.get("DB_DSN", "dbri4x6_high"),
-        config_dir=os.environ.get("TNS_ADMIN", "/opt/adb_wallet"),
-        wallet_location=os.environ.get("TNS_ADMIN", "/opt/adb_wallet"),
-        wallet_password=os.environ.get("WALLET_PWD"),
-    )
-
-
-def _normalize_url(url: Optional[str]) -> Optional[str]:
-    if not url:
-        return None
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        return url
-    filtered_params = [
-        (k, v)
-        for k, v in parse_qsl(parsed.query, keep_blank_values=False)
-        if not k.lower().startswith(("utm_", "session", "ref", "fbclid", "gclid"))
-    ]
-    normalized_query = urlencode(filtered_params, doseq=True)
-    sanitized = parsed._replace(query=normalized_query, fragment="")
-    if sanitized.scheme in {"http", "https"}:
-        sanitized = sanitized._replace(netloc=sanitized.netloc.lower())
-    return urlunparse(sanitized)
-
-
-def _infer_source_name(url: Optional[str]) -> str:
-    if not url:
-        return ""
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        return ""
-    host = parsed.netloc.lower()
-    return host.split(":", 1)[0]
-
-
-def _to_plain(value: Any) -> Any:
-    if hasattr(value, "read"):
-        try:
-            return value.read()
-        except Exception:  # pragma: no cover - defensive
-            return str(value)
-    VectorT = getattr(oracledb, "Vector", None)
-    if VectorT and isinstance(value, VectorT):  # type: ignore[arg-type]
-        return list(value)
-    return value
-
-
-def _safe_date(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-    if isinstance(value, _dt.datetime):
-        return value.date().isoformat()
-    if isinstance(value, _dt.date):
-        return value.isoformat()
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return None
-        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%b-%Y", "%Y-%m", "%Y"):
-            try:
-                parsed = _dt.datetime.strptime(text[:len(fmt)], fmt)
-                return parsed.date().isoformat()
-            except ValueError:
-                continue
-        return text
-    return str(value)
-
-
-def _score_from_distance(distance: Any) -> Optional[float]:
-    try:
-        dist = float(distance)
+        dist = float(value)
     except (TypeError, ValueError):
+        return None
+    if dist != dist:  # NaN guard
+        return None
+    return round(dist, 6)
+
+
+def _shape_context(row: Dict[str, Any]) -> Dict[str, Any]:
+    doc_id = row.get("doc_id")
+    title = row.get("title")
+    source_url = row.get("source_url")
+    chunk_text = row.get("chunk_text") or row.get("snippet") or row.get("text")
+    context = {
+        "doc_id": str(doc_id) if doc_id is not None else "",
+        "title": title.strip() if isinstance(title, str) else "",
+        "source_url": source_url.strip() if isinstance(source_url, str) else "",
+        "chunk_text": chunk_text.strip() if isinstance(chunk_text, str) else "",
+    }
+    dist = _sanitize_distance(row.get("dist"))
+    if dist is not None:
+        context["dist"] = dist
+    chunk_ix = row.get("chunk_ix")
+    if isinstance(chunk_ix, (int, str)):
+        context["chunk_ix"] = chunk_ix
+    return context
+
+
+def retrieve(question: str, k: int, *, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Embed ``question`` locally, then run Oracle KNN to fetch contexts."""
+
+    clean_question = (question or "").strip()
+    if not clean_question:
+        return []
+
+    try:
+        vector = embed_text(clean_question)
+    except Exception as exc:
+        LOGGER.exception("embedding_failed", exc_info=exc)
+        raise
+
+    try:
+        k_value = int(k)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        k_value = 5
+    if k_value < 1:
+        k_value = 1
         return None
     if dist != dist:  # NaN check
         return None
@@ -552,3 +477,20 @@ class OracleRetriever:
 
 retriever = OracleRetriever()
 
+    try:
+        rows = top_k_by_vector(vector, k_value, filters=filters or {})
+    except Exception as exc:
+        LOGGER.exception("oracle_knn_failed", exc_info=exc)
+        raise
+
+    contexts: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        context = _shape_context(row)
+        if context["chunk_text"]:
+            contexts.append(context)
+    return contexts
+
+
+__all__ = ["retrieve"]
