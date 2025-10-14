@@ -47,6 +47,17 @@ The helper writes `/etc/systemd/system/sustainacore-ai.service.d/15-persona.conf
 - **Operational middleware** delivering failover routing, observability, and compliance logging.
 - **Infrastructure tooling** for VM deployment, CI/CD hygiene, and data refresh workflows.
 
+### Chat routing upgrades
+- `/ask2` now calls the smart router first when `ASK2_ENABLE_SMALLTALK=true`, ensuring greetings such as "hi", "olá", or "ciao" return a concise smalltalk reply with no sources and `meta.routing="smalltalk"`.
+- Normal Q&A responses reformat sources via the router formatter, dedupe duplicate citations, and honor `ASK2_MAX_SOURCES` plus `ASK2_SOURCE_LABEL_MODE=concise` for compact labels.
+- A similarity guard enforces `SIMILARITY_FLOOR`: if the top retrieval score falls below the floor, the API responds with a clarifier instead of ungrounded sources and sets `meta.routing="low_conf"`.
+
+#### Environment variables
+- `ASK2_ENABLE_SMALLTALK` – Toggle router-first smalltalk detection (default `true`).
+- `ASK2_MAX_SOURCES` – Cap the number of formatted sources returned (default `6`).
+- `ASK2_SOURCE_LABEL_MODE` – Controls label style (`concise` adds "Title › Section", default `default`).
+- `SIMILARITY_FLOOR` – Existing retrieval floor reused by the clarifier guard.
+
 ## Stack
 - **Runtime:** Python 3.11, FastAPI, Uvicorn, WSGI fallbacks.
 - **Storage:** Oracle APEX workspace, Oracle DB schemas, vector stores for embeddings.
