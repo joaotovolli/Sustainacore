@@ -1,78 +1,60 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app import app as flask_app
+from app.retrieval import adapter
 
 
-def test_pipeline_first_success(monkeypatch):
-    from app.retrieval import adapter
-    from app import ask2 as route_handler, ask2_pipeline_first as route_adapter
+@pytest.fixture(autouse=True)
+def reset_defaults(monkeypatch):
+    # Ensure deterministic defaults for tests.
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
 
-    called = {"count": 0}
 
-    def fake_run(question, k, client_ip=None):
-        called["count"] += 1
-        return {
-            "answer": "Hello",
-            "contexts": [{"id": "x"}],
-            "sources": [{"id": "s1"}],
-            "meta": {"compose": {"status": "ok"}},
-        }
+def test_pipeline_success(monkeypatch):
+    contexts = [{"doc_id": "1", "title": "Doc", "source_url": "https://sustainacore.ai", "chunk_text": "text"}]
 
-    monkeypatch.setattr(adapter, "run_pipeline", fake_run)
-    assert adapter.run_pipeline is fake_run
-    assert route_adapter is adapter.ask2_pipeline_first
-    monkeypatch.setitem(flask_app.view_functions, "ask2", route_handler)
-    client = flask_app.test_client()
-    response = client.post("/ask2", json={"q": "Ping", "top_k": 6})
-    payload = response.get_json()
-    assert response.status_code == 200
-    assert called["count"] == 1
+    monkeypatch.setattr(adapter.oracle_retriever, "retrieve", lambda q, k, filters=None: contexts)
+
+    def fake_compose(question, contexts, *, model=None):
+        assert question == "Ping"
+        assert contexts
+        return {"answer": "Hello", "sources": ["Doc - https://sustainacore.ai"]}
+
+    monkeypatch.setattr(adapter, "_compose_with_gemini", fake_compose)
+
+    payload, status = adapter.ask2_pipeline_first("Ping", 4, client_ip="1.2.3.4")
+    assert status == 200
+    assert payload["contexts"] == contexts
+    assert payload["meta"]["routing"] == "gemini_first"
     assert payload["answer"] == "Hello"
     assert "Sources:" not in payload["answer"]
-    assert isinstance(payload.get("contexts"), list)
-    assert payload["contexts"], "pipeline response should include contexts"
-    assert payload.get("meta", {}).get("routing") == "gemini_first"
 
 
-def test_pipeline_first_fallback(monkeypatch):
-    from app.retrieval import adapter
+def test_pipeline_compose_failure(monkeypatch):
+    contexts = [{"doc_id": "1", "title": "Doc", "source_url": "https://sustainacore.ai", "chunk_text": "text"}]
+    monkeypatch.setattr(adapter.oracle_retriever, "retrieve", lambda q, k, filters=None: contexts)
 
     def boom(*args, **kwargs):
-        raise RuntimeError("no cli")
+        raise RuntimeError("gemini down")
 
-    monkeypatch.setattr(adapter, "run_pipeline", boom)
-    client = flask_app.test_client()
-    response = client.post("/ask2", json={"q": "Ping", "top_k": 6})
-    payload = response.get_json()
-    assert response.status_code == 200
-    assert isinstance(payload.get("answer", ""), str)
-    for key in ("answer", "sources", "contexts", "meta"):
-        assert key in payload
-    assert isinstance(payload.get("contexts"), list)
-    assert isinstance(payload.get("sources"), list)
+    monkeypatch.setattr(adapter, "_compose_with_gemini", boom)
 
-
-
-def test_pipeline_fs_fallback_populates_contexts(monkeypatch):
-    from app.retrieval import adapter, fs_retriever
-
-    def fake_pipeline(question, k, client_ip=None):
-        return {
-            "answer": "Fallback answer",
-            "sources": [],
-            "contexts": [],
-            "meta": {},
-        }
-
-    monkeypatch.setattr(adapter, "run_pipeline", fake_pipeline, raising=False)
-    monkeypatch.setattr(fs_retriever, "search", lambda question, top_k=6: [{"id": "fs-1"}])
-
-    shaped, status = adapter.ask2_pipeline_first("Ping", 3, client_ip="1.2.3.4")
+    payload, status = adapter.ask2_pipeline_first("Ping", 4)
     assert status == 200
-    assert shaped["contexts"] == [{"id": "fs-1"}]
-    assert shaped["meta"]["routing"] == "gemini_first"
+    assert payload["contexts"] == contexts
+    assert payload["meta"]["routing"] == "gemini_first_fail"
+    assert payload["answer"]
+
+
+def test_pipeline_no_contexts(monkeypatch):
+    monkeypatch.setattr(adapter.oracle_retriever, "retrieve", lambda q, k, filters=None: [])
+    payload, status = adapter.ask2_pipeline_first("Ping", 3)
+    assert status == 200
+    assert payload["contexts"] == []
+    assert payload["meta"]["note"] == "no_contexts"
