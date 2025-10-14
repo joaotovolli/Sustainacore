@@ -313,16 +313,9 @@ def _build_source_payload(hits: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]
 
 
 def _smalltalk_answer(query: str, gemini_fn: Optional[GeminiFn]) -> Tuple[str, bool]:
-    prompt = (
-        "You are the friendly Sustainacore assistant. The user greeted you with:\n"
-        f"{json.dumps(query)}\n"
-        "Reply with one or two short sentences welcoming them and inviting them to ask about "
-        "Sustainacore, TECH100, or ESG insights. Keep it warm and professional."
-    )
-    answer, used = _call_gemini(prompt, gemini_fn)
-    if answer:
-        return answer, used
-    return SMALLTALK_FALLBACK, False
+    """Return a concise hello without hitting Gemini."""
+
+    return "Hello! I can help with Sustainacore, TECH100, and ESG questions.", False
 
 
 def _no_hit_answer(query: str, gemini_fn: Optional[GeminiFn]) -> Tuple[str, bool]:

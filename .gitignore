@@ -21,3 +21,5 @@ build/
 *.tar
 !archive/**
 key.pem
+/etc/systemd/system/*.conf
+/opt/adb_wallet_tp/*

@@ -1,3 +1,4 @@
+import io
 from importlib import util
 from pathlib import Path
 import sys
@@ -46,6 +47,7 @@ _module = _load_module()
 _clean_answer_text = getattr(_module, "_clean_answer_text")
 _dedup_sources = getattr(_module, "_dedup_sources")
 _build_sources_from_facts = getattr(_module, "_build_sources_from_facts")
+GeminiGateway = getattr(_module, "GeminiGateway")
 
 
 def test_clean_answer_text_removes_debug_blocks():
@@ -153,3 +155,61 @@ def test_build_sources_from_facts_falls_back_to_uncited_facts():
 
     assert sources == ["Fact A — Org (2024)", "Fact B — Org (2023)"]
 
+
+def test_compose_answer_parses_code_block_json(monkeypatch):
+    gateway = GeminiGateway()
+
+    code_block = """```json\n{\n  \"answer\": \"Yes, Microsoft is in the TECH100 Index.\",\n  \"sources\": [\"Source A\", \"Source B\"]\n}\n```"""
+
+    def _fake_call_json(_prompt, *, model):  # pylint: disable=unused-argument
+        return {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": code_block}], "role": "model"},
+                    "finishReason": "STOP",
+                    "index": 0,
+                }
+            ],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5},
+        }
+
+    gateway._call_json = _fake_call_json  # type: ignore[attr-defined]
+    monkeypatch.setenv("ASK2_SYNTH_FALLBACK", "0")
+    monkeypatch.setattr(_module, "open", lambda *_args, **_kwargs: io.StringIO(), raising=False)
+
+    retriever_payload = {"facts": [], "context_note": ""}
+    plan = {"filters": {}, "query_variants": [], "k": 4, "raw": {}}
+
+    result = gateway.compose_answer("Is MSFT in TECH100?", retriever_payload, plan, hop_count=1)
+
+    assert result["answer"] == "Yes, Microsoft is in the TECH100 Index."
+    assert result["sources"] == ["Source A", "Source B"]
+
+
+def test_compose_answer_synth_fallback(monkeypatch):
+    gateway = GeminiGateway()
+
+    gateway._call_json = lambda *_args, **_kwargs: {}  # type: ignore[attr-defined]
+    monkeypatch.setenv("ASK2_SYNTH_FALLBACK", "1")
+    monkeypatch.setattr(_module, "open", lambda *_args, **_kwargs: io.StringIO(), raising=False)
+
+    facts = [
+        {
+            "title": "Doc A",
+            "snippet": "Doc A summary goes here with plenty of detail.",
+            "source_name": "Sustainacore",
+        },
+        {
+            "title": "Doc B",
+            "snippet": "Doc B insight to include.",
+            "source_name": "Sustainacore",
+        },
+    ]
+
+    retriever_payload = {"facts": facts, "context_note": ""}
+    plan = {"filters": {}, "query_variants": [], "k": 4, "raw": {}}
+
+    result = gateway.compose_answer("Tell me about Doc A", retriever_payload, plan, hop_count=1)
+
+    assert result["answer"].startswith("Here’s a brief summary from SustainaCore sources")
+    assert "Doc A" in result["answer"]
