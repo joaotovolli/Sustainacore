@@ -777,6 +777,32 @@ def _collect_sources(chunks, maxn=CITES_MAX):
             break
     return collected
 
+
+def _build_default_sources(chunks):
+    if not chunks:
+        return []
+    labels = []
+    seen = set()
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        title = (chunk.get('title') or '').strip()
+        url = (chunk.get('source_url') or '').strip()
+        label = title or url
+        if not label:
+            continue
+        key = (label.lower(), url.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        if url and url not in label:
+            labels.append(f"{label} - {url}")
+        else:
+            labels.append(label)
+        if len(labels) >= _ASK2_MAX_SOURCES:
+            break
+    return labels
+
 def sources_block(chunks, maxn=CITES_MAX):
     return [c["title"] for c in _collect_sources(chunks, maxn)]
 
@@ -1440,21 +1466,21 @@ def ask2():
             if _router_is_smalltalk(question):
                 routed = _route_ask2(question, k_eff)
                 if isinstance(routed, dict):
-                    routed_meta = routed.get("meta") if isinstance(routed.get("meta"), dict) else {}
+                    routed_meta = routed.get('meta') if isinstance(routed.get('meta'), dict) else {}
                     meta = dict(routed_meta)
-                    meta.setdefault("routing", "smalltalk")
+                    meta.setdefault('routing', 'smalltalk')
                     if header_hints:
-                        meta.setdefault("request_hints", header_hints)
-                    answer_text = _strip_source_sections((routed.get("answer") or "").strip())
+                        meta.setdefault('request_hints', header_hints)
+                    answer_text = _strip_source_sections((routed.get('answer') or '').strip())
                     payload = {
-                        "answer": answer_text,
-                        "sources": [],
-                        "contexts": [],
-                        "meta": meta,
+                        'answer': answer_text,
+                        'sources': [],
+                        'contexts': [],
+                        'meta': meta,
                     }
                     return jsonify(payload), 200
         except Exception as exc:  # pragma: no cover - defensive logging
-            _LOGGER.debug("smalltalk routing failed; continuing pipeline", exc_info=exc)
+            _LOGGER.debug('smalltalk routing failed; continuing pipeline', exc_info=exc)
 
     forwarded = request.headers.get('X-Forwarded-For', '')
     client_ip = (
@@ -1462,72 +1488,53 @@ def ask2():
         if forwarded
         else (request.remote_addr or 'unknown')
     )
+
     try:
-        shaped, _status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
-    except Exception as exc:
+        pipeline_payload, _status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
+    except Exception as exc:  # pragma: no cover - defensive log
         _LOGGER.exception('ask2_pipeline_first_failed', exc_info=exc)
-        shaped = {}
+        pipeline_payload = {}
 
-    shaped = shaped if isinstance(shaped, dict) else {}
-    answer_val = _strip_source_sections(str(shaped.get('answer') or '')).strip()
-    contexts_val = shaped.get('contexts') if isinstance(shaped.get('contexts'), list) else []
-    sources_val = shaped.get('sources') if isinstance(shaped.get('sources'), list) else []
+    shaped = pipeline_payload if isinstance(pipeline_payload, dict) else {}
+    answer_val = _strip_source_sections(str(shaped.get('answer') or '').strip())
+    contexts_raw = shaped.get('contexts') if isinstance(shaped.get('contexts'), list) else []
     meta_val = shaped.get('meta') if isinstance(shaped.get('meta'), dict) else {}
+    if header_hints:
+        meta_val.setdefault('request_hints', header_hints)
     meta_val.setdefault('routing', 'gemini_first')
-    normalized_pipeline = {
-        'answer': answer_val,
-        'sources': sources_val,
-        'contexts': contexts_val,
-        'meta': meta_val,
-    }
+    meta_val.setdefault('k', k_eff)
 
-    if contexts_val:
-        response = jsonify(normalized_pipeline)
-        response.headers['X-Orch'] = 'pass'
-        response.headers['X-Orig'] = '1'
-        return response, 200
-        shaped, status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
-    except Exception as exc:
-        shaped = {
-            "answer": "",
-            "sources": [],
-            "contexts": [],
-            "meta": {"routing": "gemini_first_fail", "error": str(exc)},
-        }
-        status = 599
-
-    contexts_raw = shaped.get("contexts") if isinstance(shaped, dict) else []
-    contexts_list: list = contexts_raw if isinstance(contexts_raw, list) else []
     normalized_contexts: list = []
-    for entry in contexts_list:
+    for entry in contexts_raw:
         if not isinstance(entry, dict):
             continue
         candidate = dict(entry)
-        url_value = candidate.get("source_url") or candidate.get("url") or ""
-        candidate.setdefault("source_url", url_value)
+        url_value = candidate.get('source_url') or candidate.get('url') or ''
+        if isinstance(url_value, str):
+            candidate.setdefault('source_url', url_value)
         normalized_contexts.append(candidate)
 
     deduped_contexts = dedupe_contexts(normalized_contexts) if normalized_contexts else []
-    has_contexts = status == 200 and bool(deduped_contexts)
+    top_similarity = _extract_top_similarity(deduped_contexts)
+    meta_val['top_score'] = top_similarity
 
-    if has_contexts:
-        answer = _strip_source_sections((shaped.get("answer") or "").strip())
-        meta_raw = shaped.get("meta") if isinstance(shaped.get("meta"), dict) else {}
-        meta = dict(meta_raw)
-        top_similarity = _extract_top_similarity(deduped_contexts)
-        meta.setdefault("routing", "gemini_first")
-        meta["top_score"] = top_similarity
-        meta.setdefault("k", k_eff)
-        if header_hints:
-            meta.setdefault("request_hints", header_hints)
+    debug_block = meta_val.setdefault('debug', {})
+    if 'capability' not in debug_block:
+        try:
+            from app.retrieval import oracle_retriever as _oracle_module
 
+            debug_block['capability'] = _oracle_module.capability_snapshot()
+        except Exception:  # pragma: no cover - defensive
+            debug_block['capability'] = {}
+
+    if deduped_contexts:
         if _below_similarity_floor(top_similarity):
-            meta.update({"routing": "low_conf", "floor_warning": True})
+            meta_val.update({'routing': 'low_conf', 'floor_warning': True})
             guard_payload = {
-                "answer": _LOW_CONFIDENCE_MESSAGE,
-                "sources": [],
-                "contexts": [],
-                "meta": meta,
+                'answer': _LOW_CONFIDENCE_MESSAGE,
+                'sources': [],
+                'contexts': [],
+                'meta': meta_val,
             }
             return jsonify(guard_payload), 200
 
@@ -1538,49 +1545,37 @@ def ask2():
                 label_mode=_ASK2_SOURCE_LABEL_MODE,
             )
         else:
-            raw_sources = shaped.get("sources") if isinstance(shaped.get("sources"), list) else []
-            sources = [str(item) for item in raw_sources[:_ASK2_MAX_SOURCES]]
+            raw_sources = shaped.get('sources') if isinstance(shaped.get('sources'), list) else []
+            sources = [str(item).strip() for item in raw_sources[:_ASK2_MAX_SOURCES] if str(item).strip()]
+            if not sources:
+                sources = _build_default_sources(deduped_contexts)
 
-        normalized = {
-            "answer": answer,
-            "sources": sources,
-            "contexts": deduped_contexts,
-            "meta": meta,
+        payload = {
+            'answer': answer_val,
+            'sources': sources,
+            'contexts': deduped_contexts,
+            'meta': meta_val,
         }
-        return jsonify(normalized), 200
+        response = jsonify(payload)
+        response.headers['X-Orch'] = 'pass'
+        response.headers['X-Orig'] = '1'
+        return response, 200
 
-    shaped, status = _call_route_ask2_facade(
+    shaped_fallback, status = _call_route_ask2_facade(
         question, k_eff, client_ip=client_ip, header_hints=header_hints
     )
-    shaped = shaped if isinstance(shaped, dict) else {}
-    answer = _strip_source_sections((shaped.get('answer') or '').strip())
-    sources = shaped.get('sources') if isinstance(shaped.get('sources'), list) else []
-    contexts = shaped.get("contexts") if isinstance(shaped.get("contexts"), list) else []
-    if contexts:
-        if not answer or answer == INSUFFICIENT_CONTEXT_MESSAGE:
-            bullets = []
-            for chunk in contexts[:4]:
-                snippet = (chunk.get("chunk_text") or "").strip()
-                if not snippet:
-                    continue
-                sentence = snippet.split("\n")[0].strip()
-                if not sentence:
-                    continue
-                if len(sentence) > 220:
-                    sentence = sentence[:217].rsplit(" ", 1)[0].strip() + "…"
-                bullets.append(f"- {sentence}")
-            if bullets:
-                answer = "Here’s what the retrieved Sustainacore sources highlight:\n" + "\n".join(bullets)
-        if not sources:
-            sources = sources_detailed(contexts)
-    meta = shaped.get("meta") if isinstance(shaped.get("meta"), dict) else {}
-    normalized = {"answer": answer, "sources": sources, "contexts": contexts, "meta": meta}
-    response = jsonify(normalized)
+    shaped_fallback = shaped_fallback if isinstance(shaped_fallback, dict) else {}
+    answer_fb = _strip_source_sections((shaped_fallback.get('answer') or '').strip())
+    sources_fb = shaped_fallback.get('sources') if isinstance(shaped_fallback.get('sources'), list) else []
+    contexts_fb = shaped_fallback.get('contexts') if isinstance(shaped_fallback.get('contexts'), list) else []
+    meta_fb = shaped_fallback.get('meta') if isinstance(shaped_fallback.get('meta'), dict) else {}
+    if header_hints:
+        meta_fb.setdefault('request_hints', header_hints)
+    payload = {'answer': answer_fb, 'sources': sources_fb, 'contexts': contexts_fb, 'meta': meta_fb}
+    response = jsonify(payload)
     response.headers['X-Orch'] = 'pass'
     response.headers['X-Orig'] = '1'
     return response, status
-
-
 
 @app.route("/ask", methods=["GET"], endpoint="ask_get_shim")
 def ask_get_shim():
