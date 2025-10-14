@@ -14,10 +14,18 @@ concurrency:
 jobs:
   persona-noop:
     name: Persona guard
-    if: ${{ github.event_name != 'workflow_dispatch' || secrets.ASK2_URL == '' }}
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    env:
+      ASK2_URL: ${{ secrets.ASK2_URL }}
     steps:
+      - name: Gate on missing secrets
+        id: gate
+        if: ${{ env.ASK2_URL == '' }}
+        run: echo "skip=true" >> "$GITHUB_OUTPUT"
+
       - name: Skip persona eval
+        if: ${{ steps.gate.outputs.skip != 'true' }}
         run: |
           echo "Persona eval is manual; skipping"
           exit 0
