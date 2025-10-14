@@ -14,7 +14,7 @@ concurrency:
 jobs:
   persona-noop:
     name: Persona guard
-    if: ${{ github.event_name != 'workflow_dispatch' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || secrets.ASK2_URL == '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Skip persona eval

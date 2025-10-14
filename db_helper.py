@@ -299,42 +299,12 @@ def _build_filter_clause(filters: Optional[Dict[str, Any]]) -> Tuple[str, Dict[s
         raw_value = normalized_items.get(key)
         if raw_value is None:
             continue
-        text = str(raw_value).strip()
-        if not text:
+        text_value = str(raw_value).strip()
+        if not text_value:
             continue
         bind_key = f"{key}"
-        binds[bind_key] = text
+        binds[bind_key] = text_value
         clauses.append(f"{column} {op} :{bind_key}")
-    binds = {}
-    clauses = []
-    counter = 0
-
-    def _bind(value):
-        nonlocal counter
-        key = f"p{counter}"
-        counter += 1
-        binds[key] = value
-        return f":{key}"
-
-    for key, value in (filters or {}).items():
-        if value in (None, ""):
-            continue
-        key_u = str(key).upper()
-        if key_u == "DOC_ID":
-            clause = f"DOC_ID = {_bind(str(value))}"
-            clauses.append(clause)
-        elif key_u == "SOURCE_ID":
-            clause = f"UPPER(SOURCE_ID) = {_bind(str(value).upper())}"
-            clauses.append(clause)
-        elif key_u == "SOURCE_TYPE":
-            values = value if isinstance(value, list) else [value]
-            tokens = [str(v).strip() for v in values if str(v).strip()]
-            if tokens:
-                binds_list = ", ".join(_bind(tok) for tok in tokens)
-                clauses.append(f"UPPER(SOURCE_TYPE) IN ({binds_list})")
-        elif key_u == "TITLE_LIKE":
-            clause = f"TITLE LIKE {_bind(str(value))}"
-            clauses.append(clause)
 
     if not clauses:
         return "", {}

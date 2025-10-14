@@ -1,12 +1,18 @@
-"""Oracle retriever that embeds questions locally before querying Oracle."""
+"""Capability-aware Oracle retriever with vector and text fallbacks."""
 
 from __future__ import annotations
 
 import logging
+import math
+import time
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from db_helper import top_k_by_vector
+from db_helper import get_connection
+
+from .db_capability import Capability, capability_snapshot as _capability_snapshot, get_capability
 from .embedding_client import embed_text
+from .settings import settings
 
 try:  # pragma: no cover - optional dependency
     import oracledb  # type: ignore
@@ -16,481 +22,314 @@ except Exception as exc:  # pragma: no cover - optional dependency
 else:  # pragma: no cover - optional dependency
     _ORACLE_IMPORT_ERROR = None
 
-from .embedding_client import embed_text
 
-
-LOGGER = logging.getLogger("app.oracle_retriever")
-
-
-def _sanitize_distance(value: Any) -> Optional[float]:
-    try:
-        dist = float(value)
-    except (TypeError, ValueError):
-        return None
-    if dist != dist:  # NaN guard
-        return None
-    return round(dist, 6)
-
-
-def _shape_context(row: Dict[str, Any]) -> Dict[str, Any]:
-    doc_id = row.get("doc_id")
-    title = row.get("title")
-    source_url = row.get("source_url")
-    chunk_text = row.get("chunk_text") or row.get("snippet") or row.get("text")
-    context = {
-        "doc_id": str(doc_id) if doc_id is not None else "",
-        "title": title.strip() if isinstance(title, str) else "",
-        "source_url": source_url.strip() if isinstance(source_url, str) else "",
-        "chunk_text": chunk_text.strip() if isinstance(chunk_text, str) else "",
-    }
-    dist = _sanitize_distance(row.get("dist"))
-    if dist is not None:
-        context["dist"] = dist
-    chunk_ix = row.get("chunk_ix")
-    if isinstance(chunk_ix, (int, str)):
-        context["chunk_ix"] = chunk_ix
-    return context
-
-
-def retrieve(question: str, k: int, *, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    """Embed ``question`` locally, then run Oracle KNN to fetch contexts."""
-
-    clean_question = (question or "").strip()
-    if not clean_question:
-        return []
-
-    try:
-        vector = embed_text(clean_question)
-    except Exception as exc:
-        LOGGER.exception("embedding_failed", exc_info=exc)
-        raise
-
-    try:
-        k_value = int(k)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        k_value = 5
-    if k_value < 1:
-        k_value = 1
-        return None
-    if dist != dist:  # NaN check
-        return None
-    score = 1.0 - dist
-    if score > 1.0:
-        score = 1.0
-    if score < 0.0:
-        score = 0.0
-    return round(score, 4)
+LOGGER = logging.getLogger("app.retrieval.oracle")
 
 
 @dataclass
 class RetrievalResult:
-    facts: List[Dict[str, Any]]
-    context_note: str
+    """Return type for capability-aware retrieval."""
+
+    contexts: List[Dict[str, Any]]
+    mode: str
     latency_ms: int
-    candidates: int
-    deduped: int
-    hop_count: int
-    raw_facts: Optional[List[Dict[str, Any]]] = None
+    capability: Capability
+    note: str = ""
+
+
+def _to_plain(value: Any) -> Any:
+    if value is None:
+        return None
+    if hasattr(value, "read"):
+        try:
+            return value.read()
+        except Exception:  # pragma: no cover - depends on driver
+            pass
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except Exception:  # pragma: no cover - best effort
+            return value.decode("latin-1", "ignore")
+    return value
+
+
+def _normalize_score(value: Any, *, invert_distance: bool = False, max_scale: float = 100.0) -> Optional[float]:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if invert_distance:
+        numeric = 1.0 - numeric
+    if max_scale and max_scale > 0:
+        numeric = numeric / max_scale
+    numeric = max(0.0, min(1.0, numeric))
+    return round(numeric, 4)
 
 
 class OracleRetriever:
-    """Implements the Oracle retriever contract for Gemini."""
+    """Retrieve ESG contexts using Oracle vectors with graceful fallback."""
 
     def __init__(self) -> None:
-        self.table = settings.oracle_table.upper()
-        self.embedding_column = settings.oracle_embedding_column.upper()
-        self.text_column = settings.oracle_text_column.upper()
-        self.url_column = settings.oracle_url_column.upper()
-        self.norm_url_column = settings.oracle_normalized_url_column.upper()
-        self.title_column = settings.oracle_title_column.upper()
-        self.source_column = settings.oracle_source_column.upper()
-        self.date_column = settings.oracle_date_column.upper()
-        self.doc_id_column = settings.oracle_doc_id_column.upper()
-        self.source_id_column = settings.oracle_source_id_column.upper()
-        self.chunk_ix_column = settings.oracle_chunk_ix_column.upper()
+        self.table = (settings.oracle_table or "ESG_DOCS").strip().upper()
+        self.text_column = (settings.oracle_text_column or "CHUNK_TEXT").strip().upper()
+        self.url_column = (settings.oracle_url_column or "SOURCE_URL").strip().upper()
+        self.title_column = (settings.oracle_title_column or "TITLE").strip().upper()
+        self.source_column = (settings.oracle_source_column or "SOURCE_NAME").strip().upper()
+        self.doc_id_column = (settings.oracle_doc_id_column or "DOC_ID").strip().upper()
+        self.chunk_ix_column = (settings.oracle_chunk_ix_column or "CHUNK_IX").strip().upper()
         self.metric = settings.oracle_knn_metric
-        self._available_columns: set[str] = set()
-        self._metadata_ready = False
-        self._metadata_lock = threading.Lock()
-        if not _ORACLE_AVAILABLE and _ORACLE_IMPORT_ERROR:
-            LOGGER.info("Oracle driver unavailable: %s", _ORACLE_IMPORT_ERROR)
+        self._warned_dim_mismatch = False
 
-    # ---- metadata helpers -------------------------------------------------
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def retrieve(self, question: str, k: int, *, prefer_vector: Optional[bool] = None) -> RetrievalResult:
+        clean_question = (question or "").strip()
+        capability = get_capability()
+        if not clean_question:
+            return RetrievalResult([], "none", 0, capability, note="empty_question")
 
-    def _ensure_metadata(self) -> None:
-        if self._metadata_ready or not _ORACLE_AVAILABLE:
-            return
-        with self._metadata_lock:
-            if self._metadata_ready:
-                return
+        prefer_vector = settings.rag_prefer_vector if prefer_vector is None else bool(prefer_vector)
+
+        start = time.perf_counter()
+        contexts: List[Dict[str, Any]] = []
+        mode = "none"
+        note = ""
+
+        use_vector = (
+            prefer_vector
+            and capability.vector_supported
+            and capability.vec_col is not None
+            and capability.vector_rows > 0
+            and oracledb is not None
+        )
+
+        if use_vector:
             try:
-                self._refresh_columns()
-                self._verify_embeddings()
-            except Exception as exc:  # pragma: no cover - requires DB
-                if _is_credential_error(exc):
-                    LOGGER.info("Oracle metadata unavailable: %s", exc)
+                contexts = self._vector_search(clean_question, k, capability)
+                mode = "vector"
+                note = "vector_search"
+            except Exception as exc:
+                LOGGER.warning("vector_search_failed; falling back to text: %s", exc)
+                capability = get_capability(refresh=True)
+                contexts = []
+                mode = "vector_fail"
+
+        if not contexts:
+            text_mode = self._select_text_mode(capability)
+            try:
+                if text_mode == "oracle_text":
+                    contexts = self._oracle_text_search(clean_question, k, capability)
+                    mode = "oracle_text"
                 else:
-                    LOGGER.warning("Oracle metadata warmup failed: %s", exc)
-            finally:
-                self._metadata_ready = True
+                    contexts = self._like_search(clean_question, k, capability)
+                    mode = "like"
+                note = note or f"{mode}_fallback"
+            except Exception as exc:
+                LOGGER.warning("text_search_failed: mode=%s err=%s", mode, exc)
+                contexts = []
+                note = "text_search_failed"
 
-    def _refresh_columns(self) -> None:
-        if not _ORACLE_AVAILABLE:
-            self._available_columns = set()
-            return
-        db_error = getattr(oracledb, "DatabaseError", Exception)
-        try:
-            with _connection() as conn:
-                owner = conn.username.upper()
-                try:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "SELECT column_name FROM ALL_TAB_COLUMNS WHERE OWNER = :owner AND TABLE_NAME = :table",
-                        owner=owner,
-                        table=self.table,
-                    )
-                    cols = [row[0].upper() for row in cur]
-                except db_error:
-                    cur = conn.cursor()
-                    cur.execute("SELECT column_name FROM USER_TAB_COLUMNS WHERE TABLE_NAME = :table", table=self.table)
-                    cols = [row[0].upper() for row in cur]
-        except Exception as exc:  # pragma: no cover - requires DB
-            LOGGER.warning("Failed to introspect Oracle columns: %s", exc)
-            cols = []
-        self._available_columns = set(cols)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return RetrievalResult(contexts, mode, latency_ms, capability, note=note)
 
-    def _has_column(self, column: str) -> bool:
-        return column.upper() in self._available_columns
+    # ------------------------------------------------------------------
+    # Capability helpers
+    # ------------------------------------------------------------------
+    def capability_snapshot(self) -> Dict[str, Any]:
+        snapshot = _capability_snapshot()
+        snapshot["text_mode"] = self._select_text_mode(get_capability())
+        return snapshot
 
-    def _verify_embeddings(self) -> None:
-        if not _ORACLE_AVAILABLE:
-            return
-        if not self._has_column(self.embedding_column):
-            LOGGER.warning("Embedding column %s not found in %s", self.embedding_column, self.table)
-            return
-        try:
-            with _connection() as conn:
-                cur = conn.cursor()
-                query = (
-                    f"SELECT MIN(vector_dims({self.embedding_column})), MAX(vector_dims({self.embedding_column})) "
-                    f"FROM {self.table}"
-                )
-                cur.execute(query)
-                row = cur.fetchone()
-                if not row:
-                    return
-                min_dim, max_dim = row
-                if min_dim != max_dim:
-                    LOGGER.warning("Embedding dimensions vary across rows: min=%s max=%s", min_dim, max_dim)
-                if max_dim and int(max_dim) != 384:
-                    LOGGER.warning("Expected 384-dim embeddings, got %s", max_dim)
-        except Exception as exc:  # pragma: no cover - requires DB
-            LOGGER.warning("Could not verify embedding dimensions: %s", exc)
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _vector_search(self, question: str, k: int, capability: Capability) -> List[Dict[str, Any]]:
+        if oracledb is None:
+            raise RuntimeError("oracledb_unavailable")
 
-    # ---- embedding --------------------------------------------------------
+        embedding = embed_text(question, timeout=5.0)
+        if capability.vec_dim and len(embedding) != capability.vec_dim and not self._warned_dim_mismatch:
+            LOGGER.warning(
+                "vector_dim_mismatch expected=%s actual=%s", capability.vec_dim, len(embedding)
+            )
+            self._warned_dim_mismatch = True
+        elif (
+            not capability.vec_dim
+            and settings.rag_expected_dim
+            and len(embedding) != settings.rag_expected_dim
+            and not self._warned_dim_mismatch
+        ):
+            LOGGER.warning(
+                "vector_dim_mismatch expected_env=%s actual=%s", settings.rag_expected_dim, len(embedding)
+            )
+            self._warned_dim_mismatch = True
 
-    def _embed(self, text: str) -> Optional[Sequence[float]]:
-        text = (text or "").strip()
-        if not text:
-            return None
-        try:
-            return embed_text(text, timeout=5.0)
-        except Exception as exc:  # pragma: no cover - network error path
-            LOGGER.error("Embedding request failed: %s", exc)
-            return None
-
-    # ---- SQL construction -------------------------------------------------
-
-    def _build_filter_clause(self, filters: Dict[str, Any], binds: Dict[str, Any]) -> str:
-        clauses: List[str] = []
-        counter = 0
-        for key, value in (filters or {}).items():
-            if not key:
-                continue
-            key_u = key.upper()
-            if key_u == "SOURCE_TYPE" and self._has_column("SOURCE_TYPE"):
-                values = value if isinstance(value, list) else [value]
-                clean = [str(v).strip() for v in values if str(v).strip()]
-                if clean:
-                    names = []
-                    for item in clean:
-                        bind = f"p{counter}"; counter += 1
-                        binds[bind] = item
-                        names.append(f":{bind}")
-                    clauses.append("UPPER(SOURCE_TYPE) IN (" + ",".join(names) + ")")
-            elif key_u == "TICKER" and self._has_column("TICKER"):
-                values = value if isinstance(value, list) else [value]
-                clean = [str(v).strip().upper() for v in values if str(v).strip()]
-                if clean:
-                    names = []
-                    for item in clean:
-                        bind = f"p{counter}"; counter += 1
-                        binds[bind] = item
-                        names.append(f":{bind}")
-                    clauses.append("UPPER(TICKER) IN (" + ",".join(names) + ")")
-            elif key_u == "DOC_ID" and self._has_column(self.doc_id_column):
-                bind = f"p{counter}"; counter += 1
-                binds[bind] = str(value)
-                clauses.append(f"{self.doc_id_column} = :{bind}")
-            elif key_u == "SOURCE_ID" and self._has_column(self.source_id_column):
-                bind = f"p{counter}"; counter += 1
-                binds[bind] = str(value)
-                clauses.append(f"{self.source_id_column} = :{bind}")
-            elif key_u == "DATE_FROM" and self._has_column(self.date_column):
-                bind = f"p{counter}"; counter += 1
-                binds[bind] = str(value)
-                clauses.append(f"{self.date_column} >= TO_DATE(:{bind}, 'YYYY-MM-DD')")
-            elif key_u == "DATE_TO" and self._has_column(self.date_column):
-                bind = f"p{counter}"; counter += 1
-                binds[bind] = str(value)
-                clauses.append(f"{self.date_column} <= TO_DATE(:{bind}, 'YYYY-MM-DD')")
-        return (" AND ".join(clauses)) if clauses else ""
-
-    def _select_clause(self) -> str:
-        cols: List[str] = []
-        if self._has_column(self.doc_id_column):
-            cols.append(f"{self.doc_id_column} AS DOC_ID")
-        if self._has_column(self.chunk_ix_column):
-            cols.append(f"{self.chunk_ix_column} AS CHUNK_IX")
-        if self._has_column(self.source_id_column):
-            cols.append(f"{self.source_id_column} AS SOURCE_ID")
-        if self._has_column(self.source_column):
-            cols.append(f"{self.source_column} AS SOURCE_NAME")
-        if self._has_column(self.title_column):
-            cols.append(f"{self.title_column} AS TITLE")
-        if self._has_column(self.url_column):
-            cols.append(f"{self.url_column} AS SOURCE_URL")
-        if self._has_column(self.norm_url_column):
-            cols.append(f"{self.norm_url_column} AS NORMALIZED_URL")
-        if self._has_column(self.date_column):
-            cols.append(f"{self.date_column} AS PUBLISHED_DATE")
-        if self._has_column(self.text_column):
-            cols.append(f"{self.text_column} AS CHUNK_TEXT")
-        cols.append(
-            f"VECTOR_DISTANCE(:vec, {self.embedding_column}, '{self.metric}') AS DIST"
-        )
-        return ", ".join(cols)
-
-    def _vector_query(
-        self,
-        conn: "_oracledb.Connection",  # type: ignore[name-defined]
-        embedding: Sequence[float],
-        filters: Dict[str, Any],
-        k: int,
-    ) -> List[Dict[str, Any]]:
-        binds: Dict[str, Any] = {}
-        filter_clause = self._build_filter_clause(filters, binds)
-        where = f"WHERE {filter_clause}" if filter_clause else ""
-        limit = max(1, int(k or 1))
+        limit = max(1, min(int(k or settings.oracle_knn_k), 64))
+        select = [
+            f"{self.doc_id_column} AS DOC_ID",
+            f"{self.chunk_ix_column} AS CHUNK_IX",
+            f"{self.title_column} AS TITLE",
+            f"{self.source_column} AS SOURCE_NAME",
+            f"{self.url_column} AS SOURCE_URL",
+            f"{self.text_column} AS CHUNK_TEXT",
+            f"VECTOR_DISTANCE(:vec, {capability.vec_col}, '{self.metric}') AS DIST",
+        ]
         sql = (
-            f"SELECT {self._select_clause()} FROM {self.table} {where} "
-            f"ORDER BY VECTOR_DISTANCE(:vec, {self.embedding_column}, '{self.metric}') "
-            f"FETCH FIRST {limit} ROWS ONLY"
+            "SELECT "
+            + ", ".join(select)
+            + f" FROM {self.table} WHERE {capability.vec_col} IS NOT NULL "
+            + f"ORDER BY VECTOR_DISTANCE(:vec, {capability.vec_col}, '{self.metric}') "
+            + f"FETCH FIRST {limit} ROWS ONLY"
         )
-        cur = conn.cursor()
-        if hasattr(oracledb, "DB_TYPE_VECTOR"):
-            cur.setinputsizes(vec=oracledb.DB_TYPE_VECTOR)  # type: ignore[union-attr]
-        binds.update({"vec": embedding})
-        cur.execute(sql, binds)
-        columns = [desc[0].lower() for desc in cur.description]
-        rows: List[Dict[str, Any]] = []
-        for raw in cur.fetchall():
-            row = {col: _to_plain(value) for col, value in zip(columns, raw)}
-            if "normalized_url" not in row or not row["normalized_url"]:
-                row["normalized_url"] = _normalize_url(row.get("source_url"))
-            rows.append(row)
-        return rows
-
-    # ---- deduplication ----------------------------------------------------
-
-    @staticmethod
-    def _canonical_key(row: Dict[str, Any]) -> str:
-        for key in ("normalized_url", "source_id", "doc_id"):
-            value = row.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip().lower()
-        chunk = row.get("chunk_ix")
-        if chunk is not None and row.get("doc_id"):
-            return f"{row.get('doc_id')}::{chunk}"
-        return hashlib.sha1(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()
-
-    def _deduplicate_rows(self, rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if not rows:
-            return []
-        last_index: Dict[str, int] = {}
-        for idx, row in enumerate(rows):
-            last_index[self._canonical_key(row)] = idx
-        ordered: List[Dict[str, Any]] = []
-        seen_idx = set()
-        for idx, row in enumerate(rows):
-            key = self._canonical_key(row)
-            if last_index.get(key) != idx:
-                continue
-            if idx in seen_idx:
-                continue
-            ordered.append(row)
-            seen_idx.add(idx)
-        near_seen: Dict[Tuple[str, str], int] = {}
-        collapsed: List[Dict[str, Any]] = []
-        for row in ordered:
-            title = (row.get("title") or "").strip().lower()
-            snippet = (row.get("chunk_text") or "")[:200]
-            snippet_hash = hashlib.sha1(snippet.encode("utf-8", "ignore")).hexdigest() if snippet else ""
-            dedup_key = (title, snippet_hash)
-            if dedup_key in near_seen:
-                collapsed[near_seen[dedup_key]] = row
-            else:
-                near_seen[dedup_key] = len(collapsed)
-                collapsed.append(row)
-        limited: List[Dict[str, Any]] = []
-        per_source: Dict[str, int] = {}
-        per_url: Dict[str, int] = {}
-        for row in collapsed:
-            source_key = str(row.get("source_id") or row.get("source_name") or "").lower()
-            url_key = str(row.get("normalized_url") or row.get("source_url") or "").lower()
-            if source_key:
-                if per_source.get(source_key, 0) >= settings.retriever_per_source_cap:
-                    continue
-            if url_key:
-                if per_url.get(url_key, 0) >= 1:
-                    continue
-            limited.append(row)
-            if source_key:
-                per_source[source_key] = per_source.get(source_key, 0) + 1
-            if url_key:
-                per_url[url_key] = 1
-            if len(limited) >= settings.retriever_max_facts:
-                break
-        return limited
-
-    # ---- facts ------------------------------------------------------------
-
-    def _row_to_fact(self, row: Dict[str, Any], idx: int) -> Dict[str, Any]:
-        citation_source = (
-            row.get("source_id")
-            or row.get("doc_id")
-            or row.get("normalized_url")
-            or row.get("source_url")
-            or f"FACT_{idx+1}"
-        )
-        citation = "".join(ch for ch in str(citation_source) if ch.isalnum() or ch in "-_")
-        if not citation:
-            citation = f"FACT_{idx+1}"
-        snippet = (row.get("chunk_text") or "").strip()
-        if snippet:
-            snippet = " ".join(snippet.split())[:600]
-        source_name = (
-            row.get("source_name") or ""
-        ).strip() or _infer_source_name(row.get("normalized_url") or row.get("source_url"))
-        fact = {
-            "citation_id": citation,
-            "title": (row.get("title") or "").strip() or "Untitled excerpt",
-            "source_name": source_name or "",
-            "url": row.get("normalized_url") or row.get("source_url"),
-            "date": _safe_date(row.get("published_date")),
-            "snippet": snippet,
-            "score": _score_from_distance(row.get("dist")),
-        }
-        return fact
-
-    def _build_context_note(
-        self,
-        filters: Dict[str, Any],
-        k: int,
-        candidates: int,
-        dedup_count: int,
-        final_count: int,
-    ) -> str:
-        parts: List[str] = []
-        if filters:
-            formatted = ", ".join(
-                f"{key}={value}" for key, value in filters.items() if value
-            )
-            parts.append(f"- filters applied: {formatted}")
-        parts.append(f"- knn_top_k={k} → dedup={dedup_count} → final={final_count}")
-        parts.append(f"- oracle_candidates={candidates}")
-        return "\n".join(parts)
-
-    # ---- public API -------------------------------------------------------
-
-    def retrieve(
-        self,
-        filters: Dict[str, Any],
-        query_variants: Iterable[str],
-        k: int,
-        hop_count: int = 1,
-    ) -> RetrievalResult:
-        start = time.time()
-        k_eff = max(1, min(int(k or settings.oracle_knn_k), 64))
-        rows: List[Dict[str, Any]] = []
-        variants = [v for v in query_variants if isinstance(v, str) and v.strip()]
-        if not variants:
-            variants = [""]
-        self._ensure_metadata()
-        if not _ORACLE_AVAILABLE:
-            note = "- oracle_unavailable"
-            return RetrievalResult(
-                facts=[],
-                context_note=note,
-                latency_ms=0,
-                candidates=0,
-                deduped=0,
-                hop_count=hop_count,
-                raw_facts=None,
-            )
-        embeddings = []
-        for variant in variants:
-            embedding = self._embed(variant)
-            if embedding is None:
-                LOGGER.warning("Failed to embed variant: %s", variant)
-                continue
-            embeddings.append(embedding)
-
-        if not embeddings:
-            LOGGER.warning("No embeddings computed for query variants")
-            raise RuntimeError("embedding_failed")
 
         try:
-            with _connection() as conn:
-                for embedding in embeddings:
-                    chunk_rows = self._vector_query(conn, embedding, filters, k_eff)
-                    rows.extend(chunk_rows)
-        except Exception as exc:  # pragma: no cover - requires DB
-            log_fn = LOGGER.warning if _is_credential_error(exc) else LOGGER.error
-            log_fn("Oracle retrieval failed: %s", exc)
-            raise
-        deduped = self._deduplicate_rows(rows)
-        facts = [self._row_to_fact(row, idx) for idx, row in enumerate(deduped[: settings.retriever_fact_cap])]
-        context_note = self._build_context_note(filters, k_eff, len(rows), len(deduped), len(facts))
-        latency_ms = int((time.time() - start) * 1000)
-        raw = deduped if settings.show_debug_block else None
-        return RetrievalResult(
-            facts=facts,
-            context_note=context_note,
-            latency_ms=latency_ms,
-            candidates=len(rows),
-            deduped=len(deduped),
-            hop_count=hop_count,
-            raw_facts=raw,
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                if hasattr(oracledb, "DB_TYPE_VECTOR"):
+                    cursor.setinputsizes(vec=oracledb.DB_TYPE_VECTOR)  # type: ignore[attr-defined]
+                cursor.execute(sql, {"vec": embedding})
+                columns = [col[0].lower() for col in cursor.description]
+                rows = [dict(zip(columns, map(_to_plain, rec))) for rec in cursor.fetchall()]
+        except Exception as exc:
+            raise RuntimeError(f"vector_query_failed: {exc}") from exc
+
+        return self._shape_contexts(rows, score_key="dist", invert_distance=True, max_scale=1.0)
+
+    def _select_text_mode(self, capability: Capability) -> str:
+        override = settings.rag_text_mode
+        if override in {"oracle_text", "like"}:
+            if override == "oracle_text" and not capability.oracle_text_supported:
+                return "like"
+            return override
+        return "oracle_text" if capability.oracle_text_supported else "like"
+
+    def _oracle_text_search(self, question: str, k: int, capability: Capability) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(k or settings.oracle_knn_k), 64))
+        select = [
+            f"{self.doc_id_column} AS DOC_ID",
+            f"{self.title_column} AS TITLE",
+            f"{self.source_column} AS SOURCE_NAME",
+            f"{self.url_column} AS SOURCE_URL",
+            f"{self.text_column} AS CHUNK_TEXT",
+            "SCORE(1) AS SCORE",
+        ]
+        sql = (
+            "SELECT "
+            + ", ".join(select)
+            + f" FROM {self.table}"
+            + f" WHERE CONTAINS({self.text_column}, :query, 1) > 0"
+            + " ORDER BY SCORE(1) DESC"
+            + f" FETCH FIRST {limit} ROWS ONLY"
         )
+
+        params = {"query": question}
+        try:
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                columns = [col[0].lower() for col in cursor.description]
+                rows = [dict(zip(columns, map(_to_plain, rec))) for rec in cursor.fetchall()]
+        except Exception as exc:
+            raise RuntimeError(f"oracle_text_query_failed: {exc}") from exc
+
+        return self._shape_contexts(rows, score_key="score", max_scale=100.0)
+
+    def _like_search(self, question: str, k: int, capability: Capability) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(k or settings.oracle_knn_k), 64))
+        pattern = f"%{question.strip().upper()}%"
+        select = [
+            f"{self.doc_id_column} AS DOC_ID",
+            f"{self.title_column} AS TITLE",
+            f"{self.source_column} AS SOURCE_NAME",
+            f"{self.url_column} AS SOURCE_URL",
+            f"{self.text_column} AS CHUNK_TEXT",
+            "MATCH_SCORE AS SCORE",
+        ]
+        sql = (
+            "WITH ranked AS ("
+            f" SELECT {self.doc_id_column} AS DOC_ID,"
+            f"        {self.title_column} AS TITLE,"
+            f"        {self.source_column} AS SOURCE_NAME,"
+            f"        {self.url_column} AS SOURCE_URL,"
+            f"        {self.text_column} AS CHUNK_TEXT,"
+            "        CASE"
+            f"            WHEN UPPER({self.title_column}) LIKE :title THEN 100"
+            f"            WHEN UPPER({self.source_column}) LIKE :title THEN 80"
+            f"            WHEN UPPER({self.text_column}) LIKE :body THEN 60"
+            "            ELSE 30"
+            "        END AS MATCH_SCORE"
+            f"   FROM {self.table}"
+            f"  WHERE UPPER({self.title_column}) LIKE :title"
+            f"     OR UPPER({self.source_column}) LIKE :title"
+            f"     OR UPPER({self.text_column}) LIKE :body"
+            ")"
+            " SELECT "
+            + ", ".join(select)
+            + " FROM ranked"
+            " ORDER BY MATCH_SCORE DESC"
+            f" FETCH FIRST {limit} ROWS ONLY"
+        )
+        params = {"title": pattern, "body": pattern}
+
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
+            columns = [col[0].lower() for col in cursor.description]
+            rows = [dict(zip(columns, map(_to_plain, rec))) for rec in cursor.fetchall()]
+
+        return self._shape_contexts(rows, score_key="score", max_scale=100.0)
+
+    def _shape_contexts(
+        self,
+        rows: List[Dict[str, Any]],
+        *,
+        score_key: str,
+        invert_distance: bool = False,
+        max_scale: float = 100.0,
+    ) -> List[Dict[str, Any]]:
+        shaped: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            context: Dict[str, Any] = {}
+            doc_id = row.get("doc_id")
+            if doc_id is not None:
+                context["doc_id"] = str(doc_id)
+            title = row.get("title") or row.get("source_name")
+            if isinstance(title, str) and title.strip():
+                context["title"] = title.strip()
+            source_url = row.get("source_url")
+            if isinstance(source_url, str) and source_url.strip():
+                context["source_url"] = source_url.strip()
+            chunk = row.get("chunk_text")
+            if isinstance(chunk, str) and chunk.strip():
+                context["chunk_text"] = chunk.strip()
+            score = _normalize_score(row.get(score_key), invert_distance=invert_distance, max_scale=max_scale)
+            if score is not None:
+                context["score"] = score
+            key = (context.get("source_url") or context.get("doc_id") or "").lower()
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            if context:
+                shaped.append(context)
+        return shaped
 
 
 retriever = OracleRetriever()
 
-    try:
-        rows = top_k_by_vector(vector, k_value, filters=filters or {})
-    except Exception as exc:
-        LOGGER.exception("oracle_knn_failed", exc_info=exc)
-        raise
 
-    contexts: List[Dict[str, Any]] = []
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        context = _shape_context(row)
-        if context["chunk_text"]:
-            contexts.append(context)
-    return contexts
+def retrieve(question: str, k: int, *, prefer_vector: Optional[bool] = None) -> RetrievalResult:
+    """Module-level convenience wrapper returning a :class:`RetrievalResult`."""
+
+    return retriever.retrieve(question, k, prefer_vector=prefer_vector)
 
 
-__all__ = ["retrieve"]
+def capability_snapshot() -> Dict[str, Any]:
+    """Expose the current capability snapshot for debugging responses."""
+
+    return retriever.capability_snapshot()
+
+
+__all__ = ["RetrievalResult", "capability_snapshot", "retrieve", "retriever"]

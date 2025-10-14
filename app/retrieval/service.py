@@ -7,6 +7,7 @@ import re
 import time
 from collections import deque
 from threading import Lock
+from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional
 
 from .gemini_gateway import gateway
@@ -68,6 +69,70 @@ def _merge_facts(
         if len(merged) >= settings.retriever_fact_cap:
             break
     return merged
+
+def _dedupe_contexts(contexts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen: set[str] = set()
+    deduped: List[Dict[str, Any]] = []
+    for ctx in contexts or []:
+        if not isinstance(ctx, dict):
+            continue
+        key = (str(ctx.get("source_url") or "") or str(ctx.get("doc_id") or "")).strip().lower()
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        deduped.append(dict(ctx))
+        if len(deduped) >= settings.retriever_max_facts:
+            break
+    return deduped
+
+
+def _contexts_to_facts_for_service(contexts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    facts: List[Dict[str, Any]] = []
+    for idx, ctx in enumerate(contexts or []):
+        if not isinstance(ctx, dict):
+            continue
+        facts.append(
+            {
+                "citation_id": ctx.get("doc_id") or f"CTX_{idx+1}",
+                "title": ctx.get("title") or "",
+                "source_name": ctx.get("source_name") or "",
+                "source_url": ctx.get("source_url") or "",
+                "snippet": ctx.get("chunk_text") or ctx.get("snippet") or "",
+                "score": ctx.get("score"),
+            }
+        )
+    return facts
+
+
+def _oracle_search_variants(variants: Iterable[str], k: int) -> SimpleNamespace:
+    variants = [v for v in variants if isinstance(v, str) and v.strip()]
+    total_contexts: List[Dict[str, Any]] = []
+    total_latency = 0
+    notes: List[str] = []
+    mode: Optional[str] = None
+    for variant in variants or []:
+        result = retriever.retrieve(variant, k)
+        total_latency += result.latency_ms
+        total_contexts.extend(result.contexts)
+        if result.note:
+            notes.append(result.note)
+        if mode is None:
+            mode = result.mode
+    deduped = _dedupe_contexts(total_contexts)
+    facts = _contexts_to_facts_for_service(deduped)
+    context_note = " | ".join(notes) if notes else (mode or "retrieval")
+    return SimpleNamespace(
+        latency_ms=total_latency,
+        context_note=context_note,
+        facts=facts,
+        candidates=len(total_contexts),
+        deduped=len(deduped),
+        hop_count=1,
+        raw_facts=deduped,
+        mode=mode or "none",
+    )
+
 
 
 def _facts_to_contexts(facts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -269,7 +334,7 @@ def run_pipeline(
     variants = plan.get("query_variants") or [sanitized_q]
 
     retrieval_start = time.time()
-    oracle_result = retriever.retrieve(filters, variants, plan_k, hop_count=1)
+    oracle_result = _oracle_search_variants(variants, plan_k)
     latencies["oracle_ms"] = oracle_result.latency_ms
     facts = oracle_result.facts
     context_note = oracle_result.context_note
@@ -281,7 +346,7 @@ def run_pipeline(
         hop_variants = hop_plan.get("query_variants") or []
         hop_filters = hop_plan.get("filters") or {}
         if hop_variants:
-            extra_result = retriever.retrieve(hop_filters, hop_variants, plan_k, hop_count=2)
+            extra_result = _oracle_search_variants(hop_variants, plan_k)
             latencies["oracle_hop2_ms"] = extra_result.latency_ms
             facts = _merge_facts(facts, extra_result.facts)
             hop_count = 2

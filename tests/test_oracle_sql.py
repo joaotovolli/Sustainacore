@@ -40,6 +40,7 @@ import pytest
 
 import db_helper
 from app.retrieval import oracle_retriever
+from app.retrieval.db_capability import Capability
 
 
 class _DummyCursor:
@@ -105,6 +106,7 @@ def test_top_k_by_vector_sql_contract(monkeypatch):
         "get_vector_column",
         lambda table="ESG_DOCS": {"table": "ESG_DOCS", "column": "EMBEDDING", "dimension": 3},
     )
+    monkeypatch.setattr(db_helper, "_get_vector_info", lambda: {"table": "ESG_DOCS", "column": "EMBEDDING"})
 
     result = db_helper.top_k_by_vector([0.1, 0.2, 0.3], k=5)
 
@@ -141,27 +143,26 @@ def test_oracle_retriever_vector_sql(monkeypatch):
             holder["cursor"] = cursor
             return cursor
 
+    capability = Capability(
+        db_version="23ai",
+        vector_supported=True,
+        vec_col="EMBEDDING",
+        vec_dim=3,
+        vector_rows=5,
+        esg_docs_count=5,
+        oracle_text_supported=True,
+    )
+
     monkeypatch.setattr(oracle_retriever, "oracledb", types.SimpleNamespace(DB_TYPE_VECTOR=object()))
-    monkeypatch.setattr(oracle_retriever, "_ORACLE_AVAILABLE", True)
+    monkeypatch.setattr(oracle_retriever, "get_capability", lambda refresh=False: capability)
+    monkeypatch.setattr(oracle_retriever, "get_connection", lambda: DummyConn())
+    monkeypatch.setattr(oracle_retriever, "embed_text", lambda text, timeout=5.0: [0.1, 0.2, 0.3])
 
-    retr = oracle_retriever.OracleRetriever()
-    retr._metadata_ready = True
-    retr._available_columns = {
-        retr.doc_id_column,
-        retr.chunk_ix_column,
-        retr.source_id_column,
-        retr.source_column,
-        retr.title_column,
-        retr.url_column,
-        retr.text_column,
-        retr.embedding_column,
-    }
-
-    rows = retr._vector_query(DummyConn(), [0.1, 0.2, 0.3], filters={}, k=4)
+    result = oracle_retriever.retriever.retrieve("Ping", 4)
 
     cursor = holder["cursor"]
     assert "VECTOR_DISTANCE(:vec, EMBEDDING" in cursor.executed_sql
     assert "FETCH FIRST 4 ROWS ONLY" in cursor.executed_sql
     assert ":k" not in cursor.executed_sql
     assert all(banned not in cursor.executed_sql for banned in ["AI_VECTOR", "UTL_HTTP", "APEX_WEB_SERVICE", "DBMS_CLOUD"])
-    assert rows and rows[0]["doc_id"] == 1
+    assert result.contexts and result.contexts[0]["doc_id"] == "1"
