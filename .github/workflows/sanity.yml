@@ -12,7 +12,8 @@ jobs:
           python-version: "3.11"
       - name: Fail on conflict markers
         run: |
-          ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . || \
+          # Exclude the committed venv from conflict-marker scan (its METADATA files contain "======" lines).
+          ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ':(exclude)website_django/venv/**' || \
             (echo 'ERROR: conflict markers present' && exit 1)
       - name: Install deps
         run: |
