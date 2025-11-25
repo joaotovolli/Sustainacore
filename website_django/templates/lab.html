@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section narrow">
+    <div class="container">
+        <div class="section-header">
+            <h1>AI Governance &amp; ESG Lab</h1>
+            <p>Experiments and prototypes focused on responsible AI analytics, kept separate from the lightweight public site.</p>
+        </div>
+        <div class="card">
+            <p class="eyebrow">What lives here</p>
+            <h3>Proof-of-concept dashboards and evaluators</h3>
+            <p>Prototype risk monitors, explainability tests, and transparency checks that feed into SustainaCore’s governance indicators.</p>
+        </div>
+        <div class="card">
+            <p class="eyebrow">Architecture</p>
+            <h3>Separation of workloads</h3>
+            <p>Compute-heavy AI and LLM tasks run on VM1 and other backends. VM2 hosts this Django site, which surfaces results without heavy runtime costs.</p>
+        </div>
+        <div class="card">
+            <p class="eyebrow">Get involved</p>
+            <h3>Partner with the Lab</h3>
+            <p>We welcome collaboration with regulators, investors, and civil society on transparent AI governance tooling.</p>
+            <a class="btn btn-primary" href="mailto:contact@sustainacore.org">Contact the Lab</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

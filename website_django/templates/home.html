@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero" id="overview">
+    <div class="container hero-grid">
+        <div>
+            <p class="eyebrow">Open governance intelligence</p>
+            <h1>Open ESG and AI governance analytics for everyone.</h1>
+            <p class="lead">SustainaCore collects and curates Environmental, Social and Governance (ESG) and AI governance data to make transparency, accountability and risk analysis accessible to investors, regulators, and citizens.</p>
+            <ul class="key-points">
+                <li>Explore the TECH100 AI Governance Index.</li>
+                <li>Compare companies on transparency, ethics, and risk.</li>
+                <li>Access dashboards and reports built on open, freely available data.</li>
+            </ul>
+            <div class="actions">
+                <a class="btn btn-primary" href="#tech100">Explore TECH100 Index</a>
+                <a class="btn btn-secondary" href="#how">Learn how it works</a>
+            </div>
+        </div>
+        <div class="hero-card" id="ai-governance">
+            <h3>Why SustainaCore</h3>
+            <p>Evidence-led ESG and AI governance signals for decision makers who need credible, lightweight intelligence.</p>
+            <div class="stat-row">
+                <div>
+                    <p class="stat-number">100+</p>
+                    <p class="stat-label">Leading AI &amp; tech firms</p>
+                </div>
+                <div>
+                    <p class="stat-number">4</p>
+                    <p class="stat-label">Governance pillars</p>
+                </div>
+                <div>
+                    <p class="stat-number">Open</p>
+                    <p class="stat-label">Built on public data</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section" id="how">
+    <div class="container">
+        <div class="section-header">
+            <h2>How SustainaCore works</h2>
+            <p>Practical, transparent steps to turn scattered disclosures into useful indicators.</p>
+        </div>
+        <div class="columns">
+            <div class="card">
+                <p class="eyebrow">1. Collect</p>
+                <h3>Public, verifiable sources</h3>
+                <p>We gather ESG and AI governance disclosures, policies, and regulatory developments from public and regulator-backed sources.</p>
+            </div>
+            <div class="card">
+                <p class="eyebrow">2. Structure</p>
+                <h3>Signals &amp; indices</h3>
+                <p>We transform that information into structured indicators, including the TECH100 AI Governance &amp; Ethics Index.</p>
+            </div>
+            <div class="card">
+                <p class="eyebrow">3. Deliver</p>
+                <h3>APIs, dashboards, downloads</h3>
+                <p>Outputs are delivered through lightweight APIs, dashboards, and downloadable datasets for open reuse.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section highlight" id="tech100">
+    <div class="container">
+        <div class="section-header">
+            <h2>TECH100 AI Governance &amp; Ethics Index</h2>
+            <p>A snapshot of how major AI and technology firms align with transparency, oversight, regulatory readiness, and stakeholder engagement.</p>
+        </div>
+        <div class="tech100-grid">
+            <div>
+                <p>The TECH100 index scores leading AI and technology companies against open indicators. Use it to benchmark governance maturity, monitor shifts after new regulations, and surface leaders in responsible AI.</p>
+                <a class="btn btn-primary" href="#dashboards">View full TECH100 index</a>
+            </div>
+            <div class="table-card">
+                <div class="table-header">
+                    <span>Company</span>
+                    <span>Index score</span>
+                    <span>Focus</span>
+                </div>
+                {% for row in sample_companies %}
+                <div class="table-row">
+                    <span>{{ row.name }}</span>
+                    <span>{{ row.score }}</span>
+                    <span>{{ row.focus }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section" id="dashboards">
+    <div class="container">
+        <div class="section-header">
+            <h2>Dashboards &amp; data access</h2>
+            <p>Lightweight views into ESG and AI governance indicators. Links open in existing SustainaCore dashboards.</p>
+        </div>
+        <div class="cards-grid">
+            <div class="card">
+                <h3>TECH100 dashboard</h3>
+                <p>Explore company-level scores and governance signals.</p>
+                <a href="#tech100" class="text-link">Open index preview</a>
+            </div>
+            <div class="card">
+                <h3>AI Governance lab</h3>
+                <p>Discover prototypes and experiments focused on AI governance tooling.</p>
+                <a href="/lab/" class="text-link">Visit the Lab</a>
+            </div>
+            <div class="card">
+                <h3>Methodology notes</h3>
+                <p>Understand the indicators, weighting, and scoring model.</p>
+                <a href="/methodology/" class="text-link">View methodology</a>
+            </div>
+            <div class="card">
+                <h3>Data access</h3>
+                <p>Request CSV extracts or API endpoints for your research or oversight needs.</p>
+                <a href="mailto:contact@sustainacore.org" class="text-link">Email us</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section" id="ai-governance-lab">
+    <div class="container">
+        <div class="section-header">
+            <h2>AI Governance &amp; ESG Lab</h2>
+            <p>The Lab is where we test new governance analytics while keeping the public site lightweight.</p>
+        </div>
+        <div class="columns">
+            <div class="card">
+                <p class="eyebrow">Experiments</p>
+                <h3>LLM safety &amp; alignment signals</h3>
+                <p>Prototype scoring and monitoring built on transparent prompts and publicly visible workflows.</p>
+            </div>
+            <div class="card">
+                <p class="eyebrow">Infrastructure</p>
+                <h3>Separation of concerns</h3>
+                <p>Heavy AI workloads run on a separate backend (VM1), while this VM2 site serves fast, static-first pages.</p>
+            </div>
+            <div class="card">
+                <p class="eyebrow">Collaboration</p>
+                <h3>Partnership-ready</h3>
+                <p>Built for investors, regulators, and civil society partners who need credible, open materials.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section" id="methodology">
+    <div class="container">
+        <div class="section-header">
+            <h2>Methodology &amp; trust</h2>
+            <p>Transparent criteria, reproducible data sourcing, and clear governance pillars.</p>
+        </div>
+        <div class="columns">
+            <div class="card">
+                <h3>Governance pillars</h3>
+                <p>Transparency, oversight &amp; accountability, regulatory alignment, stakeholder engagement.</p>
+            </div>
+            <div class="card">
+                <h3>Data sourcing</h3>
+                <p>All inputs come from public, regulator-backed, or company-disclosed materials. No paywalled research.</p>
+            </div>
+            <div class="card">
+                <h3>Reproducibility</h3>
+                <p>Indicators and scoring logic are documented, versioned, and designed to be rerun as disclosures update.</p>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

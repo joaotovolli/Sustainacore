@@ -1,0 +1,56 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SustainaCore{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/main.css' %}">
+</head>
+<body>
+<header class="site-header">
+    <div class="container nav-wrapper">
+        <div class="logo">SustainaCore</div>
+        <nav>
+            <ul class="nav-list">
+                <li><a href="#overview">Overview</a></li>
+                <li><a href="#tech100">TECH100 Index</a></li>
+                <li><a href="#ai-governance">AI Governance &amp; Ethics</a></li>
+                <li><a href="#dashboards">Dashboards</a></li>
+                <li><a href="#about">About</a></li>
+            </ul>
+        </nav>
+        <a class="btn btn-primary" href="#tech100">Explore data</a>
+    </div>
+</header>
+<main>
+    {% block content %}{% endblock %}
+</main>
+<footer class="site-footer" id="about">
+    <div class="container footer-grid">
+        <div>
+            <p class="logo">SustainaCore</p>
+            <p>Open ESG and AI governance analytics.</p>
+        </div>
+        <div>
+            <p class="footer-heading">Links</p>
+            <ul>
+                <li><a href="mailto:contact@sustainacore.org">Contact</a></li>
+                <li><a href="/privacy/">Privacy &amp; Terms</a></li>
+                <li><a href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noopener">GitHub</a></li>
+            </ul>
+        </div>
+        <div>
+            <p class="footer-heading">More</p>
+            <ul>
+                <li><a href="/lab/">AI Governance Lab</a></li>
+                <li><a href="/methodology/">Methodology</a></li>
+            </ul>
+        </div>
+    </div>
+    <div class="container footer-meta">
+        <p>© {{ current_year|default:2025 }} SustainaCore. All rights reserved.</p>
+    </div>
+</footer>
+</body>
+</html>
