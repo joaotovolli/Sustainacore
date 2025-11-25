@@ -5,7 +5,7 @@
 - All traffic terminates at the load balancer before reaching the application node.
 
 ## Application Runtime
-- Django runs under Gunicorn with environment variables provided via systemd.
+- Django runs under a WSGI application server with environment variables provided via systemd.
 - Set `DJANGO_SECRET_KEY` in the VM environment; no secrets are stored in the repository.
 
 ## Static and Media Assets
