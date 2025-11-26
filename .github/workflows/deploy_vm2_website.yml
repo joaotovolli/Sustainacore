@@ -31,5 +31,11 @@ jobs:
           VM2_USER: ${{ secrets.VM2_USER }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" \
-            "/opt/code/Sustainacore/deploy_vm2_website.sh"
+          ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" <<'SSH'
+          set -euo pipefail
+          cd /opt/code/Sustainacore
+          # Always reset VM2 repo to origin/main (deployment target only, discard local changes).
+          git fetch origin main
+          git reset --hard origin/main
+          ./deploy_vm2_website.sh
+          SSH
