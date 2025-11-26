@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section id="ask2" class="section">
+    <div class="container">
+        <div class="section-header">
+            <h2>Ask SustainaCore</h2>
+            <p>Your front door to ESG and AI governance questions. This demo shows the chat interface; responses are currently placeholder text until the Ask2 backend is wired in.</p>
+        </div>
+
+        <div class="card chat-panel">
+            <div id="chatMessages" class="chat-messages" aria-live="polite" aria-label="Ask SustainaCore chat transcript">
+                <div class="chat-message bot">
+                    Hi there! Ask a question about AI governance, ESG transparency, or SustainaCore's TECH100 index.
+                </div>
+            </div>
+
+            <form id="chatForm" class="chat-input-row">
+                <label class="sr-only" for="chatInput">Your question</label>
+                <textarea id="chatInput" name="message" rows="3" placeholder="Type your question here..." required></textarea>
+                <button type="submit" class="btn primary">Send</button>
+            </form>
+        </div>
+    </div>
+</section>
+
+<script>
+(function() {
+    const form = document.getElementById('chatForm');
+    const input = document.getElementById('chatInput');
+    const messages = document.getElementById('chatMessages');
+
+    function getCsrfToken() {
+        const match = document.cookie.match(/csrftoken=([^;]+)/);
+        return match ? match[1] : '';
+    }
+
+    function appendMessage(role, text) {
+        const el = document.createElement('div');
+        el.className = `chat-message ${role}`;
+        el.textContent = text;
+        messages.appendChild(el);
+        messages.scrollTop = messages.scrollHeight;
+        return el;
+    }
+
+    form.addEventListener('submit', function(event) {
+        event.preventDefault();
+        const message = (input.value || '').trim();
+        if (!message) {
+            return;
+        }
+
+        appendMessage('user', message);
+        input.value = '';
+        input.focus();
+
+        const thinking = appendMessage('bot', 'Thinking…');
+
+        fetch('{% url "ask2_chat_api" %}', {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': getCsrfToken(),
+            },
+            body: 'message=' + encodeURIComponent(message),
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error('Request failed');
+                }
+                return response.json();
+            })
+            .then((data) => {
+                thinking.remove();
+                appendMessage('bot', data.reply || 'Received your question.');
+            })
+            .catch(() => {
+                thinking.remove();
+                appendMessage('bot', 'Sorry, something went wrong while contacting the Ask2 endpoint.');
+            });
+    });
+})();
+</script>
+{% endblock %}
