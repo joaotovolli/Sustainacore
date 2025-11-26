@@ -22,4 +22,6 @@ from . import views
 urlpatterns = [
     path("", views.home, name="home"),
     path("admin/", admin.site.urls),
+    path("ask2/", views.ask2_chat_page, name="ask2_chat_page"),
+    path("ask2/api/", views.ask2_chat_api, name="ask2_chat_api"),
 ]
