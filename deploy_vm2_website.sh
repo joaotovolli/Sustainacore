@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[VM2] Applying Django migrations and static collection..."
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-# Use the VM2 virtualenv Python if available; fallback to `python` if not.
+if [ -f "${SCRIPT_DIR}/.env.vm2" ]; then
+  echo "[VM2] Loading environment from .env.vm2..."
+  set -a
+  . "${SCRIPT_DIR}/.env.vm2"
+  set +a
+else
+  echo "[VM2] No .env.vm2 file found; proceeding with existing environment..."
+fi
+
 PYTHON_BIN="${SCRIPT_DIR}/website_django/venv/bin/python"
 if [ ! -x "${PYTHON_BIN}" ]; then
   PYTHON_BIN="python"
 fi
 
-# Run Django management commands from the website_django project
+echo "[VM2] Applying Django migrations and static collection..."
 cd "${SCRIPT_DIR}/website_django"
-"$PYTHON_BIN" manage.py migrate --noinput
-"$PYTHON_BIN" manage.py collectstatic --noinput
+"${PYTHON_BIN}" manage.py migrate --noinput
+"${PYTHON_BIN}" manage.py collectstatic --noinput
 
 echo "[VM2] Restarting gunicorn and reloading nginx..."
 sudo systemctl restart gunicorn.service
