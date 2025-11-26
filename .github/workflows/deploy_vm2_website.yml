@@ -37,5 +37,6 @@ jobs:
           # Always reset VM2 repo to origin/main (deployment target only, discard local changes).
           git fetch origin main
           git reset --hard origin/main
-          ./deploy_vm2_website.sh
+          # Run VM2 Django deploy script from the repo root
+          bash ./deploy_vm2_website.sh
           SSH
