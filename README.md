@@ -8,11 +8,25 @@
 Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, APEX integrations, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments. 
 
 ## Quick Start
-1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`. 
+1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`.
 2. Install dependencies: `pip install -U pip && pip install -r requirements.txt`.
 3. Export environment variables from `.env` (or copy from `.env.sample`).
 4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
 5. Run the regression suite with `pytest -q` before committing changes.
+
+## VM2 Django Website & Deployment
+- **What VM2 is:** VM2 runs the public Django website for Sustainacore, served by Gunicorn + Nginx. The repository is checked out on VM2 at `/opt/code/Sustainacore`, and the Django project lives in `website_django/`.
+- **Environment variables and secrets:** Gunicorn loads production settings from `/etc/sustainacore.env` via `EnvironmentFile`. A repo-local `.env.vm2` (present only on VM2 and never committed) is sourced by `deploy_vm2_website.sh` so that values such as `DJANGO_SECRET_KEY=***` and `DJANGO_DEBUG=***` are available while running `manage.py` commands.
+- **Deployment flow:** The "Deploy VM2 Django Website" GitHub Action SSHs to VM2 and runs `bash ./deploy_vm2_website.sh`, making that script the single entry point. Manual deploys follow the same path:
+  ```bash
+  cd /opt/code/Sustainacore
+  git fetch origin main
+  git reset --hard origin/main
+  bash ./deploy_vm2_website.sh
+  ```
+- **Ask SustainaCore chat:** The public chat UI lives at `/ask2/` and calls a stubbed JSON endpoint at `/ask2/api/` that currently returns placeholder replies. The UI is structured so a future task can swap in a real Ask2 backend without changing the page.
+
+See [docs/vm2-website-deploy.md](docs/vm2-website-deploy.md) for a deeper walkthrough of the VM2 setup.
 
 For production deployments, `config/prod.env.example` captures the supported feature flags (persona and normalization). Copy the file to your environment tooling as needed.
 
