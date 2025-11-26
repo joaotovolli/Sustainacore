@@ -2,6 +2,7 @@ from datetime import datetime
 
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.views.decorators.csrf import csrf_exempt
 
 
 def home(request):
@@ -27,6 +28,7 @@ def ask2_chat_page(request):
     return render(request, "ask2.html", context)
 
 
+@csrf_exempt
 def ask2_chat_api(request):
     """Stub API endpoint for the Ask2 chat interface.
 
@@ -49,6 +51,4 @@ def ask2_chat_api(request):
         "governance analytics backend and return a grounded answer."
     )
 
-    return JsonResponse({
-        "reply": reply,
-    })
+    return JsonResponse({"reply": reply})
