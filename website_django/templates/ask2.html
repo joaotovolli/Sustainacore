@@ -33,6 +33,18 @@
     function appendMessage(role, text, options = {}) {
         const el = document.createElement('div');
         el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
+        const el = document.createElement('div');
+        el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
+        const el = document.createElement('div');
+        el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
+    function getCsrfToken() {
+        const match = document.cookie.match(/csrftoken=([^;]+)/);
+        return match ? match[1] : '';
+    }
+
+    function appendMessage(role, text, options = {}) {
+        const el = document.createElement('div');
+        el.className = `chat-message ${role}${options.muted ? ' muted' : ''}`;
         el.textContent = text;
         messages.appendChild(el);
         messages.scrollTop = messages.scrollHeight;
@@ -54,6 +66,7 @@
         input.focus();
 
         const thinking = appendMessage('bot', 'Thinking…', { muted: true });
+        let botText = 'Received your question.';
 
         try {
             const response = await fetch('{% url "ask2_chat_api" %}', {
@@ -61,6 +74,7 @@
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
                     'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCsrfToken(),
                 },
                 body: 'message=' + encodeURIComponent(message),
             });
@@ -70,6 +84,12 @@
                 data = await response.json();
             } catch (err) {
                 throw new Error('Response was not valid JSON.');
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (err) {
+                // JSON parsing errors will be handled by response.ok below.
+                // Ignore JSON parse errors; handled below.
             }
 
             if (!response.ok) {
@@ -84,12 +104,37 @@
             if (thinking.parentNode) {
                 thinking.remove();
             }
+            botText = (data && data.reply) || botText;
+        } catch (err) {
+            botText = (err && err.message)
+                ? 'Sorry, ' + err.message
+                : 'Sorry, something went wrong while contacting the Ask2 endpoint.';
+        } finally {
+            if (thinking.parentNode) {
+                thinking.remove();
+            }
+            appendMessage('bot', botText);
+            const reply = (data && data.reply) || 'Received your question.';
+                const errorText = (data && data.error) ? data.error : `Request failed (${response.status})`;
+                throw new Error(errorText);
+            }
+
+            const reply = (data && data.reply) || (data && data.error) || 'Received your question.';
+            thinking.remove();
+            appendMessage('bot', reply);
+        } catch (err) {
+            thinking.remove();
             appendMessage(
                 'bot',
                 (err && err.message)
                     ? 'Sorry, ' + err.message
                     : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
             );
+                err.message
+                    ? `Sorry, ${err.message}`
+                    : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
+            );
+            appendMessage('bot', err.message ? `Sorry, ${err.message}` : 'Sorry, something went wrong while contacting the Ask2 endpoint.');
         }
     });
 })();
