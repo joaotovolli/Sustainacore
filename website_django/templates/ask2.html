@@ -87,6 +87,12 @@
             appendMessage('bot', reply);
         } catch (err) {
             thinking.remove();
+            appendMessage(
+                'bot',
+                err.message
+                    ? `Sorry, ${err.message}`
+                    : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
+            );
             appendMessage('bot', err.message ? `Sorry, ${err.message}` : 'Sorry, something went wrong while contacting the Ask2 endpoint.');
         }
     });
