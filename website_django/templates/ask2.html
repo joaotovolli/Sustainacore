@@ -30,6 +30,9 @@
     const input = document.getElementById('chatInput');
     const messages = document.getElementById('chatMessages');
 
+    function appendMessage(role, text, options = {}) {
+        const el = document.createElement('div');
+        el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
     function getCsrfToken() {
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
@@ -46,6 +49,7 @@
 
     form.addEventListener('submit', async function(event) {
         event.preventDefault();
+
         const message = (input.value || '').trim();
         if (!message) {
             appendMessage('bot', 'Please enter a message before sending.');
@@ -78,6 +82,11 @@
             }
 
             if (!response.ok) {
+                const errorText = (data && data.error) ? data.error : 'Request failed (' + response.status + ')';
+                throw new Error(errorText);
+            }
+
+            const reply = (data && data.reply) || 'Received your question.';
                 const errorText = (data && data.error) ? data.error : `Request failed (${response.status})`;
                 throw new Error(errorText);
             }
@@ -89,6 +98,10 @@
             thinking.remove();
             appendMessage(
                 'bot',
+                (err && err.message)
+                    ? 'Sorry, ' + err.message
+                    : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
+            );
                 err.message
                     ? `Sorry, ${err.message}`
                     : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
