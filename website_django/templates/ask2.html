@@ -30,6 +30,11 @@
     const input = document.getElementById('chatInput');
     const messages = document.getElementById('chatMessages');
 
+    function getCsrfToken() {
+        const match = document.cookie.match(/csrftoken=([^;]+)/);
+        return match ? match[1] : '';
+    }
+
     function appendMessage(role, text, options = {}) {
         const el = document.createElement('div');
         el.className = `chat-message ${role}${options.muted ? ' muted' : ''}`;
@@ -60,6 +65,7 @@
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
                     'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCsrfToken(),
                 },
                 body: 'message=' + encodeURIComponent(message),
             });
@@ -87,6 +93,7 @@
                     ? `Sorry, ${err.message}`
                     : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
             );
+            appendMessage('bot', err.message ? `Sorry, ${err.message}` : 'Sorry, something went wrong while contacting the Ask2 endpoint.');
         }
     });
 })();
