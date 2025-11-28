@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from django.http import JsonResponse
@@ -36,13 +37,22 @@ def ask2_chat_api(request):
     the placeholder with a call to the real Ask2 backend.
     """
     if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
+        return JsonResponse({"error": "Method not allowed. Use POST."}, status=405)
 
-    data = request.POST or {}
-    user_message = data.get("message", "").strip()
+    user_message = ""
+
+    # Support both form-encoded and JSON payloads.
+    if request.content_type and "application/json" in request.content_type:
+        try:
+            payload = json.loads(request.body or b"{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+        user_message = (payload.get("message") or "").strip()
+    else:
+        user_message = (request.POST.get("message") or "").strip()
 
     if not user_message:
-        return JsonResponse({"error": "Message is required"}, status=400)
+        return JsonResponse({"error": "Message is required."}, status=400)
 
     # Placeholder reply – to be replaced by a real Ask2 backend call.
     reply = (
