@@ -36,15 +36,12 @@ def ask2_chat_api(request):
     the placeholder with a call to the real Ask2 backend.
     """
     if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
+        return JsonResponse({"error": "Method not allowed."}, status=405)
 
-    data = request.POST or {}
-    user_message = data.get("message", "").strip()
+    message = (request.POST.get("message") or "").strip()
+    if not message:
+        return JsonResponse({"error": "Message is required."}, status=400)
 
-    if not user_message:
-        return JsonResponse({"error": "Message is required"}, status=400)
-
-    # Placeholder reply – to be replaced by a real Ask2 backend call.
     reply = (
         "This is a placeholder response from SustainaCore Ask2. "
         "In production, this endpoint will route your question to the AI "
