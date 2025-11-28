@@ -37,6 +37,9 @@ def ask2_chat_api(request):
     the placeholder with a call to the real Ask2 backend.
     """
     if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed."}, status=405)
+
+    user_message = (request.POST.get("message") or "").strip()
         return JsonResponse({"error": "Method not allowed. Use POST."}, status=405)
 
     user_message = ""
