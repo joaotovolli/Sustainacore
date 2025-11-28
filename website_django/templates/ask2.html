@@ -30,24 +30,22 @@
     const input = document.getElementById('chatInput');
     const messages = document.getElementById('chatMessages');
 
-    function getCsrfToken() {
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        return match ? match[1] : '';
-    }
-
-    function appendMessage(role, text) {
+    function appendMessage(role, text, options = {}) {
         const el = document.createElement('div');
-        el.className = `chat-message ${role}`;
+        el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
         el.textContent = text;
         messages.appendChild(el);
         messages.scrollTop = messages.scrollHeight;
         return el;
     }
 
-    form.addEventListener('submit', function(event) {
+    form.addEventListener('submit', async function(event) {
         event.preventDefault();
+
         const message = (input.value || '').trim();
         if (!message) {
+            appendMessage('bot', 'Please enter a message before sending.');
+            input.focus();
             return;
         }
 
@@ -55,31 +53,42 @@
         input.value = '';
         input.focus();
 
-        const thinking = appendMessage('bot', 'Thinking…');
+        const thinking = appendMessage('bot', 'Thinking…', { muted: true });
 
-        fetch('{% url "ask2_chat_api" %}', {
-            method: 'POST',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': getCsrfToken(),
-            },
-            body: 'message=' + encodeURIComponent(message),
-        })
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error('Request failed');
-                }
-                return response.json();
-            })
-            .then((data) => {
-                thinking.remove();
-                appendMessage('bot', data.reply || 'Received your question.');
-            })
-            .catch(() => {
-                thinking.remove();
-                appendMessage('bot', 'Sorry, something went wrong while contacting the Ask2 endpoint.');
+        try {
+            const response = await fetch('{% url "ask2_chat_api" %}', {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'message=' + encodeURIComponent(message),
             });
+
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (err) {
+                // Ignore JSON parse errors; handled below.
+            }
+
+            if (!response.ok) {
+                const errorText = (data && data.error) ? data.error : 'Request failed (' + response.status + ')';
+                throw new Error(errorText);
+            }
+
+            const reply = (data && data.reply) || 'Received your question.';
+            thinking.remove();
+            appendMessage('bot', reply);
+        } catch (err) {
+            thinking.remove();
+            appendMessage(
+                'bot',
+                (err && err.message)
+                    ? 'Sorry, ' + err.message
+                    : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
+            );
+        }
     });
 })();
 </script>
