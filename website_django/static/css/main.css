@@ -333,6 +333,11 @@ h3 {
     line-height: 1.5;
 }
 
+.chat-message.muted {
+    opacity: 0.8;
+    color: #c7d2fe;
+}
+
 .chat-message.bot {
     align-self: flex-start;
     background: linear-gradient(180deg, rgba(17, 24, 39, 0.9), rgba(11, 18, 33, 0.95));
