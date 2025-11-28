@@ -33,6 +33,8 @@
     function appendMessage(role, text, options = {}) {
         const el = document.createElement('div');
         el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
+        const el = document.createElement('div');
+        el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
     function getCsrfToken() {
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
@@ -62,6 +64,7 @@
         input.focus();
 
         const thinking = appendMessage('bot', 'Thinking…', { muted: true });
+        let botText = 'Received your question.';
 
         try {
             const response = await fetch('{% url "ask2_chat_api" %}', {
@@ -78,6 +81,7 @@
             try {
                 data = await response.json();
             } catch (err) {
+                // JSON parsing errors will be handled by response.ok below.
                 // Ignore JSON parse errors; handled below.
             }
 
@@ -86,6 +90,16 @@
                 throw new Error(errorText);
             }
 
+            botText = (data && data.reply) || botText;
+        } catch (err) {
+            botText = (err && err.message)
+                ? 'Sorry, ' + err.message
+                : 'Sorry, something went wrong while contacting the Ask2 endpoint.';
+        } finally {
+            if (thinking.parentNode) {
+                thinking.remove();
+            }
+            appendMessage('bot', botText);
             const reply = (data && data.reply) || 'Received your question.';
                 const errorText = (data && data.error) ? data.error : `Request failed (${response.status})`;
                 throw new Error(errorText);

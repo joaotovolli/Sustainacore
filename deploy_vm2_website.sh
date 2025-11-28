@@ -13,6 +13,15 @@ else
   echo "[VM2] No .env.vm2 file found; proceeding with existing environment..."
 fi
 
+if [ -x "${SCRIPT_DIR}/website_django/venv/bin/python" ]; then
+  PYTHON_BIN="${SCRIPT_DIR}/website_django/venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+else
+  echo "No suitable Python interpreter found." >&2
+  exit 1
 PYTHON_BIN="${SCRIPT_DIR}/website_django/venv/bin/python"
 if [ ! -x "${PYTHON_BIN}" ]; then
   if command -v python3 >/dev/null 2>&1; then
