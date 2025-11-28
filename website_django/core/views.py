@@ -44,6 +44,7 @@ def ask2_chat_api(request):
         return JsonResponse({"error": "Message is required."}, status=400)
 
 
+
     user_message = (request.POST.get("message") or "").strip()
         return JsonResponse({"error": "Method not allowed. Use POST."}, status=405)
 
