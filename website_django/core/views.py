@@ -39,17 +39,7 @@ def ask2_chat_api(request):
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
-    message = (request.POST.get("message") or "").strip()
-    if not message:
-        return JsonResponse({"error": "Message is required."}, status=400)
-
-
-
-    user_message = (request.POST.get("message") or "").strip()
-        return JsonResponse({"error": "Method not allowed. Use POST."}, status=405)
-
     user_message = ""
-
     # Support both form-encoded and JSON payloads.
     if request.content_type and "application/json" in request.content_type:
         try:
