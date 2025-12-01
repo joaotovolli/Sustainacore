@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional, Tuple
@@ -92,9 +93,12 @@ def _candidate_vector_columns() -> Tuple[str, ...]:
 
 
 def _detect_vector_from_view(cursor, table: str) -> Tuple[Optional[str], Optional[int]]:
-    sql = "SELECT column_name, dimension FROM user_vector_columns WHERE table_name = :table"
+    sql = (
+        "SELECT column_name, dimension FROM user_vector_columns "
+        "WHERE table_name = :table_name"
+    )
     try:
-        rows = _fetch_all(cursor, sql, {"table": table})
+        rows = _fetch_all(cursor, sql, {"table_name": table})
     except Exception as exc:
         if _is_missing_view(exc):
             return (None, None)
@@ -115,10 +119,10 @@ def _detect_vector_from_tab_cols(cursor, table: str) -> Tuple[Optional[str], Opt
     sql = """
         SELECT column_name, data_type, data_length
         FROM user_tab_columns
-        WHERE table_name = :table
+        WHERE table_name = :table_name
     """
     try:
-        rows = _fetch_all(cursor, sql, {"table": table})
+        rows = _fetch_all(cursor, sql, {"table_name": table})
     except Exception as exc:  # pragma: no cover - requires Oracle access
         LOGGER.debug("user_tab_columns probe failed: %s", exc)
         return (None, None)
@@ -137,6 +141,12 @@ def _detect_vector_from_tab_cols(cursor, table: str) -> Tuple[Optional[str], Opt
                 winner_dim = int(data_length) if data_length is not None else None
             except (TypeError, ValueError):
                 winner_dim = None
+            override = os.getenv("ORACLE_VECTOR_DIMENSION")
+            if override:
+                try:
+                    winner_dim = int(override)
+                except ValueError:
+                    pass
             break
     return (winner, winner_dim)
 

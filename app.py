@@ -10,7 +10,9 @@ import re
 import shutil
 import subprocess
 import time
+import uuid
 import zlib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -21,6 +23,12 @@ import requests
 from collections import defaultdict
 from flask import Flask, request, jsonify
 
+from app.http.compat import (
+    SC_RAG_FAIL_OPEN,
+    SC_RAG_MIN_CONTEXTS,
+    SC_RAG_MIN_SCORE,
+    normalize_response,
+)
 from app.retrieval.adapter import ask2_pipeline_first
 
 from embedder_settings import (
@@ -148,6 +156,15 @@ _LOGGER = logging.getLogger("app.ask2")
 _READINESS_LOGGER = logging.getLogger("app.readyz")
 _MULTI_LOGGER = logging.getLogger("app.multihit")
 _STARTUP_LOGGER = logging.getLogger("app.startup")
+_API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
+_API_AUTH_WARNED = False
+_METRIC_LOGGER = logging.getLogger("app.ask2.metrics")
+if not _METRIC_LOGGER.handlers:
+    _metric_handler = logging.StreamHandler()
+    _metric_handler.setLevel(logging.INFO)
+    _METRIC_LOGGER.addHandler(_metric_handler)
+    _METRIC_LOGGER.setLevel(logging.INFO)
+    _METRIC_LOGGER.propagate = False
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -160,6 +177,60 @@ def _env_flag(name: str, default: bool) -> bool:
     if raw in {"0", "false", "f", "no", "n", "off"}:
         return False
     return default
+
+
+def _api_auth_guard():
+    """Return ``True`` when the Authorization header matches API_AUTH_TOKEN."""
+
+    global _API_AUTH_WARNED
+
+    if not _API_AUTH_TOKEN:
+        if not _API_AUTH_WARNED:
+            _LOGGER.warning("API_AUTH_TOKEN not set; denying /api/* requests")
+            _API_AUTH_WARNED = True
+        return False
+
+    header = request.headers.get("Authorization", "")
+    if not isinstance(header, str) or not header.lower().startswith("bearer "):
+        return False
+
+    candidate = header.split(" ", 1)[1].strip()
+    return bool(candidate) and candidate == _API_AUTH_TOKEN
+
+
+def _api_auth_or_unauthorized():
+    """Return a 401 response when auth fails, or ``None`` when authorized."""
+
+    if _api_auth_guard():
+        return None
+    return jsonify({"error": "unauthorized"}), 401
+
+
+def _api_coerce_k(value, default: int = 4) -> int:
+    """Best-effort coercion for /api/ask2 k parameter with safe bounds."""
+
+    try:
+        # Preferred path: use the configured sanitizer (router may override).
+        return _sanitize_meta_k(value)  # type: ignore[arg-type]
+    except TypeError:
+        # Some router overrides may not accept kwargs; fall through.
+        try:
+            return _sanitize_meta_k(value, default)  # type: ignore[arg-type]
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    try:
+        k_val = int(value)
+    except Exception:
+        k_val = default
+
+    if k_val < 1:
+        k_val = 1
+    if k_val > 10:
+        k_val = 10
+    return k_val
 
 
 _ASK2_ENABLE_SMALLTALK = _env_flag("ASK2_ENABLE_SMALLTALK", True)
@@ -1060,6 +1131,47 @@ def readyz():
     return jsonify({"ok": True, "rows": len(rows)}), 200
 
 
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    oracle_status = "unknown"
+    model_status = "unknown"
+
+    try:
+        from db_helper import get_connection  # local import to avoid startup failures
+
+        with get_connection() as conn:
+            try:
+                ping = getattr(conn, "ping", None)
+                if callable(ping):
+                    ping()
+            except Exception:
+                pass
+        oracle_status = "ok"
+    except Exception as exc:
+        oracle_status = "error"
+        _LOGGER.debug("api_health oracle check failed", exc_info=exc)
+
+    try:
+        embed("api health probe")
+        model_status = "ok"
+    except Exception as exc:
+        model_status = "error"
+        _LOGGER.debug("api_health model check failed", exc_info=exc)
+
+    status_value = "ok" if oracle_status != "error" and model_status != "error" else "degraded"
+    payload = {
+        "status": status_value,
+        "oracle": oracle_status,
+        "model": model_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return jsonify(payload), 200
+
+
 @app.route("/ask", methods=["POST"])
 def ask():
     try:
@@ -1435,6 +1547,51 @@ def _is_insufficient(shaped: Optional[Dict[str, Any]]) -> bool:
 
 @app.route('/ask2', methods=['GET', 'POST'])
 def ask2():
+    request_started = time.perf_counter()
+
+    def _respond(payload, contexts, *, provider: str, confidence, status: int = 200, headers: Optional[Dict[str, str]] = None):
+        compat_payload = normalize_response(
+            payload,
+            contexts,
+            provider=provider,
+            confidence=confidence,
+        )
+        latency_ms = int((time.perf_counter() - request_started) * 1000)
+        compat_contexts = compat_payload.get('contexts') if isinstance(compat_payload.get('contexts'), list) else []
+        max_score = None
+        for entry in compat_contexts:
+            if not isinstance(entry, dict):
+                continue
+            score_val = entry.get('score')
+            if score_val is None:
+                continue
+            try:
+                score_float = float(score_val)
+            except (TypeError, ValueError):
+                continue
+            max_score = score_float if max_score is None else max(max_score, score_float)
+
+        log_record = {
+            'route': '/ask2',
+            'provider': compat_payload.get('provider'),
+            'ok': compat_payload.get('ok'),
+            'answered': compat_payload.get('answered'),
+            'n_contexts': len(compat_contexts),
+            'max_score': max_score,
+            'confidence': compat_payload.get('confidence'),
+            'lat_ms': latency_ms,
+        }
+        try:
+            _METRIC_LOGGER.info(json.dumps(log_record, separators=(',', ':')))
+        except Exception:  # pragma: no cover - defensive logging
+            _METRIC_LOGGER.info(log_record)
+
+        response = jsonify(compat_payload)
+        if headers:
+            for key, value in headers.items():
+                response.headers[key] = value
+        return response, status
+
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
         q_raw = data.get('q') or data.get('question') or data.get('text')
@@ -1469,8 +1626,13 @@ def ask2():
                     routed_meta = routed.get('meta') if isinstance(routed.get('meta'), dict) else {}
                     meta = dict(routed_meta)
                     meta.setdefault('routing', 'smalltalk')
+                    meta.setdefault('provider', 'smalltalk')
                     if header_hints:
                         meta.setdefault('request_hints', header_hints)
+                    meta.setdefault(
+                        'compat_thresholds',
+                        {'min_score': SC_RAG_MIN_SCORE, 'min_contexts': SC_RAG_MIN_CONTEXTS},
+                    )
                     answer_text = _strip_source_sections((routed.get('answer') or '').strip())
                     payload = {
                         'answer': answer_text,
@@ -1478,7 +1640,12 @@ def ask2():
                         'contexts': [],
                         'meta': meta,
                     }
-                    return jsonify(payload), 200
+                    return _respond(
+                        payload,
+                        payload.get('contexts'),
+                        provider=meta.get('provider', 'smalltalk'),
+                        confidence=None,
+                    )
         except Exception as exc:  # pragma: no cover - defensive logging
             _LOGGER.debug('smalltalk routing failed; continuing pipeline', exc_info=exc)
 
@@ -1503,6 +1670,12 @@ def ask2():
         meta_val.setdefault('request_hints', header_hints)
     meta_val.setdefault('routing', 'gemini_first')
     meta_val.setdefault('k', k_eff)
+    if isinstance(meta_val, dict):
+        meta_val.setdefault('provider', 'gemini')
+        meta_val.setdefault(
+            'compat_thresholds',
+            {'min_score': SC_RAG_MIN_SCORE, 'min_contexts': SC_RAG_MIN_CONTEXTS},
+        )
 
     normalized_contexts: list = []
     for entry in contexts_raw:
@@ -1528,15 +1701,23 @@ def ask2():
             debug_block['capability'] = {}
 
     if deduped_contexts:
-        if _below_similarity_floor(top_similarity):
+        floor_triggered = _below_similarity_floor(top_similarity)
+        if floor_triggered:
             meta_val.update({'routing': 'low_conf', 'floor_warning': True})
-            guard_payload = {
-                'answer': _LOW_CONFIDENCE_MESSAGE,
-                'sources': [],
-                'contexts': [],
-                'meta': meta_val,
-            }
-            return jsonify(guard_payload), 200
+            if not SC_RAG_FAIL_OPEN:
+                guard_payload = {
+                    'answer': _LOW_CONFIDENCE_MESSAGE,
+                    'sources': [],
+                    'contexts': [],
+                    'meta': meta_val,
+                }
+                return _respond(
+                    guard_payload,
+                    guard_payload.get('contexts'),
+                    provider='gemini',
+                    confidence=top_similarity,
+                    headers={'X-Orch': 'pass', 'X-Orig': '1'},
+                )
 
         if callable(_format_router_sources):
             sources = _format_router_sources(
@@ -1556,10 +1737,13 @@ def ask2():
             'contexts': deduped_contexts,
             'meta': meta_val,
         }
-        response = jsonify(payload)
-        response.headers['X-Orch'] = 'pass'
-        response.headers['X-Orig'] = '1'
-        return response, 200
+        return _respond(
+            payload,
+            deduped_contexts,
+            provider='gemini',
+            confidence=top_similarity,
+            headers={'X-Orch': 'pass', 'X-Orig': '1'},
+        )
 
     shaped_fallback, status = _call_route_ask2_facade(
         question, k_eff, client_ip=client_ip, header_hints=header_hints
@@ -1571,11 +1755,131 @@ def ask2():
     meta_fb = shaped_fallback.get('meta') if isinstance(shaped_fallback.get('meta'), dict) else {}
     if header_hints:
         meta_fb.setdefault('request_hints', header_hints)
+    if isinstance(meta_fb, dict):
+        meta_fb.setdefault('provider', meta_fb.get('routing', 'router'))
+        meta_fb.setdefault(
+            'compat_thresholds',
+            {'min_score': SC_RAG_MIN_SCORE, 'min_contexts': SC_RAG_MIN_CONTEXTS},
+        )
+    fallback_conf = _extract_top_similarity(contexts_fb)
     payload = {'answer': answer_fb, 'sources': sources_fb, 'contexts': contexts_fb, 'meta': meta_fb}
-    response = jsonify(payload)
-    response.headers['X-Orch'] = 'pass'
-    response.headers['X-Orig'] = '1'
-    return response, status
+    return _respond(
+        payload,
+        contexts_fb,
+        provider=meta_fb.get('provider', meta_fb.get('routing', 'router')),
+        confidence=fallback_conf,
+        status=status,
+        headers={'X-Orch': 'pass', 'X-Orig': '1'},
+    )
+
+
+@app.route("/api/ask2", methods=["POST"])
+def api_ask2():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    body = request.get_json(silent=True) or {}
+    question_val = (
+        body.get("user_message")
+        or body.get("question")
+        or body.get("q")
+        or body.get("text")
+    )
+    question_text = question_val.strip() if isinstance(question_val, str) else ""
+    raw_top_k = body.get("top_k") or body.get("k") or body.get("limit")
+    k_eff = _api_coerce_k(raw_top_k, default=4)
+
+    if not question_text:
+        return jsonify({"error": "question is required"}), 400
+
+    forwarded_for = request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown"
+    passthrough_headers = {}
+    for header_name in ("X-Ask2-Hints", "X-Ask2-Meta", "X-Ask2-Routing", "X-Forwarded-For"):
+        value = request.headers.get(header_name)
+        if value:
+            passthrough_headers[header_name] = value
+    passthrough_headers.setdefault("X-Forwarded-For", forwarded_for)
+
+    try:
+        with app.test_request_context(
+            path="/ask2",
+            method="POST",
+            json={"question": question_text, "k": k_eff},
+            headers=passthrough_headers,
+        ):
+            upstream = ask2()
+    except Exception as exc:
+        _LOGGER.exception("api_ask2 delegation failed", exc_info=exc)
+        return (
+            jsonify(
+                {
+                    "error": "backend_failure",
+                    "message": "Ask2 backend failed while processing the request.",
+                    "hint": "Check VM1 logs for details.",
+                }
+            ),
+            502,
+        )
+
+    if isinstance(upstream, tuple):
+        upstream_response, upstream_status = upstream
+    else:
+        upstream_response, upstream_status = upstream, getattr(upstream, "status_code", 200)
+
+    upstream_json = {}
+    try:
+        upstream_json = upstream_response.get_json(silent=True) or {}
+    except Exception as exc:
+        _LOGGER.exception("api_ask2 response parse failed", exc_info=exc)
+        return (
+            jsonify(
+                {
+                    "error": "backend_failure",
+                    "message": "Ask2 backend failed while processing the request.",
+                    "hint": "Check VM1 logs for details.",
+                }
+            ),
+            502,
+        )
+
+    if upstream_status >= 500:
+        _LOGGER.warning("api_ask2 upstream error status=%s", upstream_status)
+        return (
+            jsonify(
+                {
+                    "error": "backend_failure",
+                    "message": "Ask2 backend failed while processing the request.",
+                    "hint": "Check VM1 logs for details.",
+                }
+            ),
+            502,
+        )
+
+    meta = upstream_json.get("meta") if isinstance(upstream_json.get("meta"), dict) else {}
+    session_id = (
+        upstream_json.get("session_id")
+        or upstream_json.get("trace_id")
+        or meta.get("session_id")
+        or meta.get("trace_id")
+    )
+    if not session_id:
+        session_id = str(uuid.uuid4())
+
+    reply = str(upstream_json.get("answer") or "").strip()
+    shaped = {
+        "session_id": session_id,
+        "reply": reply,
+        "meta": meta,
+    }
+    if "sources" in upstream_json:
+        shaped["sources"] = upstream_json.get("sources")
+    if "contexts" in upstream_json:
+        shaped["contexts"] = upstream_json.get("contexts")
+    if "answer" in upstream_json:
+        shaped["answer"] = upstream_json.get("answer")
+
+    return jsonify(shaped), upstream_status
 
 @app.route("/ask", methods=["GET"], endpoint="ask_get_shim")
 def ask_get_shim():
