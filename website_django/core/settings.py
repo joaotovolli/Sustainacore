@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'ask2',
 ]
 
 MIDDLEWARE = [
@@ -140,3 +141,7 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Backend API configuration (VM1)
+BACKEND_API_BASE = os.environ.get("BACKEND_API_BASE", "http://10.0.0.120:8080")
+BACKEND_API_TOKEN = os.environ.get("BACKEND_API_TOKEN", "")
