@@ -1,0 +1,48 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SustainaCore</title>
+    <link rel="stylesheet" href="{% static 'css/main.css' %}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <div class="brand">SustainaCore</div>
+            <nav class="nav-links">
+                <a href="#overview">Overview</a>
+                <a href="#tech100">TECH100 Index</a>
+                <a href="#methodology">AI Governance &amp; Ethics</a>
+                <a href="#dashboards">Dashboards</a>
+                <a href="{% url 'ask2_chat_page' %}">AI Chat</a>
+                <a href="#about">About</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer" id="about">
+        <div class="container footer-grid">
+            <div>
+                <h3>SustainaCore</h3>
+                <p>Open, evidence-based analytics on ESG and AI governance to help investors, policy teams, and operators make informed decisions.</p>
+            </div>
+            <div class="footer-links">
+                <a href="mailto:info@sustainacore.org">Contact</a>
+                <a href="#methodology">Methodology</a>
+                <a href="#privacy">Privacy</a>
+                <a href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+        </div>
+        <div class="container footer-meta">
+            <span>© {% firstof year %}{% if not year %}{% now "Y" %}{% endif %} SustainaCore</span>
+            <span class="muted">Built for transparent AI governance.</span>
+        </div>
+    </footer>
+</body>
+</html>
