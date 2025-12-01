@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -34,6 +35,9 @@ class GeminiUnavailableError(Exception):
 
 _RATE_BUCKETS: Dict[str, deque] = {}
 _RATE_LOCK = Lock()
+_NO_FACTS_FALLBACK = (
+    "I couldn't find enough internal data to answer that question, but here's how I would approach it with SustainaCore's sources."
+)
 
 
 def _enforce_rate_limit(ip: str) -> None:
@@ -159,11 +163,19 @@ def _facts_to_contexts(facts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             snippet_clean = snippet_value.strip()
             if snippet_clean:
                 context["snippet"] = snippet_clean
+                context.setdefault("chunk_text", snippet_clean)
         citation_value = fact.get("citation_id")
         if isinstance(citation_value, str):
             citation_clean = citation_value.strip()
             if citation_clean:
                 context["citation_id"] = citation_clean
+        score_value = fact.get("score")
+        try:
+            score_float = float(score_value)
+        except (TypeError, ValueError):
+            score_float = None
+        if score_float is not None:
+            context["score"] = score_float
         if context:
             contexts.append(context)
         if len(contexts) >= settings.retriever_fact_cap:
@@ -368,7 +380,11 @@ def run_pipeline(
     composed = gateway.compose_answer(sanitized_q, retriever_payload, plan, hop_count)
     latencies["gemini_compose_ms"] = int((time.time() - compose_start) * 1000)
 
-    answer_text = composed.get("answer", "").strip()
+    raw_answer = composed.get("answer")
+    if isinstance(raw_answer, str):
+        answer_text = raw_answer.strip()
+    else:
+        answer_text = str(raw_answer).strip() if raw_answer is not None else ""
     sources_list = composed.get("sources") or []
     total_ms = int((time.time() - t0) * 1000)
     latencies["total_ms"] = total_ms
@@ -388,7 +404,7 @@ def run_pipeline(
             elif snippet:
                 fallback_lines.append(f"- {snippet[:180]}")
         if (not answer_text or answer_text == "I’m sorry, I couldn’t generate an answer from the retrieved facts.") and fallback_lines:
-            answer_text = "Here’s the best supported summary from SustainaCore:\n" + "\n".join(fallback_lines)
+            answer_text = "Here's the best supported summary from SustainaCore:\n" + "\n".join(fallback_lines)
     if not answer_text:
         answer_text = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
 
@@ -398,6 +414,83 @@ def run_pipeline(
         sources_list = []
 
     contexts = _facts_to_contexts(final_facts)
+
+    def _is_plan_like(text: str) -> bool:
+        clean = (text or "").strip()
+        if not clean:
+            return False
+        if "query_variants" in clean and "filters" in clean:
+            if clean.startswith("{"):
+                try:
+                    parsed = json.loads(clean)
+                    if isinstance(parsed, dict) and {"query_variants", "k"} & set(parsed.keys()):
+                        return True
+                except Exception:
+                    pass
+            return True
+        return False
+
+    def _is_unusable(text: str) -> bool:
+        lowered = (text or "").strip().lower()
+        if not lowered:
+            return True
+        prefixes = (
+            "i’m sorry",
+            "i'm sorry",
+            "i do not have",
+            "i don't have",
+        )
+        return lowered.startswith(prefixes) or _is_plan_like(lowered)
+
+    def _summarize_facts(facts: Iterable[Dict[str, Any]]) -> str:
+        lines = []
+        for fact in list(facts)[:4]:
+            if not isinstance(fact, dict):
+                continue
+            title = (fact.get("title") or fact.get("source_name") or "").strip()
+            snippet = (fact.get("snippet") or fact.get("chunk_text") or "").strip()
+            if title and snippet:
+                lines.append(f"- {title}: {snippet[:180]}")
+            elif title:
+                lines.append(f"- {title}")
+            elif snippet:
+                lines.append(f"- {snippet[:180]}")
+        if not lines:
+            return ""
+        return "Here's the best supported summary from SustainaCore:\n" + "\n".join(lines)
+
+    def _sources_from_facts(facts: Iterable[Dict[str, Any]]) -> List[str]:
+        sources: List[str] = []
+        seen: set[str] = set()
+        for fact in facts or []:
+            if not isinstance(fact, dict):
+                continue
+            title = (fact.get("title") or fact.get("source_name") or "").strip()
+            url = (fact.get("source_url") or fact.get("url") or "").strip()
+            label = title or url
+            if not label:
+                continue
+            key = (label.lower(), url.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            if url and url not in label:
+                sources.append(f"{label} - {url}")
+            else:
+                sources.append(label)
+            if len(sources) >= settings.retriever_fact_cap:
+                break
+        return sources
+
+    # Final answer selection with safe fallbacks
+    facts_summary = _summarize_facts(final_facts)
+    if _is_unusable(answer_text):
+        answer_text = facts_summary or _NO_FACTS_FALLBACK
+    if not isinstance(sources_list, list):
+        sources_list = []
+    sources_list = [str(item).strip() for item in sources_list if str(item).strip()]
+    if not sources_list:
+        sources_list = _sources_from_facts(final_facts)
 
     meta = _build_meta(
         intent=intent,
@@ -441,4 +534,3 @@ __all__ = [
     "RateLimitError",
     "run_pipeline",
 ]
-

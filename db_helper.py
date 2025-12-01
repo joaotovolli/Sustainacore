@@ -78,6 +78,14 @@ def _conn():
     if oracledb is None:
         raise RuntimeError("oracledb_unavailable")
 
+    connect_timeout = float(os.getenv("ORACLE_TCP_TIMEOUT", "5.0"))
+
+    try:
+        oracledb.init_oracle_client(config_dir=os.getenv("TNS_ADMIN", "/opt/adb_wallet"))
+    except Exception:
+        # Safe to ignore if already initialized or running thin mode
+        pass
+
     connect_kwargs = dict(
         user=os.getenv("DB_USER", "WKSP_ESGAPEX"),
         password=(
@@ -89,10 +97,13 @@ def _conn():
         dsn=os.getenv("DB_DSN", "dbri4x6_high"),
         config_dir=os.getenv("TNS_ADMIN", "/opt/adb_wallet"),
         wallet_location=os.getenv("TNS_ADMIN", "/opt/adb_wallet"),
+        wallet_password=os.getenv("WALLET_PWD"),
+        # keep connections light-weight and fast-fail
+        stmtcachesize=0,
+        retry_count=0,
+        retry_delay=1,
+        tcp_connect_timeout=connect_timeout,
     )
-    wallet_pwd = os.environ.get("WALLET_PWD")
-    if wallet_pwd:
-        connect_kwargs["wallet_password"] = wallet_pwd
     try:
         return oracledb.connect(**connect_kwargs)  # type: ignore[union-attr]
     except Exception as exc:
@@ -194,6 +205,12 @@ def _probe_vector_column() -> Dict[str, Any]:
                 data_length = row[1]
                 if isinstance(data_length, int) and data_length > 0:
                     dimension = data_length
+                override = os.getenv("ORACLE_VECTOR_DIMENSION")
+                if override:
+                    try:
+                        dimension = int(override)
+                    except ValueError:
+                        pass
                 return {"table": table, "column": row[0], "dimension": dimension}
 
     # Fallback to first candidate even if not confirmed; callers may still work if schema matches defaults.

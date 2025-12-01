@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Dict, List, Tuple
 
 from .gemini_gateway import gateway as gemini_gateway
 from .oracle_retriever import RetrievalResult, capability_snapshot, retriever
 from .settings import settings
+
+try:
+    from .service import (
+        GeminiUnavailableError as _ServiceUnavailableError,
+        RateLimitError as _ServiceRateLimitError,
+        run_pipeline as _service_run_pipeline,
+    )
+except Exception:  # pragma: no cover - keep legacy path available
+    class _ServiceUnavailableError(Exception):
+        pass
+
+    class _ServiceRateLimitError(Exception):
+        detail = "rate_limited"
+
+    _service_run_pipeline = None
 
 LOGGER = logging.getLogger("app.retrieval.adapter")
 _FALLBACK_ANSWER = "Gemini is momentarily unavailable, but the retrieved Sustainacore contexts are attached."
@@ -87,6 +103,28 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
     if k_value < 1:
         k_value = 1
 
+    # Prefer the shared service pipeline (intent + planner + composer) when available.
+    if _service_run_pipeline is not None:
+        try:
+            payload = _service_run_pipeline(sanitized_question, k=k_value, client_ip=client_ip or "unknown")
+            shaped = payload if isinstance(payload, dict) else {}
+            shaped.setdefault("meta", {})
+            shaped["meta"].setdefault("routing", "gemini_first")
+            return shaped, 200
+        except _ServiceRateLimitError as exc:  # type: ignore[arg-type]
+            meta = {
+                "routing": "gemini_first",
+                "k": k_value,
+                "client_ip": client_ip or "unknown",
+                "error": getattr(exc, "detail", "rate_limited"),
+            }
+            message = "You’ve hit the current rate limit. Please retry in a few seconds."
+            return {"answer": message, "sources": [], "contexts": [], "meta": meta}, 200
+        except _ServiceUnavailableError:
+            pass  # fall through to legacy path if the service is disabled
+        except Exception as exc:  # pragma: no cover - defensive logging
+            LOGGER.exception("gemini_service_pipeline_failed", exc_info=exc)
+
     retrieval_start = time.perf_counter()
     result = retriever.retrieve(sanitized_question, k_value)
     oracle_latency_ms = int((time.perf_counter() - retrieval_start) * 1000)
@@ -136,6 +174,12 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
     if gem_meta:
         meta.setdefault("gemini", gem_meta)
 
+    fallback_needed = not answer or answer.lower().startswith("i don't have") or answer.lower().startswith("i’m sorry")
+    if fallback_needed and contexts and os.getenv("RETURN_TOP_AS_ANSWER", "0") == "1":
+        top_snippet = (contexts[0].get("chunk_text") or contexts[0].get("snippet") or "").strip()
+        if top_snippet:
+            answer = top_snippet[:500]
+            meta.setdefault("note", "vector_snippet_fallback")
     payload = {"answer": answer, "sources": sources, "contexts": contexts, "meta": meta}
     return payload, 200
 
