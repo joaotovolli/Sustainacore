@@ -10,7 +10,7 @@ if [ -f "${SCRIPT_DIR}/.env.vm2" ]; then
   . "${SCRIPT_DIR}/.env.vm2"
   set +a
 else
-  echo "[VM2] No .env.vm2 file found; proceeding with existing environment..."
+  echo "[VM2] .env.vm2 not found; using existing environment."
 fi
 
 if [ -x "${SCRIPT_DIR}/website_django/venv/bin/python" ]; then
@@ -20,20 +20,8 @@ elif command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
   PYTHON_BIN="python"
 else
-  echo "No suitable Python interpreter found." >&2
+  echo "No suitable Python interpreter found. Please install python3." >&2
   exit 1
-PYTHON_BIN="${SCRIPT_DIR}/website_django/venv/bin/python"
-if [ ! -x "${PYTHON_BIN}" ]; then
-  if command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="python3"
-  elif command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="python"
-  else
-    echo "No suitable Python interpreter found. Please install python3." >&2
-    exit 1
-  else
-    PYTHON_BIN="python"
-  fi
 fi
 
 echo "[VM2] Applying Django migrations and static collection..."
