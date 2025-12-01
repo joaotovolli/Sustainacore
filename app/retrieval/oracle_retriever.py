@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Mapping
 
-from db_helper import _build_filter_clause, get_connection
+from db_helper import _build_filter_clause, get_connection, top_k_by_vector
 
 from .db_capability import Capability, capability_snapshot as _capability_snapshot, get_capability
 from .embedding_client import embed_text
@@ -188,40 +188,12 @@ class OracleRetriever:
             self._warned_dim_mismatch = True
 
         limit = max(1, min(int(k or settings.oracle_knn_k), 64))
-        filter_clause, filter_binds = _prepare_filter_clause(filters)
-        conditions = [f"{capability.vec_col} IS NOT NULL"]
-        if filter_clause:
-            conditions.append(filter_clause)
-        where_sql = " WHERE " + " AND ".join(conditions)
-        select = [
-            f"{self.doc_id_column} AS DOC_ID",
-            f"{self.chunk_ix_column} AS CHUNK_IX",
-            f"{self.title_column} AS TITLE",
-            f"{self.source_column} AS SOURCE_NAME",
-            f"{self.url_column} AS SOURCE_URL",
-            f"{self.text_column} AS CHUNK_TEXT",
-            f"VECTOR_DISTANCE(:vec, {capability.vec_col}, '{self.metric}') AS DIST",
-        ]
-        sql = (
-            "SELECT "
-            + ", ".join(select)
-            + f" FROM {self.table}{where_sql} "
-            + f"ORDER BY VECTOR_DISTANCE(:vec, {capability.vec_col}, '{self.metric}') "
-            + f"FETCH FIRST {limit} ROWS ONLY"
+        # Reuse the hardened helper used by /ask2_direct to avoid driver quirks.
+        rows = top_k_by_vector(
+            embedding,
+            k=limit,
+            filters=filters or {},
         )
-
-        try:
-            with get_connection() as conn:
-                cursor = conn.cursor()
-                if hasattr(oracledb, "DB_TYPE_VECTOR"):
-                    cursor.setinputsizes(vec=oracledb.DB_TYPE_VECTOR)  # type: ignore[attr-defined]
-                params = {"vec": embedding}
-                params.update(filter_binds)
-                cursor.execute(sql, params)
-                columns = [col[0].lower() for col in cursor.description]
-                rows = [dict(zip(columns, map(_to_plain, rec))) for rec in cursor.fetchall()]
-        except Exception as exc:
-            raise RuntimeError(f"vector_query_failed: {exc}") from exc
 
         return self._shape_contexts(rows, score_key="dist", invert_distance=True, max_scale=1.0)
 
