@@ -14,9 +14,13 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
 5. Run the regression suite with `pytest -q` before committing changes.
 
+## VM1/VM2 architecture at a glance
+- **VM1 (API/RAG/Oracle):** Hosts the Flask/Gunicorn API with `/api/health` and `/api/ask2`. Ask2 now runs a Gemini-first pipeline (intent → planner → Oracle retriever → composer) that returns natural-language answers plus sources. Planner JSON stays in the `meta` block for debugging; user-facing fields (`answer`, `reply`, `message`, `content`) are text-only fallbacks when no facts are found.
+- **VM2 (Django website):** Runs the public site in `website_django/` and proxies chat requests to VM1. `/ask2/` serves a minimal HTML page that POSTs to `/ask2/api/`, which in turn forwards `{ "user_message": "..." }` to VM1 with an optional bearer token. Backend connectivity is controlled by `BACKEND_API_BASE` (default `http://10.0.0.120:8080`) and `BACKEND_API_TOKEN` from the environment.
+
 ## VM2 Django Website & Deployment
 - **What VM2 is:** VM2 runs the public Django website for Sustainacore, served by Gunicorn + Nginx. The repository is checked out on VM2 at `/opt/code/Sustainacore`, and the Django project lives in `website_django/`.
-- **Environment variables and secrets:** Gunicorn loads production settings from `/etc/sustainacore.env` via `EnvironmentFile`. A repo-local `.env.vm2` (present only on VM2 and never committed) is sourced by `deploy_vm2_website.sh` so that values such as `DJANGO_SECRET_KEY=***` and `DJANGO_DEBUG=***` are available while running `manage.py` commands.
+- **Environment variables and secrets:** Gunicorn loads production settings from `/etc/sustainacore.env` via `EnvironmentFile`. A repo-local `.env.vm2` (present only on VM2 and never committed) is sourced by `deploy_vm2_website.sh` so that values such as `DJANGO_SECRET_KEY=***`, `BACKEND_API_BASE`, and `BACKEND_API_TOKEN` are available while running `manage.py` commands.
 - **Deployment flow:** The "Deploy VM2 Django Website" GitHub Action SSHs to VM2 and runs `bash ./deploy_vm2_website.sh`, making that script the single entry point. Manual deploys follow the same path:
   ```bash
   cd /opt/code/Sustainacore
@@ -24,9 +28,9 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
   git reset --hard origin/main
   bash ./deploy_vm2_website.sh
   ```
-- **Ask SustainaCore chat:** The public chat UI lives at `/ask2/` and calls a stubbed JSON endpoint at `/ask2/api/` that currently returns placeholder replies. The UI is structured so a future task can swap in a real Ask2 backend without changing the page.
+- **Ask SustainaCore chat:** `/ask2/` renders the chat UI and `/ask2/api/` proxies to VM1 `/api/ask2`. Replies surface `reply`/`content`/`message` text only; the planner JSON stays on VM1 in `meta`.
 
-See [docs/vm2-website-deploy.md](docs/vm2-website-deploy.md) for a deeper walkthrough of the VM2 setup.
+See [docs/OPERATIONS.md](docs/OPERATIONS.md) for VM1 Ask2/Oracle details and [docs/vm2-website-deploy.md](docs/vm2-website-deploy.md) for a deeper walkthrough of the VM2 setup.
 
 For production deployments, `config/prod.env.example` captures the supported feature flags (persona and normalization). Copy the file to your environment tooling as needed.
 
