@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import time
+from datetime import date, datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -52,6 +53,8 @@ CI_EVAL_FIXTURES_ENABLED = os.getenv("CI_EVAL_FIXTURES") == "1"
 _CI_FIXTURE_PATH = Path(__file__).resolve().parents[2] / "eval" / "fixtures" / "ci_stub.json"
 
 LOGGER = logging.getLogger("ask2")
+_API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
+_API_AUTH_WARNED = False
 
 
 def _resolve_git_sha() -> str:
@@ -145,6 +148,60 @@ _PROVIDER = _resolve_provider()
 _MODEL_NAME = _resolve_model(_PROVIDER)
 
 ASK_EMPTY = "Please provide a question so I can help."  # Friendly guardrail
+
+
+def _api_auth_guard(request: Request) -> Optional[JSONResponse]:
+    """Return a JSONResponse when the Authorization header is invalid."""
+
+    global _API_AUTH_WARNED
+
+    if not _API_AUTH_TOKEN:
+        if not _API_AUTH_WARNED:
+            LOGGER.warning("API_AUTH_TOKEN not set; denying /api/* requests")
+            _API_AUTH_WARNED = True
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    header = request.headers.get("authorization", "")
+    if not isinstance(header, str) or not header.lower().startswith("bearer "):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    candidate = header.split(" ", 1)[1].strip()
+    if not candidate or candidate != _API_AUTH_TOKEN:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    return None
+
+
+def _format_date(value: Any) -> Optional[str]:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        candidate = value.strip()
+        return candidate or None
+    return None
+
+
+def _format_timestamp(value: Any) -> Optional[str]:
+    if isinstance(value, datetime):
+        ts = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        ts = datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+        return ts.isoformat().replace("+00:00", "Z")
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            return candidate
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return None
 
 
 def _sanitize_k(value: Any, default: int = 4) -> int:
@@ -440,6 +497,118 @@ def metrics() -> Dict[str, float]:
     if uptime < 0:
         uptime = 0.0
     return {"uptime": float(uptime)}
+
+
+@app.get("/api/tech100")
+async def api_tech100(request: Request) -> JSONResponse:
+    auth = _api_auth_guard(request)
+    if auth is not None:
+        return auth
+
+    try:
+        from db_helper import _to_plain, get_connection  # type: ignore
+    except Exception as exc:
+        LOGGER.exception("api_tech100 helper import failed", exc_info=exc)
+        return JSONResponse(
+            {"error": "backend_failure", "message": "Unable to load TECH100 data."},
+            status_code=500,
+        )
+
+    sql = (
+        "SELECT rank_index, company_name, gics_sector, port_date, "
+        "aiges_composite_average, transparency, governance_structure, "
+        "region, country, location "
+        "FROM tech11_ai_gov_eth_index "
+        "WHERE port_date = (SELECT MAX(port_date) FROM tech11_ai_gov_eth_index) "
+        "ORDER BY rank_index FETCH FIRST 100 ROWS ONLY"
+    )
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql)
+            columns = [desc[0].lower() for desc in cur.description]
+            items: List[Dict[str, Any]] = []
+            for raw in cur.fetchall():
+                row = {col: _to_plain(val) for col, val in zip(columns, raw)}
+                items.append(
+                    {
+                        "company": row.get("company_name"),
+                        "sector": row.get("gics_sector"),
+                        "region": row.get("region")
+                        or row.get("country")
+                        or row.get("location"),
+                        "overall": row.get("aiges_composite_average"),
+                        "transparency": row.get("transparency"),
+                        "accountability": row.get("governance_structure"),
+                        "updated_at": _format_date(row.get("port_date")),
+                    }
+                )
+    except Exception as exc:
+        LOGGER.exception("api_tech100 query failed", exc_info=exc)
+        return JSONResponse(
+            {"error": "backend_failure", "message": "Unable to load TECH100 data."},
+            status_code=500,
+        )
+
+    return JSONResponse({"items": items}, media_type="application/json")
+
+
+@app.get("/api/news")
+async def api_news(request: Request) -> JSONResponse:
+    auth = _api_auth_guard(request)
+    if auth is not None:
+        return auth
+
+    try:
+        from db_helper import _to_plain, get_connection  # type: ignore
+    except Exception as exc:
+        LOGGER.exception("api_news helper import failed", exc_info=exc)
+        return JSONResponse(
+            {"error": "backend_failure", "message": "Unable to load news data."},
+            status_code=500,
+        )
+
+    sql = (
+        "SELECT id, dt_pub, title, source, url, summary, pillar_tags "
+        "FROM v_tech100_news "
+        "WHERE dt_pub >= (SYSDATE - 90) "
+        "ORDER BY dt_pub DESC FETCH FIRST 100 ROWS ONLY"
+    )
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql)
+            columns = [desc[0].lower() for desc in cur.description]
+            items: List[Dict[str, Any]] = []
+            for raw in cur.fetchall():
+                row = {col: _to_plain(val) for col, val in zip(columns, raw)}
+                raw_tags = row.get("pillar_tags") or ""
+                tags: List[str]
+                if isinstance(raw_tags, str):
+                    tags = [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
+                else:
+                    tags = []
+                items.append(
+                    {
+                        "id": row.get("id"),
+                        "title": row.get("title"),
+                        "source": row.get("source"),
+                        "tags": tags,
+                        "summary": row.get("summary"),
+                        "url": row.get("url"),
+                        "published_at": _format_timestamp(row.get("dt_pub")),
+                    }
+                )
+    except Exception as exc:
+        LOGGER.exception("api_news query failed", exc_info=exc)
+        return JSONResponse(
+            {"error": "backend_failure", "message": "Unable to load news data."},
+            status_code=500,
+        )
+
+    return JSONResponse({"items": items}, media_type="application/json")
 
 
 @app.post("/ask2")
