@@ -1,93 +1,62 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ROOT="/opt/code/Sustainacore"
-APP_DIR="${PROJECT_ROOT}/website_django"
-ENV_FILE="${PROJECT_ROOT}/.env.vm2"
-VENV_DIR="${APP_DIR}/venv"
+echo "[VM2] Starting SustainaCore Django deploy..."
 
-echo "[VM2] Starting Django deploy..."
-ENV_FILE="${PROJECT_ROOT}/.env.vm2"
-VENV_DIR="${PROJECT_ROOT}/website_django/venv"
-VENV_ACTIVATE="${VENV_DIR}/bin/activate"
-VENV_PYTHON="${VENV_DIR}/bin/python"
+REPO_ROOT="/opt/code/Sustainacore"
+VENV_PATH="$REPO_ROOT/website_django/venv"
 
-cd "${PROJECT_ROOT}"
+# 1) Go to repo root
+cd "$REPO_ROOT"
 
-if [ -f "${ENV_FILE}" ]; then
+# 2) Load optional local environment file
+if [ -f ".env.vm2" ]; then
   echo "[VM2] Loading environment from .env.vm2..."
   set -a
-  . "${ENV_FILE}"
+  # shellcheck disable=SC1091
+  . ".env.vm2"
   set +a
 else
-  echo "[VM2] .env.vm2 not found; continuing with existing environment..."
+  echo "[VM2] No .env.vm2 file found, continuing without it."
 fi
 
-if [ -d "${VENV_DIR}" ]; then
-  echo "[VM2] Activating virtualenv at ${VENV_DIR}..."
-  . "${VENV_DIR}/bin/activate"
-  PYTHON_BIN="python"
+# 3) Activate virtualenv if it exists
+if [ -d "$VENV_PATH" ]; then
+  echo "[VM2] Activating virtualenv at $VENV_PATH"
+  # shellcheck disable=SC1091
+  . "$VENV_PATH/bin/activate"
 else
-  echo "[VM2] Virtualenv not found; using system Python..."
-  if command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="python"
-  elif command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="python3"
-  else
-    echo "[VM2] No suitable Python interpreter found." >&2
-    exit 1
-  fi
+  echo "[VM2] Virtualenv $VENV_PATH not found, using system Python."
 fi
 
-cd "${APP_DIR}"
+# 4) Move into Django project
+cd "$REPO_ROOT/website_django"
 
-fi
-
-if [ -d "${VENV_DIR}" ]; then
-  echo "[VM2] Activating virtualenv at ${VENV_DIR}..."
-  . "${VENV_DIR}/bin/activate"
-else
-  echo "[VM2] Virtualenv not found; using system Python..."
-fi
-
-cd "${APP_DIR}"
-
-PYTHON_BIN=""
-if command -v python >/dev/null 2>&1; then
-  PYTHON_BIN="python"
-if [ -f "${VENV_ACTIVATE}" ]; then
-  echo "[VM2] Activating virtual environment..."
-  . "${VENV_ACTIVATE}"
-else
-  echo "[VM2] Virtual environment not found; continuing without activation."
-fi
-
-if [ -x "${VENV_PYTHON}" ]; then
-  PYTHON_BIN="${VENV_PYTHON}"
-elif command -v python3 >/dev/null 2>&1; then
+# 5) Choose Python interpreter
+PYTHON_BIN="python"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   PYTHON_BIN="python3"
-else
-  echo "[VM2] No Python interpreter found." >&2
+fi
+
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  echo "[VM2] No suitable Python interpreter found (tried python and python3)." >&2
   exit 1
 fi
 
-echo "[VM2] Running Django system checks..."
-"${PYTHON_BIN}" manage.py check
+echo "[VM2] Using Python interpreter: $PYTHON_BIN"
 
-echo "[VM2] Running Django migrations..."
-  echo "[VM2] No suitable Python interpreter found." >&2
-  exit 1
-fi
+# 6) Run Django commands
+echo "[VM2] Running Django checks..."
+"$PYTHON_BIN" manage.py check
 
-echo "[VM2] Running Django checks and migrations..."
-cd "${PROJECT_ROOT}/website_django"
-"${PYTHON_BIN}" manage.py check
-"${PYTHON_BIN}" manage.py migrate --noinput
+echo "[VM2] Applying migrations..."
+"$PYTHON_BIN" manage.py migrate --noinput
 
 echo "[VM2] Collecting static files..."
-"${PYTHON_BIN}" manage.py collectstatic --noinput
+"$PYTHON_BIN" manage.py collectstatic --noinput
 
-cd "${PROJECT_ROOT}"
+# 7) Return to repo root and restart services
+cd "$REPO_ROOT"
 
 echo "[VM2] Restarting gunicorn.service..."
 sudo systemctl restart gunicorn.service
