@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}TECH100 Index | SustainaCore{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header section__header--split">
+            <div>
+                <p class="eyebrow">TECH100 Index</p>
+                <h1>Governance and ethics scores across leading technology firms.</h1>
+                <p class="muted">Sortable, comparable indicators for transparency, accountability, and oversight. This page uses sample data while we connect to live VM1 APIs.</p>
+            </div>
+            <div class="filters">
+                <label>
+                    Sector
+                    <select disabled>
+                        <option>All sectors</option>
+                    </select>
+                </label>
+                <label>
+                    Region
+                    <select disabled>
+                        <option>All regions</option>
+                    </select>
+                </label>
+                <label>
+                    Sort
+                    <select data-sort-control>
+                        <option value="overall">Overall</option>
+                        <option value="transparency">Transparency</option>
+                        <option value="accountability">Accountability</option>
+                        <option value="company">Company</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+        <div class="table" role="table" aria-label="TECH100 sample">
+            <div class="table__row table__row--head" role="row">
+                <button class="table__cell" role="columnheader" data-sort="company">Company</button>
+                <button class="table__cell" role="columnheader" data-sort="sector">Sector</button>
+                <button class="table__cell" role="columnheader" data-sort="region">Region</button>
+                <button class="table__cell table__cell--right" role="columnheader" data-sort="overall">Overall</button>
+                <button class="table__cell table__cell--right" role="columnheader" data-sort="transparency">Transparency</button>
+                <button class="table__cell table__cell--right" role="columnheader" data-sort="accountability">Accountability</button>
+                <div class="table__cell table__cell--right" role="columnheader">Updated</div>
+            </div>
+            <div data-tech100-body>
+                {% for company in companies %}
+                <div class="table__row" role="row">
+                    <div class="table__cell" role="cell">{{ company.company }}</div>
+                    <div class="table__cell" role="cell">{{ company.sector }}</div>
+                    <div class="table__cell" role="cell">{{ company.region }}</div>
+                    <div class="table__cell table__cell--right" role="cell"><span class="badge">{{ company.overall }}</span></div>
+                    <div class="table__cell table__cell--right" role="cell">{{ company.transparency }}</div>
+                    <div class="table__cell table__cell--right" role="cell">{{ company.accountability }}</div>
+                    <div class="table__cell table__cell--right" role="cell">{{ company.updated_at }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <p class="muted table__note">Future version: sorted and filtered via VM1 /api/tech100 endpoint.</p>
+    </div>
+</section>
+
+{% endblock %}
+
+{% block extra_scripts %}
+{{ companies|json_script:"tech100-data" }}
+<script>
+(function() {
+    const body = document.querySelector('[data-tech100-body]');
+    const datasetScript = document.getElementById('tech100-data');
+    const data = datasetScript ? JSON.parse(datasetScript.textContent) : [];
+
+    function render(rows) {
+        body.innerHTML = '';
+        rows.forEach((item) => {
+            const row = document.createElement('div');
+            row.className = 'table__row';
+            row.setAttribute('role', 'row');
+            row.innerHTML = `
+                <div class="table__cell" role="cell">${item.company}</div>
+                <div class="table__cell" role="cell">${item.sector}</div>
+                <div class="table__cell" role="cell">${item.region}</div>
+                <div class="table__cell table__cell--right" role="cell"><span class="badge">${item.overall}</span></div>
+                <div class="table__cell table__cell--right" role="cell">${item.transparency}</div>
+                <div class="table__cell table__cell--right" role="cell">${item.accountability}</div>
+                <div class="table__cell table__cell--right" role="cell">${item.updated_at}</div>
+            `;
+            body.appendChild(row);
+        });
+    }
+
+    function sortBy(key) {
+        const sorted = [...data].sort((a, b) => {
+            if (typeof a[key] === 'string') {
+                return a[key].localeCompare(b[key]);
+            }
+            return b[key] - a[key];
+        });
+        render(sorted);
+    }
+
+    document.querySelectorAll('[data-sort]').forEach((btn) => {
+        btn.addEventListener('click', () => sortBy(btn.dataset.sort));
+    });
+
+    const select = document.querySelector('[data-sort-control]');
+    if (select) {
+        select.addEventListener('change', (event) => sortBy(event.target.value));
+    }
+})();
+</script>
+{% endblock %}
