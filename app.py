@@ -12,9 +12,9 @@ import subprocess
 import time
 import uuid
 import zlib
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Allow this module to expose the sibling package under app/
 __path__ = [str(Path(__file__).resolve().parent / "app")]
@@ -231,6 +231,44 @@ def _api_coerce_k(value, default: int = 4) -> int:
     if k_val > 10:
         k_val = 10
     return k_val
+
+
+def _format_date(value: Any) -> Optional[str]:
+    """Return a YYYY-MM-DD string for Oracle DATE/TIMESTAMP values."""
+
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    try:
+        return value.strftime("%Y-%m-%d")  # type: ignore[call-arg]
+    except Exception:
+        try:
+            text = str(value).strip()
+            if text:
+                return text.split("T")[0].split(" ")[0]
+        except Exception:
+            pass
+    return None
+
+
+def _format_timestamp(value: Any) -> Optional[str]:
+    """Return an ISO 8601 timestamp string in UTC with Z suffix."""
+
+    dt_value: Optional[datetime] = None
+    if isinstance(value, datetime):
+        dt_value = value
+    elif isinstance(value, date):
+        dt_value = datetime.combine(value, datetime.min.time())
+
+    if dt_value is None:
+        return None
+
+    if dt_value.tzinfo is None:
+        dt_value = dt_value.replace(tzinfo=timezone.utc)
+    else:
+        dt_value = dt_value.astimezone(timezone.utc)
+    return dt_value.isoformat().replace("+00:00", "Z")
 
 
 _ASK2_ENABLE_SMALLTALK = _env_flag("ASK2_ENABLE_SMALLTALK", True)
@@ -1170,6 +1208,128 @@ def api_health():
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     return jsonify(payload), 200
+
+
+@app.route("/api/tech100", methods=["GET"])
+def api_tech100():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    try:
+        from db_helper import _to_plain, get_connection  # type: ignore
+    except Exception as exc:
+        _LOGGER.exception("api_tech100 helper import failed", exc_info=exc)
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
+            ),
+            500,
+        )
+
+    sql = (
+        "SELECT rank_index, company_name, gics_sector, port_date, "
+        "aiges_composite_average, transparency, governance_structure, "
+        "ethical_principles, regulatory_alignment, stakeholder_engagement "
+        "FROM tech11_ai_gov_eth_index "
+        "WHERE port_date = (SELECT MAX(port_date) FROM tech11_ai_gov_eth_index) "
+        "ORDER BY rank_index FETCH FIRST 100 ROWS ONLY"
+    )
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql)
+            columns = [desc[0].lower() for desc in cur.description]
+            items: List[Dict[str, Any]] = []
+            for raw in cur.fetchall():
+                row = {col: _to_plain(val) for col, val in zip(columns, raw)}
+                items.append(
+                    {
+                        "rank": row.get("rank_index"),
+                        "company": row.get("company_name"),
+                        "sector": row.get("gics_sector"),
+                        "region": row.get("region")
+                        or row.get("country")
+                        or row.get("location"),
+                        "overall": row.get("aiges_composite_average"),
+                        "transparency": row.get("transparency"),
+                        "accountability": row.get("governance_structure"),
+                        "ethics": row.get("ethical_principles"),
+                        "regulatory_alignment": row.get("regulatory_alignment"),
+                        "stakeholder": row.get("stakeholder_engagement"),
+                        "updated_at": _format_date(row.get("port_date")),
+                    }
+                )
+    except Exception as exc:
+        _LOGGER.exception("api_tech100 query failed", exc_info=exc)
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
+            ),
+            500,
+        )
+
+    return jsonify({"items": items}), 200
+
+
+@app.route("/api/news", methods=["GET"])
+def api_news():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    try:
+        from db_helper import _to_plain, get_connection  # type: ignore
+    except Exception as exc:
+        _LOGGER.exception("api_news helper import failed", exc_info=exc)
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load news data."}
+            ),
+            500,
+        )
+
+    sql = (
+        "SELECT id, dt_pub, title, source, url, summary, pillar_tags "
+        "FROM v_tech100_news "
+        "WHERE dt_pub >= (SYSDATE - 90) "
+        "ORDER BY dt_pub DESC FETCH FIRST 100 ROWS ONLY"
+    )
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql)
+            columns = [desc[0].lower() for desc in cur.description]
+            items: List[Dict[str, Any]] = []
+            for raw in cur.fetchall():
+                row = {col: _to_plain(val) for col, val in zip(columns, raw)}
+                raw_tags = row.get("pillar_tags") or ""
+                tags: List[str]
+                if isinstance(raw_tags, str):
+                    tags = [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
+                else:
+                    tags = []
+                items.append(
+                    {
+                        "id": row.get("id"),
+                        "title": row.get("title"),
+                        "source": row.get("source"),
+                        "tags": tags,
+                        "summary": row.get("summary"),
+                        "url": row.get("url"),
+                        "published_at": _format_timestamp(row.get("dt_pub")),
+                    }
+                )
+    except Exception as exc:
+        _LOGGER.exception("api_news query failed", exc_info=exc)
+        return (
+            jsonify({"error": "backend_failure", "message": "Unable to load news data."}),
+            500,
+        )
+
+    return jsonify({"items": items}), 200
 
 
 @app.route("/ask", methods=["POST"])
