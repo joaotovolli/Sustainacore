@@ -32,20 +32,29 @@
                 </label>
             </div>
         </div>
+        {% if news_error %}
+        <div class="alert alert--warning">Live news data is temporarily unavailable; please try again later.</div>
+        {% endif %}
         <div class="cards cards--list" data-news-list>
-            {% for article in articles %}
-            <article class="news-card">
-                <div class="news-card__meta">{{ article.source }} · {{ article.published_at|date:"M j, Y" }}</div>
-                <h3 class="news-card__title">{{ article.title }}</h3>
-                <p class="muted">{{ article.summary }}</p>
-                <div class="news-card__tags">
-                    {% for tag in article.tags %}
-                    <span class="tag">{{ tag }}</span>
-                    {% endfor %}
-                </div>
-                <a class="text-link" href="{{ article.url }}" target="_blank" rel="noreferrer">View source →</a>
-            </article>
-            {% endfor %}
+            {% if articles %}
+                {% for article in articles %}
+                <article class="news-card">
+                    <div class="news-card__meta">{{ article.source }} · {{ article.published_at|date:"M j, Y" }}</div>
+                    <h3 class="news-card__title">{{ article.title }}</h3>
+                    <p class="muted">{{ article.summary|truncatechars:320 }}</p>
+                    <div class="news-card__tags">
+                        {% for tag in article.tags %}
+                        <span class="tag">{{ tag }}</span>
+                        {% endfor %}
+                    </div>
+                    <a class="text-link" href="{{ article.url }}" target="_blank" rel="noreferrer">View source →</a>
+                </article>
+                {% endfor %}
+            {% else %}
+                <article class="news-card">
+                    <p class="muted">Data currently unavailable.</p>
+                </article>
+            {% endif %}
         </div>
         <div class="load-more">
             <button class="btn btn--secondary" type="button" disabled>Load more (live API coming soon)</button>
