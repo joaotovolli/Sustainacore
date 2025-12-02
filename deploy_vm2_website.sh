@@ -26,6 +26,26 @@ fi
 if [ -d "${VENV_DIR}" ]; then
   echo "[VM2] Activating virtualenv at ${VENV_DIR}..."
   . "${VENV_DIR}/bin/activate"
+  PYTHON_BIN="python"
+else
+  echo "[VM2] Virtualenv not found; using system Python..."
+  if command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+  elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  else
+    echo "[VM2] No suitable Python interpreter found." >&2
+    exit 1
+  fi
+fi
+
+cd "${APP_DIR}"
+
+fi
+
+if [ -d "${VENV_DIR}" ]; then
+  echo "[VM2] Activating virtualenv at ${VENV_DIR}..."
+  . "${VENV_DIR}/bin/activate"
 else
   echo "[VM2] Virtualenv not found; using system Python..."
 fi
