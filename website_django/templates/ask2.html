@@ -1,142 +1,51 @@
 {% extends "base.html" %}
 
-{% block content %}
-<section id="ask2" class="section">
-    <div class="container">
-        <div class="section-header">
-            <h2>Ask SustainaCore</h2>
-            <p>Your front door to ESG and AI governance questions. This demo shows the chat interface; responses are currently placeholder text until the Ask2 backend is wired in.</p>
-        </div>
+{% block title %}Ask2 | SustainaCore AI Assistant{% endblock %}
 
-        <div class="card chat-panel">
-            <div id="chatMessages" class="chat-messages" aria-live="polite" aria-label="Ask SustainaCore chat transcript">
-                <div class="chat-message bot">
-                    Hi there! Ask a question about AI governance, ESG transparency, or SustainaCore's TECH100 index.
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header section__header--split">
+            <div>
+                <p class="eyebrow">Ask2 AI Assistant</p>
+                <h1>Ask questions about ESG and AI governance.</h1>
+                <p class="muted">We route your questions to the SustainaCore backend on VM1 and return grounded answers. No external LLM calls from the browser.</p>
+            </div>
+            <div class="status" data-ask2-status>
+                <span class="status__dot"></span>
+                <span class="status__text">Ready to chat</span>
+            </div>
+        </div>
+        <div class="chat">
+            <div class="chat__panel" aria-live="polite" aria-label="Ask2 conversation" data-ask2-messages>
+                <div class="bubble bubble--assistant">
+                    Hi there! Ask me about ESG transparency, AI oversight, or the TECH100 index.
                 </div>
             </div>
-
-            <form id="chatForm" class="chat-input-row">
-                <label class="sr-only" for="chatInput">Your question</label>
-                <textarea id="chatInput" name="message" rows="3" placeholder="Type your question here..." required></textarea>
-                <button type="submit" class="btn primary">Send</button>
+            <form class="chat__input" data-ask2-form>
+                <label class="sr-only" for="ask2Input">Your question</label>
+                <textarea id="ask2Input" name="message" rows="3" placeholder="Type your question here..." required data-ask2-input></textarea>
+                <div class="chat__actions">
+                    <button type="submit" class="btn btn--primary" data-ask2-send>Send</button>
+                    <div class="muted chat__hint">Shift + Enter for a new line</div>
+                </div>
             </form>
+            <div class="chat__helper">
+                <h4>Good prompts</h4>
+                <ul>
+                    <li>"Show me the top transparency scores in the TECH100."</li>
+                    <li>"How does Aurora Tech report on accountability?"</li>
+                    <li>"Summarize recent AI governance headlines."</li>
+                </ul>
+            </div>
+        </div>
+        <div class="alert alert--error" role="alert" hidden data-ask2-error>
+            Something went wrong reaching Ask2. Please try again.
         </div>
     </div>
 </section>
+{% endblock %}
 
-<script>
-(function() {
-    const form = document.getElementById('chatForm');
-    const input = document.getElementById('chatInput');
-    const messages = document.getElementById('chatMessages');
-
-    function appendMessage(role, text, options = {}) {
-        const el = document.createElement('div');
-        el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
-        const el = document.createElement('div');
-        el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
-        const el = document.createElement('div');
-        el.className = 'chat-message ' + role + (options.muted ? ' muted' : '');
-    function getCsrfToken() {
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        return match ? match[1] : '';
-    }
-
-    function appendMessage(role, text, options = {}) {
-        const el = document.createElement('div');
-        el.className = `chat-message ${role}${options.muted ? ' muted' : ''}`;
-        el.textContent = text;
-        messages.appendChild(el);
-        messages.scrollTop = messages.scrollHeight;
-        return el;
-    }
-
-    form.addEventListener('submit', async function(event) {
-        event.preventDefault();
-
-        const message = (input.value || '').trim();
-        if (!message) {
-            appendMessage('bot', 'Please enter a message before sending.');
-            input.focus();
-            return;
-        }
-
-        appendMessage('user', message);
-        input.value = '';
-        input.focus();
-
-        const thinking = appendMessage('bot', 'Thinking…', { muted: true });
-        let botText = 'Received your question.';
-
-        try {
-            const response = await fetch('{% url "ask2_chat_api" %}', {
-                method: 'POST',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-CSRFToken': getCsrfToken(),
-                },
-                body: 'message=' + encodeURIComponent(message),
-            });
-
-            let data;
-            try {
-                data = await response.json();
-            } catch (err) {
-                throw new Error('Response was not valid JSON.');
-            let data = null;
-            try {
-                data = await response.json();
-            } catch (err) {
-                // JSON parsing errors will be handled by response.ok below.
-                // Ignore JSON parse errors; handled below.
-            }
-
-            if (!response.ok) {
-                const errorText = (data && data.error) ? data.error : 'Request failed (' + response.status + ')';
-                throw new Error(errorText);
-            }
-
-            const reply = (data && data.reply) ? data.reply : 'Received your question.';
-            thinking.remove();
-            appendMessage('bot', reply);
-        } catch (err) {
-            if (thinking.parentNode) {
-                thinking.remove();
-            }
-            botText = (data && data.reply) || botText;
-        } catch (err) {
-            botText = (err && err.message)
-                ? 'Sorry, ' + err.message
-                : 'Sorry, something went wrong while contacting the Ask2 endpoint.';
-        } finally {
-            if (thinking.parentNode) {
-                thinking.remove();
-            }
-            appendMessage('bot', botText);
-            const reply = (data && data.reply) || 'Received your question.';
-                const errorText = (data && data.error) ? data.error : `Request failed (${response.status})`;
-                throw new Error(errorText);
-            }
-
-            const reply = (data && data.reply) || (data && data.error) || 'Received your question.';
-            thinking.remove();
-            appendMessage('bot', reply);
-        } catch (err) {
-            thinking.remove();
-            appendMessage(
-                'bot',
-                (err && err.message)
-                    ? 'Sorry, ' + err.message
-                    : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
-            );
-                err.message
-                    ? `Sorry, ${err.message}`
-                    : 'Sorry, something went wrong while contacting the Ask2 endpoint.'
-            );
-            appendMessage('bot', err.message ? `Sorry, ${err.message}` : 'Sorry, something went wrong while contacting the Ask2 endpoint.');
-        }
-    });
-})();
-</script>
+{% block extra_scripts %}
+<script src="{% static 'js/ask2.js' %}"></script>
 {% endblock %}
