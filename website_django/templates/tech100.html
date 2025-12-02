@@ -9,7 +9,7 @@
             <div>
                 <p class="eyebrow">TECH100 Index</p>
                 <h1>Governance and ethics scores across leading technology firms.</h1>
-                <p class="muted">Sortable, comparable indicators for transparency, accountability, and oversight. This page uses sample data while we connect to live VM1 APIs.</p>
+                <p class="muted">Sortable, comparable indicators for transparency, accountability, and oversight. Data is fetched live from the SustainaCore backend.</p>
             </div>
             <div class="filters">
                 <label>
@@ -35,6 +35,9 @@
                 </label>
             </div>
         </div>
+        {% if tech100_error %}
+        <div class="alert alert--warning">Live TECH100 data is temporarily unavailable; please try again later.</div>
+        {% endif %}
         <div class="table" role="table" aria-label="TECH100 sample">
             <div class="table__row table__row--head" role="row">
                 <button class="table__cell" role="columnheader" data-sort="company">Company</button>
@@ -46,20 +49,26 @@
                 <div class="table__cell table__cell--right" role="columnheader">Updated</div>
             </div>
             <div data-tech100-body>
-                {% for company in companies %}
-                <div class="table__row" role="row">
-                    <div class="table__cell" role="cell">{{ company.company }}</div>
-                    <div class="table__cell" role="cell">{{ company.sector }}</div>
-                    <div class="table__cell" role="cell">{{ company.region }}</div>
-                    <div class="table__cell table__cell--right" role="cell"><span class="badge">{{ company.overall }}</span></div>
-                    <div class="table__cell table__cell--right" role="cell">{{ company.transparency }}</div>
-                    <div class="table__cell table__cell--right" role="cell">{{ company.accountability }}</div>
-                    <div class="table__cell table__cell--right" role="cell">{{ company.updated_at }}</div>
-                </div>
-                {% endfor %}
+                {% if companies %}
+                    {% for company in companies %}
+                    <div class="table__row" role="row">
+                        <div class="table__cell" role="cell">{{ company.company }}</div>
+                        <div class="table__cell" role="cell">{{ company.sector }}</div>
+                        <div class="table__cell" role="cell">{{ company.region }}</div>
+                        <div class="table__cell table__cell--right" role="cell"><span class="badge">{{ company.overall }}</span></div>
+                        <div class="table__cell table__cell--right" role="cell">{{ company.transparency }}</div>
+                        <div class="table__cell table__cell--right" role="cell">{{ company.accountability }}</div>
+                        <div class="table__cell table__cell--right" role="cell">{{ company.updated_at }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="table__row" role="row">
+                        <div class="table__cell" role="cell" colspan="7">Data currently unavailable.</div>
+                    </div>
+                {% endif %}
             </div>
         </div>
-        <p class="muted table__note">Future version: sorted and filtered via VM1 /api/tech100 endpoint.</p>
+        <p class="muted table__note">Sorted locally using data retrieved from the VM1 /api/tech100 endpoint.</p>
     </div>
 </section>
 
@@ -75,6 +84,16 @@
 
     function render(rows) {
         body.innerHTML = '';
+        if (!rows.length) {
+            const row = document.createElement('div');
+            row.className = 'table__row';
+            row.setAttribute('role', 'row');
+            row.innerHTML = `
+                <div class="table__cell" role="cell" colspan="7">Data currently unavailable.</div>
+            `;
+            body.appendChild(row);
+            return;
+        }
         rows.forEach((item) => {
             const row = document.createElement('div');
             row.className = 'table__row';
