@@ -48,6 +48,15 @@
     messagesEl.appendChild(bubble);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     if (store) messages.push({ role, text });
+  }
+
+  function addBubble(role, text, { muted = false, store = true } = {}) {
+    const bubble = document.createElement('div');
+    bubble.className = `bubble bubble--${role}${muted ? ' bubble--muted' : ''}`;
+    bubble.textContent = text;
+    messagesEl.appendChild(bubble);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (store) messages.push({ role, text });
     errorBanner.hidden = !show;
     if (message) errorBanner.textContent = message;
   }
@@ -67,6 +76,12 @@
   async function sendMessage(text) {
     hideError();
     toggleThinking(true);
+    setStatus('Contacting backend…');
+
+    const placeholder = addBubble('assistant', 'Assistant is thinking…', {
+      muted: true,
+      store: false,
+    });
     setStatus('Contacting backend…');
 
     const placeholder = addBubble('assistant', 'Assistant is thinking…', {
@@ -107,6 +122,14 @@
       placeholder.textContent = reply;
       placeholder.classList.remove('bubble--muted');
       messages.push({ role: 'assistant', text: reply });
+      setStatus('Ready to chat');
+    } catch (error) {
+      const friendly = 'The assistant is temporarily unavailable. Please try again in a moment.';
+      placeholder.textContent = friendly;
+      placeholder.classList.remove('bubble--muted');
+      messages.push({ role: 'assistant', text: friendly });
+      showError(friendly);
+      setStatus(error && error.message ? error.message : friendly, false);
       setStatus('Ready to chat');
     } catch (error) {
       const friendly = 'The assistant is temporarily unavailable. Please try again in a moment.';
