@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}News | SustainaCore ESG & AI Governance{% endblock %}
 
@@ -50,6 +51,11 @@
             {% if articles %}
                 {% for article in articles %}
                 <article class="news-card">
+                    <div class="news-card__meta">{{ article.source }}{% if article.published_at %} · {{ article.published_at|date:"M j, Y" }}{% endif %}</div>
+                    <h3 class="news-card__title">
+                        <a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a>
+                    </h3>
+                    <p class="muted">{{ article.summary|default_if_none:""|truncatechars:320 }}</p>
                     <div class="news-card__meta">{{ article.source }} · {{ article.published_at|date:"M j, Y" }}</div>
                     <h3 class="news-card__title"><a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a></h3>
                     <p class="muted">{{ article.summary|truncatechars:320 }}</p>
@@ -75,6 +81,7 @@
         </div>
         {% if news_meta.has_more %}
         <div class="load-more">
+            <button class="btn btn--secondary" type="button" disabled>Load more (live API coming soon)</button>
             <p class="muted">Showing {{ news_meta.count|default:articles|length }} of recent stories.</p>
         </div>
         {% endif %}
