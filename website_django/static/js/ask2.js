@@ -48,7 +48,38 @@
     messagesEl.appendChild(bubble);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     if (store) messages.push({ role, text });
+  }
+
+  function addBubble(role, text, { muted = false, store = true } = {}) {
+    const bubble = document.createElement('div');
+    bubble.className = `bubble bubble--${role}${muted ? ' bubble--muted' : ''}`;
+    bubble.textContent = text;
+    messagesEl.appendChild(bubble);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (store) messages.push({ role, text });
+  }
+
+  function addBubble(role, text, { muted = false, store = true } = {}) {
+    const bubble = document.createElement('div');
+    bubble.className = `bubble bubble--${role}${muted ? ' bubble--muted' : ''}`;
+    bubble.textContent = text;
+    messagesEl.appendChild(bubble);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (store) messages.push({ role, text });
+    errorBanner.hidden = !show;
+    if (message) errorBanner.textContent = message;
+  }
+
+  function createBubble(role, text, muted = false) {
+    const bubble = document.createElement('div');
+    bubble.className = `bubble bubble--${role}${muted ? ' bubble--muted' : ''}`;
+    bubble.textContent = text;
     return bubble;
+  }
+
+  function appendBubble(bubble) {
+    messagesEl.appendChild(bubble);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
   async function sendMessage(text) {
@@ -60,6 +91,24 @@
       muted: true,
       store: false,
     });
+    setStatus('Contacting backend…');
+
+    const placeholder = addBubble('assistant', 'Assistant is thinking…', {
+      muted: true,
+      store: false,
+    });
+    setStatus('Contacting backend…');
+
+    const placeholder = addBubble('assistant', 'Assistant is thinking…', {
+      muted: true,
+      store: false,
+    });
+    toggleError(false);
+    toggleThinking(true);
+    setStatus('Contacting backend…');
+
+    const placeholder = createBubble('assistant', 'Assistant is thinking…', true);
+    appendBubble(placeholder);
 
     try {
       const response = await fetch('/ask2/api/', {
@@ -96,6 +145,27 @@
       messages.push({ role: 'assistant', text: friendly });
       showError(friendly);
       setStatus(error && error.message ? error.message : friendly, false);
+      setStatus('Ready to chat');
+    } catch (error) {
+      const friendly = 'The assistant is temporarily unavailable. Please try again in a moment.';
+      placeholder.textContent = friendly;
+      placeholder.classList.remove('bubble--muted');
+      messages.push({ role: 'assistant', text: friendly });
+      showError(friendly);
+      setStatus(error && error.message ? error.message : friendly, false);
+      placeholder.remove();
+      const reply = data.reply || data.answer || data.content || 'The assistant did not return a response.';
+      messages.push({ role: 'assistant', text: reply });
+      appendBubble(createBubble('assistant', reply));
+      setStatus('Ready to chat');
+    } catch (error) {
+      if (placeholder && placeholder.remove) placeholder.remove();
+      const friendly = 'The assistant is temporarily unavailable. Please try again in a moment.';
+      const detail = error && error.message ? error.message : friendly;
+      messages.push({ role: 'assistant', text: friendly });
+      appendBubble(createBubble('assistant', friendly));
+      toggleError(true, friendly);
+      setStatus(detail, false);
     } finally {
       toggleThinking(false);
     }
@@ -110,6 +180,8 @@
     }
 
     addBubble('user', text);
+    messages.push({ role: 'user', text });
+    appendBubble(createBubble('user', text));
     input.value = '';
     sendMessage(text);
   });
