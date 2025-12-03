@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Ask2 | SustainaCore AI Assistant{% endblock %}
 
 {% block content %}
-<section class="section section--with-header">
+<section class="section section--with-header ask2">
     <div class="shell">
         <div class="section__header section__header--split">
             <div>
@@ -13,34 +14,46 @@
             </div>
             <div class="status" data-ask2-status>
                 <span class="status__dot"></span>
-                <span class="status__text">Ready to chat</span>
+                <span class="status__text" data-ask2-status-text>Ready to chat</span>
             </div>
         </div>
-        <div class="chat">
-            <div class="chat__panel" aria-live="polite" aria-label="Ask2 conversation" data-ask2-messages>
-                <div class="bubble bubble--assistant">
-                    Hi there! Ask me about ESG transparency, AI oversight, or the TECH100 index.
+
+        <div class="chat-layout">
+            <div class="chat-panel" aria-label="Ask2 conversation">
+                <div class="chat-panel__messages" data-ask2-messages role="log" aria-live="polite" aria-relevant="additions text">
+                    <div class="bubble bubble--assistant">
+                        Hi there! Ask me about ESG transparency, AI oversight, or the TECH100 index.
+                    </div>
                 </div>
+                <div class="chat-panel__meta">
+                    <div class="chat-panel__status" data-ask2-thinking hidden role="status" aria-live="polite">
+                        <span class="spinner" aria-hidden="true"></span>
+                        <span>Assistant is thinking…</span>
+                    </div>
+                    <div class="alert alert--error" role="alert" hidden data-ask2-error>
+                        The assistant is temporarily unavailable. Please try again in a moment.
+                    </div>
+                </div>
+                <form class="chat__input" data-ask2-form>
+                    {% csrf_token %}
+                    <label class="sr-only" for="ask2Input">Your question</label>
+                    <textarea id="ask2Input" name="message" rows="3" placeholder="Type your question here..." required data-ask2-input></textarea>
+                    <div class="chat__actions">
+                        <button type="submit" class="btn btn--primary" data-ask2-send>Send</button>
+                        <div class="muted chat__hint">Press Enter to send · Shift + Enter for a new line</div>
+                    </div>
+                </form>
             </div>
-            <form class="chat__input" data-ask2-form>
-                <label class="sr-only" for="ask2Input">Your question</label>
-                <textarea id="ask2Input" name="message" rows="3" placeholder="Type your question here..." required data-ask2-input></textarea>
-                <div class="chat__actions">
-                    <button type="submit" class="btn btn--primary" data-ask2-send>Send</button>
-                    <div class="muted chat__hint">Shift + Enter for a new line</div>
-                </div>
-            </form>
-            <div class="chat__helper">
+            <aside class="chat-helper" aria-label="Prompt ideas">
                 <h4>Good prompts</h4>
                 <ul>
                     <li>"Show me the top transparency scores in the TECH100."</li>
                     <li>"How does Aurora Tech report on accountability?"</li>
                     <li>"Summarize recent AI governance headlines."</li>
+                    <li>"Highlight companies improving their ESG disclosures."</li>
                 </ul>
-            </div>
-        </div>
-        <div class="alert alert--error" role="alert" hidden data-ask2-error>
-            Something went wrong reaching Ask2. Please try again.
+                <p class="muted">We keep the conversation in your browser. Each question is sent securely to the SustainaCore backend.</p>
+            </aside>
         </div>
     </div>
 </section>
