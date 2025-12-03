@@ -30,8 +30,9 @@
 - `/ask2` now short-circuits greetings and simple help messages (`hi`, `hello`, `hey`, `thanks`, `thank you`, `help`, `goodbye`).
 - These requests return a short professional acknowledgement and 2–4 suggested follow-up prompts without calling retrieval or emitting `contexts`.
 
-## Ask2 (VM1 API)
+## Ask2 & related VM1 APIs
 - `/api/ask2` accepts `POST` JSON with `{"user_message": "..."}` (aliases: `question`/`q`/`text`) plus an optional `k`/`top_k` parameter. Requests must include `Authorization: Bearer $API_AUTH_TOKEN` when the token is configured on VM1.
+- `/api/news` and `/api/tech100` reuse the same auth guard and will return 401 when the `Authorization: Bearer $API_AUTH_TOKEN` header is missing or mismatched. Keep the token set in the VM1 environment and provide the matching value to any downstream consumers (e.g., VM2 Django).
 - The pipeline is Gemini-first: intent detection → planner → Oracle retrieval → composer. Planner output is kept in `meta.plan`/`meta.debug`; user-facing fields (`answer`, `reply`, `message`, `content`) are natural-language replies only. When no facts are found, the service returns a polite fallback instead of planner JSON.
 - `/api/health` runs with the same auth gate and reports `oracle` + `model` status for lightweight smoke checks.
 
