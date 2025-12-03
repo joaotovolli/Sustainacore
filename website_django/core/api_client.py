@@ -79,11 +79,17 @@ def fetch_news(
     limit: int = 20,
     timeout: float = 8.0,
 ) -> Dict[str, Any]:
+    # VM1 /api/news contract (retrieval/app.py + news_service.py):
+    # - GET /api/news
+    # - Query params: limit (1-100, default 20), days (1-365, default 30),
+    #   source (optional string), tag (optional, may repeat)
+    # - Response: {"items": [...], "meta": {"count", "limit", "has_more"}}
     params: Dict[str, Any] = {"limit": limit}
     if source:
         params["source"] = source
     if tag:
         params["tag"] = tag
+    if days is not None:
     if days:
         params["days"] = days
 

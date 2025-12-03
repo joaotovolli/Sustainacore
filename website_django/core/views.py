@@ -31,6 +31,9 @@ def tech100(request):
 
 
 def news(request):
+    raw_date_range = (request.GET.get("date_range") or "all").strip()
+    date_range = raw_date_range if raw_date_range in {"all", "7", "30", "90"} else "all"
+
     date_range = request.GET.get("date_range", "") or "30"
     filters = {
         "source": (request.GET.get("source") or "").strip(),
@@ -59,6 +62,12 @@ def news(request):
         "filters": filters,
         "source_options": sources,
         "tag_options": tags,
+        "date_range_options": [
+            {"value": "all", "label": "All time"},
+            {"value": "7", "label": "Last 7 days"},
+            {"value": "30", "label": "Last 30 days"},
+            {"value": "90", "label": "Last 90 days"},
+        ],
     }
     return render(request, "news.html", context)
 
