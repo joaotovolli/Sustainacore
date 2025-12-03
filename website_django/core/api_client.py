@@ -25,6 +25,11 @@ def _base_url() -> str:
 
 
 def _get_json(
+    path: str, *, timeout: float, params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any] | List[Dict[str, Any]]:
+    url = f"{_base_url()}{path}"
+    try:
+        response = requests.get(url, headers=_build_headers(), params=params, timeout=timeout)
     path: str, timeout: float, params: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any] | List[Dict[str, Any]]:
     url = f"{_base_url()}{path}"
@@ -51,14 +56,19 @@ def _extract_items(payload: Dict[str, Any] | List[Dict[str, Any]]) -> List[Dict[
             return payload["data"]
         if "items" in payload and isinstance(payload["items"], list):
             return payload["items"]
-        # When payload looks like an error object
         if "error" in payload:
             return []
     return []
 
 
+def _extract_meta(payload: Dict[str, Any] | List[Dict[str, Any]]) -> Dict[str, Any]:
+    if isinstance(payload, dict) and isinstance(payload.get("meta"), dict):
+        return payload["meta"]
+    return {}
+
+
 def fetch_tech100(timeout: float = 8.0) -> Dict[str, Any]:
-    payload = _get_json("/api/tech100", timeout=timeout)
+    payload = _get_json("/api/tech100", timeout=timeout, params=None)
     if isinstance(payload, dict) and "error" in payload:
         return {"items": [], "error": payload.get("message", "Unable to load TECH100 data.")}
 
@@ -79,6 +89,12 @@ def fetch_news(
     limit: int = 20,
     timeout: float = 8.0,
 ) -> Dict[str, Any]:
+    """Fetch news items from VM1 `/api/news` endpoint.
+
+    VM1 contract: GET /api/news with params limit (default 20), optional days, source, tag.
+    Response shape: {"items": [...], "meta": {"count", "limit", "has_more"}}.
+    """
+
     # VM1 /api/news contract (retrieval/app.py + news_service.py):
     # - GET /api/news
     # - Query params: limit (1-100, default 20), days (1-365, default 30),
@@ -90,6 +106,9 @@ def fetch_news(
     if tag:
         params["tag"] = tag
     if days is not None:
+        params["days"] = days
+
+    payload = _get_json("/api/news", timeout=timeout, params=params)
     if days:
         params["days"] = days
 
