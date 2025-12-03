@@ -57,6 +57,15 @@
     messagesEl.appendChild(bubble);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     if (store) messages.push({ role, text });
+  }
+
+  function addBubble(role, text, { muted = false, store = true } = {}) {
+    const bubble = document.createElement('div');
+    bubble.className = `bubble bubble--${role}${muted ? ' bubble--muted' : ''}`;
+    bubble.textContent = text;
+    messagesEl.appendChild(bubble);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (store) messages.push({ role, text });
     errorBanner.hidden = !show;
     if (message) errorBanner.textContent = message;
   }
@@ -76,6 +85,12 @@
   async function sendMessage(text) {
     hideError();
     toggleThinking(true);
+    setStatus('Contacting backend…');
+
+    const placeholder = addBubble('assistant', 'Assistant is thinking…', {
+      muted: true,
+      store: false,
+    });
     setStatus('Contacting backend…');
 
     const placeholder = addBubble('assistant', 'Assistant is thinking…', {
