@@ -31,11 +31,34 @@ def tech100(request):
 
 
 def news(request):
-    news_response = fetch_news()
+    date_range = request.GET.get("date_range", "") or "30"
+    filters = {
+        "source": (request.GET.get("source") or "").strip(),
+        "tag": (request.GET.get("tag") or "").strip(),
+        "date_range": date_range,
+    }
+
+    date_mapping = {"7": 7, "30": 30, "90": 90}
+    days = date_mapping.get(date_range)
+
+    news_response = fetch_news(
+        source=filters["source"] or None,
+        tag=filters["tag"] or None,
+        days=days,
+    )
+
+    news_items = news_response.get("items", [])
+    sources = sorted({item.get("source") for item in news_items if item.get("source")})
+    tags = sorted({tag for item in news_items for tag in item.get("tags", [])})
+
     context = {
         "year": datetime.now().year,
-        "articles": news_response.get("items", []),
+        "articles": news_items,
         "news_error": news_response.get("error"),
+        "news_meta": news_response.get("meta", {}),
+        "filters": filters,
+        "source_options": sources,
+        "tag_options": tags,
     }
     return render(request, "news.html", context)
 
