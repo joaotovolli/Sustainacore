@@ -19,17 +19,14 @@
         </div>
 
         <div class="chat-layout">
-            <div class="chat-panel" aria-label="Ask2 conversation">
-                <div class="chat-panel__messages" data-ask2-messages role="log" aria-live="polite" aria-relevant="additions text">
             <div class="chat-panel" aria-live="polite" aria-label="Ask2 conversation">
-                <div class="chat-panel__messages" data-ask2-messages>
+                <div class="chat-panel__messages" data-ask2-messages role="log" aria-live="polite" aria-relevant="additions text">
                     <div class="bubble bubble--assistant">
                         Hi there! Ask me about ESG transparency, AI oversight, or the TECH100 index.
                     </div>
                 </div>
                 <div class="chat-panel__meta">
                     <div class="chat-panel__status" data-ask2-thinking hidden role="status" aria-live="polite">
-                    <div class="chat-panel__status" data-ask2-thinking hidden>
                         <span class="spinner" aria-hidden="true"></span>
                         <span>Assistant is thinking…</span>
                     </div>
@@ -37,7 +34,7 @@
                         The assistant is temporarily unavailable. Please try again in a moment.
                     </div>
                 </div>
-                <form class="chat__input" data-ask2-form>
+                <form class="chat__input" data-ask2-form data-ask2-api="{% url 'ask2:ask2_api' %}">
                     {% csrf_token %}
                     <label class="sr-only" for="ask2Input">Your question</label>
                     <textarea id="ask2Input" name="message" rows="3" placeholder="Type your question here..." required data-ask2-input></textarea>
