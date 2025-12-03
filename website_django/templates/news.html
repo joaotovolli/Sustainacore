@@ -37,6 +37,9 @@
                         {% for option in date_range_options %}
                         <option value="{{ option.value }}" {% if filters.date_range == option.value %}selected{% endif %}>{{ option.label }}</option>
                         {% endfor %}
+                        <option value="7" {% if filters.date_range == "7" %}selected{% endif %}>Last 7 days</option>
+                        <option value="30" {% if filters.date_range == "30" %}selected{% endif %}>Last 30 days</option>
+                        <option value="90" {% if filters.date_range == "90" %}selected{% endif %}>Last 90 days</option>
                     </select>
                 </label>
                 <div class="filters__actions">
@@ -56,6 +59,9 @@
                         <a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a>
                     </h3>
                     <p class="muted">{{ article.summary|default_if_none:""|truncatechars:320 }}</p>
+                    <div class="news-card__meta">{{ article.source }} · {{ article.published_at|date:"M j, Y" }}</div>
+                    <h3 class="news-card__title"><a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a></h3>
+                    <p class="muted">{{ article.summary|truncatechars:320 }}</p>
                     {% if article.tags %}
                     <div class="news-card__tags">
                         {% for tag in article.tags %}

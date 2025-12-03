@@ -90,6 +90,7 @@ def fetch_news(
     if tag:
         params["tag"] = tag
     if days is not None:
+    if days:
         params["days"] = days
 
     payload = _get_json("/api/news", params=params, timeout=timeout)
