@@ -95,8 +95,9 @@ def fetch_news(
 
     # VM1 `/api/news` accepts limit, days, source, and tag (multi) query params
     # and responds with {"items": [...], "meta": {...}}. Default backend days is 30
-    # when the param is omitted. Direct call from this VM returned 403 "Domain forbidden"
-    # without the correct auth/host headers.
+    # when the param is omitted. The backend requires `Authorization: Bearer` with the
+    # shared API token when API auth is enabled, so `BACKEND_API_TOKEN` must be present
+    # in the Django settings/environment for production calls to succeed.
 
     params: Dict[str, Any] = {"limit": limit}
     if source:

@@ -8,12 +8,13 @@ The site also proxies Ask2 traffic to VM1:
 - `/ask2/` serves a minimal HTML form that posts messages to `/ask2/api/`.
 - `/ask2/api/` accepts JSON or form data, normalizes `message`/`user_message`, and forwards `{ "user_message": "..." }` to VM1 `/api/ask2`.
 - `BACKEND_API_BASE` defaults to `http://10.0.0.120:8080` (VM1) and `BACKEND_API_TOKEN` is read from the environment. When set, the proxy adds `Authorization: Bearer <token>`.
+- VM1 `/api/news`, `/api/tech100`, and `/api/ask2` all expect `Authorization: Bearer $API_AUTH_TOKEN`. Set the same shared token in VM1 as `API_AUTH_TOKEN` and in VM2 as `BACKEND_API_TOKEN` so authenticated calls succeed.
 
 ## Environment Variables and Secrets
 - The Gunicorn systemd unit uses `EnvironmentFile=/etc/sustainacore.env` to load production settings.
 - A repo-local `.env.vm2` lives at the repo root on VM2 (not committed). It should include required Django settings plus the Ask2 proxy values:
   - `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_DEBUG`
-  - `BACKEND_API_BASE` (VM1 base URL) and optional `BACKEND_API_TOKEN`
+  - `BACKEND_API_BASE` (VM1 base URL) and `BACKEND_API_TOKEN` (must match VM1 `API_AUTH_TOKEN` when auth is enabled)
   - Any database variables needed for the site itself (not Ask2)
 - The deploy script sources `.env.vm2` if it exists. Create or update this file directly on VM2 (or via Codex CLI) as needed and keep real secrets out of Git.
 
