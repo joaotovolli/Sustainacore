@@ -13,6 +13,10 @@
   const messages = [];
 
   function getCSRFToken() {
+    const metaToken = document.querySelector('meta[name="csrf-token"]');
+    if (metaToken && metaToken.content) {
+      return metaToken.content;
+    }
     const match = document.cookie.match(/csrftoken=([^;]+)/);
     return match ? match[1] : null;
   }
@@ -27,8 +31,23 @@
     if (sendButton) sendButton.disabled = show;
   }
 
-  function toggleError(show, message) {
+  function showError(message) {
     if (!errorBanner) return;
+    errorBanner.hidden = false;
+    errorBanner.textContent = message;
+  }
+
+  function hideError() {
+    if (errorBanner) errorBanner.hidden = true;
+  }
+
+  function addBubble(role, text, { muted = false, store = true } = {}) {
+    const bubble = document.createElement('div');
+    bubble.className = `bubble bubble--${role}${muted ? ' bubble--muted' : ''}`;
+    bubble.textContent = text;
+    messagesEl.appendChild(bubble);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (store) messages.push({ role, text });
     errorBanner.hidden = !show;
     if (message) errorBanner.textContent = message;
   }
@@ -46,6 +65,14 @@
   }
 
   async function sendMessage(text) {
+    hideError();
+    toggleThinking(true);
+    setStatus('Contacting backend…');
+
+    const placeholder = addBubble('assistant', 'Assistant is thinking…', {
+      muted: true,
+      store: false,
+    });
     toggleError(false);
     toggleThinking(true);
     setStatus('Contacting backend…');
@@ -56,6 +83,7 @@
     try {
       const response = await fetch('/ask2/api/', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
           ...(getCSRFToken() ? { 'X-CSRFToken': getCSRFToken() } : {}),
@@ -75,6 +103,18 @@
         throw new Error(errMsg);
       }
 
+      const reply = data.reply || data.answer || data.content || 'The assistant did not return a response.';
+      placeholder.textContent = reply;
+      placeholder.classList.remove('bubble--muted');
+      messages.push({ role: 'assistant', text: reply });
+      setStatus('Ready to chat');
+    } catch (error) {
+      const friendly = 'The assistant is temporarily unavailable. Please try again in a moment.';
+      placeholder.textContent = friendly;
+      placeholder.classList.remove('bubble--muted');
+      messages.push({ role: 'assistant', text: friendly });
+      showError(friendly);
+      setStatus(error && error.message ? error.message : friendly, false);
       placeholder.remove();
       const reply = data.reply || data.answer || data.content || 'The assistant did not return a response.';
       messages.push({ role: 'assistant', text: reply });
@@ -101,6 +141,7 @@
       return;
     }
 
+    addBubble('user', text);
     messages.push({ role: 'user', text });
     appendBubble(createBubble('user', text));
     input.value = '';
