@@ -12,6 +12,7 @@ from anyio import to_thread
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
+from app.news_service import fetch_news_items
 from app.persona import apply_persona
 from app.request_normalizer import BAD_INPUT_ERROR, normalize_request
 
@@ -555,60 +556,40 @@ async def api_tech100(request: Request) -> JSONResponse:
 
 
 @app.get("/api/news")
-async def api_news(request: Request) -> JSONResponse:
+async def api_news(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    days: int = Query(30, ge=1, le=365),
+    source: Optional[str] = Query(None),
+    tag: Optional[List[str]] = Query(None),
+) -> JSONResponse:
     auth = _api_auth_guard(request)
     if auth is not None:
         return auth
 
     try:
-        from db_helper import _to_plain, get_connection  # type: ignore
-    except Exception as exc:
-        LOGGER.exception("api_news helper import failed", exc_info=exc)
-        return JSONResponse(
-            {"error": "backend_failure", "message": "Unable to load news data."},
-            status_code=500,
+        items, has_more, effective_limit = fetch_news_items(
+            limit=limit, days=days, source=source, tags=tag
         )
-
-    sql = (
-        "SELECT id, dt_pub, title, source, url, summary, pillar_tags "
-        "FROM v_tech100_news "
-        "WHERE dt_pub >= (SYSDATE - 90) "
-        "ORDER BY dt_pub DESC FETCH FIRST 100 ROWS ONLY"
-    )
-
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(sql)
-            columns = [desc[0].lower() for desc in cur.description]
-            items: List[Dict[str, Any]] = []
-            for raw in cur.fetchall():
-                row = {col: _to_plain(val) for col, val in zip(columns, raw)}
-                raw_tags = row.get("pillar_tags") or ""
-                tags: List[str]
-                if isinstance(raw_tags, str):
-                    tags = [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
-                else:
-                    tags = []
-                items.append(
-                    {
-                        "id": row.get("id"),
-                        "title": row.get("title"),
-                        "source": row.get("source"),
-                        "tags": tags,
-                        "summary": row.get("summary"),
-                        "url": row.get("url"),
-                        "published_at": _format_timestamp(row.get("dt_pub")),
-                    }
-                )
     except Exception as exc:
         LOGGER.exception("api_news query failed", exc_info=exc)
         return JSONResponse(
-            {"error": "backend_failure", "message": "Unable to load news data."},
+            {
+                "error": "news_unavailable",
+                "message": "News is temporarily unavailable.",
+            },
             status_code=500,
         )
 
-    return JSONResponse({"items": items}, media_type="application/json")
+    response = {
+        "items": items,
+        "meta": {
+            "count": len(items),
+            "limit": effective_limit,
+            "has_more": has_more,
+        },
+    }
+    return JSONResponse(response, media_type="application/json")
 
 
 @app.post("/ask2")
