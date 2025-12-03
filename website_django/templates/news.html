@@ -56,6 +56,9 @@
                         <a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a>
                     </h3>
                     <p class="muted">{{ article.summary|default_if_none:""|truncatechars:320 }}</p>
+                    <div class="news-card__meta">{{ article.source }} · {{ article.published_at|date:"M j, Y" }}</div>
+                    <h3 class="news-card__title"><a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a></h3>
+                    <p class="muted">{{ article.summary|truncatechars:320 }}</p>
                     {% if article.tags %}
                     <div class="news-card__tags">
                         {% for tag in article.tags %}
