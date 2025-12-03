@@ -93,6 +93,11 @@ def fetch_news(
 ) -> Dict[str, Any]:
     """Fetch news items from VM1 `/api/news` endpoint."""
 
+    # VM1 `/api/news` accepts limit, days, source, and tag (multi) query params
+    # and responds with {"items": [...], "meta": {...}}. Default backend days is 30
+    # when the param is omitted. Direct call from this VM returned 403 "Domain forbidden"
+    # without the correct auth/host headers.
+
     params: Dict[str, Any] = {"limit": limit}
     if source:
         params["source"] = source

@@ -33,8 +33,6 @@ def tech100(request):
 def news(request):
     raw_date_range = (request.GET.get("date_range") or "all").strip()
     date_range = raw_date_range if raw_date_range in {"all", "7", "30", "90"} else "all"
-
-    date_range = request.GET.get("date_range", "") or "30"
     filters = {
         "source": (request.GET.get("source") or "").strip(),
         "tag": (request.GET.get("tag") or "").strip(),

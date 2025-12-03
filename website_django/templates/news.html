@@ -12,56 +12,56 @@
                 <h1>Headlines on ESG transparency and AI governance.</h1>
                 <p class="muted">Curated stories that surface transparency updates, regulatory moves, and accountability signals across the TECH100 cohort.</p>
             </div>
-            <form class="filters" method="get">
-                <label>
-                    Source
-                    <select name="source">
-                        <option value="" {% if not filters.source %}selected{% endif %}>All sources</option>
-                        {% for source in source_options %}
-                        <option value="{{ source }}" {% if source == filters.source %}selected{% endif %}>{{ source }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-                <label>
-                    Tag
-                    <select name="tag">
-                        <option value="" {% if not filters.tag %}selected{% endif %}>All tags</option>
-                        {% for tag in tag_options %}
-                        <option value="{{ tag }}" {% if tag == filters.tag %}selected{% endif %}>{{ tag }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-                <label>
-                    Date range
-                    <select name="date_range">
-                        {% for option in date_range_options %}
-                        <option value="{{ option.value }}" {% if filters.date_range == option.value %}selected{% endif %}>{{ option.label }}</option>
-                        {% endfor %}
-                        <option value="7" {% if filters.date_range == "7" %}selected{% endif %}>Last 7 days</option>
-                        <option value="30" {% if filters.date_range == "30" %}selected{% endif %}>Last 30 days</option>
-                        <option value="90" {% if filters.date_range == "90" %}selected{% endif %}>Last 90 days</option>
-                    </select>
-                </label>
-                <div class="filters__actions">
-                    <button class="btn btn--secondary" type="submit">Apply</button>
-                </div>
-            </form>
+            <div class="filters">
+                <form class="filters" method="get">
+                    <label>
+                        Source
+                        <select name="source">
+                            <option value="" {% if not filters.source %}selected{% endif %}>All sources</option>
+                            {% for source in source_options %}
+                            <option value="{{ source }}" {% if filters.source == source %}selected{% endif %}>{{ source }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>
+                        Tag
+                        <select name="tag">
+                            <option value="" {% if not filters.tag %}selected{% endif %}>All tags</option>
+                            {% for tag in tag_options %}
+                            <option value="{{ tag }}" {% if filters.tag == tag %}selected{% endif %}>{{ tag }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>
+                        Date range
+                        <select name="date_range">
+                            {% for option in date_range_options %}
+                            <option value="{{ option.value }}" {% if filters.date_range == option.value %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <div class="filters__actions">
+                        <button class="btn btn--secondary" type="submit">Apply</button>
+                    </div>
+                </form>
+            </div>
         </div>
         {% if news_error %}
-        <div class="alert alert--warning">News is temporarily unavailable. Please try again in a moment.</div>
+        <div class="alert alert--warning">
+            News is temporarily unavailable. Please try again in a moment.
+        </div>
         {% endif %}
         <div class="cards cards--list" data-news-list>
             {% if articles %}
                 {% for article in articles %}
                 <article class="news-card">
-                    <div class="news-card__meta">{{ article.source }}{% if article.published_at %} · {{ article.published_at|date:"M j, Y" }}{% endif %}</div>
+                    <div class="news-card__meta">
+                        {{ article.source }}{% if article.published_at %} · {{ article.published_at|date:"M j, Y" }}{% endif %}
+                    </div>
                     <h3 class="news-card__title">
                         <a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a>
                     </h3>
                     <p class="muted">{{ article.summary|default_if_none:""|truncatechars:320 }}</p>
-                    <div class="news-card__meta">{{ article.source }} · {{ article.published_at|date:"M j, Y" }}</div>
-                    <h3 class="news-card__title"><a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a></h3>
-                    <p class="muted">{{ article.summary|truncatechars:320 }}</p>
                     {% if article.tags %}
                     <div class="news-card__tags">
                         {% for tag in article.tags %}
@@ -85,7 +85,9 @@
         {% if news_meta.has_more %}
         <div class="load-more">
             <button class="btn btn--secondary" type="button" disabled>Load more (live API coming soon)</button>
-            <p class="muted">Showing {{ news_meta.count|default:articles|length }} of recent stories.</p>
+            <p class="muted">
+                Showing {{ news_meta.count|default:articles|length }} of recent stories.
+            </p>
         </div>
         {% endif %}
     </div>
