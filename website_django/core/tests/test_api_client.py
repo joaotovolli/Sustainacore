@@ -42,6 +42,19 @@ class FetchNewsTests(SimpleTestCase):
         self.assertIsNone(result["error"])
 
     @override_settings(BACKEND_API_BASE="https://vm1.example")
+    def test_fetch_news_omits_days_when_none(self):
+        mock_response = mock.Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {"items": [], "meta": {}}
+
+        with mock.patch("core.api_client.requests.get", return_value=mock_response) as get_mock:
+            api_client.fetch_news(source=None, tag=None, days=None)
+
+        get_mock.assert_called_once_with(
+            "https://vm1.example/api/news", headers=mock.ANY, params={"limit": 20}, timeout=mock.ANY
+        )
+
+    @override_settings(BACKEND_API_BASE="https://vm1.example")
     def test_fetch_news_handles_request_error(self):
         with mock.patch(
             "core.api_client.requests.get", side_effect=requests.RequestException("boom")

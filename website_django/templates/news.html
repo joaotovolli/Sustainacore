@@ -34,6 +34,9 @@
                 <label>
                     Date range
                     <select name="date_range">
+                        {% for option in date_range_options %}
+                        <option value="{{ option.value }}" {% if filters.date_range == option.value %}selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
                         <option value="7" {% if filters.date_range == "7" %}selected{% endif %}>Last 7 days</option>
                         <option value="30" {% if filters.date_range == "30" %}selected{% endif %}>Last 30 days</option>
                         <option value="90" {% if filters.date_range == "90" %}selected{% endif %}>Last 90 days</option>
