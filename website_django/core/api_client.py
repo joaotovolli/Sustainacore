@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any, Dict, List, Optional
+import logging
 
 import requests
 from django.conf import settings
@@ -29,13 +29,11 @@ def _get_json(
 ) -> Dict[str, Any] | List[Dict[str, Any]]:
     url = f"{_base_url()}{path}"
     try:
-        response = requests.get(url, headers=_build_headers(), params=params, timeout=timeout)
-    path: str, timeout: float, params: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any] | List[Dict[str, Any]]:
-    url = f"{_base_url()}{path}"
-    try:
         response = requests.get(
-            url, headers=_build_headers(), params=params, timeout=timeout
+            url,
+            headers=_build_headers(),
+            params=params,
+            timeout=timeout,
         )
         response.raise_for_status()
         return response.json()
@@ -52,33 +50,37 @@ def _extract_items(payload: Dict[str, Any] | List[Dict[str, Any]]) -> List[Dict[
         return payload
 
     if isinstance(payload, dict):
-        if "data" in payload and isinstance(payload["data"], list):
-            return payload["data"]
-        if "items" in payload and isinstance(payload["items"], list):
-            return payload["items"]
+        data = payload.get("data")
+        if isinstance(data, list):
+            return data
+
+        items = payload.get("items")
+        if isinstance(items, list):
+            return items
+
         if "error" in payload:
             return []
+
     return []
 
 
 def _extract_meta(payload: Dict[str, Any] | List[Dict[str, Any]]) -> Dict[str, Any]:
-    if isinstance(payload, dict) and isinstance(payload.get("meta"), dict):
-        return payload["meta"]
+    if isinstance(payload, dict):
+        meta = payload.get("meta")
+        if isinstance(meta, dict):
+            return meta
     return {}
 
 
 def fetch_tech100(timeout: float = 8.0) -> Dict[str, Any]:
-    payload = _get_json("/api/tech100", timeout=timeout, params=None)
+    payload = _get_json("/api/tech100", timeout=timeout)
     if isinstance(payload, dict) and "error" in payload:
-        return {"items": [], "error": payload.get("message", "Unable to load TECH100 data.")}
+        return {
+            "items": [],
+            "error": payload.get("message", "Unable to load TECH100 data."),
+        }
 
     return {"items": _extract_items(payload), "error": None}
-
-
-def _extract_meta(payload: Dict[str, Any] | List[Dict[str, Any]]) -> Dict[str, Any]:
-    if isinstance(payload, dict) and isinstance(payload.get("meta"), dict):
-        return payload["meta"]
-    return {}
 
 
 def fetch_news(
@@ -89,17 +91,8 @@ def fetch_news(
     limit: int = 20,
     timeout: float = 8.0,
 ) -> Dict[str, Any]:
-    """Fetch news items from VM1 `/api/news` endpoint.
+    """Fetch news items from VM1 `/api/news` endpoint."""
 
-    VM1 contract: GET /api/news with params limit (default 20), optional days, source, tag.
-    Response shape: {"items": [...], "meta": {"count", "limit", "has_more"}}.
-    """
-
-    # VM1 /api/news contract (retrieval/app.py + news_service.py):
-    # - GET /api/news
-    # - Query params: limit (1-100, default 20), days (1-365, default 30),
-    #   source (optional string), tag (optional, may repeat)
-    # - Response: {"items": [...], "meta": {"count", "limit", "has_more"}}
     params: Dict[str, Any] = {"limit": limit}
     if source:
         params["source"] = source
@@ -109,10 +102,6 @@ def fetch_news(
         params["days"] = days
 
     payload = _get_json("/api/news", timeout=timeout, params=params)
-    if days:
-        params["days"] = days
-
-    payload = _get_json("/api/news", params=params, timeout=timeout)
     if isinstance(payload, dict) and "error" in payload:
         return {
             "items": [],
