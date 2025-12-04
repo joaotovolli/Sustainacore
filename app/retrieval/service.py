@@ -405,6 +405,7 @@ def run_pipeline(
                 fallback_lines.append(f"- {snippet[:180]}")
         if (not answer_text or answer_text == "I’m sorry, I couldn’t generate an answer from the retrieved facts.") and fallback_lines:
             answer_text = "Here's the best supported summary from SustainaCore:\n" + "\n".join(fallback_lines)
+            answer_text = "Here’s the best supported summary from SustainaCore:\n" + "\n".join(fallback_lines)
     if not answer_text:
         answer_text = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
 

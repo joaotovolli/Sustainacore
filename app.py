@@ -14,7 +14,7 @@ import uuid
 import zlib
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Allow this module to expose the sibling package under app/
 __path__ = [str(Path(__file__).resolve().parent / "app")]
@@ -29,6 +29,7 @@ from app.http.compat import (
     SC_RAG_MIN_SCORE,
     normalize_response,
 )
+from app.news_service import create_curated_news_item, fetch_news_items
 from app.retrieval.adapter import ask2_pipeline_first
 
 from embedder_settings import (
@@ -157,6 +158,7 @@ _READINESS_LOGGER = logging.getLogger("app.readyz")
 _MULTI_LOGGER = logging.getLogger("app.multihit")
 _STARTUP_LOGGER = logging.getLogger("app.startup")
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
+_API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
 _API_AUTH_WARNED = False
 _METRIC_LOGGER = logging.getLogger("app.ask2.metrics")
 if not _METRIC_LOGGER.handlers:
@@ -219,6 +221,11 @@ def _api_auth_optional():
 
     header = request.headers.get("Authorization", "")
     if not isinstance(header, str) or not header.strip():
+def _api_auth_optional_or_unauthorized():
+    """Allow requests without Authorization, but validate when provided."""
+
+    header = request.headers.get("Authorization", "")
+    if not header:
         return None
 
     if _api_auth_guard():
@@ -287,6 +294,44 @@ def _api_coerce_k(value, default: int = 4) -> int:
     if k_val > 10:
         k_val = 10
     return k_val
+
+
+def _format_date(value: Any) -> Optional[str]:
+    """Return a YYYY-MM-DD string for Oracle DATE/TIMESTAMP values."""
+
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    try:
+        return value.strftime("%Y-%m-%d")  # type: ignore[call-arg]
+    except Exception:
+        try:
+            text = str(value).strip()
+            if text:
+                return text.split("T")[0].split(" ")[0]
+        except Exception:
+            pass
+    return None
+
+
+def _format_timestamp(value: Any) -> Optional[str]:
+    """Return an ISO 8601 timestamp string in UTC with Z suffix."""
+
+    dt_value: Optional[datetime] = None
+    if isinstance(value, datetime):
+        dt_value = value
+    elif isinstance(value, date):
+        dt_value = datetime.combine(value, datetime.min.time())
+
+    if dt_value is None:
+        return None
+
+    if dt_value.tzinfo is None:
+        dt_value = dt_value.replace(tzinfo=timezone.utc)
+    else:
+        dt_value = dt_value.astimezone(timezone.utc)
+    return dt_value.isoformat().replace("+00:00", "Z")
 
 
 _ASK2_ENABLE_SMALLTALK = _env_flag("ASK2_ENABLE_SMALLTALK", True)
@@ -1243,6 +1288,17 @@ def api_tech100():
     sql = (
         "SELECT company_name, gics_sector, transparency, governance_structure, "
         "aiges_composite_average, port_date "
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
+            ),
+            500,
+        )
+
+    sql = (
+        "SELECT rank_index, company_name, gics_sector, port_date, "
+        "aiges_composite_average, transparency, governance_structure, "
+        "ethical_principles, regulatory_alignment, stakeholder_engagement "
         "FROM tech11_ai_gov_eth_index "
         "WHERE port_date = (SELECT MAX(port_date) FROM tech11_ai_gov_eth_index) "
         "ORDER BY rank_index FETCH FIRST 100 ROWS ONLY"
@@ -1254,6 +1310,7 @@ def api_tech100():
             cur.execute(sql)
             columns = [desc[0].lower() for desc in cur.description]
             items = []
+            items: List[Dict[str, Any]] = []
             for raw in cur.fetchall():
                 row = {col: _to_plain(val) for col, val in zip(columns, raw)}
                 items.append(
@@ -1264,12 +1321,30 @@ def api_tech100():
                         "overall": row.get("aiges_composite_average"),
                         "transparency": row.get("transparency"),
                         "accountability": row.get("governance_structure"),
+                        "rank": row.get("rank_index"),
+                        "company": row.get("company_name"),
+                        "sector": row.get("gics_sector"),
+                        "region": row.get("region")
+                        or row.get("country")
+                        or row.get("location"),
+                        "overall": row.get("aiges_composite_average"),
+                        "transparency": row.get("transparency"),
+                        "accountability": row.get("governance_structure"),
+                        "ethics": row.get("ethical_principles"),
+                        "regulatory_alignment": row.get("regulatory_alignment"),
+                        "stakeholder": row.get("stakeholder_engagement"),
                         "updated_at": _format_date(row.get("port_date")),
                     }
                 )
     except Exception as exc:
         _LOGGER.exception("api_tech100 query failed", exc_info=exc)
         return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
+            ),
+            500,
+        )
 
     return jsonify({"items": items}), 200
 
@@ -1326,6 +1401,70 @@ def api_news():
     }
 
     return jsonify(payload), 200
+    auth = _api_auth_optional_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    limit = request.args.get("limit", type=int)
+    days = request.args.get("days", type=int)
+    source = request.args.get("source")
+    ticker = request.args.get("ticker")
+    tag_values = request.args.getlist("tag") or request.args.get("tag")
+
+    try:
+        items, has_more, effective_limit = fetch_news_items(
+            limit=limit, days=days, source=source, tags=tag_values, ticker=ticker
+        )
+    except Exception as exc:
+        _LOGGER.exception("api_news query failed", exc_info=exc)
+        return (
+            jsonify(
+                {
+                    "error": "news_unavailable",
+                    "message": "News is temporarily unavailable.",
+                }
+            ),
+            500,
+        )
+
+    return (
+        jsonify(
+            {
+                "items": items,
+                "meta": {
+                    "count": len(items),
+                    "limit": effective_limit,
+                    "has_more": has_more,
+                },
+            }
+        ),
+        200,
+    )
+
+
+@app.route("/api/news/admin/items", methods=["POST"])
+def api_news_admin_items():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    try:
+        payload = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "bad_request", "message": "Invalid JSON payload."}), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({"error": "bad_request", "message": "Payload must be an object."}), 400
+
+    try:
+        item = create_curated_news_item(payload)
+    except ValueError as exc:
+        return jsonify({"error": "bad_request", "message": str(exc)}), 400
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.exception("api_news_admin_items failed", exc_info=exc)
+        return jsonify({"error": "news_unavailable", "message": "Unable to create news item."}), 500
+
+    return jsonify({"item": item}), 201
 
 
 @app.route("/ask", methods=["POST"])

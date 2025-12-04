@@ -1,6 +1,11 @@
 name: Hygiene
 on:
   pull_request:
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - "website_django/templates/**"
+      - "website_django/**/*.md"
   workflow_dispatch:
 jobs:
   spellcheck:
@@ -11,3 +16,11 @@ jobs:
         with:
           files: "**/*.md"
           config: .cspell.json
+      - name: Spellcheck guidance
+        if: failure()
+        run: |
+          {
+            echo "## Spellcheck failed";
+            echo "- Update spelling in touched docs/templates or add terms to .cspell.json (words list).";
+            echo "- Re-run cspell locally with: npx cspell --no-progress \"**/*.md\"";
+          } >> "$GITHUB_STEP_SUMMARY"
