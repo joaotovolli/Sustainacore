@@ -97,7 +97,7 @@ def _build_news_sql(
     ticker: Optional[str],
     limit: int,
 ) -> Tuple[str, Dict[str, Any]]:
-    clauses: List[str] = []
+    clauses: List[str] = ["1 = 1"]
     binds: Dict[str, Any] = {}
 
     if days is not None:
@@ -105,28 +105,31 @@ def _build_news_sql(
         binds["days"] = days
 
     if source:
-        clauses.append("LOWER(source_name) = LOWER(:source)")
+        clauses.append("UPPER(source_name) = UPPER(:source)")
         binds["source"] = source
 
     tag_clauses: List[str] = []
     for idx, tag in enumerate(tags):
         bind_key = f"tag_{idx}"
-        binds[bind_key] = tag.lower()
-        tag_clauses.append(f"INSTR(LOWER(tags), :{bind_key}) > 0")
+        binds[bind_key] = tag
+        tag_clauses.append(f"tags LIKE '%' || :{bind_key} || '%'")
     if tag_clauses:
         clauses.append("(" + " OR ".join(tag_clauses) + ")")
 
     if ticker:
-        binds["ticker"] = ticker.lower()
-        clauses.append("INSTR(LOWER(tickers), :ticker) > 0")
+        binds["ticker"] = ticker
+        clauses.append("tickers LIKE '%' || :ticker || '%'")
 
     where_clause = " WHERE " + " AND ".join(clauses) if clauses else ""
+
+    limit_plus_one = limit + 1
+    binds["limit_plus_one"] = limit_plus_one
     sql = (
         "SELECT item_table, item_id, dt_pub, ticker, title, url, source_name, body, pillar_tags, categories, tags, tickers "
         "FROM v_news_recent"
         f"{where_clause} "
         "ORDER BY dt_pub DESC "
-        f"FETCH FIRST {limit + 1} ROWS ONLY"
+        "FETCH FIRST :limit_plus_one ROWS ONLY"
     )
     return sql, binds
 
@@ -171,15 +174,13 @@ def fetch_news_items(
         tags_list = _parse_list(row.get("tags"))
         categories = _parse_list(row.get("categories"))
         pillar_tags = _parse_list(row.get("pillar_tags"))
-        tickers = _parse_list(row.get("tickers"))
-        ticker = row.get("ticker") or (tickers[0] if tickers else None)
+        tickers = _parse_list(row.get("tickers")) or _parse_list(row.get("ticker"))
+        ticker_value = ", ".join(tickers) if tickers else (row.get("ticker") or row.get("tickers"))
         item_table = row.get("item_table")
         item_id = row.get("item_id")
         items.append(
             {
                 "id": f"{item_table}:{item_id}" if item_table and item_id is not None else row.get("id"),
-                "item_table": item_table,
-                "item_id": item_id,
                 "title": row.get("title"),
                 "source": row.get("source_name") or row.get("source"),
                 "url": row.get("url"),
@@ -187,9 +188,8 @@ def fetch_news_items(
                 "tags": tags_list,
                 "categories": categories,
                 "pillar_tags": pillar_tags,
-                "tickers": tickers,
+                "ticker": ticker_value,
                 "published_at": _format_timestamp(row.get("dt_pub")),
-                "company": ticker,
             }
         )
 
