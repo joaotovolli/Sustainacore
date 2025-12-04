@@ -29,7 +29,7 @@ from app.http.compat import (
     SC_RAG_MIN_SCORE,
     normalize_response,
 )
-from app.news_service import fetch_news_items
+from app.news_service import create_curated_news_item, fetch_news_items
 from app.retrieval.adapter import ask2_pipeline_first
 
 from embedder_settings import (
@@ -201,6 +201,18 @@ def _api_auth_guard():
 
 def _api_auth_or_unauthorized():
     """Return a 401 response when auth fails, or ``None`` when authorized."""
+
+    if _api_auth_guard():
+        return None
+    return jsonify({"error": "unauthorized"}), 401
+
+
+def _api_auth_optional_or_unauthorized():
+    """Allow requests without Authorization, but validate when provided."""
+
+    header = request.headers.get("Authorization", "")
+    if not header:
+        return None
 
     if _api_auth_guard():
         return None
@@ -1276,18 +1288,19 @@ def api_tech100():
 
 @app.route("/api/news", methods=["GET"])
 def api_news():
-    auth = _api_auth_or_unauthorized()
+    auth = _api_auth_optional_or_unauthorized()
     if auth is not None:
         return auth
 
     limit = request.args.get("limit", type=int)
     days = request.args.get("days", type=int)
     source = request.args.get("source")
+    ticker = request.args.get("ticker")
     tag_values = request.args.getlist("tag") or request.args.get("tag")
 
     try:
         items, has_more, effective_limit = fetch_news_items(
-            limit=limit, days=days, source=source, tags=tag_values
+            limit=limit, days=days, source=source, tags=tag_values, ticker=ticker
         )
     except Exception as exc:
         _LOGGER.exception("api_news query failed", exc_info=exc)
@@ -1314,6 +1327,31 @@ def api_news():
         ),
         200,
     )
+
+
+@app.route("/api/news/admin/items", methods=["POST"])
+def api_news_admin_items():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    try:
+        payload = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "bad_request", "message": "Invalid JSON payload."}), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({"error": "bad_request", "message": "Payload must be an object."}), 400
+
+    try:
+        item = create_curated_news_item(payload)
+    except ValueError as exc:
+        return jsonify({"error": "bad_request", "message": str(exc)}), 400
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.exception("api_news_admin_items failed", exc_info=exc)
+        return jsonify({"error": "news_unavailable", "message": "Unable to create news item."}), 500
+
+    return jsonify({"item": item}), 201
 
 
 @app.route("/ask", methods=["POST"])
