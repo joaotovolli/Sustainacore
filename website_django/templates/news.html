@@ -52,7 +52,11 @@
         </div>
         {% endif %}
         <div class="cards cards--list" data-news-list>
-            {% if articles %}
+            {% if news_error %}
+            <article class="news-card">
+                <p class="muted">News is temporarily unavailable. Please try again in a moment.</p>
+            </article>
+            {% elif articles %}
                 {% for article in articles %}
                 <article class="news-card">
                     <div class="news-card__meta">
@@ -62,20 +66,28 @@
                         <a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a>
                     </h3>
                     <p class="muted">{{ article.summary|default_if_none:""|truncatechars:320 }}</p>
-                    {% if article.tags %}
+                    {% if article.tags or article.categories or article.pillar_tags %}
                     <div class="news-card__tags">
-                        {% for tag in article.tags %}
-                        <span class="tag">{{ tag }}</span>
-                        {% endfor %}
+                        {% if article.tags %}
+                            {% for tag in article.tags %}
+                            <span class="tag">{{ tag }}</span>
+                            {% endfor %}
+                        {% endif %}
+                        {% if article.categories %}
+                            {% for category in article.categories %}
+                            <span class="tag tag--muted">{{ category }}</span>
+                            {% endfor %}
+                        {% endif %}
+                        {% if article.pillar_tags %}
+                            {% for pillar_tag in article.pillar_tags %}
+                            <span class="tag tag--muted">{{ pillar_tag }}</span>
+                            {% endfor %}
+                        {% endif %}
                     </div>
                     {% endif %}
                     <a class="text-link" href="{{ article.url }}" target="_blank" rel="noreferrer">View source →</a>
                 </article>
                 {% endfor %}
-            {% elif news_error %}
-                <article class="news-card">
-                    <p class="muted">News is temporarily unavailable. Please try again in a moment.</p>
-                </article>
             {% else %}
                 <article class="news-card">
                     <p class="muted">No results for this filter or date range.</p>

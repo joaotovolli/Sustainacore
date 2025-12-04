@@ -23,6 +23,7 @@ urlpatterns = [
     path("", views.home, name="home"),
     path("tech100/", views.tech100, name="tech100"),
     path("news/", views.news, name="news"),
+    path("news/admin/", views.news_admin, name="news_admin"),
     path("admin/", admin.site.urls),
     path("", include("ask2.urls")),
 ]

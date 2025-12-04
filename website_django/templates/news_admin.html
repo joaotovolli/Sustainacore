@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}News Admin | SustainaCore{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header">
+            <div>
+                <p class="eyebrow">News Admin</p>
+                <h1>Create curated news items</h1>
+                <p class="muted">Push curated headlines to VM1 via the authenticated admin API.</p>
+            </div>
+        </div>
+
+        {% if created_item %}
+        <div class="alert alert--success">
+            News item created{% if created_item.title %}: <strong>{{ created_item.title }}</strong>{% endif %}{% if created_item.source %} ({{ created_item.source }}){% endif %}.
+        </div>
+        {% endif %}
+
+        {% if admin_error %}
+        <div class="alert alert--warning">{{ admin_error }}</div>
+        {% endif %}
+
+        <div class="card">
+            <form method="post" class="form">
+                {% csrf_token %}
+                <div class="form__grid">
+                    <label>
+                        Title *
+                        <input type="text" name="title" value="{{ form_values.title }}" required />
+                    </label>
+                    <label>
+                        URL *
+                        <input type="url" name="url" value="{{ form_values.url }}" required />
+                    </label>
+                    <label>
+                        Source
+                        <input type="text" name="source" value="{{ form_values.source }}" />
+                    </label>
+                    <label>
+                        Summary
+                        <textarea name="summary" rows="3" placeholder="Short abstract">{{ form_values.summary }}</textarea>
+                    </label>
+                    <label>
+                        Published at (ISO 8601)
+                        <input type="text" name="dt_pub" value="{{ form_values.published_at }}" placeholder="2025-01-02T15:04:05Z" />
+                    </label>
+                    <label>
+                        Pillar tags (comma separated)
+                        <input type="text" name="pillar_tags" value="{{ form_values.pillar_tags|join:", " }}" />
+                    </label>
+                    <label>
+                        Categories (comma separated)
+                        <input type="text" name="categories" value="{{ form_values.categories|join:", " }}" />
+                    </label>
+                    <label>
+                        Tags (comma separated)
+                        <input type="text" name="tags" value="{{ form_values.tags|join:", " }}" />
+                    </label>
+                    <label>
+                        Tickers (comma separated)
+                        <input type="text" name="tickers" value="{{ form_values.tickers|join:", " }}" />
+                    </label>
+                </div>
+                <div class="form__actions">
+                    <button class="btn" type="submit">Create news item</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}
