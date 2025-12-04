@@ -30,6 +30,7 @@ def test_news_endpoint_returns_items(monkeypatch):
         days: Any = None,
         source: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        ticker: Optional[str] = None,
     ):
         return (
             [
@@ -70,9 +71,16 @@ def test_news_endpoint_applies_filters(monkeypatch):
         days: Any = None,
         source: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        ticker: Optional[str] = None,
     ):
         captured.update(
-            {"limit": limit, "days": days, "source": source, "tags": tags}
+            {
+                "limit": limit,
+                "days": days,
+                "source": source,
+                "tags": tags,
+                "ticker": ticker,
+            }
         )
         return [], False, 5
 
@@ -81,7 +89,7 @@ def test_news_endpoint_applies_filters(monkeypatch):
 
     client = _client()
     response = client.get(
-        "/api/news?limit=5&days=10&source=Bloomberg&tag=ai&tag=ml",
+        "/api/news?limit=5&days=10&source=Bloomberg&tag=ai&tag=ml&ticker=MSFT",
         headers={"Authorization": f"Bearer {_API_TOKEN}"},
     )
 
@@ -92,3 +100,24 @@ def test_news_endpoint_applies_filters(monkeypatch):
     assert captured["days"] == 10
     assert captured["source"] == "Bloomberg"
     assert captured["tags"] == ["ai", "ml"]
+    assert captured["ticker"] == "MSFT"
+
+
+def test_news_endpoint_allows_public_access(monkeypatch):
+    def fake_fetch_news_items(
+        *,
+        limit: Any = None,
+        days: Any = None,
+        source: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        ticker: Optional[str] = None,
+    ):
+        return [], False, 20
+
+    monkeypatch.setattr(news_service, "fetch_news_items", fake_fetch_news_items)
+    monkeypatch.setattr(retrieval_app, "fetch_news_items", fake_fetch_news_items)
+
+    client = _client()
+    response = client.get("/api/news")
+
+    assert response.status_code == 200

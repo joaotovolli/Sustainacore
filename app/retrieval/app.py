@@ -12,7 +12,7 @@ from anyio import to_thread
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.news_service import fetch_news_items
+from app.news_service import create_curated_news_item, fetch_news_items
 from app.persona import apply_persona
 from app.request_normalizer import BAD_INPUT_ERROR, normalize_request
 
@@ -559,17 +559,20 @@ async def api_tech100(request: Request) -> JSONResponse:
 async def api_news(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
-    days: int = Query(30, ge=1, le=365),
+    days: Optional[int] = Query(None, ge=1, le=365),
     source: Optional[str] = Query(None),
     tag: Optional[List[str]] = Query(None),
+    ticker: Optional[str] = Query(None),
 ) -> JSONResponse:
-    auth = _api_auth_guard(request)
-    if auth is not None:
-        return auth
+    header = request.headers.get("authorization", "")
+    if header:
+        auth = _api_auth_guard(request)
+        if auth is not None:
+            return auth
 
     try:
         items, has_more, effective_limit = fetch_news_items(
-            limit=limit, days=days, source=source, tags=tag
+            limit=limit, days=days, source=source, tags=tag, ticker=ticker
         )
     except Exception as exc:
         LOGGER.exception("api_news query failed", exc_info=exc)
@@ -590,6 +593,42 @@ async def api_news(
         },
     }
     return JSONResponse(response, media_type="application/json")
+
+
+@app.post("/api/news/admin/items")
+async def api_news_admin_items(request: Request) -> JSONResponse:
+    auth = _api_auth_guard(request)
+    if auth is not None:
+        return auth
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"error": "bad_request", "message": "Invalid JSON payload."},
+            status_code=400,
+        )
+
+    if not isinstance(payload, dict):
+        return JSONResponse(
+            {"error": "bad_request", "message": "Payload must be a JSON object."},
+            status_code=400,
+        )
+
+    try:
+        item = create_curated_news_item(payload)
+    except ValueError as exc:
+        return JSONResponse(
+            {"error": "bad_request", "message": str(exc)}, status_code=400
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        LOGGER.exception("api_news_admin_items failed", exc_info=exc)
+        return JSONResponse(
+            {"error": "news_unavailable", "message": "Unable to create news item."},
+            status_code=500,
+        )
+
+    return JSONResponse({"item": item}, status_code=201, media_type="application/json")
 
 
 @app.post("/ask2")
