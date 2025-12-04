@@ -1,8 +1,9 @@
 from datetime import datetime
 
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-from core.api_client import fetch_news, fetch_tech100
+from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
 
 
 def home(request):
@@ -46,6 +47,7 @@ def news(request):
         source=filters["source"] or None,
         tag=filters["tag"] or None,
         days=days,
+        limit=20,
     )
 
     news_items = news_response.get("items", [])
@@ -68,4 +70,68 @@ def news(request):
         ],
     }
     return render(request, "news.html", context)
+
+
+@login_required
+def news_admin(request):
+    default_form_values = {
+        "title": "",
+        "url": "",
+        "source": "",
+        "summary": "",
+        "published_at": "",
+        "pillar_tags": [],
+        "categories": [],
+        "tags": [],
+        "tickers": [],
+    }
+
+    context = {
+        "year": datetime.now().year,
+        "form_values": default_form_values,
+        "created_item": None,
+        "admin_error": None,
+    }
+
+    if request.method == "POST":
+        def parse_list(field_name: str):
+            raw_value = (request.POST.get(field_name) or "").strip()
+            return [part.strip() for part in raw_value.split(",") if part.strip()]
+
+        form_values = {
+            "title": (request.POST.get("title") or "").strip(),
+            "url": (request.POST.get("url") or "").strip(),
+            "source": (request.POST.get("source") or "").strip(),
+            "summary": (request.POST.get("summary") or "").strip(),
+            "published_at": (request.POST.get("dt_pub") or "").strip(),
+            "pillar_tags": parse_list("pillar_tags"),
+            "categories": parse_list("categories"),
+            "tags": parse_list("tags"),
+            "tickers": parse_list("tickers"),
+        }
+
+        context["form_values"] = form_values
+
+        if not form_values["title"] or not form_values["url"]:
+            context["admin_error"] = "Title and URL are required."
+        else:
+            create_response = create_news_item_admin(
+                title=form_values["title"],
+                url=form_values["url"],
+                source=form_values["source"] or None,
+                summary=form_values["summary"] or None,
+                published_at=form_values["published_at"] or None,
+                pillar_tags=form_values["pillar_tags"],
+                categories=form_values["categories"],
+                tags=form_values["tags"],
+                tickers=form_values["tickers"],
+            )
+
+            context["created_item"] = create_response.get("item")
+            context["admin_error"] = create_response.get("error")
+
+        if context["created_item"]:
+            context["form_values"] = default_form_values
+
+    return render(request, "news_admin.html", context)
 

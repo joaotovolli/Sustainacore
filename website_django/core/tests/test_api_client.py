@@ -55,6 +55,22 @@ class FetchNewsTests(SimpleTestCase):
         )
 
     @override_settings(BACKEND_API_BASE="https://vm1.example")
+    def test_fetch_news_includes_ticker(self):
+        mock_response = mock.Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {"items": [], "meta": {"has_more": False}}
+
+        with mock.patch("core.api_client.requests.get", return_value=mock_response) as get_mock:
+            api_client.fetch_news(ticker="AAPL", limit=5)
+
+        get_mock.assert_called_once_with(
+            "https://vm1.example/api/news",
+            headers=mock.ANY,
+            params={"limit": 5, "ticker": "AAPL"},
+            timeout=mock.ANY,
+        )
+
+    @override_settings(BACKEND_API_BASE="https://vm1.example")
     def test_fetch_news_handles_request_error(self):
         with mock.patch(
             "core.api_client.requests.get", side_effect=requests.RequestException("boom")
@@ -63,4 +79,41 @@ class FetchNewsTests(SimpleTestCase):
 
         self.assertEqual(result["items"], [])
         self.assertEqual(result["meta"], {})
+        self.assertIsNotNone(result["error"])
+
+
+class CreateNewsItemAdminTests(SimpleTestCase):
+    @override_settings(BACKEND_API_BASE="https://vm1.example", BACKEND_API_TOKEN="token")
+    def test_create_news_item_admin_success(self):
+        response_payload = {"item": {"id": "abc", "title": "New item"}}
+
+        mock_response = mock.Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = response_payload
+
+        with mock.patch("core.api_client.requests.post", return_value=mock_response) as post_mock:
+            result = api_client.create_news_item_admin(
+                title="New item",
+                url="https://example.com/news",
+                source="Curated",
+                tags=["tag1"],
+            )
+
+        post_mock.assert_called_once_with(
+            "https://vm1.example/api/news/admin/items",
+            headers=mock.ANY,
+            json={"title": "New item", "url": "https://example.com/news", "source": "Curated", "tags": ["tag1"]},
+            timeout=mock.ANY,
+        )
+        self.assertEqual(result["item"], response_payload["item"])
+        self.assertIsNone(result["error"])
+
+    @override_settings(BACKEND_API_BASE="https://vm1.example")
+    def test_create_news_item_admin_handles_error(self):
+        with mock.patch(
+            "core.api_client.requests.post", side_effect=requests.RequestException("fail")
+        ):
+            result = api_client.create_news_item_admin(title="Bad", url="https://example.com")
+
+        self.assertIsNone(result["item"])
         self.assertIsNotNone(result["error"])
