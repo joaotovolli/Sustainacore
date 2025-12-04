@@ -157,6 +157,7 @@ _LOGGER = logging.getLogger("app.ask2")
 _READINESS_LOGGER = logging.getLogger("app.readyz")
 _MULTI_LOGGER = logging.getLogger("app.multihit")
 _STARTUP_LOGGER = logging.getLogger("app.startup")
+_API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
 _API_AUTH_WARNED = False
 _METRIC_LOGGER = logging.getLogger("app.ask2.metrics")
@@ -207,6 +208,19 @@ def _api_auth_or_unauthorized():
     return jsonify({"error": "unauthorized"}), 401
 
 
+def _api_auth_optional():
+    """
+    Return a 401 only when an Authorization header is provided but invalid.
+
+    When callers omit Authorization entirely, allow the request to proceed so
+    token wiring is optional for read-only endpoints.
+    """
+
+    if not _API_AUTH_TOKEN:
+        return None
+
+    header = request.headers.get("Authorization", "")
+    if not isinstance(header, str) or not header.strip():
 def _api_auth_optional_or_unauthorized():
     """Allow requests without Authorization, but validate when provided."""
 
@@ -217,6 +231,42 @@ def _api_auth_optional_or_unauthorized():
     if _api_auth_guard():
         return None
     return jsonify({"error": "unauthorized"}), 401
+
+
+def _format_date(value: Any):
+    """Normalize Oracle date-like values to ISO date strings."""
+
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        candidate = value.strip()
+        return candidate or None
+    return None
+
+
+def _format_timestamp(value: Any):
+    """Normalize Oracle timestamp-like values to ISO 8601 strings in UTC."""
+
+    if isinstance(value, datetime):
+        ts = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        ts = datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+        return ts.isoformat().replace("+00:00", "Z")
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            return candidate
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return None
 
 
 def _api_coerce_k(value, default: int = 4) -> int:
@@ -1233,6 +1283,11 @@ def api_tech100():
         from db_helper import _to_plain, get_connection  # type: ignore
     except Exception as exc:
         _LOGGER.exception("api_tech100 helper import failed", exc_info=exc)
+        return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
+
+    sql = (
+        "SELECT company_name, gics_sector, transparency, governance_structure, "
+        "aiges_composite_average, port_date "
         return (
             jsonify(
                 {"error": "backend_failure", "message": "Unable to load TECH100 data."}
@@ -1254,11 +1309,18 @@ def api_tech100():
             cur = conn.cursor()
             cur.execute(sql)
             columns = [desc[0].lower() for desc in cur.description]
+            items = []
             items: List[Dict[str, Any]] = []
             for raw in cur.fetchall():
                 row = {col: _to_plain(val) for col, val in zip(columns, raw)}
                 items.append(
                     {
+                        "company": row.get("company_name"),
+                        "sector": row.get("gics_sector"),
+                        "region": None,
+                        "overall": row.get("aiges_composite_average"),
+                        "transparency": row.get("transparency"),
+                        "accountability": row.get("governance_structure"),
                         "rank": row.get("rank_index"),
                         "company": row.get("company_name"),
                         "sector": row.get("gics_sector"),
@@ -1276,6 +1338,7 @@ def api_tech100():
                 )
     except Exception as exc:
         _LOGGER.exception("api_tech100 query failed", exc_info=exc)
+        return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
         return (
             jsonify(
                 {"error": "backend_failure", "message": "Unable to load TECH100 data."}
@@ -1288,6 +1351,56 @@ def api_tech100():
 
 @app.route("/api/news", methods=["GET"])
 def api_news():
+    auth = _api_auth_optional()
+    if auth is not None:
+        return auth
+
+    try:
+        from app.news_service import fetch_news_items  # type: ignore
+    except Exception as exc:
+        _LOGGER.exception("api_news helper import failed", exc_info=exc)
+        return jsonify({"error": "backend_failure", "message": "Unable to load news data."}), 500
+
+    args = request.args or {}
+    raw_limit = args.get("limit")
+    try:
+        limit = int(raw_limit) if raw_limit is not None else None
+    except (TypeError, ValueError):
+        limit = None
+
+    raw_days = args.get("days")
+    try:
+        days = int(raw_days) if raw_days is not None else None
+    except (TypeError, ValueError):
+        days = None
+
+    source = args.get("source") or None
+    tag_value = args.get("tag")
+    tags = [tag_value] if tag_value else []
+    ticker = args.get("ticker") or None
+
+    try:
+        items, has_more, effective_limit = fetch_news_items(
+            limit=limit,
+            days=days,
+            source=source,
+            tags=tags,
+            ticker=ticker,
+        )
+    except Exception as exc:
+        _LOGGER.exception("api_news query failed", exc_info=exc)
+        return jsonify({"error": "backend_failure", "message": "Unable to load news data."}), 500
+
+    payload = {
+        "items": items,
+        "meta": {
+            "count": len(items),
+            "limit": effective_limit,
+            "has_more": has_more,
+        },
+    }
+
+    return jsonify(payload), 200
     auth = _api_auth_optional_or_unauthorized()
     if auth is not None:
         return auth
