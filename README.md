@@ -79,10 +79,10 @@ The helper writes `/etc/systemd/system/sustainacore-ai.service.d/15-persona.conf
 - `SIMILARITY_FLOOR` – Existing retrieval floor reused by the clarifier guard.
 
 ## Stack
-- **Runtime:** Python 3.11, FastAPI, Uvicorn, WSGI fallbacks.
+- **Runtime:** Python 3.11, FastAPI, Uvicorn, WSGI fallbacks; Django public site on VM2 served via Nginx → Gunicorn at <https://sustainacore.org>.
 - **Storage:** Oracle APEX workspace, Oracle DB schemas, vector stores for embeddings.
 - **Tooling:** GitHub Actions, pytest, cspell, Terraform/VM scripts under `infra/`.
-- **Integrations:** Oracle APEX app export (`app/apex/f101_latest.sql`) aligned with the live workspace.
+- **Integrations:** Oracle APEX app export (`app/apex/f101_latest.sql`) aligned with the live workspace and used for secondary/administrative flows (not the primary public front-end).
 
 ## Screenshots & Demos
 > Coming soon. Drop exports under `docs/images/` and update the placeholders below.
