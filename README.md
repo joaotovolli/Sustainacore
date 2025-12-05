@@ -5,7 +5,7 @@
 ![Contributions](https://img.shields.io/badge/contributions-welcome-brightgreen)
 
 ## Executive Summary
-Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, APEX integrations, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments. 
+Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, the Django public site served from VM2 (Nginx → Gunicorn), APEX integrations used for secondary/admin flows, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments.
 
 ## Quick Start
 1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`.
@@ -17,6 +17,11 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 ## VM1/VM2 architecture at a glance
 - **VM1 (API/RAG/Oracle):** Hosts the Flask/Gunicorn API with `/api/health` and `/api/ask2`. Ask2 now runs a Gemini-first pipeline (intent → planner → Oracle retriever → composer) that returns natural-language answers plus sources. Planner JSON stays in the `meta` block for debugging; user-facing fields (`answer`, `reply`, `message`, `content`) are text-only fallbacks when no facts are found.
 - **VM2 (Django website):** Runs the public site in `website_django/` and proxies chat requests to VM1. `/ask2/` serves a minimal HTML page that POSTs to `/ask2/api/`, which in turn forwards `{ "user_message": "..." }` to VM1 with an optional bearer token. Backend connectivity is controlled by `BACKEND_API_BASE` (default `http://10.0.0.120:8080`) and `BACKEND_API_TOKEN` from the environment.
+
+**Public site routing:**
+- `sustainacore.org` DNS is managed in IONOS and points to VM2.
+- VM2 terminates HTTPS with Nginx and proxies to Gunicorn → Django for the main site.
+- Oracle APEX remains available for administrative/legacy workflows only; it is not the primary front-end.
 
 ## VM2 Django Website & Deployment
 - **What VM2 is:** VM2 runs the public Django website for Sustainacore, served by Gunicorn + Nginx. The repository is checked out on VM2 at `/opt/code/Sustainacore`, and the Django project lives in `website_django/`.
