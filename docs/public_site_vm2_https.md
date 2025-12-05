@@ -4,6 +4,11 @@
 - Main public site: Django app on VM2 behind Nginx → Gunicorn at https://sustainacore.org.
 - APEX is kept for secondary/admin use only; it is not the primary public front-end.
 
+**Request path:**
+- `sustainacore.org` and `www.sustainacore.org` resolve via IONOS DNS to the VM2 public IP.
+- Nginx on VM2 terminates TLS and reverse-proxies to Gunicorn on `127.0.0.1:8000`, which runs the Django site.
+- Chat requests from the site continue to proxy to VM1 for Ask2 responses; the browser never talks to VM1 directly.
+
 ## DNS
 - IONOS A records for `@` and `www` both point to `141.147.76.55` (VM2).
 
