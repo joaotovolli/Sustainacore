@@ -1,9 +1,57 @@
 from datetime import datetime
+import csv
+from typing import Dict, Iterable, List
 
 from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse
 from django.shortcuts import render
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+
+
+def _format_port_weight(value) -> str:
+    if value is None or value == "":
+        return ""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    decimals = 1 if abs(num) >= 10 else 2
+    return f"{num:.{decimals}f}%"
+
+
+def _format_score(value) -> str:
+    if value is None or value == "":
+        return ""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{num:.2f}"
+
+
+def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
+    filtered: List[Dict] = []
+    search_term = (filters.get("q") or filters.get("search") or "").lower()
+
+    for company in companies:
+        port_date = (company.get("port_date") or "").strip()
+        if filters.get("port_date") and port_date != filters["port_date"]:
+            continue
+
+        sector_value = (company.get("gics_sector") or company.get("sector") or "").strip()
+        if filters.get("sector") and sector_value != filters["sector"]:
+            continue
+
+        if search_term:
+            company_name = (company.get("company_name") or "").lower()
+            ticker = (company.get("ticker") or "").lower()
+            if search_term not in company_name and search_term not in ticker:
+                continue
+
+        filtered.append(company)
+
+    return filtered
 
 
 def home(request):
@@ -22,13 +70,96 @@ def home(request):
 
 
 def tech100(request):
+    filters = {
+        "port_date": (request.GET.get("port_date") or "").strip(),
+        "sector": (request.GET.get("sector") or "").strip(),
+        "q": (request.GET.get("q") or request.GET.get("search") or "").strip(),
+    }
+
     tech100_response = fetch_tech100()
+
+    companies = tech100_response.get("items", [])
+    filtered_companies = _filter_companies(companies, filters)
+    port_date_options = sorted(
+        {item.get("port_date") for item in companies if item.get("port_date")}, reverse=True
+    )
+    sector_options = sorted(
+        {
+            item.get("gics_sector") or item.get("sector")
+            for item in companies
+            if item.get("gics_sector") or item.get("sector")
+        }
+    )
+
     context = {
         "year": datetime.now().year,
-        "companies": tech100_response.get("items", []),
+        "companies": filtered_companies,
+        "all_companies": companies,
         "tech100_error": tech100_response.get("error"),
+        "port_date_options": port_date_options,
+        "sector_options": sector_options,
+        "filters": filters,
+        "visible_count": len(filtered_companies),
+        "total_count": len(companies),
     }
     return render(request, "tech100.html", context)
+
+
+def tech100_export(request):
+    filters = {
+        "port_date": (request.GET.get("port_date") or "").strip(),
+        "sector": (request.GET.get("sector") or "").strip(),
+        "q": (request.GET.get("q") or request.GET.get("search") or "").strip(),
+    }
+
+    tech100_response = fetch_tech100()
+
+    if tech100_response.get("error"):
+        return HttpResponse("Unable to export TECH100 data right now.", status=502)
+
+    companies = _filter_companies(tech100_response.get("items", []), filters)
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = "attachment; filename=tech100.csv"
+
+    headers = [
+        "PORT_DATE",
+        "RANK_INDEX",
+        "COMPANY_NAME",
+        "TICKER",
+        "PORT_WEIGHT",
+        "GICS_SECTOR",
+        "TRANSPARENCY",
+        "ETHICAL_PRINCIPLES",
+        "GOVERNANCE_STRUCTURE",
+        "REGULATORY_ALIGNMENT",
+        "STAKEHOLDER_ENGAGEMENT",
+        "AIGES_COMPOSITE_AVERAGE",
+        "SUMMARY",
+    ]
+
+    writer = csv.writer(response)
+    writer.writerow(headers)
+    for company in companies:
+        writer.writerow(
+            [
+                (company.get("port_date") or ""),
+                (company.get("rank_index") or ""),
+                (company.get("company_name") or ""),
+                (company.get("ticker") or ""),
+                _format_port_weight(company.get("port_weight")),
+                (company.get("gics_sector") or company.get("sector") or ""),
+                _format_score(company.get("transparency")),
+                _format_score(company.get("ethical_principles")),
+                _format_score(company.get("governance_structure")),
+                _format_score(company.get("regulatory_alignment")),
+                _format_score(company.get("stakeholder_engagement")),
+                _format_score(company.get("aiges_composite_average")),
+                (company.get("summary") or ""),
+            ]
+        )
+
+    return response
 
 
 def news(request):
