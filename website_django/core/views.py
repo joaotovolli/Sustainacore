@@ -66,6 +66,32 @@ def _parse_port_date(value):
         return None
 
 
+def _company_history_key(company: Dict) -> str:
+    for key_field in ("ticker", "company_name"):
+        key_value = str(company.get(key_field) or "").strip()
+        if key_value:
+            return key_value.lower()
+    return ""
+
+
+def _build_company_history(companies: Iterable[Dict]) -> Dict[str, List[Dict]]:
+    history: Dict[str, List[Dict]] = {}
+    for company in companies:
+        key = _company_history_key(company)
+        if not key:
+            continue
+        history.setdefault(key, []).append(dict(company))
+
+    def _history_sort(item: Dict):
+        parsed_date = _parse_port_date(item.get("port_date"))
+        return parsed_date or datetime.min
+
+    for entries in history.values():
+        entries.sort(key=_history_sort, reverse=True)
+
+    return history
+
+
 def home(request):
     tech100_response = fetch_tech100()
     news_response = fetch_news()
@@ -82,14 +108,22 @@ def home(request):
 
 
 def tech100(request):
+    search_term = (request.GET.get("q") or request.GET.get("search") or "").strip()
     filters = {
         "port_date": (request.GET.get("port_date") or "").strip(),
         "sector": (request.GET.get("sector") or "").strip(),
-        "q": (request.GET.get("q") or request.GET.get("search") or "").strip(),
+        "q": search_term,
+        "search": search_term,
     }
 
     tech100_response = fetch_tech100()
     companies = tech100_response.get("items", []) or []
+    for company in companies:
+        if "sector" not in company:
+            company["sector"] = company.get("gics_sector")
+        if "gics_sector" not in company:
+            company["gics_sector"] = company.get("sector")
+    company_history = _build_company_history(companies)
     filtered_companies = _filter_companies(companies, filters)
 
     def sort_key(item):
@@ -103,6 +137,9 @@ def tech100(request):
         return (date_sort, rank_sort)
 
     filtered_companies = sorted(filtered_companies, key=sort_key)
+    for company in filtered_companies:
+        key = _company_history_key(company)
+        company["history"] = company_history.get(key, []) if key else []
 
     port_date_options = sorted(
         {item.get("port_date") for item in companies if item.get("port_date")}, reverse=True
@@ -124,10 +161,12 @@ def tech100(request):
 
 
 def tech100_export(request):
+    search_term = (request.GET.get("q") or request.GET.get("search") or "").strip()
     filters = {
         "port_date": (request.GET.get("port_date") or "").strip(),
         "sector": (request.GET.get("sector") or "").strip(),
-        "q": (request.GET.get("q") or request.GET.get("search") or "").strip(),
+        "q": search_term,
+        "search": search_term,
     }
 
     tech100_response = fetch_tech100()
