@@ -42,6 +42,10 @@ class Tech100ViewTests(SimpleTestCase):
                     "gics_sector": "Software",
                     "aiges_composite_average": 80,
                     "transparency": 70,
+                    "ethical_principles": 65,
+                    "governance_structure": 60,
+                    "regulatory_alignment": 55,
+                    "stakeholder_engagement": 50,
                 },
                 {
                     "port_date": "2025-01-01",
@@ -51,6 +55,11 @@ class Tech100ViewTests(SimpleTestCase):
                     "gics_sector": "Software",
                     "aiges_composite_average": 95,
                     "transparency": 90,
+                    "ethical_principles": 85,
+                    "governance_structure": 80,
+                    "regulatory_alignment": 75,
+                    "stakeholder_engagement": 70,
+                    "summary": "Latest snapshot summary",
                 },
             ],
             "error": None,
@@ -72,6 +81,9 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertIn("2025-01-01", content)
         self.assertIn("2024-12-01", content)
         self.assertIn("95.0", content)
+        self.assertIn("90.0", content)
+        self.assertIn("85.0", content)
+        self.assertIn("80.0", content)
 
 
 class Tech100ExportTests(SimpleTestCase):
