@@ -102,11 +102,39 @@ def _extract_aiges_score(row: Dict):
         "aiges_composite",
         "aiges_composite_score",
         "aiges_composite_index",
+        "overall",
     ):
         value = row.get(key)
         if value not in ("", None):
             return value
     return None
+
+
+def _first_value(row: Dict, keys):
+    for key in keys:
+        value = row.get(key)
+        if value not in ("", None):
+            return value
+    return None
+
+
+def _normalize_row(raw: Dict) -> Dict:
+    row = dict(raw)
+    row["company_name"] = row.get("company_name") or row.get("company")
+    row["ticker"] = row.get("ticker") or row.get("symbol")
+    row["gics_sector"] = row.get("gics_sector") or row.get("sector")
+    row["sector"] = row.get("sector") or row.get("gics_sector")
+    row["port_date"] = row.get("port_date") or row.get("updated_at") or row.get("as_of_date")
+    row["rank_index"] = row.get("rank_index") or row.get("rank")
+    row["transparency"] = _first_value(row, ["transparency", "transparency_score"])
+    row["ethical_principles"] = _first_value(row, ["ethical_principles", "ethics", "ethics_score"])
+    row["governance_structure"] = _first_value(
+        row, ["governance_structure", "accountability", "accountability_score", "governance"]
+    )
+    row["regulatory_alignment"] = _first_value(row, ["regulatory_alignment", "regulation_alignment", "regulatory"])
+    row["stakeholder_engagement"] = _first_value(row, ["stakeholder_engagement", "stakeholder"])
+    row["aiges_composite_average"] = _extract_aiges_score(row)
+    return row
 
 
 def home(request):
@@ -134,12 +162,20 @@ def tech100(request):
     }
 
     tech100_response = fetch_tech100()
-    companies = tech100_response.get("items", []) or []
-    for company in companies:
-        if "sector" not in company:
-            company["sector"] = company.get("gics_sector")
-        if "gics_sector" not in company:
-            company["gics_sector"] = company.get("sector")
+    raw_companies = tech100_response.get("items", []) or []
+    companies = [_normalize_row(c) for c in raw_companies if isinstance(c, dict)]
+
+    sample_row = next((item for item in companies if item), None)
+    if sample_row:
+        logger.info("TECH100 raw sample keys: %s", sorted(sample_row.keys()))
+        logger.info(
+            "TECH100 sample company: name=%s ticker=%s port_date=%s rank=%s aiges=%s",
+            sample_row.get("company_name"),
+            sample_row.get("ticker"),
+            sample_row.get("port_date"),
+            sample_row.get("rank_index"),
+            sample_row.get("aiges_composite_average"),
+        )
 
     filtered_rows = _filter_companies(companies, filters)
 
