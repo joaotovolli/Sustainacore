@@ -68,7 +68,6 @@
 
     {% if tech100_error %}
       <div class="alert alert--warning">
-        Live TECH100 data is temporarily unavailable; please try again later.</div>
         Live TECH100 data is temporarily unavailable; please try again later.
       </div>
     {% endif %}
@@ -84,22 +83,14 @@
       </div>
 
       <div class="table-wrapper">
-        <table class="table table--wide" aria-label="TECH100 index">
+        <table id="tech100-data" class="table table--wide" aria-label="TECH100 index">
           <thead>
             <tr>
               <th>Port Date</th>
               <th class="text-right">Rank Index</th>
-              <th>Company Name</th>
-              <th>Ticker</th>
-              <th class="text-right">Port Weight</th>
-              <th>Gics Sector</th>
-              <th class="text-right">Transparency</th>
-              <th class="text-right">Ethical Principles</th>
-              <th class="text-right">Governance Structure</th>
-              <th class="text-right">Regulatory Alignment</th>
-              <th class="text-right">Stakeholder Engagement</th>
+              <th>Company</th>
               <th class="text-right">AIGES Composite</th>
-              <th>Summary</th>
+              <th>Details</th>
             </tr>
           </thead>
           <tbody>
@@ -107,37 +98,123 @@
               {% for c in companies %}
                 <tr>
                   <td>{{ c.port_date }}</td>
-                  <td class="text-right">{{ c.rank_index }}</td>
-                  <td>{{ c.company_name }}</td>
-                  <td>{{ c.ticker }}</td>
-                  <td class="text-right">
-                    {% if c.port_weight %}{{ c.port_weight|floatformat:2 }}%{% endif %}
-                  </td>
-                  <td>{{ c.gics_sector|default:c.sector }}</td>
-                  <td class="text-right">
-                    {% if c.transparency %}{{ c.transparency|floatformat:1 }}{% endif %}
-                  </td>
-                  <td class="text-right">
-                    {% if c.ethical_principles %}{{ c.ethical_principles|floatformat:1 }}{% endif %}
+                  <td class="text-right">{{ c.rank_index|default:"—" }}</td>
+                  <td>
+                    <div>
+                      <div style="font-weight: 700;">{{ c.company_name|default:"—" }}</div>
+                      {% if c.ticker %}
+                        <div class="muted" style="font-size: 0.9rem;">{{ c.ticker }}</div>
+                      {% endif %}
+                    </div>
                   </td>
                   <td class="text-right">
-                    {% if c.governance_structure %}{{ c.governance_structure|floatformat:1 }}{% endif %}
+                    {% if c.aiges_composite_average or c.aiges_composite_average == 0 %}
+                      {{ c.aiges_composite_average|floatformat:1 }}
+                    {% else %}
+                      —
+                    {% endif %}
                   </td>
-                  <td class="text-right">
-                    {% if c.regulatory_alignment %}{{ c.regulatory_alignment|floatformat:1 }}{% endif %}
+                  <td>
+                    <details class="tech100-details">
+                      <summary class="text-link">View details</summary>
+                      <div class="card card--lined tech100-details__panel" style="margin-top: 0.5rem;">
+                        <div style="margin-bottom: 0.75rem;">
+                          <h3 class="h5" style="margin: 0 0 0.25rem;">
+                            {{ c.company_name|default:"Company" }}
+                            {% if c.ticker %}
+                              <span class="muted">({{ c.ticker }})</span>
+                            {% endif %}
+                          </h3>
+                          <p class="muted" style="margin: 0 0 0.65rem;">
+                            Sector: {{ c.gics_sector|default:c.sector|default:"—" }}
+                          </p>
+                          <p style="margin: 0;">
+                            {% if c.summary %}
+                              {{ c.summary }}
+                            {% else %}
+                              <span class="muted">No summary available yet.</span>
+                            {% endif %}
+                          </p>
+                        </div>
+
+                        {% with history=c.history %}
+                          {% if history %}
+                            <div class="table-wrapper">
+                              <table class="table table--wide" aria-label="Historical AIGES data for {{ c.company_name }}">
+                                <thead>
+                                  <tr>
+                                    <th>Port Date</th>
+                                    <th class="text-right">Transparency</th>
+                                    <th class="text-right">Ethical Principles</th>
+                                    <th class="text-right">Governance Structure</th>
+                                    <th class="text-right">Regulatory Alignment</th>
+                                    <th class="text-right">Stakeholder Engagement</th>
+                                    <th class="text-right">AIGES Composite</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {% for h in history %}
+                                    <tr>
+                                      <td>{{ h.port_date|default:"—" }}</td>
+                                      <td class="text-right">
+                                        {% if h.transparency or h.transparency == 0 %}
+                                          {{ h.transparency|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.ethical_principles or h.ethical_principles == 0 %}
+                                          {{ h.ethical_principles|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.governance_structure or h.governance_structure == 0 %}
+                                          {{ h.governance_structure|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.regulatory_alignment or h.regulatory_alignment == 0 %}
+                                          {{ h.regulatory_alignment|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.stakeholder_engagement or h.stakeholder_engagement == 0 %}
+                                          {{ h.stakeholder_engagement|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.aiges_composite_average or h.aiges_composite_average == 0 %}
+                                          {{ h.aiges_composite_average|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                    </tr>
+                                  {% endfor %}
+                                </tbody>
+                              </table>
+                            </div>
+                          {% else %}
+                            <p class="muted" style="margin: 0;">Historical AIGES data not available yet.</p>
+                          {% endif %}
+                        {% endwith %}
+                      </div>
+                    </details>
                   </td>
-                  <td class="text-right">
-                    {% if c.stakeholder_engagement %}{{ c.stakeholder_engagement|floatformat:1 }}{% endif %}
-                  </td>
-                  <td class="text-right">
-                    {% if c.aiges_composite_average %}{{ c.aiges_composite_average|floatformat:1 }}{% endif %}
-                  </td>
-                  <td>{{ c.summary|default:"—"|truncatechars:220 }}</td>
                 </tr>
               {% endfor %}
             {% else %}
               <tr>
-                <td colspan="13" class="muted">Data currently unavailable.</td>
+                <td colspan="5" class="muted">Data currently unavailable.</td>
               </tr>
             {% endif %}
           </tbody>
