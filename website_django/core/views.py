@@ -171,6 +171,11 @@ def tech100(request):
             "gics_sector": latest.get("gics_sector") or latest.get("sector"),
             "sector": latest.get("sector") or latest.get("gics_sector"),
             "summary": latest.get("summary"),
+            "transparency": latest.get("transparency"),
+            "ethical_principles": latest.get("ethical_principles"),
+            "governance_structure": latest.get("governance_structure"),
+            "regulatory_alignment": latest.get("regulatory_alignment"),
+            "stakeholder_engagement": latest.get("stakeholder_engagement"),
             "aiges_composite_average": aiges_score,
         }
         company_summary["history"] = [

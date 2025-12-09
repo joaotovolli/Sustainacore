@@ -101,10 +101,10 @@
                   <td class="text-right">{{ c.rank_index|default:"—" }}</td>
                   <td>
                     <div>
-                      <div style="font-weight: 700;">{{ c.company_name|default:"—" }}</div>
-                      {% if c.ticker %}
-                        <div class="muted" style="font-size: 0.9rem;">{{ c.ticker }}</div>
-                      {% endif %}
+                      <div style="font-weight: 700;">
+                        {{ c.company_name|default:"—" }}
+                        {% if c.ticker %}<span class="muted" style="font-weight: 500;">({{ c.ticker }})</span>{% endif %}
+                      </div>
                     </div>
                   </td>
                   <td class="text-right">
@@ -119,93 +119,83 @@
                       <summary class="text-link">View details</summary>
                       <div class="card card--lined tech100-details__panel" style="margin-top: 0.5rem;">
                         <div style="margin-bottom: 0.75rem;">
-                          <h3 class="h5" style="margin: 0 0 0.25rem;">
-                            {{ c.company_name|default:"Company" }}
+                          <div style="margin-bottom: 0.35rem;">
+                            <strong>{{ c.company_name|default:"Company" }}</strong>
                             {% if c.ticker %}
-                              <span class="muted">({{ c.ticker }})</span>
+                              <div class="muted">{{ c.ticker }}</div>
                             {% endif %}
-                          </h3>
-                          <p class="muted" style="margin: 0 0 0.65rem;">
-                            Sector: {{ c.gics_sector|default:c.sector|default:"—" }}
-                          </p>
-                          <p style="margin: 0;">
-                            {% if c.summary %}
-                              {{ c.summary }}
-                            {% else %}
-                              <span class="muted">No summary available yet.</span>
-                            {% endif %}
-                          </p>
+                          </div>
+                          {% if c.gics_sector or c.sector %}
+                            <div class="muted" style="margin-bottom: 0.35rem;">
+                              Sector: {{ c.gics_sector|default:c.sector }}
+                            </div>
+                          {% endif %}
+                          {% if c.summary %}
+                            <p style="margin: 0;">{{ c.summary }}</p>
+                          {% else %}
+                            <p class="muted" style="margin: 0;">No summary available yet.</p>
+                          {% endif %}
                         </div>
 
                         {% with history=c.history %}
-                          {% if history %}
-                            <div class="table-wrapper">
-                              <table class="table table--wide" aria-label="Historical AIGES data for {{ c.company_name }}">
-                                <thead>
-                                  <tr>
-                                    <th>Port Date</th>
-                                    <th class="text-right">Transparency</th>
-                                    <th class="text-right">Ethical Principles</th>
-                                    <th class="text-right">Governance Structure</th>
-                                    <th class="text-right">Regulatory Alignment</th>
-                                    <th class="text-right">Stakeholder Engagement</th>
-                                    <th class="text-right">AIGES Composite</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
+                          <div class="table-wrapper">
+                            <table class="table table--wide" aria-label="Historical AIGES data for {{ c.company_name }}">
+                              <thead>
+                                <tr>
+                                  <th>Port Date</th>
+                                  <th class="text-right">Transparency</th>
+                                  <th class="text-right">Ethical Principles</th>
+                                  <th class="text-right">Governance Structure</th>
+                                  <th class="text-right">Regulatory Alignment</th>
+                                  <th class="text-right">Stakeholder Engagement</th>
+                                  <th class="text-right">AIGES Composite</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {% if history %}
                                   {% for h in history %}
                                     <tr>
                                       <td>{{ h.port_date|default:"—" }}</td>
                                       <td class="text-right">
                                         {% if h.transparency or h.transparency == 0 %}
                                           {{ h.transparency|floatformat:1 }}
-                                        {% else %}
-                                          —
                                         {% endif %}
                                       </td>
                                       <td class="text-right">
                                         {% if h.ethical_principles or h.ethical_principles == 0 %}
                                           {{ h.ethical_principles|floatformat:1 }}
-                                        {% else %}
-                                          —
                                         {% endif %}
                                       </td>
                                       <td class="text-right">
                                         {% if h.governance_structure or h.governance_structure == 0 %}
                                           {{ h.governance_structure|floatformat:1 }}
-                                        {% else %}
-                                          —
                                         {% endif %}
                                       </td>
                                       <td class="text-right">
                                         {% if h.regulatory_alignment or h.regulatory_alignment == 0 %}
                                           {{ h.regulatory_alignment|floatformat:1 }}
-                                        {% else %}
-                                          —
                                         {% endif %}
                                       </td>
                                       <td class="text-right">
                                         {% if h.stakeholder_engagement or h.stakeholder_engagement == 0 %}
                                           {{ h.stakeholder_engagement|floatformat:1 }}
-                                        {% else %}
-                                          —
                                         {% endif %}
                                       </td>
                                       <td class="text-right">
                                         {% if h.aiges_composite_average or h.aiges_composite_average == 0 %}
                                           {{ h.aiges_composite_average|floatformat:1 }}
-                                        {% else %}
-                                          —
                                         {% endif %}
                                       </td>
                                     </tr>
                                   {% endfor %}
-                                </tbody>
-                              </table>
-                            </div>
-                          {% else %}
-                            <p class="muted" style="margin: 0;">Historical AIGES data not available yet.</p>
-                          {% endif %}
+                                {% else %}
+                                  <tr>
+                                    <td colspan="7" class="muted">Historical AIGES data not available yet.</td>
+                                  </tr>
+                                {% endif %}
+                              </tbody>
+                            </table>
+                          </div>
                         {% endwith %}
                       </div>
                     </details>
