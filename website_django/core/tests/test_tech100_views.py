@@ -85,6 +85,49 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertIn("85.0", content)
         self.assertIn("80.0", content)
 
+    @mock.patch("core.views.fetch_tech100")
+    def test_tech100_maps_alternate_field_names(self, fetch_mock):
+        fetch_mock.return_value = {
+            "items": [
+                {
+                    "updated_at": "2025-02-01",
+                    "rank": 3,
+                    "company": "Alt Corp",
+                    "symbol": "ALT",
+                    "sector": "Software",
+                    "overall": 91.2,
+                    "transparency_score": 71,
+                    "ethics": 66,
+                    "governance": 61,
+                    "regulatory_alignment": 56,
+                    "stakeholder": 51,
+                    "summary": "Alt naming snapshot",
+                },
+                {
+                    "port_date": "2025-01-01",
+                    "rank_index": 4,
+                    "company_name": "Alt Corp",
+                    "ticker": "ALT",
+                    "gics_sector": "Software",
+                    "aiges_composite_average": 88.8,
+                    "transparency": 70,
+                    "ethical_principles": 65,
+                    "governance_structure": 60,
+                    "regulatory_alignment": 55,
+                    "stakeholder_engagement": 50,
+                },
+            ],
+            "error": None,
+            "meta": {},
+        }
+
+        response = self.client.get(reverse("tech100"))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("91.2", content)
+        self.assertIn("71.0", content)
+        self.assertIn("61.0", content)
+
 
 class Tech100ExportTests(SimpleTestCase):
     @mock.patch("core.views.fetch_tech100")
