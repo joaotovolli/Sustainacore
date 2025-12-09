@@ -9,6 +9,30 @@ from django.shortcuts import render
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
 
 
+def _format_port_weight(value) -> str:
+    if value is None or value == "":
+        return ""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    decimals = 1 if abs(num) >= 10 else 2
+    return f"{num:.{decimals}f}%"
+
+
+def _format_score(value) -> str:
+    if value is None or value == "":
+        return ""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{num:.2f}"
+
+
+def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
+    filtered: List[Dict] = []
+    search_term = (filters.get("q") or filters.get("search") or "").lower()
 def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
     filtered: List[Dict] = []
     search_term = filters.get("search", "").lower()
@@ -17,6 +41,7 @@ def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> Lis
         if filters.get("port_date") and port_date != filters["port_date"]:
             continue
 
+        sector_value = (company.get("gics_sector") or company.get("sector") or "").strip()
         sector_value = company.get("gics_sector") or company.get("sector") or ""
         if filters.get("sector") and sector_value != filters["sector"]:
             continue
@@ -51,6 +76,10 @@ def tech100(request):
     filters = {
         "port_date": (request.GET.get("port_date") or "").strip(),
         "sector": (request.GET.get("sector") or "").strip(),
+        "q": (request.GET.get("q") or request.GET.get("search") or "").strip(),
+    }
+
+    tech100_response = fetch_tech100()
         "search": (request.GET.get("search") or "").strip(),
     }
 
@@ -85,6 +114,13 @@ def tech100_export(request):
     filters = {
         "port_date": (request.GET.get("port_date") or "").strip(),
         "sector": (request.GET.get("sector") or "").strip(),
+        "q": (request.GET.get("q") or request.GET.get("search") or "").strip(),
+    }
+
+    tech100_response = fetch_tech100()
+
+    if tech100_response.get("error"):
+        return HttpResponse("Unable to export TECH100 data right now.", status=502)
         "search": (request.GET.get("search") or "").strip(),
     }
 
@@ -119,6 +155,23 @@ def tech100_export(request):
     writer = csv.writer(response)
     writer.writerow(headers)
     for company in companies:
+        writer.writerow(
+            [
+                (company.get("port_date") or ""),
+                (company.get("rank_index") or ""),
+                (company.get("company_name") or ""),
+                (company.get("ticker") or ""),
+                _format_port_weight(company.get("port_weight")),
+                (company.get("gics_sector") or company.get("sector") or ""),
+                _format_score(company.get("transparency")),
+                _format_score(company.get("ethical_principles")),
+                _format_score(company.get("governance_structure")),
+                _format_score(company.get("regulatory_alignment")),
+                _format_score(company.get("stakeholder_engagement")),
+                _format_score(company.get("aiges_composite_average")),
+                (company.get("summary") or ""),
+            ]
+        )
         writer.writerow([company.get(key.lower()) or company.get(key) or "" for key in headers])
 
     return response

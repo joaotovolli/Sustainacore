@@ -77,6 +77,7 @@ def fetch_tech100(
     port_date: Optional[str] = None,
     sector: Optional[str] = None,
     search: Optional[str] = None,
+    query: Optional[str] = None,
     timeout: float = 8.0,
 ) -> Dict[str, Any]:
     params: Dict[str, Any] = {}
@@ -84,6 +85,11 @@ def fetch_tech100(
         params["port_date"] = port_date
     if sector:
         params["sector"] = sector
+    search_param = query or search
+    if search_param:
+        # Support both historic "search" and "q" query params depending on backend implementation
+        params["q"] = search_param
+        params["search"] = search_param
     if search:
         params["search"] = search
 
