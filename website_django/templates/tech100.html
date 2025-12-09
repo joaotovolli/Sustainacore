@@ -54,12 +54,14 @@
 
         {% url "tech100_export" as export_url %}
         <div class="filter__actions" style="margin-top: 0.75rem;">
+          {% with search_val=filters.q|default:filters.search %}
           <a
             class="btn btn--primary"
-            href="{{ export_url }}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if filters.q or filters.search %}q={{ (filters.q|default:filters.search)|urlencode }}&{% endif %}format=csv"
+            href="{{ export_url }}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if search_val %}q={{ search_val|urlencode }}&{% endif %}format=csv"
           >
             Download CSV
           </a>
+          {% endwith %}
         </div>
       </div>
     </div>
