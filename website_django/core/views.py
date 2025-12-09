@@ -15,7 +15,7 @@ def _format_port_weight(value) -> str:
     try:
         num = float(value)
     except (TypeError, ValueError):
-        return str(value)
+        return ""
     decimals = 1 if abs(num) >= 10 else 2
     return f"{num:.{decimals}f}%"
 
@@ -26,25 +26,24 @@ def _format_score(value) -> str:
     try:
         num = float(value)
     except (TypeError, ValueError):
-        return str(value)
-    return f"{num:.2f}"
+        return ""
+    formatted = f"{num:.2f}".rstrip("0").rstrip(".")
+    return formatted
 
 
 def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
     filtered: List[Dict] = []
-    search_term = (filters.get("q") or filters.get("search") or "").lower()
+    port_date_filter = (filters.get("port_date") or "").strip()
+    sector_filter = (filters.get("sector") or "").strip()
+    search_term = (filters.get("q") or filters.get("search") or "").lower().strip()
 
-def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
-    filtered: List[Dict] = []
-    search_term = filters.get("search", "").lower()
     for company in companies:
-        port_date = (company.get("port_date") or "").strip()
-        if filters.get("port_date") and port_date != filters["port_date"]:
+        port_date_value = str(company.get("port_date") or "").strip()
+        if port_date_filter and port_date_value != port_date_filter:
             continue
 
-        sector_value = (company.get("gics_sector") or company.get("sector") or "").strip()
-        sector_value = company.get("gics_sector") or company.get("sector") or ""
-        if filters.get("sector") and sector_value != filters["sector"]:
+        sector_value = str(company.get("gics_sector") or company.get("sector") or "").strip()
+        if sector_filter and sector_value != sector_filter:
             continue
 
         if search_term:
@@ -56,6 +55,15 @@ def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> Lis
         filtered.append(company)
 
     return filtered
+
+
+def _parse_port_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def home(request):
@@ -81,26 +89,23 @@ def tech100(request):
     }
 
     tech100_response = fetch_tech100()
-        "search": (request.GET.get("search") or "").strip(),
-    }
-
-    tech100_response = fetch_tech100(
-        port_date=filters["port_date"] or None,
-        sector=filters["sector"] or None,
-        search=filters["search"] or None,
-    )
-
-    companies = tech100_response.get("items", [])
+    companies = tech100_response.get("items", []) or []
     filtered_companies = _filter_companies(companies, filters)
+
+    def sort_key(item):
+        parsed_date = _parse_port_date(item.get("port_date"))
+        date_sort = -(parsed_date.timestamp()) if parsed_date else float("inf")
+        rank_sort = item.get("rank_index")
+        try:
+            rank_sort = float(rank_sort)
+        except (TypeError, ValueError):
+            rank_sort = float("inf")
+        return (date_sort, rank_sort)
+
+    filtered_companies = sorted(filtered_companies, key=sort_key)
+
     port_date_options = sorted(
         {item.get("port_date") for item in companies if item.get("port_date")}, reverse=True
-    )
-    sector_options = sorted(
-        {
-            item.get("gics_sector") or item.get("sector")
-            for item in companies
-            if item.get("gics_sector") or item.get("sector")
-        }
     )
     sector_options = sorted({item.get("gics_sector") for item in companies if item.get("gics_sector")})
 
@@ -126,19 +131,10 @@ def tech100_export(request):
     }
 
     tech100_response = fetch_tech100()
-
     if tech100_response.get("error"):
         return HttpResponse("Unable to export TECH100 data right now.", status=502)
-        "search": (request.GET.get("search") or "").strip(),
-    }
 
-    tech100_response = fetch_tech100(
-        port_date=filters["port_date"] or None,
-        sector=filters["sector"] or None,
-        search=filters["search"] or None,
-    )
-
-    companies = _filter_companies(tech100_response.get("items", []), filters)
+    companies = _filter_companies(tech100_response.get("items", []) or [], filters)
 
     response = HttpResponse(content_type="text/csv")
     response["Content-Disposition"] = "attachment; filename=tech100.csv"
@@ -157,18 +153,18 @@ def tech100_export(request):
         "STAKEHOLDER_ENGAGEMENT",
         "AIGES_COMPOSITE_AVERAGE",
         "SUMMARY",
-        "SOURCE_LINKS",
     ]
 
     writer = csv.writer(response)
     writer.writerow(headers)
+
     for company in companies:
         writer.writerow(
             [
-                (company.get("port_date") or ""),
-                (company.get("rank_index") or ""),
-                (company.get("company_name") or ""),
-                (company.get("ticker") or ""),
+                company.get("port_date") or "",
+                company.get("rank_index") or "",
+                company.get("company_name") or "",
+                company.get("ticker") or "",
                 _format_port_weight(company.get("port_weight")),
                 (company.get("gics_sector") or company.get("sector") or ""),
                 _format_score(company.get("transparency")),
@@ -177,10 +173,9 @@ def tech100_export(request):
                 _format_score(company.get("regulatory_alignment")),
                 _format_score(company.get("stakeholder_engagement")),
                 _format_score(company.get("aiges_composite_average")),
-                (company.get("summary") or ""),
+                company.get("summary") or "",
             ]
         )
-        writer.writerow([company.get(key.lower()) or company.get(key) or "" for key in headers])
 
     return response
 
@@ -288,4 +283,3 @@ def news_admin(request):
             context["form_values"] = default_form_values
 
     return render(request, "news_admin.html", context)
-
