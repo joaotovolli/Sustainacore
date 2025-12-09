@@ -1,12 +1,16 @@
 from datetime import datetime
 import csv
 from typing import Dict, Iterable, List
+import logging
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import render
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+
+
+logger = logging.getLogger(__name__)
 
 
 def _format_port_weight(value) -> str:
@@ -92,6 +96,19 @@ def _build_company_history(companies: Iterable[Dict]) -> Dict[str, List[Dict]]:
     return history
 
 
+def _extract_aiges_score(row: Dict):
+    for key in (
+        "aiges_composite_average",
+        "aiges_composite",
+        "aiges_composite_score",
+        "aiges_composite_index",
+    ):
+        value = row.get(key)
+        if value not in ("", None):
+            return value
+    return None
+
+
 def home(request):
     tech100_response = fetch_tech100()
     news_response = fetch_news()
@@ -123,8 +140,8 @@ def tech100(request):
             company["sector"] = company.get("gics_sector")
         if "gics_sector" not in company:
             company["gics_sector"] = company.get("sector")
-    company_history = _build_company_history(companies)
-    filtered_companies = _filter_companies(companies, filters)
+
+    filtered_rows = _filter_companies(companies, filters)
 
     def sort_key(item):
         parsed_date = _parse_port_date(item.get("port_date"))
@@ -136,10 +153,52 @@ def tech100(request):
             rank_sort = float("inf")
         return (date_sort, rank_sort)
 
-    filtered_companies = sorted(filtered_companies, key=sort_key)
-    for company in filtered_companies:
-        key = _company_history_key(company)
-        company["history"] = company_history.get(key, []) if key else []
+    grouped_companies: Dict[str, List[Dict]] = {}
+    for idx, row in enumerate(filtered_rows):
+        key = _company_history_key(row) or f"row-{idx}"
+        grouped_companies.setdefault(key, []).append(row)
+
+    display_companies: List[Dict] = []
+    for rows in grouped_companies.values():
+        sorted_rows = sorted(rows, key=sort_key)
+        latest = sorted_rows[0]
+        aiges_score = _extract_aiges_score(latest)
+        company_summary = {
+            "company_name": latest.get("company_name"),
+            "ticker": latest.get("ticker"),
+            "port_date": latest.get("port_date"),
+            "rank_index": latest.get("rank_index"),
+            "gics_sector": latest.get("gics_sector") or latest.get("sector"),
+            "sector": latest.get("sector") or latest.get("gics_sector"),
+            "summary": latest.get("summary"),
+            "aiges_composite_average": aiges_score,
+        }
+        company_summary["history"] = [
+            {
+                "port_date": entry.get("port_date"),
+                "transparency": entry.get("transparency"),
+                "ethical_principles": entry.get("ethical_principles"),
+                "governance_structure": entry.get("governance_structure"),
+                "regulatory_alignment": entry.get("regulatory_alignment"),
+                "stakeholder_engagement": entry.get("stakeholder_engagement"),
+                "aiges_composite_average": _extract_aiges_score(entry),
+            }
+            for entry in sorted_rows
+        ]
+        display_companies.append(company_summary)
+
+    display_companies = sorted(display_companies, key=sort_key)
+    if display_companies:
+        sample = display_companies[0]
+        logger.info(
+            "TECH100 sample company: name=%s ticker=%s port_date=%s rank=%s aiges=%s history_len=%s",
+            sample.get("company_name"),
+            sample.get("ticker"),
+            sample.get("port_date"),
+            sample.get("rank_index"),
+            sample.get("aiges_composite_average"),
+            len(sample.get("history") or []),
+        )
 
     port_date_options = sorted(
         {item.get("port_date") for item in companies if item.get("port_date")}, reverse=True
@@ -148,14 +207,14 @@ def tech100(request):
 
     context = {
         "year": datetime.now().year,
-        "companies": filtered_companies,
+        "companies": display_companies,
         "all_companies": companies,
         "tech100_error": tech100_response.get("error"),
         "port_date_options": port_date_options,
         "sector_options": sector_options,
         "filters": filters,
-        "visible_count": len(filtered_companies),
-        "total_count": len(companies),
+        "visible_count": len(display_companies),
+        "total_count": len({(_company_history_key(c) or f"row-{idx}") for idx, c in enumerate(companies)}),
     }
     return render(request, "tech100.html", context)
 
