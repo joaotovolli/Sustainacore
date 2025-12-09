@@ -35,6 +35,7 @@
                     <input type="search" id="search-filter" placeholder="Search company or ticker" value="{{ filters.q }}" />
                 </label>
                 <div class="filter__actions">
+                    <a class="btn btn--secondary" href="{% url 'tech100_export' %}" data-export-csv>Download CSV</a>
                     <a class="btn btn--secondary" href="{% url 'tech100_export' %}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}format=csv" data-export-csv>Download CSV</a>
                     <input type="search" id="search-filter" placeholder="Search company or ticker" value="{{ filters.search }}" />
                 </label>
@@ -43,9 +44,11 @@
                 </div>
             </div>
         </div>
+
         {% if tech100_error %}
         <div class="alert alert--warning">Live TECH100 data is temporarily unavailable; please try again later.</div>
         {% endif %}
+
         <div class="card">
             <div class="card__header card__header--split">
                 <div>
@@ -77,6 +80,30 @@
                     </thead>
                     <tbody data-tech100-body>
                         {% if companies %}
+                        {% for company in companies %}
+                        <tr>
+                            <td>{{ company.port_date }}</td>
+                            <td class="text-right">{{ company.rank_index }}</td>
+                            <td>{{ company.company_name }}</td>
+                            <td>{{ company.ticker }}</td>
+                            <td class="text-right">{% if company.port_weight %}{{ company.port_weight|floatformat:2 }}%{% endif %}</td>
+                            <td>{{ company.gics_sector|default:company.sector }}</td>
+                            <td class="text-right">{% if company.transparency %}{{ company.transparency|floatformat:2 }}{% endif %}</td>
+                            <td class="text-right">{% if company.ethical_principles %}{{ company.ethical_principles|floatformat:2 }}{% endif %}</td>
+                            <td class="text-right">{% if company.governance_structure %}{{ company.governance_structure|floatformat:2 }}{% endif %}</td>
+                            <td class="text-right">{% if company.regulatory_alignment %}{{ company.regulatory_alignment|floatformat:2 }}{% endif %}</td>
+                            <td class="text-right">{% if company.stakeholder_engagement %}{{ company.stakeholder_engagement|floatformat:2 }}{% endif %}</td>
+                            <td class="text-right">{% if company.aiges_composite_average %}{{ company.aiges_composite_average|floatformat:2 }}{% endif %}</td>
+                            <td>{{ company.summary|truncatechars:200 }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="13" class="muted">Data currently unavailable.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
                             {% for company in companies %}
                             <tr>
                                 <td>{{ company.port_date }}</td>
@@ -150,11 +177,44 @@
 {% endblock %}
 
 {% block extra_scripts %}
+{{ all_companies|json_script:"tech100-data" }}
 {{ all_companies|default:companies|json_script:"tech100-data" }}
 <script>
 (function() {
-    const body = document.querySelector('[data-tech100-body]');
     const datasetScript = document.getElementById('tech100-data');
+    const data = datasetScript ? JSON.parse(datasetScript.textContent || '[]') : [];
+    const body = document.querySelector('[data-tech100-body]');
+    const portDateSelect = document.getElementById('port-date-filter');
+    const sectorSelect = document.getElementById('sector-filter');
+    const searchInput = document.getElementById('search-filter');
+    const visibleCount = document.querySelector('[data-visible-count]');
+    const totalCount = document.querySelector('[data-total-count]');
+    const exportBtn = document.querySelector('[data-export-csv]');
+    const sortableHeaders = document.querySelectorAll('th[data-sort]');
+
+    const filters = {
+        port_date: (portDateSelect && portDateSelect.value) || "",
+        sector: (sectorSelect && sectorSelect.value) || "",
+        q: (searchInput && searchInput.value.trim()) || "",
+    };
+
+    const sortState = { key: null, direction: 'asc' };
+
+    function truncate(text, max = 240) {
+        if (!text) return '';
+        return text.length > max ? `${text.slice(0, max)}…` : text;
+    }
+
+    function formatPortWeight(value) {
+        if (value === null || value === undefined || value === '') return '';
+        const num = Number(value);
+        if (Number.isNaN(num)) return value;
+        const decimals = Math.abs(num) >= 10 ? 1 : 2;
+        return `${num.toFixed(decimals)}%`;
+    }
+
+    function formatScore(value) {
+        if (value === null || value === undefined || value === '') return '';
     const data = datasetScript ? JSON.parse(datasetScript.textContent) : [];
     const searchInput = document.getElementById('search-filter');
     const portDateSelect = document.getElementById('port-date-filter');
@@ -185,6 +245,70 @@
     }
 
     function formatDate(value) {
+        if (!value) return '';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return value;
+        return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function filterData() {
+        const searchTerm = (filters.q || '').toLowerCase();
+        return data.filter((item) => {
+            if (filters.port_date && (item.port_date || '').toString() !== filters.port_date) return false;
+            const sectorValue = (item.gics_sector || item.sector || '').toString();
+            if (filters.sector && sectorValue !== filters.sector) return false;
+            if (searchTerm) {
+                const name = (item.company_name || item.company || '').toLowerCase();
+                const ticker = (item.ticker || '').toLowerCase();
+                if (!name.includes(searchTerm) && !ticker.includes(searchTerm)) return false;
+            }
+            return true;
+        });
+    }
+
+    function compareValues(a, b, key) {
+        const numericKeys = new Set([
+            'rank_index',
+            'port_weight',
+            'transparency',
+            'ethical_principles',
+            'governance_structure',
+            'regulatory_alignment',
+            'stakeholder_engagement',
+            'aiges_composite_average',
+        ]);
+
+        if (key === 'port_date') {
+            const aDate = new Date(a[key]);
+            const bDate = new Date(b[key]);
+            if (!Number.isNaN(aDate.getTime()) && !Number.isNaN(bDate.getTime())) {
+                return aDate.getTime() - bDate.getTime();
+            }
+        }
+
+        if (numericKeys.has(key)) {
+            const numA = Number(a[key]);
+            const numB = Number(b[key]);
+            if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
+                return numA - numB;
+            }
+        }
+
+        const textA = (a[key] || '').toString().toLowerCase();
+        const textB = (b[key] || '').toString().toLowerCase();
+        if (textA < textB) return -1;
+        if (textA > textB) return 1;
+        return 0;
+    }
+
+    function sortData(rows) {
+        if (!sortState.key) return rows.slice();
+        const sorted = rows.slice().sort((a, b) => compareValues(a, b, sortState.key));
+        if (sortState.direction === 'desc') sorted.reverse();
+        return sorted;
+    }
+
+    function buildModal() {
         if (!value) return '—';
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return value;
@@ -224,6 +348,7 @@
         return modal;
     }
 
+    const modal = buildModal();
     const modal = buildSummaryModal();
     const modalTitle = modal.querySelector('[data-modal-title]');
     const modalBody = modal.querySelector('[data-modal-body]');
@@ -233,6 +358,7 @@
         modalTitle.textContent = item.company_name || item.company || 'Summary';
         modalBody.textContent = item.summary || 'No summary available.';
         modalLinks.innerHTML = '';
+        const links = (item.source_links || '').split(/[|,]/).map((part) => part.trim()).filter(Boolean);
         const links = (item.source_links || '').split(/[|,]/).map((l) => l.trim()).filter(Boolean);
         if (links.length) {
             const heading = document.createElement('p');
@@ -329,7 +455,11 @@
     }
 
     function render(rows) {
+        if (!body) return;
         body.innerHTML = '';
+
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="13" class="muted">Data currently unavailable.</td></tr>';
         const filtered = sortData(rows);
         if (!filtered.length) {
             const row = document.createElement('tr');
@@ -343,6 +473,94 @@
             return;
         }
 
+        rows.forEach((item) => {
+            const tr = document.createElement('tr');
+            const summary = item.summary || '';
+            const truncated = truncate(summary, 240);
+            const showFull = summary && summary.length > 240;
+
+            tr.innerHTML = `
+                <td>${formatDate(item.port_date)}</td>
+                <td class="text-right">${item.rank_index ?? ''}</td>
+                <td>${item.company_name || ''}</td>
+                <td>${item.ticker || ''}</td>
+                <td class="text-right">${formatPortWeight(item.port_weight)}</td>
+                <td>${item.gics_sector || item.sector || ''}</td>
+                <td class="text-right">${formatScore(item.transparency)}</td>
+                <td class="text-right">${formatScore(item.ethical_principles)}</td>
+                <td class="text-right">${formatScore(item.governance_structure)}</td>
+                <td class="text-right">${formatScore(item.regulatory_alignment)}</td>
+                <td class="text-right">${formatScore(item.stakeholder_engagement)}</td>
+                <td class="text-right">${formatScore(item.aiges_composite_average)}</td>
+                <td>
+                    <span>${truncated}</span>
+                    ${showFull ? '<button class="link" data-summary-button type="button">View full summary</button>' : ''}
+                </td>
+            `;
+
+            if (showFull) {
+                const btn = tr.querySelector('[data-summary-button]');
+                btn.addEventListener('click', () => openSummary(item));
+            }
+
+            body.appendChild(tr);
+        });
+
+        setCounts(rows.length, data.length);
+    }
+
+    function updateExportLink() {
+        if (!exportBtn) return;
+        const url = new URL(exportBtn.getAttribute('href'), window.location.origin);
+        url.searchParams.set('format', 'csv');
+        if (filters.port_date) url.searchParams.set('port_date', filters.port_date); else url.searchParams.delete('port_date');
+        if (filters.sector) url.searchParams.set('sector', filters.sector); else url.searchParams.delete('sector');
+        if (filters.q) url.searchParams.set('q', filters.q); else url.searchParams.delete('q');
+        exportBtn.href = url.toString();
+    }
+
+    function applyFiltersAndRender() {
+        const filtered = filterData();
+        const sorted = sortData(filtered);
+        render(sorted);
+        updateExportLink();
+    }
+
+    if (portDateSelect) {
+        portDateSelect.addEventListener('change', () => {
+            filters.port_date = portDateSelect.value || '';
+            applyFiltersAndRender();
+        });
+    }
+
+    if (sectorSelect) {
+        sectorSelect.addEventListener('change', () => {
+            filters.sector = sectorSelect.value || '';
+            applyFiltersAndRender();
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            filters.q = searchInput.value.trim();
+            applyFiltersAndRender();
+        });
+    }
+
+    sortableHeaders.forEach((th) => {
+        th.addEventListener('click', () => {
+            const key = th.getAttribute('data-sort');
+            if (sortState.key === key) {
+                sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortState.key = key;
+                sortState.direction = 'asc';
+            }
+            applyFiltersAndRender();
+        });
+    });
+
+    applyFiltersAndRender();
         filtered.forEach((item) => {
             const row = document.createElement('tr');
             const summary = item.summary || '';
