@@ -33,6 +33,7 @@ def _format_score(value) -> str:
 def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
     filtered: List[Dict] = []
     search_term = (filters.get("q") or filters.get("search") or "").lower()
+
 def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
     filtered: List[Dict] = []
     search_term = filters.get("search", "").lower()
@@ -93,6 +94,13 @@ def tech100(request):
     filtered_companies = _filter_companies(companies, filters)
     port_date_options = sorted(
         {item.get("port_date") for item in companies if item.get("port_date")}, reverse=True
+    )
+    sector_options = sorted(
+        {
+            item.get("gics_sector") or item.get("sector")
+            for item in companies
+            if item.get("gics_sector") or item.get("sector")
+        }
     )
     sector_options = sorted({item.get("gics_sector") for item in companies if item.get("gics_sector")})
 
