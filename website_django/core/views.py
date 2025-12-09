@@ -1,9 +1,35 @@
 from datetime import datetime
+import csv
+from typing import Dict, Iterable, List
 
 from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse
 from django.shortcuts import render
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+
+
+def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
+    filtered: List[Dict] = []
+    search_term = filters.get("search", "").lower()
+    for company in companies:
+        port_date = (company.get("port_date") or "").strip()
+        if filters.get("port_date") and port_date != filters["port_date"]:
+            continue
+
+        sector_value = company.get("gics_sector") or company.get("sector") or ""
+        if filters.get("sector") and sector_value != filters["sector"]:
+            continue
+
+        if search_term:
+            company_name = (company.get("company_name") or "").lower()
+            ticker = (company.get("ticker") or "").lower()
+            if search_term not in company_name and search_term not in ticker:
+                continue
+
+        filtered.append(company)
+
+    return filtered
 
 
 def home(request):
@@ -22,13 +48,80 @@ def home(request):
 
 
 def tech100(request):
-    tech100_response = fetch_tech100()
+    filters = {
+        "port_date": (request.GET.get("port_date") or "").strip(),
+        "sector": (request.GET.get("sector") or "").strip(),
+        "search": (request.GET.get("search") or "").strip(),
+    }
+
+    tech100_response = fetch_tech100(
+        port_date=filters["port_date"] or None,
+        sector=filters["sector"] or None,
+        search=filters["search"] or None,
+    )
+
+    companies = tech100_response.get("items", [])
+    filtered_companies = _filter_companies(companies, filters)
+    port_date_options = sorted(
+        {item.get("port_date") for item in companies if item.get("port_date")}, reverse=True
+    )
+    sector_options = sorted({item.get("gics_sector") for item in companies if item.get("gics_sector")})
+
     context = {
         "year": datetime.now().year,
-        "companies": tech100_response.get("items", []),
+        "companies": filtered_companies,
+        "all_companies": companies,
         "tech100_error": tech100_response.get("error"),
+        "port_date_options": port_date_options,
+        "sector_options": sector_options,
+        "filters": filters,
+        "visible_count": len(filtered_companies),
+        "total_count": len(companies),
     }
     return render(request, "tech100.html", context)
+
+
+def tech100_export(request):
+    filters = {
+        "port_date": (request.GET.get("port_date") or "").strip(),
+        "sector": (request.GET.get("sector") or "").strip(),
+        "search": (request.GET.get("search") or "").strip(),
+    }
+
+    tech100_response = fetch_tech100(
+        port_date=filters["port_date"] or None,
+        sector=filters["sector"] or None,
+        search=filters["search"] or None,
+    )
+
+    companies = _filter_companies(tech100_response.get("items", []), filters)
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = "attachment; filename=tech100.csv"
+
+    headers = [
+        "PORT_DATE",
+        "RANK_INDEX",
+        "COMPANY_NAME",
+        "TICKER",
+        "PORT_WEIGHT",
+        "GICS_SECTOR",
+        "TRANSPARENCY",
+        "ETHICAL_PRINCIPLES",
+        "GOVERNANCE_STRUCTURE",
+        "REGULATORY_ALIGNMENT",
+        "STAKEHOLDER_ENGAGEMENT",
+        "AIGES_COMPOSITE_AVERAGE",
+        "SUMMARY",
+        "SOURCE_LINKS",
+    ]
+
+    writer = csv.writer(response)
+    writer.writerow(headers)
+    for company in companies:
+        writer.writerow([company.get(key.lower()) or company.get(key) or "" for key in headers])
+
+    return response
 
 
 def news(request):
