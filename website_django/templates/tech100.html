@@ -97,7 +97,7 @@
             {% if companies %}
               {% for c in companies %}
                 <tr>
-                  <td>{{ c.port_date }}</td>
+                  <td>{{ c.port_date|default:"—" }}</td>
                   <td class="text-right">{{ c.rank_index|default:"—" }}</td>
                   <td>
                     <div>
