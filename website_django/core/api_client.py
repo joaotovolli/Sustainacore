@@ -72,15 +72,34 @@ def _extract_meta(payload: Dict[str, Any] | List[Dict[str, Any]]) -> Dict[str, A
     return {}
 
 
-def fetch_tech100(timeout: float = 8.0) -> Dict[str, Any]:
-    payload = _get_json("/api/tech100", timeout=timeout)
+def fetch_tech100(
+    *,
+    port_date: Optional[str] = None,
+    sector: Optional[str] = None,
+    search: Optional[str] = None,
+    query: Optional[str] = None,
+    timeout: float = 8.0,
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {}
+    if port_date:
+        params["port_date"] = port_date
+    if sector:
+        params["sector"] = sector
+    search_param = query or search
+    if search_param:
+        # Support both historic "search" and "q" query params depending on backend implementation
+        params["q"] = search_param
+        params["search"] = search_param
+
+    payload = _get_json("/api/tech100", timeout=timeout, params=params or None)
     if isinstance(payload, dict) and "error" in payload:
         return {
             "items": [],
+            "meta": {},
             "error": payload.get("message", "Unable to load TECH100 data."),
         }
 
-    return {"items": _extract_items(payload), "error": None}
+    return {"items": _extract_items(payload), "meta": _extract_meta(payload), "error": None}
 
 
 def fetch_news(

@@ -9,126 +9,468 @@
             <div>
                 <p class="eyebrow">TECH100 Index</p>
                 <h1>Governance and ethics scores across leading technology firms.</h1>
-                <p class="muted">Sortable, comparable indicators for transparency, accountability, and oversight. Data is fetched live from the SustainaCore backend.</p>
+                <p class="muted">Sortable, filterable indicators for transparency, accountability, and oversight. Data is fetched live from the SustainaCore backend.</p>
             </div>
-            <div class="filters">
+            <div class="filters filters--stacked">
+                <label>
+                    Report date
+                    <select id="port-date-filter">
+                        <option value="">All dates</option>
+                        {% for date in port_date_options %}
+                        <option value="{{ date }}" {% if filters.port_date == date %}selected{% endif %}>{{ date }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
                 <label>
                     Sector
-                    <select disabled>
-                        <option>All sectors</option>
+                    <select id="sector-filter">
+                        <option value="">All sectors</option>
+                        {% for sector in sector_options %}
+                        <option value="{{ sector }}" {% if filters.sector == sector %}selected{% endif %}>{{ sector }}</option>
+                        {% endfor %}
                     </select>
                 </label>
                 <label>
-                    Region
-                    <select disabled>
-                        <option>All regions</option>
-                    </select>
+                    Search
+                    <input type="search" id="search-filter" placeholder="Search company or ticker" value="{{ filters.q }}" />
                 </label>
-                <label>
-                    Sort
-                    <select data-sort-control>
-                        <option value="overall">Overall</option>
-                        <option value="transparency">Transparency</option>
-                        <option value="accountability">Accountability</option>
-                        <option value="company">Company</option>
-                    </select>
-                </label>
+                <div class="filter__actions">
+                    <a class="btn btn--secondary" href="{% url 'tech100_export' %}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}format=csv" data-export-csv>Download CSV</a>
+                </div>
             </div>
         </div>
         {% if tech100_error %}
         <div class="alert alert--warning">Live TECH100 data is temporarily unavailable; please try again later.</div>
         {% endif %}
-        <div class="table" role="table" aria-label="TECH100 sample">
-            <div class="table__row table__row--head" role="row">
-                <button class="table__cell" role="columnheader" data-sort="company">Company</button>
-                <button class="table__cell" role="columnheader" data-sort="sector">Sector</button>
-                <button class="table__cell" role="columnheader" data-sort="region">Region</button>
-                <button class="table__cell table__cell--right" role="columnheader" data-sort="overall">Overall</button>
-                <button class="table__cell table__cell--right" role="columnheader" data-sort="transparency">Transparency</button>
-                <button class="table__cell table__cell--right" role="columnheader" data-sort="accountability">Accountability</button>
-                <div class="table__cell table__cell--right" role="columnheader">Updated</div>
+        <div class="card">
+            <div class="card__header card__header--split">
+                <div>
+                    <h2 class="h4">TECH100 constituents</h2>
+                    <p class="muted">Showing <span data-visible-count>{{ visible_count }}</span> of <span data-total-count>{{ total_count }}</span> companies.</p>
+                </div>
+                <div class="table-actions">
+                    <span class="muted">Click headers to sort.</span>
+                </div>
             </div>
-            <div data-tech100-body>
-                {% if companies %}
-                    {% for company in companies %}
-                    <div class="table__row" role="row">
-                        <div class="table__cell" role="cell">{{ company.company }}</div>
-                        <div class="table__cell" role="cell">{{ company.sector }}</div>
-                        <div class="table__cell" role="cell">{{ company.region }}</div>
-                        <div class="table__cell table__cell--right" role="cell"><span class="badge">{{ company.overall }}</span></div>
-                        <div class="table__cell table__cell--right" role="cell">{{ company.transparency }}</div>
-                        <div class="table__cell table__cell--right" role="cell">{{ company.accountability }}</div>
-                        <div class="table__cell table__cell--right" role="cell">{{ company.updated_at }}</div>
-                    </div>
-                    {% endfor %}
-                {% else %}
-                    <div class="table__row" role="row">
-                        <div class="table__cell" role="cell" colspan="7">Data currently unavailable.</div>
-                    </div>
-                {% endif %}
+            <div class="table-wrapper">
+                <table class="table table--wide" aria-label="TECH100 index">
+                    <thead>
+                        <tr>
+                            <th data-sort="port_date">Port Date</th>
+                            <th data-sort="rank_index" class="text-right">Rank Index</th>
+                            <th data-sort="company_name">Company Name</th>
+                            <th data-sort="ticker">Ticker</th>
+                            <th data-sort="port_weight" class="text-right">Port Weight</th>
+                            <th data-sort="gics_sector">Gics Sector</th>
+                            <th class="text-right">Transparency</th>
+                            <th class="text-right">Ethical Principles</th>
+                            <th class="text-right">Governance Structure</th>
+                            <th class="text-right">Regulatory Alignment</th>
+                            <th class="text-right">Stakeholder Engagement</th>
+                            <th data-sort="aiges_composite_average" class="text-right">AIGES Composite</th>
+                            <th>Summary</th>
+                        </tr>
+                    </thead>
+                    <tbody data-tech100-body>
+                        {% if companies %}
+                            {% for company in companies %}
+                            <tr>
+                                <td>{{ company.port_date }}</td>
+                                <td class="text-right">{{ company.rank_index }}</td>
+                                <td>{{ company.company_name }}</td>
+                                <td>{{ company.ticker }}</td>
+                                <td class="text-right">{{ company.port_weight }}</td>
+                                <td>{{ company.gics_sector }}</td>
+                                <td class="text-right">{{ company.transparency }}</td>
+                                <td class="text-right">{{ company.ethical_principles }}</td>
+                                <td class="text-right">{{ company.governance_structure }}</td>
+                                <td class="text-right">{{ company.regulatory_alignment }}</td>
+                                <td class="text-right">{{ company.stakeholder_engagement }}</td>
+                                <td class="text-right">{{ company.aiges_composite_average }}</td>
+                                <td>{{ company.summary|truncatechars:200 }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="13" class="muted">Data currently unavailable.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             </div>
+            <p class="muted table__note">Sorted and filtered locally using data retrieved from the VM1 /api/tech100 endpoint.</p>
         </div>
-        <p class="muted table__note">Sorted locally using data retrieved from the VM1 /api/tech100 endpoint.</p>
     </div>
 </section>
-
 {% endblock %}
 
 {% block extra_scripts %}
-{{ companies|json_script:"tech100-data" }}
+{{ all_companies|default:companies|json_script:"tech100-data" }}
 <script>
 (function() {
     const body = document.querySelector('[data-tech100-body]');
     const datasetScript = document.getElementById('tech100-data');
     const data = datasetScript ? JSON.parse(datasetScript.textContent) : [];
+    const searchInput = document.getElementById('search-filter');
+    const portDateSelect = document.getElementById('port-date-filter');
+    const sectorSelect = document.getElementById('sector-filter');
+    const visibleCount = document.querySelector('[data-visible-count]');
+    const totalCount = document.querySelector('[data-total-count]');
+    const csvButton = document.querySelector('[data-export-csv]');
+
+    const filters = {
+        port_date: portDateSelect ? portDateSelect.value : '',
+        sector: sectorSelect ? sectorSelect.value : '',
+        q: searchInput ? searchInput.value : '',
+    };
+
+    function formatPercent(value) {
+        if (value === null || value === undefined || value === '') return '—';
+        const num = Number(value);
+        if (Number.isNaN(num)) return value;
+        return `${num.toFixed(num >= 10 ? 1 : 2)}%`;
+    }
+
+    function formatNumber(value) {
+        if (value === null || value === undefined || value === '') return '—';
+        const num = Number(value);
+        if (Number.isNaN(num)) return value;
+        return num.toFixed(2);
+    }
+
+    function formatDate(value) {
+        if (!value) return '—';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function truncate(text, max = 240) {
+        if (!text) return '';
+        return text.length > max ? `${text.slice(0, max)}…` : text;
+    }
+
+    function buildSummaryModal() {
+        let modal = document.getElementById('summary-modal');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.id = 'summary-modal';
+        modal.innerHTML = `
+            <div class="modal__backdrop" data-modal-close></div>
+            <div class="modal">
+                <div class="modal__header">
+                    <h3 data-modal-title>Summary</h3>
+                    <button class="modal__close" data-modal-close aria-label="Close">×</button>
+                </div>
+                <div class="modal__body">
+                    <p data-modal-body></p>
+                    <div data-modal-links class="modal__links"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (event) => {
+            if (event.target.matches('[data-modal-close]')) {
+                modal.classList.remove('is-open');
+            }
+        });
+        return modal;
+    }
+
+    const modal = buildSummaryModal();
+    const modalTitle = modal.querySelector('[data-modal-title]');
+    const modalBody = modal.querySelector('[data-modal-body]');
+    const modalLinks = modal.querySelector('[data-modal-links]');
+
+    function openSummary(item) {
+        modalTitle.textContent = item.company_name || item.company || 'Summary';
+        modalBody.textContent = item.summary || 'No summary available.';
+        modalLinks.innerHTML = '';
+        const links = (item.source_links || '').split(/[|,]/).map((l) => l.trim()).filter(Boolean);
+        if (links.length) {
+            const heading = document.createElement('p');
+            heading.className = 'muted';
+            heading.textContent = 'Sources';
+            modalLinks.appendChild(heading);
+            const list = document.createElement('ul');
+            links.forEach((link) => {
+                const li = document.createElement('li');
+                const anchor = document.createElement('a');
+                anchor.href = link;
+                anchor.target = '_blank';
+                anchor.rel = 'noopener noreferrer';
+                anchor.textContent = link;
+                li.appendChild(anchor);
+                list.appendChild(li);
+            });
+            modalLinks.appendChild(list);
+        }
+        modal.classList.add('is-open');
+    }
+
+    function setCounts(visible, total) {
+        if (visibleCount) visibleCount.textContent = visible;
+        if (totalCount) totalCount.textContent = total;
+    }
+
+    function filterData() {
+        const searchTerm = filters.q.toLowerCase();
+        return data.filter((item) => {
+            if (filters.port_date && (item.port_date || '').toString() !== filters.port_date) return false;
+            const sectorValue = item.gics_sector || item.sector || '';
+            if (filters.sector && sectorValue !== filters.sector) return false;
+            if (searchTerm) {
+                const name = (item.company_name || item.company || '').toLowerCase();
+                const ticker = (item.ticker || '').toLowerCase();
+                if (!name.includes(searchTerm) && !ticker.includes(searchTerm)) return false;
+            }
+            return true;
+        });
+    }
+
+    const sortState = { key: null, direction: 'asc' };
+
+    function compareValues(a, b, key) {
+        const numericKeys = new Set([
+            'rank_index',
+            'port_weight',
+            'transparency',
+            'ethical_principles',
+            'governance_structure',
+            'regulatory_alignment',
+            'stakeholder_engagement',
+            'aiges_composite_average',
+        ]);
+
+        if (key === 'port_date') {
+            const dateA = new Date(a[key]);
+            const dateB = new Date(b[key]);
+            if (!Number.isNaN(dateA.getTime()) && !Number.isNaN(dateB.getTime())) {
+                return dateA.getTime() - dateB.getTime();
+            }
+        }
+
+        if (numericKeys.has(key)) {
+            const numA = Number(a[key]);
+            const numB = Number(b[key]);
+            if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
+                return numA - numB;
+            }
+        }
+
+        return String(a[key] || '').localeCompare(String(b[key] || ''));
+    }
+
+    function sortData(rows) {
+        if (!sortState.key) return rows;
+        const direction = sortState.direction === 'asc' ? 1 : -1;
+        return [...rows].sort((a, b) => compareValues(a, b, sortState.key) * direction);
+    }
 
     function render(rows) {
         body.innerHTML = '';
-        if (!rows.length) {
-            const row = document.createElement('div');
-            row.className = 'table__row';
-            row.setAttribute('role', 'row');
-            row.innerHTML = `
-                <div class="table__cell" role="cell" colspan="7">Data currently unavailable.</div>
-            `;
+        const filtered = sortData(rows);
+        if (!filtered.length) {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td colspan="13" class="muted">Data currently unavailable.</td>`;
             body.appendChild(row);
+            setCounts(0, data.length);
             return;
         }
-        rows.forEach((item) => {
-            const row = document.createElement('div');
-            row.className = 'table__row';
-            row.setAttribute('role', 'row');
+
+        filtered.forEach((item) => {
+            const row = document.createElement('tr');
+            const summary = item.summary || '';
+            const truncated = truncate(summary, 240);
+            const hasLongSummary = summary && summary.length > 240;
             row.innerHTML = `
-                <div class="table__cell" role="cell">${item.company}</div>
-                <div class="table__cell" role="cell">${item.sector}</div>
-                <div class="table__cell" role="cell">${item.region}</div>
-                <div class="table__cell table__cell--right" role="cell"><span class="badge">${item.overall}</span></div>
-                <div class="table__cell table__cell--right" role="cell">${item.transparency}</div>
-                <div class="table__cell table__cell--right" role="cell">${item.accountability}</div>
-                <div class="table__cell table__cell--right" role="cell">${item.updated_at}</div>
+                <td>${formatDate(item.port_date)}</td>
+                <td class="text-right">${item.rank_index ?? '—'}</td>
+                <td>${item.company_name || item.company || '—'}</td>
+                <td>${item.ticker || '—'}</td>
+                <td class="text-right">${formatPercent(item.port_weight)}</td>
+                <td>${item.gics_sector || item.sector || '—'}</td>
+                <td class="text-right">${formatNumber(item.transparency)}</td>
+                <td class="text-right">${formatNumber(item.ethical_principles)}</td>
+                <td class="text-right">${formatNumber(item.governance_structure)}</td>
+                <td class="text-right">${formatNumber(item.regulatory_alignment)}</td>
+                <td class="text-right">${formatNumber(item.stakeholder_engagement)}</td>
+                <td class="text-right">${formatNumber(item.aiges_composite_average)}</td>
+                <td>
+                    <div class="summary__text">${truncated || '—'}</div>
+                    ${hasLongSummary ? '<button class="btn btn--text" data-summary>View full summary</button>' : ''}
+                </td>
             `;
+            if (hasLongSummary) {
+                const btn = row.querySelector('[data-summary]');
+                btn.addEventListener('click', () => openSummary(item));
+            }
             body.appendChild(row);
         });
+
+        setCounts(filtered.length, data.length);
     }
 
-    function sortBy(key) {
-        const sorted = [...data].sort((a, b) => {
-            if (typeof a[key] === 'string') {
-                return a[key].localeCompare(b[key]);
-            }
-            return b[key] - a[key];
-        });
-        render(sorted);
+    function updateExportLink() {
+        if (!csvButton) return;
+        const params = new URLSearchParams();
+        if (filters.port_date) params.append('port_date', filters.port_date);
+        if (filters.sector) params.append('sector', filters.sector);
+        if (filters.q) params.append('q', filters.q);
+        params.append('format', 'csv');
+        const base = csvButton.getAttribute('href').split('?')[0];
+        csvButton.href = `${base}?${params.toString()}`;
+    }
+
+    function handleFilterChange() {
+        const filtered = filterData();
+        render(filtered);
+        updateExportLink();
     }
 
     document.querySelectorAll('[data-sort]').forEach((btn) => {
-        btn.addEventListener('click', () => sortBy(btn.dataset.sort));
+        btn.addEventListener('click', () => {
+            const key = btn.dataset.sort;
+            if (sortState.key === key) {
+                sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortState.key = key;
+                sortState.direction = 'asc';
+            }
+            handleFilterChange();
+        });
     });
 
-    const select = document.querySelector('[data-sort-control]');
-    if (select) {
-        select.addEventListener('change', (event) => sortBy(event.target.value));
+    if (portDateSelect) {
+        portDateSelect.addEventListener('change', (event) => {
+            filters.port_date = event.target.value;
+            handleFilterChange();
+        });
     }
+
+    if (sectorSelect) {
+        sectorSelect.addEventListener('change', (event) => {
+            filters.sector = event.target.value;
+            handleFilterChange();
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+            filters.q = event.target.value.trim();
+            handleFilterChange();
+        });
+    }
+
+    render(filterData());
+    updateExportLink();
 })();
 </script>
+<style>
+.filters--stacked {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    align-items: end;
+}
+
+.filters--stacked .filter__actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.table-wrapper {
+    overflow-x: auto;
+}
+
+.table--wide {
+    width: 100%;
+    min-width: 1200px;
+    border-collapse: collapse;
+}
+
+.table--wide th,
+.table--wide td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #e6e8ec;
+    vertical-align: top;
+}
+
+.table--wide thead th {
+    background: #f7f9fc;
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.table--wide thead th[data-sort] {
+    cursor: pointer;
+}
+
+.table--wide th.text-right,
+.table--wide td.text-right {
+    text-align: right;
+}
+
+.summary__text {
+    max-width: 360px;
+}
+
+.modal__backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+}
+
+.modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    padding: 20px;
+    max-width: 720px;
+    width: calc(100% - 40px);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    border-radius: 8px;
+    z-index: 20;
+}
+
+#summary-modal {
+    display: none;
+}
+
+#summary-modal.is-open {
+    display: block;
+}
+
+.modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.modal__close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.modal__links ul {
+    margin: 8px 0 0;
+    padding-left: 18px;
+}
+
+.btn--text {
+    background: none;
+    color: #0055cc;
+    padding: 0;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+}
+</style>
 {% endblock %}
