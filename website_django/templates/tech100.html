@@ -32,6 +32,10 @@
                 </label>
                 <label>
                     Search
+                    <input type="search" id="search-filter" placeholder="Search company or ticker" value="{{ filters.q }}" />
+                </label>
+                <div class="filter__actions">
+                    <a class="btn btn--secondary" href="{% url 'tech100_export' %}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}format=csv" data-export-csv>Download CSV</a>
                     <input type="search" id="search-filter" placeholder="Search company or ticker" value="{{ filters.search }}" />
                 </label>
                 <div class="filter__actions">
@@ -52,6 +56,51 @@
                     <span class="muted">Click headers to sort.</span>
                 </div>
             </div>
+            <div class="table-wrapper">
+                <table class="table table--wide" aria-label="TECH100 index">
+                    <thead>
+                        <tr>
+                            <th data-sort="port_date">Port Date</th>
+                            <th data-sort="rank_index" class="text-right">Rank Index</th>
+                            <th data-sort="company_name">Company Name</th>
+                            <th data-sort="ticker">Ticker</th>
+                            <th data-sort="port_weight" class="text-right">Port Weight</th>
+                            <th data-sort="gics_sector">Gics Sector</th>
+                            <th class="text-right">Transparency</th>
+                            <th class="text-right">Ethical Principles</th>
+                            <th class="text-right">Governance Structure</th>
+                            <th class="text-right">Regulatory Alignment</th>
+                            <th class="text-right">Stakeholder Engagement</th>
+                            <th data-sort="aiges_composite_average" class="text-right">AIGES Composite</th>
+                            <th>Summary</th>
+                        </tr>
+                    </thead>
+                    <tbody data-tech100-body>
+                        {% if companies %}
+                            {% for company in companies %}
+                            <tr>
+                                <td>{{ company.port_date }}</td>
+                                <td class="text-right">{{ company.rank_index }}</td>
+                                <td>{{ company.company_name }}</td>
+                                <td>{{ company.ticker }}</td>
+                                <td class="text-right">{{ company.port_weight }}</td>
+                                <td>{{ company.gics_sector }}</td>
+                                <td class="text-right">{{ company.transparency }}</td>
+                                <td class="text-right">{{ company.ethical_principles }}</td>
+                                <td class="text-right">{{ company.governance_structure }}</td>
+                                <td class="text-right">{{ company.regulatory_alignment }}</td>
+                                <td class="text-right">{{ company.stakeholder_engagement }}</td>
+                                <td class="text-right">{{ company.aiges_composite_average }}</td>
+                                <td>{{ company.summary|truncatechars:200 }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="13" class="muted">Data currently unavailable.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             <div class="table table--wide" role="table" aria-label="TECH100 index">
                 <div class="table__row table__row--head" role="row">
                     <button class="table__cell" role="columnheader" data-sort="port_date">Report date</button>
@@ -117,6 +166,7 @@
     const filters = {
         port_date: portDateSelect ? portDateSelect.value : '',
         sector: sectorSelect ? sectorSelect.value : '',
+        q: searchInput ? searchInput.value : '',
         search: searchInput ? searchInput.value : '',
     };
 
@@ -141,6 +191,7 @@
         return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     }
 
+    function truncate(text, max = 240) {
     function truncate(text, max = 200) {
         if (!text) return '';
         return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -210,6 +261,7 @@
     }
 
     function filterData() {
+        const searchTerm = filters.q.toLowerCase();
         const searchTerm = filters.search.toLowerCase();
         return data.filter((item) => {
             if (filters.port_date && (item.port_date || '').toString() !== filters.port_date) return false;
@@ -226,6 +278,41 @@
 
     const sortState = { key: null, direction: 'asc' };
 
+    function compareValues(a, b, key) {
+        const numericKeys = new Set([
+            'rank_index',
+            'port_weight',
+            'transparency',
+            'ethical_principles',
+            'governance_structure',
+            'regulatory_alignment',
+            'stakeholder_engagement',
+            'aiges_composite_average',
+        ]);
+
+        if (key === 'port_date') {
+            const dateA = new Date(a[key]);
+            const dateB = new Date(b[key]);
+            if (!Number.isNaN(dateA.getTime()) && !Number.isNaN(dateB.getTime())) {
+                return dateA.getTime() - dateB.getTime();
+            }
+        }
+
+        if (numericKeys.has(key)) {
+            const numA = Number(a[key]);
+            const numB = Number(b[key]);
+            if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
+                return numA - numB;
+            }
+        }
+
+        return String(a[key] || '').localeCompare(String(b[key] || ''));
+    }
+
+    function sortData(rows) {
+        if (!sortState.key) return rows;
+        const direction = sortState.direction === 'asc' ? 1 : -1;
+        return [...rows].sort((a, b) => compareValues(a, b, sortState.key) * direction);
     function sortData(rows) {
         if (!sortState.key) return rows;
         const direction = sortState.direction === 'asc' ? 1 : -1;
@@ -245,6 +332,8 @@
         body.innerHTML = '';
         const filtered = sortData(rows);
         if (!filtered.length) {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td colspan="13" class="muted">Data currently unavailable.</td>`;
             const row = document.createElement('div');
             row.className = 'table__row';
             row.setAttribute('role', 'row');
@@ -255,6 +344,27 @@
         }
 
         filtered.forEach((item) => {
+            const row = document.createElement('tr');
+            const summary = item.summary || '';
+            const truncated = truncate(summary, 240);
+            const hasLongSummary = summary && summary.length > 240;
+            row.innerHTML = `
+                <td>${formatDate(item.port_date)}</td>
+                <td class="text-right">${item.rank_index ?? '—'}</td>
+                <td>${item.company_name || item.company || '—'}</td>
+                <td>${item.ticker || '—'}</td>
+                <td class="text-right">${formatPercent(item.port_weight)}</td>
+                <td>${item.gics_sector || item.sector || '—'}</td>
+                <td class="text-right">${formatNumber(item.transparency)}</td>
+                <td class="text-right">${formatNumber(item.ethical_principles)}</td>
+                <td class="text-right">${formatNumber(item.governance_structure)}</td>
+                <td class="text-right">${formatNumber(item.regulatory_alignment)}</td>
+                <td class="text-right">${formatNumber(item.stakeholder_engagement)}</td>
+                <td class="text-right">${formatNumber(item.aiges_composite_average)}</td>
+                <td>
+                    <div class="summary__text">${truncated || '—'}</div>
+                    ${hasLongSummary ? '<button class="btn btn--text" data-summary>View full summary</button>' : ''}
+                </td>
             const row = document.createElement('div');
             row.className = 'table__row';
             row.setAttribute('role', 'row');
@@ -294,6 +404,7 @@
         const params = new URLSearchParams();
         if (filters.port_date) params.append('port_date', filters.port_date);
         if (filters.sector) params.append('sector', filters.sector);
+        if (filters.q) params.append('q', filters.q);
         if (filters.search) params.append('search', filters.search);
         params.append('format', 'csv');
         const base = csvButton.getAttribute('href').split('?')[0];
@@ -335,6 +446,22 @@
 
     if (searchInput) {
         searchInput.addEventListener('input', (event) => {
+            filters.q = event.target.value.trim();
+            handleFilterChange();
+        });
+    }
+
+    }
+
+    if (sectorSelect) {
+        sectorSelect.addEventListener('change', (event) => {
+            filters.sector = event.target.value;
+            handleFilterChange();
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
             filters.search = event.target.value.trim();
             handleFilterChange();
         });
@@ -347,6 +474,7 @@
 <style>
 .filters--stacked {
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 12px;
     align-items: end;
@@ -358,6 +486,41 @@
     align-items: center;
 }
 
+.table-wrapper {
+    overflow-x: auto;
+}
+
+.table--wide {
+    width: 100%;
+    min-width: 1200px;
+    border-collapse: collapse;
+}
+
+.table--wide th,
+.table--wide td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #e6e8ec;
+    vertical-align: top;
+}
+
+.table--wide thead th {
+    background: #f7f9fc;
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.table--wide thead th[data-sort] {
+    cursor: pointer;
+}
+
+.table--wide th.text-right,
+.table--wide td.text-right {
+    text-align: right;
+}
+
+.summary__text {
+    max-width: 360px;
 .table--wide {
     overflow-x: auto;
 }
