@@ -66,6 +66,7 @@ class Tech100ExportTests(SimpleTestCase):
 
         response = self.client.get(
             reverse("tech100_export"), {"port_date": "2025-01-01", "sector": "Software", "q": "EXM"}
+            reverse("tech100_export"), {"port_date": "2025-01-01", "sector": "Software", "search": "EXM"}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -76,6 +77,7 @@ class Tech100ExportTests(SimpleTestCase):
             lines[0],
             "PORT_DATE,RANK_INDEX,COMPANY_NAME,TICKER,PORT_WEIGHT,GICS_SECTOR,TRANSPARENCY,ETHICAL_PRINCIPLES,GOVERNANCE_STRUCTURE,REGULATORY_ALIGNMENT,STAKEHOLDER_ENGAGEMENT,AIGES_COMPOSITE_AVERAGE,SUMMARY",
         )
+        self.assertTrue(lines[0].startswith("PORT_DATE"))
         self.assertIn("Example Corp", content)
         # Filter should remove the non-matching ticker
         self.assertNotIn("Other Corp", content)

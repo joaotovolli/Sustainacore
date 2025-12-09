@@ -36,6 +36,10 @@
                 </label>
                 <div class="filter__actions">
                     <a class="btn btn--secondary" href="{% url 'tech100_export' %}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}format=csv" data-export-csv>Download CSV</a>
+                    <input type="search" id="search-filter" placeholder="Search company or ticker" value="{{ filters.search }}" />
+                </label>
+                <div class="filter__actions">
+                    <a class="btn btn--secondary" href="{% url 'tech100_export' %}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if filters.search %}search={{ filters.search|urlencode }}&{% endif %}format=csv" data-export-csv>Download CSV</a>
                 </div>
             </div>
         </div>
@@ -97,6 +101,47 @@
                         {% endif %}
                     </tbody>
                 </table>
+            <div class="table table--wide" role="table" aria-label="TECH100 index">
+                <div class="table__row table__row--head" role="row">
+                    <button class="table__cell" role="columnheader" data-sort="port_date">Report date</button>
+                    <button class="table__cell" role="columnheader" data-sort="rank_index">Rank</button>
+                    <button class="table__cell" role="columnheader" data-sort="company_name">Company</button>
+                    <button class="table__cell" role="columnheader" data-sort="ticker">Ticker</button>
+                    <button class="table__cell" role="columnheader" data-sort="gics_sector">Sector</button>
+                    <button class="table__cell table__cell--right" role="columnheader" data-sort="port_weight">Weight</button>
+                    <button class="table__cell table__cell--right" role="columnheader" data-sort="transparency">Transparency</button>
+                    <button class="table__cell table__cell--right" role="columnheader" data-sort="ethical_principles">Ethical principles</button>
+                    <button class="table__cell table__cell--right" role="columnheader" data-sort="governance_structure">Governance structure</button>
+                    <button class="table__cell table__cell--right" role="columnheader" data-sort="regulatory_alignment">Regulatory alignment</button>
+                    <button class="table__cell table__cell--right" role="columnheader" data-sort="stakeholder_engagement">Stakeholder engagement</button>
+                    <button class="table__cell table__cell--right" role="columnheader" data-sort="aiges_composite_average">AIGES Composite</button>
+                    <div class="table__cell" role="columnheader">Summary</div>
+                </div>
+                <div data-tech100-body>
+                    {% if companies %}
+                        {% for company in companies %}
+                        <div class="table__row" role="row">
+                            <div class="table__cell" role="cell">{{ company.port_date }}</div>
+                            <div class="table__cell" role="cell">{{ company.rank_index }}</div>
+                            <div class="table__cell" role="cell">{{ company.company_name }}</div>
+                            <div class="table__cell" role="cell">{{ company.ticker }}</div>
+                            <div class="table__cell" role="cell">{{ company.gics_sector }}</div>
+                            <div class="table__cell table__cell--right" role="cell">{{ company.port_weight }}</div>
+                            <div class="table__cell table__cell--right" role="cell">{{ company.transparency }}</div>
+                            <div class="table__cell table__cell--right" role="cell">{{ company.ethical_principles }}</div>
+                            <div class="table__cell table__cell--right" role="cell">{{ company.governance_structure }}</div>
+                            <div class="table__cell table__cell--right" role="cell">{{ company.regulatory_alignment }}</div>
+                            <div class="table__cell table__cell--right" role="cell">{{ company.stakeholder_engagement }}</div>
+                            <div class="table__cell table__cell--right" role="cell">{{ company.aiges_composite_average }}</div>
+                            <div class="table__cell" role="cell">{{ company.summary|truncatechars:120 }}</div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="table__row" role="row">
+                            <div class="table__cell" role="cell" colspan="13">Data currently unavailable.</div>
+                        </div>
+                    {% endif %}
+                </div>
             </div>
             <p class="muted table__note">Sorted and filtered locally using data retrieved from the VM1 /api/tech100 endpoint.</p>
         </div>
@@ -122,6 +167,7 @@
         port_date: portDateSelect ? portDateSelect.value : '',
         sector: sectorSelect ? sectorSelect.value : '',
         q: searchInput ? searchInput.value : '',
+        search: searchInput ? searchInput.value : '',
     };
 
     function formatPercent(value) {
@@ -146,6 +192,7 @@
     }
 
     function truncate(text, max = 240) {
+    function truncate(text, max = 200) {
         if (!text) return '';
         return text.length > max ? `${text.slice(0, max)}…` : text;
     }
@@ -215,6 +262,7 @@
 
     function filterData() {
         const searchTerm = filters.q.toLowerCase();
+        const searchTerm = filters.search.toLowerCase();
         return data.filter((item) => {
             if (filters.port_date && (item.port_date || '').toString() !== filters.port_date) return false;
             const sectorValue = item.gics_sector || item.sector || '';
@@ -265,6 +313,19 @@
         if (!sortState.key) return rows;
         const direction = sortState.direction === 'asc' ? 1 : -1;
         return [...rows].sort((a, b) => compareValues(a, b, sortState.key) * direction);
+    function sortData(rows) {
+        if (!sortState.key) return rows;
+        const direction = sortState.direction === 'asc' ? 1 : -1;
+        return [...rows].sort((a, b) => {
+            const aVal = a[sortState.key];
+            const bVal = b[sortState.key];
+            const aNum = Number(aVal);
+            const bNum = Number(bVal);
+            if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
+                return (aNum - bNum) * direction;
+            }
+            return String(aVal || '').localeCompare(String(bVal || '')) * direction;
+        });
     }
 
     function render(rows) {
@@ -273,6 +334,10 @@
         if (!filtered.length) {
             const row = document.createElement('tr');
             row.innerHTML = `<td colspan="13" class="muted">Data currently unavailable.</td>`;
+            const row = document.createElement('div');
+            row.className = 'table__row';
+            row.setAttribute('role', 'row');
+            row.innerHTML = `<div class="table__cell" role="cell" colspan="13">Data currently unavailable.</div>`;
             body.appendChild(row);
             setCounts(0, data.length);
             return;
@@ -300,6 +365,29 @@
                     <div class="summary__text">${truncated || '—'}</div>
                     ${hasLongSummary ? '<button class="btn btn--text" data-summary>View full summary</button>' : ''}
                 </td>
+            const row = document.createElement('div');
+            row.className = 'table__row';
+            row.setAttribute('role', 'row');
+            const summary = item.summary || '';
+            const truncated = truncate(summary, 200);
+            const hasLongSummary = summary && summary.length > 200;
+            row.innerHTML = `
+                <div class="table__cell" role="cell">${formatDate(item.port_date)}</div>
+                <div class="table__cell" role="cell">${item.rank_index ?? '—'}</div>
+                <div class="table__cell" role="cell">${item.company_name || item.company || '—'}</div>
+                <div class="table__cell" role="cell">${item.ticker || '—'}</div>
+                <div class="table__cell" role="cell">${item.gics_sector || item.sector || '—'}</div>
+                <div class="table__cell table__cell--right" role="cell">${formatPercent(item.port_weight)}</div>
+                <div class="table__cell table__cell--right" role="cell">${formatNumber(item.transparency)}</div>
+                <div class="table__cell table__cell--right" role="cell">${formatNumber(item.ethical_principles)}</div>
+                <div class="table__cell table__cell--right" role="cell">${formatNumber(item.governance_structure)}</div>
+                <div class="table__cell table__cell--right" role="cell">${formatNumber(item.regulatory_alignment)}</div>
+                <div class="table__cell table__cell--right" role="cell">${formatNumber(item.stakeholder_engagement)}</div>
+                <div class="table__cell table__cell--right" role="cell">${formatNumber(item.aiges_composite_average)}</div>
+                <div class="table__cell" role="cell">
+                    <div class="summary__text">${truncated || '—'}</div>
+                    ${hasLongSummary ? '<button class="btn btn--text" data-summary>View more</button>' : ''}
+                </div>
             `;
             if (hasLongSummary) {
                 const btn = row.querySelector('[data-summary]');
@@ -317,6 +405,7 @@
         if (filters.port_date) params.append('port_date', filters.port_date);
         if (filters.sector) params.append('sector', filters.sector);
         if (filters.q) params.append('q', filters.q);
+        if (filters.search) params.append('search', filters.search);
         params.append('format', 'csv');
         const base = csvButton.getAttribute('href').split('?')[0];
         csvButton.href = `${base}?${params.toString()}`;
@@ -362,6 +451,22 @@
         });
     }
 
+    }
+
+    if (sectorSelect) {
+        sectorSelect.addEventListener('change', (event) => {
+            filters.sector = event.target.value;
+            handleFilterChange();
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+            filters.search = event.target.value.trim();
+            handleFilterChange();
+        });
+    }
+
     render(filterData());
     updateExportLink();
 })();
@@ -370,6 +475,7 @@
 .filters--stacked {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 12px;
     align-items: end;
 }
@@ -415,6 +521,16 @@
 
 .summary__text {
     max-width: 360px;
+.table--wide {
+    overflow-x: auto;
+}
+
+.table--wide .table__row {
+    min-width: 1200px;
+}
+
+.summary__text {
+    max-width: 320px;
 }
 
 .modal__backdrop {

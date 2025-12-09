@@ -90,6 +90,8 @@ def fetch_tech100(
         # Support both historic "search" and "q" query params depending on backend implementation
         params["q"] = search_param
         params["search"] = search_param
+    if search:
+        params["search"] = search
 
     payload = _get_json("/api/tech100", timeout=timeout, params=params or None)
     if isinstance(payload, dict) and "error" in payload:

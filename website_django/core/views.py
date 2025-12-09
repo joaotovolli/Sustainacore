@@ -33,12 +33,16 @@ def _format_score(value) -> str:
 def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
     filtered: List[Dict] = []
     search_term = (filters.get("q") or filters.get("search") or "").lower()
+def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
+    filtered: List[Dict] = []
+    search_term = filters.get("search", "").lower()
     for company in companies:
         port_date = (company.get("port_date") or "").strip()
         if filters.get("port_date") and port_date != filters["port_date"]:
             continue
 
         sector_value = (company.get("gics_sector") or company.get("sector") or "").strip()
+        sector_value = company.get("gics_sector") or company.get("sector") or ""
         if filters.get("sector") and sector_value != filters["sector"]:
             continue
 
@@ -76,6 +80,14 @@ def tech100(request):
     }
 
     tech100_response = fetch_tech100()
+        "search": (request.GET.get("search") or "").strip(),
+    }
+
+    tech100_response = fetch_tech100(
+        port_date=filters["port_date"] or None,
+        sector=filters["sector"] or None,
+        search=filters["search"] or None,
+    )
 
     companies = tech100_response.get("items", [])
     filtered_companies = _filter_companies(companies, filters)
@@ -109,6 +121,14 @@ def tech100_export(request):
 
     if tech100_response.get("error"):
         return HttpResponse("Unable to export TECH100 data right now.", status=502)
+        "search": (request.GET.get("search") or "").strip(),
+    }
+
+    tech100_response = fetch_tech100(
+        port_date=filters["port_date"] or None,
+        sector=filters["sector"] or None,
+        search=filters["search"] or None,
+    )
 
     companies = _filter_companies(tech100_response.get("items", []), filters)
 
@@ -129,6 +149,7 @@ def tech100_export(request):
         "STAKEHOLDER_ENGAGEMENT",
         "AIGES_COMPOSITE_AVERAGE",
         "SUMMARY",
+        "SOURCE_LINKS",
     ]
 
     writer = csv.writer(response)
@@ -151,6 +172,7 @@ def tech100_export(request):
                 (company.get("summary") or ""),
             ]
         )
+        writer.writerow([company.get(key.lower()) or company.get(key) or "" for key in headers])
 
     return response
 
