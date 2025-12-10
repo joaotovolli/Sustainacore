@@ -245,6 +245,46 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertIn("2", content)
 
 
+class HomeViewTests(SimpleTestCase):
+    @mock.patch("core.views.fetch_news")
+    @mock.patch("core.views.fetch_tech100")
+    def test_home_renders_with_canonical_tech100_data(self, tech100_mock, news_mock):
+        tech100_mock.return_value = {
+            "items": [
+                {
+                    "company_name": "Acme Corp",
+                    "ticker": "ACME",
+                    "sector": "Technology",
+                    "region": "North America",
+                    "aiges_composite": 90,
+                }
+            ],
+            "error": None,
+            "meta": {},
+        }
+        news_mock.return_value = {
+            "items": [
+                {
+                    "title": "Gov headline",
+                    "summary": "News summary",
+                    "source": "Source",
+                    "published_at": "2025-01-01",
+                    "tags": [],
+                }
+            ],
+            "error": None,
+            "meta": {},
+        }
+
+        response = self.client.get("/", HTTP_HOST="sustainacore.org")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Acme Corp", content)
+        self.assertIn("Technology", content)
+        self.assertIn("90", content)
+        self.assertIn("Gov headline", content)
+
+
 class Tech100ExportTests(SimpleTestCase):
     @mock.patch("core.views.fetch_tech100")
     def test_export_returns_csv(self, fetch_mock):

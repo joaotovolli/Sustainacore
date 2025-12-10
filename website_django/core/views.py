@@ -254,19 +254,25 @@ def _normalize_row(raw: Dict) -> Dict:
 
 
 def home(request):
-    tech100_response = fetch_tech100(
-        port_date=filters["port_date"] or None,
-        sector=filters["sector"] or None,
-        search=search_term or None,
-    )
+    tech100_response = fetch_tech100()
     news_response = fetch_news()
 
-    tech100_items = tech100_response.get("items", [])
+    raw_tech100_items = tech100_response.get("items", []) or []
+    tech100_items = [_normalize_row(item) for item in raw_tech100_items if isinstance(item, dict)]
+    tech100_preview = [
+        {
+            "company": item.get("company_name") or item.get("company"),
+            "sector": item.get("sector") or item.get("gics_sector"),
+            "region": item.get("region"),
+            "overall": item.get("aiges_composite") or item.get("overall"),
+        }
+        for item in tech100_items[:3]
+    ]
     news_items = news_response.get("items", [])
 
     context = {
         "year": datetime.now().year,
-        "tech100_preview": tech100_items[:3],
+        "tech100_preview": tech100_preview,
         "news_preview": news_items[:3],
     }
     return render(request, "home.html", context)
