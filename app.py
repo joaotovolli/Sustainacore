@@ -14,7 +14,7 @@ import uuid
 import zlib
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Allow this module to expose the sibling package under app/
 __path__ = [str(Path(__file__).resolve().parent / "app")]
@@ -156,6 +156,7 @@ _LOGGER = logging.getLogger("app.ask2")
 _READINESS_LOGGER = logging.getLogger("app.readyz")
 _MULTI_LOGGER = logging.getLogger("app.multihit")
 _STARTUP_LOGGER = logging.getLogger("app.startup")
+_API_LOGGER = logging.getLogger("app.api")
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
 _API_AUTH_WARNED = False
 _METRIC_LOGGER = logging.getLogger("app.ask2.metrics")
@@ -260,6 +261,89 @@ def _format_timestamp(value: Any):
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     return None
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return None
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        try:
+            return float(str(value).strip())
+        except Exception:
+            return None
+
+
+def _coerce_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        return None
+    return text or None
+
+
+def _sanitize_limit(value: Any, default: int = 1000, max_limit: int = 2000) -> int:
+    """Clamp the limit parameter to a safe range."""
+
+    limit = _coerce_int(value)
+    if limit is None:
+        limit = default
+    if limit < 1:
+        limit = 1
+    if limit > max_limit:
+        limit = max_limit
+    return limit
+
+
+def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 response fields."""
+
+    port_date = _format_date(row.get("port_date") or row.get("asof") or row.get("updated_at"))
+    aiges = _coerce_float(
+        row.get("aiges_composite_average") or row.get("aiges_composite") or row.get("overall")
+    )
+    item = {
+        "port_date": port_date,
+        "rank_index": _coerce_int(row.get("rank_index") or row.get("rank")),
+        "company_name": row.get("company_name") or row.get("company") or row.get("name"),
+        "ticker": row.get("ticker"),
+        "sector": row.get("gics_sector") or row.get("sector"),
+        "gics_sector": row.get("gics_sector") or row.get("sector"),
+        "transparency": _coerce_float(row.get("transparency")),
+        "ethical_principles": _coerce_float(row.get("ethical_principles") or row.get("ethics")),
+        "governance_structure": _coerce_float(
+            row.get("governance_structure") or row.get("accountability")
+        ),
+        "regulatory_alignment": _coerce_float(row.get("regulatory_alignment")),
+        "stakeholder_engagement": _coerce_float(
+            row.get("stakeholder_engagement") or row.get("stakeholder")
+        ),
+        "aiges_composite": aiges,
+        "summary": _coerce_str(row.get("summary")),
+        "source_links": _coerce_str(row.get("source_links")),
+    }
+    # Backwards-compatible aliases
+    item["rank"] = item.get("rank_index")
+    item["company"] = item.get("company_name")
+    item["overall"] = item.get("aiges_composite")
+    item["accountability"] = item.get("governance_structure")
+    item["updated_at"] = port_date
+    return item
 
 
 def _api_coerce_k(value, default: int = 4) -> int:
@@ -1240,38 +1324,96 @@ def api_tech100():
         _LOGGER.exception("api_tech100 helper import failed", exc_info=exc)
         return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
 
-    sql = (
-        "SELECT company_name, gics_sector, transparency, governance_structure, "
-        "aiges_composite_average, port_date "
-        "FROM tech11_ai_gov_eth_index "
-        "WHERE port_date = (SELECT MAX(port_date) FROM tech11_ai_gov_eth_index) "
-        "ORDER BY rank_index FETCH FIRST 100 ROWS ONLY"
+    port_date_filter = (request.args.get("port_date") or request.args.get("as_of") or "").strip()
+    sector_filter = (request.args.get("sector") or request.args.get("gics_sector") or "").strip()
+    ticker_filter = (request.args.get("ticker") or "").strip()
+    search_filter = (
+        request.args.get("company") or request.args.get("search") or request.args.get("q") or ""
+    ).strip()
+    limit = _sanitize_limit(request.args.get("limit"))
+
+    _API_LOGGER.info(
+        "api_tech100 request",
+        extra={
+            "port_date": port_date_filter or None,
+            "sector": sector_filter or None,
+            "ticker": ticker_filter or None,
+            "search": search_filter or None,
+            "limit": limit,
+        },
     )
+
+    where_clauses: List[str] = []
+    binds: Dict[str, Any] = {}
+
+    if port_date_filter:
+        try:
+            binds["port_date"] = datetime.fromisoformat(port_date_filter).date()
+        except Exception:
+            binds["port_date"] = port_date_filter
+        where_clauses.append("TRUNC(port_date) = TRUNC(:port_date)")
+    if sector_filter:
+        binds["sector"] = sector_filter
+        where_clauses.append("LOWER(gics_sector) = LOWER(:sector)")
+    if ticker_filter:
+        binds["ticker_exact"] = ticker_filter
+        where_clauses.append("LOWER(ticker) = LOWER(:ticker_exact)")
+    if search_filter:
+        binds["search_like"] = f"%{search_filter}%"
+        where_clauses.append(
+            "(LOWER(company_name) LIKE LOWER(:search_like) OR LOWER(ticker) LIKE LOWER(:search_like))"
+        )
+
+    sql = (
+        "SELECT port_date, rank_index, company_name, ticker, port_weight, gics_sector, "
+        "transparency, ethical_principles, governance_structure, regulatory_alignment, "
+        "stakeholder_engagement, aiges_composite_average, summary, source_links "
+        "FROM tech11_ai_gov_eth_index"
+    )
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+    sql += " ORDER BY port_date, rank_index NULLS LAST FETCH FIRST :limit ROWS ONLY"
+    binds["limit"] = limit
 
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(sql)
+            cur.execute(sql, binds)
             columns = [desc[0].lower() for desc in cur.description]
-            items = []
-            for raw in cur.fetchall():
-                row = {col: _to_plain(val) for col, val in zip(columns, raw)}
-                items.append(
-                    {
-                        "company": row.get("company_name"),
-                        "sector": row.get("gics_sector"),
-                        "region": None,
-                        "overall": row.get("aiges_composite_average"),
-                        "transparency": row.get("transparency"),
-                        "accountability": row.get("governance_structure"),
-                        "updated_at": _format_date(row.get("port_date")),
-                    }
-                )
+            raw_rows = [{col: _to_plain(val) for col, val in zip(columns, raw)} for raw in cur.fetchall()]
     except Exception as exc:
         _LOGGER.exception("api_tech100 query failed", exc_info=exc)
         return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
 
-    return jsonify({"items": items}), 200
+    items = [_normalize_tech100_row(row) for row in raw_rows]
+    if items:
+        sample = items[0]
+        pillar_keys = [
+            key
+            for key in (
+                "transparency",
+                "ethical_principles",
+                "governance_structure",
+                "regulatory_alignment",
+                "stakeholder_engagement",
+                "summary",
+            )
+            if sample.get(key) not in (None, "", [])
+        ]
+        _API_LOGGER.info(
+            "api_tech100 sample",
+            extra={
+                "company": sample.get("company_name"),
+                "ticker": sample.get("ticker"),
+                "port_date": sample.get("port_date"),
+                "aiges_composite": sample.get("aiges_composite"),
+                "pillars": pillar_keys,
+            },
+        )
+    distinct_dates = sorted({item.get("port_date") for item in items if item.get("port_date")})
+    _API_LOGGER.info("/api/tech100 rows=%d dates=%s", len(items), ", ".join(distinct_dates[:5]))
+
+    return jsonify({"items": items, "count": len(items)}), 200
 
 
 @app.route("/api/news", methods=["GET"])
