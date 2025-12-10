@@ -97,7 +97,7 @@
             {% if companies %}
               {% for c in companies %}
                   <tr class="tech100-row">
-                    <td>{{ c.port_date|date:"Y-m-d"|default:c.port_date_str|default:"—" }}</td>
+                    <td>{{ c.port_date_str|default:"—" }}</td>
                     <td class="text-right tech100-col--rank">
                       {% if c.rank_index or c.rank_index == 0 %}
                         {{ c.rank_index|floatformat:0 }}
@@ -121,6 +121,11 @@
                       {% endif %}
                     </td>
                     <td>
+                      <span class="text-link">View details</span>
+                    </td>
+                  </tr>
+                  <tr class="tech100__details-row">
+                    <td colspan="5">
                       <details class="tech100-details">
                         <summary class="text-link">View details</summary>
                         <div class="card card--lined tech100-details-card">
@@ -141,8 +146,8 @@
                           <div class="tech100-details__section">
                             <h4 class="h6">History</h4>
                             {% if c.history %}
-                              <div class="tech100-history-table">
-                                <table class="table table--wide" aria-label="Historical AIGES data for {{ c.company_name }}">
+                              <div class="tech100-history-wrapper">
+                                <table class="table tech100-history-table" aria-label="Historical AIGES data for {{ c.company_name }}">
                                   <thead>
                                     <tr>
                                       <th>Port Date</th>
@@ -157,12 +162,42 @@
                                   <tbody>
                                     {% for h in c.history %}
                                       <tr>
-                                        <td>{{ h.port_date|date:"Y-m-d"|default:h.port_date_str|default:"—" }}</td>
-                                        <td class="text-right">{{ h.transparency|floatformat:1|default:"—" }}</td>
-                                        <td class="text-right">{{ h.ethical_principles|floatformat:1|default:"—" }}</td>
-                                        <td class="text-right">{{ h.governance_structure|floatformat:1|default:"—" }}</td>
-                                        <td class="text-right">{{ h.regulatory_alignment|floatformat:1|default:"—" }}</td>
-                                        <td class="text-right">{{ h.stakeholder_engagement|floatformat:1|default:"—" }}</td>
+                                        <td>{{ h.port_date_str|default:"—" }}</td>
+                                        <td class="text-right">
+                                          {% if h.transparency or h.transparency == 0 %}
+                                            {{ h.transparency|floatformat:1 }}
+                                          {% else %}
+                                            —
+                                          {% endif %}
+                                        </td>
+                                        <td class="text-right">
+                                          {% if h.ethical_principles or h.ethical_principles == 0 %}
+                                            {{ h.ethical_principles|floatformat:1 }}
+                                          {% else %}
+                                            —
+                                          {% endif %}
+                                        </td>
+                                        <td class="text-right">
+                                          {% if h.governance_structure or h.governance_structure == 0 %}
+                                            {{ h.governance_structure|floatformat:1 }}
+                                          {% else %}
+                                            —
+                                          {% endif %}
+                                        </td>
+                                        <td class="text-right">
+                                          {% if h.regulatory_alignment or h.regulatory_alignment == 0 %}
+                                            {{ h.regulatory_alignment|floatformat:1 }}
+                                          {% else %}
+                                            —
+                                          {% endif %}
+                                        </td>
+                                        <td class="text-right">
+                                          {% if h.stakeholder_engagement or h.stakeholder_engagement == 0 %}
+                                            {{ h.stakeholder_engagement|floatformat:1 }}
+                                          {% else %}
+                                            —
+                                          {% endif %}
+                                        </td>
                                         <td class="text-right">
                                           {% if h.aiges_composite or h.aiges_composite == 0 %}
                                             {{ h.aiges_composite|floatformat:1 }}
@@ -175,7 +210,7 @@
                                   </tbody>
                                 </table>
                               </div>
-                              {% if c.history|length == 1 %}
+                              {% if c.history|length <= 1 %}
                                 <p class="tech100-history-note muted">
                                   Only the latest rebalance is available. Historical scores will appear as new rebalances are added.
                                 </p>

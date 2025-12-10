@@ -296,23 +296,9 @@ def tech100(request):
     companies = [_normalize_row(c) for c in raw_companies if isinstance(c, dict)]
     _assign_rank_indexes(companies)
 
-    sample_row = next((item for item in companies if item), None)
-    if sample_row:
-        logger.info("TECH100 raw sample keys: %s", sorted(sample_row.keys()))
-        logger.info(
-            "TECH100 sample company: name=%s ticker=%s port_date=%s rank=%s aiges=%s",
-            sample_row.get("company_name"),
-            sample_row.get("ticker"),
-            sample_row.get("port_date_str") or sample_row.get("port_date"),
-            sample_row.get("rank_index"),
-            sample_row.get("aiges_composite"),
-        )
-
-    filtered_rows = _filter_companies(companies, filters)
-
-    def sort_key(item):
+    def sort_latest(item):
         parsed_date = item.get("port_date") or _parse_port_date(item.get("port_date_str"))
-        date_sort = -(parsed_date.timestamp()) if parsed_date else float("inf")
+        date_sort = parsed_date.timestamp() if parsed_date else float("-inf")
         rank_sort = _safe_float(item.get("rank_index"), float("inf"))
         return (date_sort, rank_sort)
 
@@ -320,33 +306,35 @@ def tech100(request):
         parsed_date = item.get("port_date") or _parse_port_date(item.get("port_date_str"))
         return parsed_date or datetime.min
 
-    # Group TECH100 rows by ticker/name and attach sorted history for each company.
+    def matches_filters(rows: List[Dict]) -> bool:
+        if filters["port_date"]:
+            if not any((_port_date_to_string(r.get("port_date") or r.get("port_date_str")) == filters["port_date"]) for r in rows):
+                return False
+        if filters["sector"]:
+            if not any(((r.get("sector") or r.get("gics_sector")) == filters["sector"]) for r in rows):
+                return False
+        if filters["search"]:
+            term = filters["search"].lower()
+            row = rows[-1]
+            name = (row.get("company_name") or "").lower()
+            ticker = (row.get("ticker") or "").lower()
+            if term not in name and term not in ticker:
+                return False
+        return True
+
     grouped_companies: Dict[str, List[Dict]] = {}
-    for idx, row in enumerate(filtered_rows):
+    for idx, row in enumerate(companies):
         key = _company_history_key(row) or f"row-{idx}"
         grouped_companies.setdefault(key, []).append(row)
 
     display_companies: List[Dict] = []
     for rows in grouped_companies.values():
-        sorted_rows = sorted(rows, key=sort_key)
-        latest = sorted_rows[0]
-        company_summary = {
-            "company_name": latest.get("company_name"),
-            "ticker": latest.get("ticker"),
-            "port_date": latest.get("port_date"),
-            "port_date_str": latest.get("port_date_str"),
-            "rank_index": latest.get("rank_index"),
-            "gics_sector": latest.get("gics_sector"),
-            "sector": latest.get("sector"),
-            "summary": latest.get("summary"),
-            "transparency": latest.get("transparency"),
-            "ethical_principles": latest.get("ethical_principles"),
-            "governance_structure": latest.get("governance_structure"),
-            "regulatory_alignment": latest.get("regulatory_alignment"),
-            "stakeholder_engagement": latest.get("stakeholder_engagement"),
-            "aiges_composite": latest.get("aiges_composite") or _extract_aiges_score(latest),
-        }
-        company_summary["history"] = [
+        rows_sorted = sorted(rows, key=history_sort)
+        if not matches_filters(rows_sorted):
+            continue
+        latest = rows_sorted[-1]
+        summary_value = next((r.get("summary") for r in reversed(rows_sorted) if r.get("summary")), "")
+        history_list = [
             {
                 "port_date": entry.get("port_date"),
                 "port_date_str": entry.get("port_date_str"),
@@ -357,11 +345,29 @@ def tech100(request):
                 "stakeholder_engagement": entry.get("stakeholder_engagement"),
                 "aiges_composite": entry.get("aiges_composite") or _extract_aiges_score(entry),
             }
-            for entry in sorted(sorted_rows, key=history_sort)
+            for entry in rows_sorted
         ]
-        display_companies.append(company_summary)
+        display_companies.append(
+            {
+                "company_name": latest.get("company_name"),
+                "ticker": latest.get("ticker"),
+                "port_date": latest.get("port_date"),
+                "port_date_str": latest.get("port_date_str"),
+                "rank_index": latest.get("rank_index"),
+                "gics_sector": latest.get("gics_sector"),
+                "sector": latest.get("sector"),
+                "summary": summary_value,
+                "transparency": latest.get("transparency"),
+                "ethical_principles": latest.get("ethical_principles"),
+                "governance_structure": latest.get("governance_structure"),
+                "regulatory_alignment": latest.get("regulatory_alignment"),
+                "stakeholder_engagement": latest.get("stakeholder_engagement"),
+                "aiges_composite": latest.get("aiges_composite") or _extract_aiges_score(latest),
+                "history": history_list,
+            }
+        )
 
-    display_companies = sorted(display_companies, key=sort_key)
+    display_companies = sorted(display_companies, key=lambda item: sort_latest(item), reverse=True)
     if display_companies:
         sample = display_companies[0]
         logger.info(
@@ -388,7 +394,7 @@ def tech100(request):
         "sector_options": sector_options,
         "filters": filters,
         "visible_count": len(display_companies),
-        "total_count": len({(_company_history_key(c) or f"row-{idx}") for idx, c in enumerate(companies)}),
+        "total_count": len(grouped_companies),
     }
     return render(request, "tech100.html", context)
 
