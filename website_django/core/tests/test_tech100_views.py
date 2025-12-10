@@ -35,6 +35,7 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertIn("Transparency", content)
         self.assertIn("2025-01-01", content)
         self.assertIn("Sample summary.", content)
+        self.assertIn("Only the latest rebalance is available", content)
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_groups_history_and_uses_latest_row(self, fetch_mock):
