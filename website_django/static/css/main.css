@@ -448,17 +448,21 @@ a:hover {
 }
 
 .tech100-history-table {
-    width: 100%;
-    overflow-x: auto;
-}
-
-.tech100-history-table table {
     min-width: 640px;
 }
 
 .tech100-history-note {
     margin: 0.5rem 0 0;
     font-size: 0.95rem;
+}
+
+.tech100-history-wrapper {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.tech100__details-row details {
+    display: block;
 }
 
 .badge {

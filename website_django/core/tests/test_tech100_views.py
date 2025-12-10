@@ -244,6 +244,56 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertIn("1", content)
         self.assertIn("2", content)
 
+    @mock.patch("core.views.fetch_tech100")
+    def test_tech100_history_includes_all_rebalances_and_summary(self, fetch_mock):
+        fetch_mock.return_value = {
+            "items": [
+                {
+                    "port_date": "2025-01-01",
+                    "rank_index": 3,
+                    "company_name": "History Corp",
+                    "ticker": "HIST",
+                    "sector": "Technology",
+                    "transparency": 50,
+                    "ethical_principles": 51,
+                    "governance_structure": 52,
+                    "regulatory_alignment": 53,
+                    "stakeholder_engagement": 54,
+                    "aiges_composite": 60,
+                },
+                {
+                    "port_date": "2025-04-01",
+                    "rank_index": 2,
+                    "company_name": "History Corp",
+                    "ticker": "HIST",
+                    "sector": "Technology",
+                    "transparency": 60,
+                    "ethical_principles": 61,
+                    "governance_structure": 62,
+                    "regulatory_alignment": 63,
+                    "stakeholder_engagement": 64,
+                    "aiges_composite": 70,
+                    "summary": "Backend summary",
+                },
+            ],
+            "error": None,
+            "meta": {},
+        }
+
+        response = self.client.get(reverse("tech100"))
+        self.assertEqual(response.status_code, 200)
+        companies = response.context["companies"]
+        self.assertEqual(len(companies), 1)
+        company = companies[0]
+        self.assertEqual(company["rank_index"], 2)
+        self.assertEqual(company["summary"], "Backend summary")
+        history = company.get("history") or []
+        self.assertEqual(len(history), 2)
+        self.assertEqual([h["port_date_str"] for h in history], ["2025-01-01", "2025-04-01"])
+        content = response.content.decode("utf-8")
+        for expected in ["History Corp", "Backend summary", "2025-01-01", "2025-04-01", "50.0", "64.0", "70.0"]:
+            self.assertIn(expected, content)
+
 
 class HomeViewTests(SimpleTestCase):
     @mock.patch("core.views.fetch_news")
