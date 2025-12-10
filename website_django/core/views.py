@@ -36,16 +36,14 @@ def _format_score(value) -> str:
 
 
 def _port_date_to_string(value) -> str:
+    parsed = _parse_port_date(value)
+    if parsed:
+        return parsed.date().isoformat()
     if isinstance(value, datetime):
         return value.date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
-    if not value:
-        return ""
-    parsed = _parse_port_date(value)
-    if parsed:
-        return parsed.date().isoformat()
-    return str(value).strip()
+    return str(value or "").strip()
 
 
 def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
@@ -86,10 +84,18 @@ def _parse_port_date(value):
         return value
     if isinstance(value, date):
         return datetime.combine(value, datetime.min.time())
-    try:
-        return datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
+    text = str(value).strip()
+    if not text:
         return None
+    for candidate in (text, text.replace("Z", ""), text.split("T")[0]):
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo:
+                parsed = parsed.replace(tzinfo=None)
+            return parsed
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _safe_float(value, default=None):
@@ -97,6 +103,20 @@ def _safe_float(value, default=None):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _lower_key_map(row: Dict) -> Dict[str, any]:
+    return {str(key).lower(): value for key, value in row.items()}
+
+
+def _get_value(row_map: Dict[str, any], keys) -> any:
+    for key in keys:
+        if key is None:
+            continue
+        candidate = row_map.get(str(key).lower())
+        if candidate not in ("", None):
+            return candidate
+    return None
 
 
 def _company_history_key(company: Dict) -> str:
@@ -153,29 +173,75 @@ def _first_value(row: Dict, keys):
     return None
 
 
+def _assign_rank_indexes(rows: List[Dict]) -> None:
+    """Backfill rank_index per port_date based on AIGES composite if backend omits rank."""
+    per_date: Dict[str, List[Dict]] = {}
+    for row in rows:
+        date_key = row.get("port_date_str") or _port_date_to_string(row.get("port_date")) or "undated"
+        score = _safe_float(row.get("aiges_composite"))
+        per_date.setdefault(date_key, []).append({"score": score, "row": row})
+
+    for date_key, items in per_date.items():
+        items.sort(key=lambda item: (-_safe_float(item["score"], float("-inf")), str(item["row"].get("company_name") or "")))
+        for idx, item in enumerate(items, start=1):
+            row = item["row"]
+            if row.get("rank_index") in ("", None):
+                row["rank_index"] = idx
+
+
 def _normalize_row(raw: Dict) -> Dict:
     # Normalize varied API field names into a canonical TECH100 schema.
     row = dict(raw)
-    row["company_name"] = row.get("company_name") or row.get("company")
-    row["ticker"] = row.get("ticker") or row.get("symbol")
-    sector_value = _first_value(row, ["gics_sector", "sector"])
+    lower_map = _lower_key_map(row)
+
+    row["company_name"] = _get_value(lower_map, ["company_name", "company"])
+    row["ticker"] = _get_value(lower_map, ["ticker", "symbol"])
+
+    sector_value = _get_value(lower_map, ["gics_sector", "gics_sector_name", "sector", "industry_group"])
     row["gics_sector"] = sector_value
     row["sector"] = sector_value or row.get("sector")
-    raw_port_date = row.get("port_date") or row.get("updated_at") or row.get("as_of_date")
+
+    raw_port_date = _get_value(lower_map, ["port_date", "rebalance_date", "as_of_date", "updated_at", "dt", "date"])
     parsed_port_date = _parse_port_date(raw_port_date)
     row["port_date"] = parsed_port_date
     row["port_date_str"] = parsed_port_date.date().isoformat() if parsed_port_date else _port_date_to_string(raw_port_date)
-    row["rank_index"] = _first_value(row, ["rank_index", "rank"])
-    row["transparency"] = _first_value(row, ["transparency", "transparency_score"])
-    row["ethical_principles"] = _first_value(row, ["ethical_principles", "ethics", "ethics_score"])
-    row["governance_structure"] = _first_value(
-        row, ["governance_structure", "accountability", "accountability_score", "governance"]
+
+    rank_val = _get_value(lower_map, ["rank_index", "rank", "index_rank", "rnk"])
+    row["rank_index"] = _safe_float(rank_val, rank_val)
+
+    row["transparency"] = _safe_float(
+        _get_value(lower_map, ["transparency", "transparency_score", "trs"]), _get_value(lower_map, ["transparency"])
     )
-    row["regulatory_alignment"] = _first_value(row, ["regulatory_alignment", "regulation_alignment", "regulatory"])
-    row["stakeholder_engagement"] = _first_value(row, ["stakeholder_engagement", "stakeholder"])
-    row["aiges_composite"] = _extract_aiges_score(row)
+    row["ethical_principles"] = _safe_float(
+        _get_value(lower_map, ["ethical_principles", "ethics", "ethics_score", "ethical_score"]),
+        _get_value(lower_map, ["ethical_principles"]),
+    )
+    row["governance_structure"] = _safe_float(
+        _get_value(lower_map, ["governance_structure", "governance", "accountability", "accountability_score", "gov_score"])
+    )
+    row["regulatory_alignment"] = _safe_float(
+        _get_value(lower_map, ["regulatory_alignment", "regulation_alignment", "regulatory", "regulation", "regulatory_score"])
+    )
+    row["stakeholder_engagement"] = _safe_float(
+        _get_value(lower_map, ["stakeholder_engagement", "stakeholder", "stakeholder_score"])
+    )
+    row["aiges_composite"] = _safe_float(
+        _get_value(
+            lower_map,
+            [
+                "aiges_composite",
+                "aiges_composite_average",
+                "aiges_composite_score",
+                "aiges_composite_index",
+                "aiges_score",
+                "aiges",
+                "overall",
+                "composite",
+            ],
+        )
+    )
     row["aiges_composite_average"] = row["aiges_composite"]
-    row["summary"] = _first_value(row, ["summary", "company_summary", "aiges_summary"])
+    row["summary"] = _get_value(lower_map, ["summary", "company_summary", "aiges_summary", "overall_summary", "description"])
     return row
 
 
@@ -206,6 +272,7 @@ def tech100(request):
     tech100_response = fetch_tech100()
     raw_companies = tech100_response.get("items", []) or []
     companies = [_normalize_row(c) for c in raw_companies if isinstance(c, dict)]
+    _assign_rank_indexes(companies)
 
     sample_row = next((item for item in companies if item), None)
     if sample_row:
@@ -255,7 +322,7 @@ def tech100(request):
             "governance_structure": latest.get("governance_structure"),
             "regulatory_alignment": latest.get("regulatory_alignment"),
             "stakeholder_engagement": latest.get("stakeholder_engagement"),
-            "aiges_composite": _extract_aiges_score(latest),
+            "aiges_composite": latest.get("aiges_composite") or _extract_aiges_score(latest),
         }
         company_summary["history"] = [
             {
@@ -266,7 +333,7 @@ def tech100(request):
                 "governance_structure": entry.get("governance_structure"),
                 "regulatory_alignment": entry.get("regulatory_alignment"),
                 "stakeholder_engagement": entry.get("stakeholder_engagement"),
-                "aiges_composite": _extract_aiges_score(entry),
+                "aiges_composite": entry.get("aiges_composite") or _extract_aiges_score(entry),
             }
             for entry in sorted(sorted_rows, key=history_sort)
         ]
