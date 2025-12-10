@@ -150,6 +150,100 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertIn("71.0", content)
         self.assertIn("61.0", content)
 
+    @mock.patch("core.views.fetch_tech100")
+    def test_tech100_maps_rank_and_esg_scores(self, fetch_mock):
+        fetch_mock.return_value = {
+            "items": [
+                {
+                    "port_date": "2024-01-01T00:00:00Z",
+                    "rank": "10",
+                    "company": "Data Corp",
+                    "symbol": "DATA",
+                    "gics_sector_name": "Information Technology",
+                    "transparency_score": "55",
+                    "ethics_score": 60,
+                    "accountability_score": 65,
+                    "regulation_alignment": 70,
+                    "stakeholder_score": 75,
+                    "aiges_score": 80,
+                    "summary": "First snapshot",
+                },
+                {
+                    "port_date": "2024-02-01",
+                    "rank": "5",
+                    "company": "Data Corp",
+                    "symbol": "DATA",
+                    "gics_sector_name": "Information Technology",
+                    "transparency_score": 56,
+                    "ethics": 61,
+                    "governance": 66,
+                    "regulatory": 71,
+                    "stakeholder_engagement": 76,
+                    "overall": 81,
+                    "company_summary": "Latest snapshot summary",
+                },
+            ],
+            "error": None,
+            "meta": {},
+        }
+
+        response = self.client.get(reverse("tech100"))
+        self.assertEqual(response.status_code, 200)
+        companies = response.context["companies"]
+        self.assertEqual(len(companies), 1)
+        company = companies[0]
+        # Latest row should carry mapped values
+        self.assertEqual(company["rank_index"], 5.0)
+        self.assertEqual(company["transparency"], 56)
+        self.assertEqual(company["ethical_principles"], 61)
+        self.assertEqual(company["governance_structure"], 66)
+        self.assertEqual(company["regulatory_alignment"], 71)
+        self.assertEqual(company["stakeholder_engagement"], 76)
+        self.assertEqual(company["aiges_composite"], 81)
+        self.assertEqual(company["summary"], "Latest snapshot summary")
+        history = company.get("history") or []
+        self.assertEqual(len(history), 2)
+        self.assertEqual(
+            [h.get("port_date_str") or h["port_date"].date().isoformat() for h in history],
+            ["2024-01-01", "2024-02-01"],
+        )
+        content = response.content.decode("utf-8")
+        for expected in ["Data Corp", "5", "81.0", "76.0", "71.0", "56.0", "Latest snapshot summary"]:
+            self.assertIn(expected, content)
+
+    @mock.patch("core.views.fetch_tech100")
+    def test_tech100_derives_rank_when_missing(self, fetch_mock):
+        fetch_mock.return_value = {
+            "items": [
+                {
+                    "updated_at": "2025-03-01",
+                    "company_name": "Alpha",
+                    "ticker": "ALP",
+                    "overall": 80,
+                },
+                {
+                    "updated_at": "2025-03-01",
+                    "company": "Beta",
+                    "symbol": "BET",
+                    "overall": 70,
+                },
+            ],
+            "error": None,
+            "meta": {},
+        }
+
+        response = self.client.get(reverse("tech100"))
+        self.assertEqual(response.status_code, 200)
+        companies = response.context["companies"]
+        ranks = {c["company_name"]: c["rank_index"] for c in companies}
+        self.assertEqual(ranks["Alpha"], 1)
+        self.assertEqual(ranks["Beta"], 2)
+        content = response.content.decode("utf-8")
+        self.assertIn("Alpha", content)
+        self.assertIn("Beta", content)
+        self.assertIn("1", content)
+        self.assertIn("2", content)
+
 
 class Tech100ExportTests(SimpleTestCase):
     @mock.patch("core.views.fetch_tech100")
