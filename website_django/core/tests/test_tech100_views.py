@@ -94,7 +94,7 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertIn("2024-12-01", content)
         self.assertIn("95.0", content)
         self.assertIn("90.0", content)
-        self.assertIn("Latest governance snapshot", content)
+        self.assertIn("History", content)
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_maps_alternate_field_names(self, fetch_mock):

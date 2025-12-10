@@ -413,29 +413,20 @@ a:hover {
 
 .tech100-details summary {
     cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
 }
 
-.tech100-details-cell {
-    padding: 0;
-    border: none;
-    background: transparent;
-}
-
-.tech100-toggle {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-}
-
-.tech100-details__panel {
-    margin-top: 0;
+.tech100-details summary::-webkit-details-marker {
     display: none;
+}
+
+.tech100-details-card {
+    margin-top: 0.5rem;
+    display: grid;
     gap: 0.85rem;
     padding: 1rem;
-}
-
-.tech100-toggle:checked + .tech100-details__panel {
-    display: grid;
 }
 
 .tech100-details__header {
@@ -456,30 +447,6 @@ a:hover {
     gap: 0.5rem;
 }
 
-.tech100-metrics {
-    display: grid;
-    gap: 0.5rem 1.25rem;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    margin: 0;
-}
-
-.tech100-metric {
-    display: grid;
-    gap: 0.15rem;
-    padding: 0.25rem 0;
-}
-
-.tech100-metric dt {
-    font-weight: 700;
-    color: var(--muted);
-}
-
-.tech100-metric dd {
-    margin: 0;
-    font-weight: 700;
-    color: var(--text);
-}
-
 .tech100-history-table {
     width: 100%;
     overflow-x: auto;
@@ -492,14 +459,6 @@ a:hover {
 .tech100-history-note {
     margin: 0.5rem 0 0;
     font-size: 0.95rem;
-}
-
-.tech100-details-row {
-    background: transparent;
-}
-
-.tech100-details-toggle {
-    white-space: nowrap;
 }
 
 .badge {
