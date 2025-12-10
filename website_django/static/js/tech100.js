@@ -40,6 +40,11 @@
       closeTableDetails();
       closeMobileDetails();
 
+      if (!row) {
+        return;
+      }
+
+      if (!isOpen) {
       if (!isOpen && row) {
         row.classList.add('is-open');
         row.classList.remove('tech100-hidden');
@@ -60,6 +65,11 @@
       closeTableDetails();
       closeMobileDetails();
 
+      if (!panel) {
+        return;
+      }
+
+      if (!isOpen) {
       if (!isOpen && panel) {
         panel.classList.add('is-open');
         panel.classList.remove('tech100-hidden');

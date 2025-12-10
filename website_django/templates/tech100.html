@@ -17,6 +17,69 @@
       </div>
 
       <div class="tech100-filter-card card">
+        {% with search_val=filters.q|default:filters.search %}
+          <form method="get" class="tech100-filters" id="tech100-filters">
+            <div class="tech100-filters__group">
+              <label class="filter-label">
+                Report date
+                <span class="info-tooltip" data-tooltip="Index rebalance snapshot">
+                  <span aria-hidden="true">ℹ️</span>
+                  <span class="sr-only">Report date explanation</span>
+                </span>
+              </label>
+              <div class="select-wrapper select-wrapper--modern">
+                <select name="port_date">
+                  <option value="">All dates</option>
+                  {% for d in port_date_options %}
+                    <option value="{{ d }}" {% if filters.port_date == d %}selected{% endif %}>{{ d }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            <div class="tech100-filters__group">
+              <label class="filter-label">
+                Sector
+                <span class="info-tooltip" data-tooltip="GICS level 1 sector classification">
+                  <span aria-hidden="true">ℹ️</span>
+                  <span class="sr-only">Sector explanation</span>
+                </span>
+              </label>
+              <div class="select-wrapper select-wrapper--modern">
+                <select name="sector">
+                  <option value="">All sectors</option>
+                  {% for s in sector_options %}
+                    <option value="{{ s }}" {% if filters.sector == s %}selected{% endif %}>{{ s }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            <div class="tech100-filters__group tech100-filters__group--search">
+              <label class="filter-label">Search</label>
+              <div class="input-with-icon">
+                <span aria-hidden="true" class="input-with-icon__icon">🔎</span>
+                <input
+                  type="search"
+                  name="q"
+                  placeholder="Search company or ticker"
+                  value="{{ search_val }}"
+                >
+              </div>
+            </div>
+
+            <div class="tech100-filters__actions">
+              <button type="submit" class="btn btn--secondary">Apply filters</button>
+              {% url "tech100_export" as export_url %}
+              <a
+                class="btn btn--primary"
+                href="{{ export_url }}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if search_val %}q={{ search_val|urlencode }}&{% endif %}format=csv"
+              >
+                Download CSV
+              </a>
+            </div>
+          </form>
+        {% endwith %}
         <form method="get" class="tech100-filters" id="tech100-filters">
           <div class="tech100-filters__group">
             <label class="filter-label">
@@ -167,6 +230,7 @@
                         type="button"
                         class="btn btn--ghost tech100-toggle"
                         data-detail-id="tech100-detail-{{ forloop.counter0 }}"
+                        aria-controls="tech100-detail-{{ forloop.counter0 }}"
                         aria-expanded="false"
                       >
                         View details
@@ -176,6 +240,8 @@
                   <tr class="tech100__details-row{% if forloop.counter > 25 %} tech100-hidden{% endif %}"
                     id="tech100-detail-{{ forloop.counter0 }}"
                     data-row-idx="{{ forloop.counter0 }}"
+                    aria-hidden="true"
+                    role="row">
                     aria-hidden="true">
                     <td colspan="5">
                       <div class="tech100-details-card">
@@ -186,6 +252,17 @@
                               {{ c.company_name|default:"Company" }}{% if c.ticker %} ({{ c.ticker }}){% endif %}
                             </h3>
                             <div class="muted">Sector: {{ c.sector|default:c.gics_sector|default:"Not available" }}</div>
+                          </div>
+                          <div class="tech100-detail__score">
+                            <span class="detail-label">AIGES Composite</span>
+                            <span class="detail-value">
+                              {% if c.aiges_composite or c.aiges_composite == 0 %}
+                                {{ c.aiges_composite|floatformat:1 }}
+                              {% else %}
+                                —
+                              {% endif %}
+                            </span>
+                          </div>
                           </div>
                           <div class="tech100-detail__score">
                             <span class="detail-label">AIGES Composite</span>
@@ -329,6 +406,7 @@
                 class="btn btn--ghost tech100-mobile-toggle"
                 type="button"
                 data-detail-id="tech100-mobile-detail-{{ forloop.counter0 }}"
+                aria-controls="tech100-mobile-detail-{{ forloop.counter0 }}"
                 aria-expanded="false"
               >
                 View details
