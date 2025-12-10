@@ -1,6 +1,17 @@
 name: Sanity
 on:
   pull_request:
+    paths:
+      - "**/*.py"
+      - "**/*.sh"
+      - "app/**"
+      - "ops/**"
+      - "retrieval/**"
+      - "scripts/**"
+      - "tools/**"
+      - "website_django/**"
+      - "tests/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 jobs:
   sanity:
@@ -12,7 +23,8 @@ jobs:
           python-version: "3.11"
       - name: Fail on conflict markers
         run: |
-          ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . || \
+          # Exclude the committed venv from conflict-marker scan (its METADATA files contain "======" lines).
+          ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ':(exclude)website_django/venv/**' || \
             (echo 'ERROR: conflict markers present' && exit 1)
       - name: Install deps
         run: |
@@ -23,3 +35,11 @@ jobs:
         run: python -m compileall -q .
       - name: Run tests
         run: pytest -q
+      - name: Sanity guidance
+        if: failure()
+        run: |
+          {
+            echo "## Sanity check failed";
+            echo "- Inspect the compile/test output above for failing modules or tests.";
+            echo "- Common fixes: update dependencies, refresh fixtures, or adjust failing assertions.";
+          } >> "$GITHUB_STEP_SUMMARY"
