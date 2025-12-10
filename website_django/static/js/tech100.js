@@ -45,6 +45,7 @@
       }
 
       if (!isOpen) {
+      if (!isOpen && row) {
         row.classList.add('is-open');
         row.classList.remove('tech100-hidden');
         row.setAttribute('aria-hidden', 'false');
@@ -69,6 +70,7 @@
       }
 
       if (!isOpen) {
+      if (!isOpen && panel) {
         panel.classList.add('is-open');
         panel.classList.remove('tech100-hidden');
         panel.setAttribute('aria-hidden', 'false');
