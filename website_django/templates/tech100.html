@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}TECH100 Index | SustainaCore{% endblock %}
 
@@ -15,54 +16,72 @@
         </p>
       </div>
 
-      <div>
-        <form method="get" class="filters filters--stacked">
-          <label>
-            Report date
-            <select name="port_date">
-              <option value="">All dates</option>
-              {% for d in port_date_options %}
-                <option value="{{ d }}" {% if filters.port_date == d %}selected{% endif %}>{{ d }}</option>
-              {% endfor %}
-            </select>
-          </label>
+      <div class="tech100-filter-card card">
+        <form method="get" class="tech100-filters" id="tech100-filters">
+          <div class="tech100-filters__group">
+            <label class="filter-label">
+              Report date
+              <span class="info-tooltip" data-tooltip="Index rebalance snapshot">
+                <span aria-hidden="true">ℹ️</span>
+                <span class="sr-only">Report date explanation</span>
+              </span>
+            </label>
+            <div class="select-wrapper select-wrapper--modern">
+              <select name="port_date">
+                <option value="">All dates</option>
+                {% for d in port_date_options %}
+                  <option value="{{ d }}" {% if filters.port_date == d %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
 
-          <label>
-            Sector
-            <select name="sector">
-              <option value="">All sectors</option>
-              {% for s in sector_options %}
-                <option value="{{ s }}" {% if filters.sector == s %}selected{% endif %}>{{ s }}</option>
-              {% endfor %}
-            </select>
-          </label>
+          <div class="tech100-filters__group">
+            <label class="filter-label">
+              Sector
+              <span class="info-tooltip" data-tooltip="GICS level 1 sector classification">
+                <span aria-hidden="true">ℹ️</span>
+                <span class="sr-only">Sector explanation</span>
+              </span>
+            </label>
+            <div class="select-wrapper select-wrapper--modern">
+              <select name="sector">
+                <option value="">All sectors</option>
+                {% for s in sector_options %}
+                  <option value="{{ s }}" {% if filters.sector == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
 
-          <label>
-            Search
-            <input
-              type="search"
-              name="q"
-              placeholder="Search company or ticker"
-              value="{{ filters.q|default:filters.search }}"
-            >
-          </label>
+          <div class="tech100-filters__group tech100-filters__group--search">
+            <label class="filter-label">Search</label>
+            <div class="input-with-icon">
+              <span aria-hidden="true" class="input-with-icon__icon">🔎</span>
+              <input
+                type="search"
+                name="q"
+                placeholder="Search company or ticker"
+                value="{{ filters.q|default:filters.search }}"
+              >
+            </div>
+          </div>
 
-          <div class="filter__actions">
+          <div class="tech100-filters__actions">
             <button type="submit" class="btn btn--secondary">Apply filters</button>
+            {% url "tech100_export" as export_url %}
+            {% with search_val=filters.q|default:filters.search %}
+            <a
+              class="btn btn--primary"
+              href="{{ export_url }}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if search_val %}q={{ search_val|urlencode }}&{% endif %}format=csv"
+            >
+              Download CSV
+            </a>
+            {% endwith %}
           </div>
         </form>
 
-        {% url "tech100_export" as export_url %}
-        <div class="filter__actions" style="margin-top: 0.75rem;">
-          {% with search_val=filters.q|default:filters.search %}
-          <a
-            class="btn btn--primary"
-            href="{{ export_url }}?{% if filters.port_date %}port_date={{ filters.port_date|urlencode }}&{% endif %}{% if filters.sector %}sector={{ filters.sector|urlencode }}&{% endif %}{% if search_val %}q={{ search_val|urlencode }}&{% endif %}format=csv"
-          >
-            Download CSV
-          </a>
-          {% endwith %}
-        </div>
+        <div class="tech100-filter-note muted">Filters update instantly and respect exports.</div>
       </div>
     </div>
 
@@ -72,31 +91,51 @@
       </div>
     {% endif %}
 
-    <div class="card">
-      <div class="card__header card__header--split">
+    <div class="card tech100-panel">
+      <div class="card__header card__header--split tech100-panel__header">
         <div>
           <h2 class="h4">TECH100 constituents</h2>
           <p class="muted">
-            Showing {{ visible_count }} of {{ total_count }} companies.
+            Showing {{ visible_count }} of {{ total_count }} companies. Default view loads the first 25 rows for easier scanning.
           </p>
+        </div>
+
+        <div class="tech100-legend">
+          <div class="legend-item">
+            <span class="legend-dot"></span>
+            <span>Live scores</span>
+          </div>
+          <div class="legend-item">
+            <span class="info-tooltip" data-tooltip="AIGES Composite measures Transparency, Ethical Principles, Governance Structure, Regulatory Alignment, and Stakeholder Engagement, normalized to 100.">
+              <span aria-hidden="true">ℹ️</span>
+              <span class="sr-only">AIGES composite explanation</span>
+            </span>
+            <span>AIGES Composite</span>
+          </div>
         </div>
       </div>
 
-      <div class="table-wrapper">
+      <div class="tech100-table-wrapper table-wrapper">
         <table id="tech100-data" class="table table--wide tech100-table" aria-label="TECH100 index">
           <thead>
             <tr>
-              <th>Port Date</th>
-              <th class="text-right tech100-col--rank">Rank Index</th>
-              <th>Company</th>
-              <th class="text-right">AIGES Composite</th>
-              <th>Details</th>
+              <th scope="col">Port Date</th>
+              <th scope="col" class="text-right tech100-col--rank">Rank Index</th>
+              <th scope="col">Company</th>
+              <th scope="col" class="text-right">
+                AIGES Composite
+                <span class="info-tooltip" data-tooltip="AIGES Composite measures Transparency, Ethical Principles, Governance Structure, Regulatory Alignment, and Stakeholder Engagement, normalized to 100.">
+                  <span aria-hidden="true">ℹ️</span>
+                  <span class="sr-only">AIGES composite tooltip</span>
+                </span>
+              </th>
+              <th scope="col" class="text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {% if companies %}
               {% for c in companies %}
-                  <tr class="tech100-row">
+                  <tr class="tech100-row{% if forloop.counter > 25 %} tech100-hidden{% endif %}" data-row-idx="{{ forloop.counter0 }}"{% if forloop.counter > 25 %} data-lazy="true"{% endif %}>
                     <td>{{ c.port_date_str|default:"—" }}</td>
                     <td class="text-right tech100-col--rank">
                       {% if c.rank_index or c.rank_index == 0 %}
@@ -111,6 +150,9 @@
                         {% if c.ticker %}
                           <span class="tech100-company__ticker">({{ c.ticker }})</span>
                         {% endif %}
+                        {% if c.sector or c.gics_sector %}
+                          <span class="tech100-company__meta">{{ c.sector|default:c.gics_sector }}</span>
+                        {% endif %}
                       </div>
                     </td>
                     <td class="text-right">
@@ -120,107 +162,128 @@
                         —
                       {% endif %}
                     </td>
-                    <td>
-                      <a class="text-link" href="#tech100-detail-{{ forloop.counter0 }}">View details</a>
+                    <td class="text-right">
+                      <button
+                        type="button"
+                        class="btn btn--ghost tech100-toggle"
+                        data-detail-id="tech100-detail-{{ forloop.counter0 }}"
+                        aria-expanded="false"
+                      >
+                        View details
+                      </button>
                     </td>
                   </tr>
-                  <tr class="tech100__details-row">
+                  <tr class="tech100__details-row{% if forloop.counter > 25 %} tech100-hidden{% endif %}"
+                    id="tech100-detail-{{ forloop.counter0 }}"
+                    data-row-idx="{{ forloop.counter0 }}"
+                    aria-hidden="true">
                     <td colspan="5">
-                      <details class="tech100-details" id="tech100-detail-{{ forloop.counter0 }}">
-                        <summary class="text-link">View details</summary>
-                        <div class="card card--lined tech100-details-card">
-                          <div class="tech100-details__header">
+                      <div class="tech100-details-card">
+                        <div class="tech100-details__header">
+                          <div>
+                            <p class="eyebrow eyebrow--muted">{{ c.port_date_str|default:"Latest rebalance" }}</p>
                             <h3 class="h5 tech100-details__title">
                               {{ c.company_name|default:"Company" }}{% if c.ticker %} ({{ c.ticker }}){% endif %}
                             </h3>
-                            <div class="muted">
-                              Sector: {{ c.sector|default:c.gics_sector|default:"Not available" }}
-                            </div>
-                            {% if c.summary %}
-                              <p class="tech100-summary">{{ c.summary }}</p>
-                            {% else %}
-                              <p class="tech100-summary muted">No summary available yet.</p>
-                            {% endif %}
+                            <div class="muted">Sector: {{ c.sector|default:c.gics_sector|default:"Not available" }}</div>
                           </div>
-
-                          <div class="tech100-details__section">
-                            <h4 class="h6">History</h4>
-                            {% if c.history %}
-                              <div class="tech100-history-wrapper">
-                                <table class="table tech100-history-table" aria-label="Historical AIGES data for {{ c.company_name }}">
-                                  <thead>
-                                    <tr>
-                                      <th>Port Date</th>
-                                      <th class="text-right">Transparency</th>
-                                      <th class="text-right">Ethical Principles</th>
-                                      <th class="text-right">Governance Structure</th>
-                                      <th class="text-right">Regulatory Alignment</th>
-                                      <th class="text-right">Stakeholder Engagement</th>
-                                      <th class="text-right">AIGES Composite</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {% for h in c.history %}
-                                      <tr>
-                                        <td>{{ h.port_date_str|default:"—" }}</td>
-                                        <td class="text-right">
-                                          {% if h.transparency or h.transparency == 0 %}
-                                            {{ h.transparency|floatformat:1 }}
-                                          {% else %}
-                                            —
-                                          {% endif %}
-                                        </td>
-                                        <td class="text-right">
-                                          {% if h.ethical_principles or h.ethical_principles == 0 %}
-                                            {{ h.ethical_principles|floatformat:1 }}
-                                          {% else %}
-                                            —
-                                          {% endif %}
-                                        </td>
-                                        <td class="text-right">
-                                          {% if h.governance_structure or h.governance_structure == 0 %}
-                                            {{ h.governance_structure|floatformat:1 }}
-                                          {% else %}
-                                            —
-                                          {% endif %}
-                                        </td>
-                                        <td class="text-right">
-                                          {% if h.regulatory_alignment or h.regulatory_alignment == 0 %}
-                                            {{ h.regulatory_alignment|floatformat:1 }}
-                                          {% else %}
-                                            —
-                                          {% endif %}
-                                        </td>
-                                        <td class="text-right">
-                                          {% if h.stakeholder_engagement or h.stakeholder_engagement == 0 %}
-                                            {{ h.stakeholder_engagement|floatformat:1 }}
-                                          {% else %}
-                                            —
-                                          {% endif %}
-                                        </td>
-                                        <td class="text-right">
-                                          {% if h.aiges_composite or h.aiges_composite == 0 %}
-                                            {{ h.aiges_composite|floatformat:1 }}
-                                          {% else %}
-                                            —
-                                          {% endif %}
-                                        </td>
-                                      </tr>
-                                    {% endfor %}
-                                  </tbody>
-                                </table>
-                              </div>
-                              {% if c.history|length <= 1 %}
-                                <p class="tech100-history-note muted">
-                                  Only the latest rebalance is available. Historical scores will appear as new rebalances are added.
-                                </p>
+                          <div class="tech100-detail__score">
+                            <span class="detail-label">AIGES Composite</span>
+                            <span class="detail-value">
+                              {% if c.aiges_composite or c.aiges_composite == 0 %}
+                                {{ c.aiges_composite|floatformat:1 }}
+                              {% else %}
+                                —
                               {% endif %}
-                            {% else %}
-                              <p class="muted">Historical AIGES data not available yet.</p>
-                            {% endif %}
+                            </span>
                           </div>
                         </div>
-                      </details>
+                        {% if c.summary %}
+                          <p class="tech100-summary">{{ c.summary }}</p>
+                        {% else %}
+                          <p class="tech100-summary muted">No summary available yet.</p>
+                        {% endif %}
+
+                        <div class="tech100-details__section">
+                          <div class="tech100-section__title-row">
+                            <h4 class="h6">History</h4>
+                            <span class="muted">Transparency, Ethics, Governance, Alignment, Engagement</span>
+                          </div>
+                          {% if c.history %}
+                            <div class="tech100-history-wrapper">
+                              <table class="table tech100-history-table" aria-label="Historical AIGES data for {{ c.company_name }}">
+                                <thead>
+                                  <tr>
+                                    <th>Port Date</th>
+                                    <th class="text-right">Transparency</th>
+                                    <th class="text-right">Ethical Principles</th>
+                                    <th class="text-right">Governance Structure</th>
+                                    <th class="text-right">Regulatory Alignment</th>
+                                    <th class="text-right">Stakeholder Engagement</th>
+                                    <th class="text-right">AIGES Composite</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {% for h in c.history %}
+                                    <tr>
+                                      <td>{{ h.port_date_str|default:"—" }}</td>
+                                      <td class="text-right">
+                                        {% if h.transparency or h.transparency == 0 %}
+                                          {{ h.transparency|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.ethical_principles or h.ethical_principles == 0 %}
+                                          {{ h.ethical_principles|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.governance_structure or h.governance_structure == 0 %}
+                                          {{ h.governance_structure|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.regulatory_alignment or h.regulatory_alignment == 0 %}
+                                          {{ h.regulatory_alignment|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.stakeholder_engagement or h.stakeholder_engagement == 0 %}
+                                          {{ h.stakeholder_engagement|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                      <td class="text-right">
+                                        {% if h.aiges_composite or h.aiges_composite == 0 %}
+                                          {{ h.aiges_composite|floatformat:1 }}
+                                        {% else %}
+                                          —
+                                        {% endif %}
+                                      </td>
+                                    </tr>
+                                  {% endfor %}
+                                </tbody>
+                              </table>
+                            </div>
+                            {% if c.history|length <= 1 %}
+                              <p class="tech100-history-note muted">
+                                Only the latest rebalance is available. Historical scores will appear as new rebalances are added.
+                              </p>
+                            {% endif %}
+                          {% else %}
+                            <p class="muted">Historical AIGES data not available yet.</p>
+                          {% endif %}
+                        </div>
+                      </div>
                     </td>
                   </tr>
               {% endfor %}
@@ -232,9 +295,147 @@
           </tbody>
         </table>
       </div>
+
+      {% if companies and companies|length > 25 %}
+        <div class="tech100-load-more">
+          <button class="btn btn--secondary tech100-load-more__button" data-page-size="25" type="button">
+            Load 25 more companies
+          </button>
+        </div>
+      {% endif %}
     </div>
+
+    {% if companies %}
+      <div class="tech100-mobile-list">
+        {% for c in companies %}
+          <article class="tech100-card{% if forloop.counter > 25 %} tech100-hidden{% endif %}" data-row-idx="{{ forloop.counter0 }}"{% if forloop.counter > 25 %} data-lazy="true"{% endif %}>
+            <div class="tech100-card__header">
+              <div>
+                <p class="eyebrow eyebrow--muted">{{ c.port_date_str|default:"Latest rebalance" }}</p>
+                <h3 class="tech100-card__title">{{ c.company_name|default:"—" }}</h3>
+                {% if c.ticker %}<div class="tech100-card__ticker">({{ c.ticker }})</div>{% endif %}
+                <div class="tech100-card__meta">{{ c.sector|default:c.gics_sector|default:"Sector unavailable" }}</div>
+              </div>
+              <div class="tech100-card__score">
+                <span class="badge">{% if c.rank_index or c.rank_index == 0 %}#{{ c.rank_index|floatformat:0 }}{% else %}—{% endif %}</span>
+                <div class="tech100-card__aiges">
+                  <span class="label">AIGES</span>
+                  <span class="value">{% if c.aiges_composite or c.aiges_composite == 0 %}{{ c.aiges_composite|floatformat:1 }}{% else %}—{% endif %}</span>
+                </div>
+              </div>
+            </div>
+            <div class="tech100-card__actions">
+              <button
+                class="btn btn--ghost tech100-mobile-toggle"
+                type="button"
+                data-detail-id="tech100-mobile-detail-{{ forloop.counter0 }}"
+                aria-expanded="false"
+              >
+                View details
+              </button>
+            </div>
+            <div class="tech100-card__details" id="tech100-mobile-detail-{{ forloop.counter0 }}" data-row-idx="{{ forloop.counter0 }}" aria-hidden="true">
+              {% if c.summary %}
+                <p class="tech100-summary">{{ c.summary }}</p>
+              {% else %}
+                <p class="tech100-summary muted">No summary available yet.</p>
+              {% endif %}
+
+              <div class="tech100-details__section">
+                <div class="tech100-section__title-row">
+                  <h4 class="h6">History</h4>
+                  <span class="muted">Transparency, Ethics, Governance, Alignment, Engagement</span>
+                </div>
+                {% if c.history %}
+                  <div class="tech100-history-wrapper">
+                    <table class="table tech100-history-table" aria-label="Historical AIGES data for {{ c.company_name }}">
+                      <thead>
+                        <tr>
+                          <th>Port Date</th>
+                          <th class="text-right">Transparency</th>
+                          <th class="text-right">Ethical Principles</th>
+                          <th class="text-right">Governance Structure</th>
+                          <th class="text-right">Regulatory Alignment</th>
+                          <th class="text-right">Stakeholder Engagement</th>
+                          <th class="text-right">AIGES Composite</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for h in c.history %}
+                          <tr>
+                            <td>{{ h.port_date_str|default:"—" }}</td>
+                            <td class="text-right">
+                              {% if h.transparency or h.transparency == 0 %}
+                                {{ h.transparency|floatformat:1 }}
+                              {% else %}
+                                —
+                              {% endif %}
+                            </td>
+                            <td class="text-right">
+                              {% if h.ethical_principles or h.ethical_principles == 0 %}
+                                {{ h.ethical_principles|floatformat:1 }}
+                              {% else %}
+                                —
+                              {% endif %}
+                            </td>
+                            <td class="text-right">
+                              {% if h.governance_structure or h.governance_structure == 0 %}
+                                {{ h.governance_structure|floatformat:1 }}
+                              {% else %}
+                                —
+                              {% endif %}
+                            </td>
+                            <td class="text-right">
+                              {% if h.regulatory_alignment or h.regulatory_alignment == 0 %}
+                                {{ h.regulatory_alignment|floatformat:1 }}
+                              {% else %}
+                                —
+                              {% endif %}
+                            </td>
+                            <td class="text-right">
+                              {% if h.stakeholder_engagement or h.stakeholder_engagement == 0 %}
+                                {{ h.stakeholder_engagement|floatformat:1 }}
+                              {% else %}
+                                —
+                              {% endif %}
+                            </td>
+                            <td class="text-right">
+                              {% if h.aiges_composite or h.aiges_composite == 0 %}
+                                {{ h.aiges_composite|floatformat:1 }}
+                              {% else %}
+                                —
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                  {% if c.history|length <= 1 %}
+                    <p class="tech100-history-note muted">
+                      Only the latest rebalance is available. Historical scores will appear as new rebalances are added.
+                    </p>
+                  {% endif %}
+                {% else %}
+                  <p class="muted">Historical AIGES data not available yet.</p>
+                {% endif %}
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+      {% if companies|length > 25 %}
+        <div class="tech100-load-more tech100-load-more--mobile">
+          <button class="btn btn--secondary tech100-load-more__button" data-page-size="25" type="button">
+            Load 25 more companies
+          </button>
+        </div>
+      {% endif %}
+    {% endif %}
   </div>
 </section>
 {% endblock %}
 
-{% block extra_scripts %}{% endblock %}
+{% block extra_scripts %}
+  <script src="{% static 'js/tech100.js' %}"></script>
+{% endblock %}
