@@ -96,33 +96,38 @@
           <tbody>
             {% if companies %}
               {% for c in companies %}
-                <tr>
-                  <td>{{ c.port_date|date:"Y-m-d"|default:c.port_date_str|default:"—" }}</td>
-                  <td class="text-right tech100-col--rank">
-                    {% if c.rank_index or c.rank_index == 0 %}
-                      {{ c.rank_index|floatformat:0 }}
-                    {% else %}
-                      —
-                    {% endif %}
-                  </td>
-                  <td>
-                    <div class="tech100-company">
-                      <span class="tech100-company__name">{{ c.company_name|default:"—" }}</span>
-                      {% if c.ticker %}
-                        <span class="tech100-company__ticker">({{ c.ticker }})</span>
+                {% with detail_id="tech100-detail-"|add:forloop.counter0 %}
+                  <tr class="tech100-row">
+                    <td>{{ c.port_date|date:"Y-m-d"|default:c.port_date_str|default:"—" }}</td>
+                    <td class="text-right tech100-col--rank">
+                      {% if c.rank_index or c.rank_index == 0 %}
+                        {{ c.rank_index|floatformat:0 }}
+                      {% else %}
+                        —
                       {% endif %}
-                    </div>
-                  </td>
-                  <td class="text-right">
-                    {% if c.aiges_composite or c.aiges_composite == 0 %}
-                      {{ c.aiges_composite|floatformat:1 }}
-                    {% else %}
-                      —
-                    {% endif %}
-                  </td>
-                  <td>
-                    <details class="tech100-details">
-                      <summary class="text-link">View details</summary>
+                    </td>
+                    <td>
+                      <div class="tech100-company">
+                        <span class="tech100-company__name">{{ c.company_name|default:"—" }}</span>
+                        {% if c.ticker %}
+                          <span class="tech100-company__ticker">({{ c.ticker }})</span>
+                        {% endif %}
+                      </div>
+                    </td>
+                    <td class="text-right">
+                      {% if c.aiges_composite or c.aiges_composite == 0 %}
+                        {{ c.aiges_composite|floatformat:1 }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="tech100-details-toggle">
+                      <label for="{{ detail_id }}" class="text-link">View details</label>
+                    </td>
+                  </tr>
+                  <tr class="tech100-details-row">
+                    <td colspan="5" class="tech100-details-cell">
+                      <input type="checkbox" id="{{ detail_id }}" class="tech100-toggle">
                       <div class="card card--lined tech100-details__panel">
                         <div class="tech100-details__header">
                           <h3 class="h5 tech100-details__title">
@@ -211,14 +216,19 @@
                                 </tbody>
                               </table>
                             </div>
+                            {% if c.history|length == 1 %}
+                              <p class="tech100-history-note muted">
+                                Only the latest rebalance is available. Historical scores will appear as new rebalances are added.
+                              </p>
+                            {% endif %}
                           {% else %}
                             <p class="muted">Historical AIGES data not available yet.</p>
                           {% endif %}
                         </div>
                       </div>
-                    </details>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                {% endwith %}
               {% endfor %}
             {% else %}
               <tr>
