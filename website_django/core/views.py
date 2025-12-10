@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 import csv
 from typing import Dict, Iterable, List
 import logging
@@ -35,6 +35,19 @@ def _format_score(value) -> str:
     return formatted
 
 
+def _port_date_to_string(value) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if not value:
+        return ""
+    parsed = _parse_port_date(value)
+    if parsed:
+        return parsed.date().isoformat()
+    return str(value).strip()
+
+
 def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
     filtered: List[Dict] = []
     port_date_filter = (filters.get("port_date") or "").strip()
@@ -42,11 +55,16 @@ def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> Lis
     search_term = (filters.get("q") or filters.get("search") or "").lower().strip()
 
     for company in companies:
-        port_date_value = str(company.get("port_date") or "").strip()
+        port_date_value = _port_date_to_string(
+            company.get("port_date")
+            or company.get("port_date_str")
+            or company.get("updated_at")
+            or company.get("as_of_date")
+        )
         if port_date_filter and port_date_value != port_date_filter:
             continue
 
-        sector_value = str(company.get("gics_sector") or company.get("sector") or "").strip()
+        sector_value = str(company.get("sector") or company.get("gics_sector") or "").strip()
         if sector_filter and sector_value != sector_filter:
             continue
 
@@ -64,17 +82,32 @@ def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> Lis
 def _parse_port_date(value):
     if not value:
         return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
     try:
         return datetime.fromisoformat(str(value))
     except (TypeError, ValueError):
         return None
 
 
+def _safe_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _company_history_key(company: Dict) -> str:
-    for key_field in ("ticker", "company_name"):
-        key_value = str(company.get(key_field) or "").strip()
-        if key_value:
-            return key_value.lower()
+    ticker = str(company.get("ticker") or "").strip().lower()
+    name = str(company.get("company_name") or company.get("company") or "").strip().lower()
+    if ticker and name:
+        return f"{ticker}::{name}"
+    if ticker:
+        return ticker
+    if name:
+        return name
     return ""
 
 
@@ -98,10 +131,12 @@ def _build_company_history(companies: Iterable[Dict]) -> Dict[str, List[Dict]]:
 
 def _extract_aiges_score(row: Dict):
     for key in (
-        "aiges_composite_average",
         "aiges_composite",
+        "aiges_composite_average",
         "aiges_composite_score",
         "aiges_composite_index",
+        "aiges_score",
+        "aiges",
         "overall",
     ):
         value = row.get(key)
@@ -119,13 +154,18 @@ def _first_value(row: Dict, keys):
 
 
 def _normalize_row(raw: Dict) -> Dict:
+    # Normalize varied API field names into a canonical TECH100 schema.
     row = dict(raw)
     row["company_name"] = row.get("company_name") or row.get("company")
     row["ticker"] = row.get("ticker") or row.get("symbol")
-    row["gics_sector"] = row.get("gics_sector") or row.get("sector")
-    row["sector"] = row.get("sector") or row.get("gics_sector")
-    row["port_date"] = row.get("port_date") or row.get("updated_at") or row.get("as_of_date")
-    row["rank_index"] = row.get("rank_index") or row.get("rank")
+    sector_value = _first_value(row, ["gics_sector", "sector"])
+    row["gics_sector"] = sector_value
+    row["sector"] = sector_value or row.get("sector")
+    raw_port_date = row.get("port_date") or row.get("updated_at") or row.get("as_of_date")
+    parsed_port_date = _parse_port_date(raw_port_date)
+    row["port_date"] = parsed_port_date
+    row["port_date_str"] = parsed_port_date.date().isoformat() if parsed_port_date else _port_date_to_string(raw_port_date)
+    row["rank_index"] = _first_value(row, ["rank_index", "rank"])
     row["transparency"] = _first_value(row, ["transparency", "transparency_score"])
     row["ethical_principles"] = _first_value(row, ["ethical_principles", "ethics", "ethics_score"])
     row["governance_structure"] = _first_value(
@@ -133,7 +173,9 @@ def _normalize_row(raw: Dict) -> Dict:
     )
     row["regulatory_alignment"] = _first_value(row, ["regulatory_alignment", "regulation_alignment", "regulatory"])
     row["stakeholder_engagement"] = _first_value(row, ["stakeholder_engagement", "stakeholder"])
-    row["aiges_composite_average"] = _extract_aiges_score(row)
+    row["aiges_composite"] = _extract_aiges_score(row)
+    row["aiges_composite_average"] = row["aiges_composite"]
+    row["summary"] = _first_value(row, ["summary", "company_summary", "aiges_summary"])
     return row
 
 
@@ -172,23 +214,24 @@ def tech100(request):
             "TECH100 sample company: name=%s ticker=%s port_date=%s rank=%s aiges=%s",
             sample_row.get("company_name"),
             sample_row.get("ticker"),
-            sample_row.get("port_date"),
+            sample_row.get("port_date_str") or sample_row.get("port_date"),
             sample_row.get("rank_index"),
-            sample_row.get("aiges_composite_average"),
+            sample_row.get("aiges_composite"),
         )
 
     filtered_rows = _filter_companies(companies, filters)
 
     def sort_key(item):
-        parsed_date = _parse_port_date(item.get("port_date"))
+        parsed_date = item.get("port_date") or _parse_port_date(item.get("port_date_str"))
         date_sort = -(parsed_date.timestamp()) if parsed_date else float("inf")
-        rank_sort = item.get("rank_index")
-        try:
-            rank_sort = float(rank_sort)
-        except (TypeError, ValueError):
-            rank_sort = float("inf")
+        rank_sort = _safe_float(item.get("rank_index"), float("inf"))
         return (date_sort, rank_sort)
 
+    def history_sort(item):
+        parsed_date = item.get("port_date") or _parse_port_date(item.get("port_date_str"))
+        return parsed_date or datetime.min
+
+    # Group TECH100 rows by ticker/name and attach sorted history for each company.
     grouped_companies: Dict[str, List[Dict]] = {}
     for idx, row in enumerate(filtered_rows):
         key = _company_history_key(row) or f"row-{idx}"
@@ -198,33 +241,34 @@ def tech100(request):
     for rows in grouped_companies.values():
         sorted_rows = sorted(rows, key=sort_key)
         latest = sorted_rows[0]
-        aiges_score = _extract_aiges_score(latest)
         company_summary = {
             "company_name": latest.get("company_name"),
             "ticker": latest.get("ticker"),
             "port_date": latest.get("port_date"),
+            "port_date_str": latest.get("port_date_str"),
             "rank_index": latest.get("rank_index"),
-            "gics_sector": latest.get("gics_sector") or latest.get("sector"),
-            "sector": latest.get("sector") or latest.get("gics_sector"),
+            "gics_sector": latest.get("gics_sector"),
+            "sector": latest.get("sector"),
             "summary": latest.get("summary"),
             "transparency": latest.get("transparency"),
             "ethical_principles": latest.get("ethical_principles"),
             "governance_structure": latest.get("governance_structure"),
             "regulatory_alignment": latest.get("regulatory_alignment"),
             "stakeholder_engagement": latest.get("stakeholder_engagement"),
-            "aiges_composite_average": aiges_score,
+            "aiges_composite": _extract_aiges_score(latest),
         }
         company_summary["history"] = [
             {
                 "port_date": entry.get("port_date"),
+                "port_date_str": entry.get("port_date_str"),
                 "transparency": entry.get("transparency"),
                 "ethical_principles": entry.get("ethical_principles"),
                 "governance_structure": entry.get("governance_structure"),
                 "regulatory_alignment": entry.get("regulatory_alignment"),
                 "stakeholder_engagement": entry.get("stakeholder_engagement"),
-                "aiges_composite_average": _extract_aiges_score(entry),
+                "aiges_composite": _extract_aiges_score(entry),
             }
-            for entry in sorted_rows
+            for entry in sorted(sorted_rows, key=history_sort)
         ]
         display_companies.append(company_summary)
 
@@ -235,16 +279,16 @@ def tech100(request):
             "TECH100 sample company: name=%s ticker=%s port_date=%s rank=%s aiges=%s history_len=%s",
             sample.get("company_name"),
             sample.get("ticker"),
-            sample.get("port_date"),
+            sample.get("port_date_str") or sample.get("port_date"),
             sample.get("rank_index"),
-            sample.get("aiges_composite_average"),
+            sample.get("aiges_composite"),
             len(sample.get("history") or []),
         )
 
     port_date_options = sorted(
-        {item.get("port_date") for item in companies if item.get("port_date")}, reverse=True
+        {item.get("port_date_str") for item in companies if item.get("port_date_str")}, reverse=True
     )
-    sector_options = sorted({item.get("gics_sector") for item in companies if item.get("gics_sector")})
+    sector_options = sorted({item.get("sector") for item in companies if item.get("sector")})
 
     context = {
         "year": datetime.now().year,

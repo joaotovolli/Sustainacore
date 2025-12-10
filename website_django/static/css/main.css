@@ -393,6 +393,86 @@ a:hover {
     margin-top: 0.8rem;
 }
 
+.tech100-table th,
+.tech100-table td {
+    vertical-align: top;
+}
+
+.tech100-company {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    font-weight: 700;
+}
+
+.tech100-company__ticker {
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.tech100-details summary {
+    cursor: pointer;
+}
+
+.tech100-details__panel {
+    margin-top: 0.5rem;
+    display: grid;
+    gap: 0.85rem;
+    padding: 1rem;
+}
+
+.tech100-details__header {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.tech100-details__title {
+    margin: 0;
+}
+
+.tech100-summary {
+    margin: 0;
+}
+
+.tech100-details__section {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.tech100-metrics {
+    display: grid;
+    gap: 0.5rem 1.25rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    margin: 0;
+}
+
+.tech100-metric {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.25rem 0;
+}
+
+.tech100-metric dt {
+    font-weight: 700;
+    color: var(--muted);
+}
+
+.tech100-metric dd {
+    margin: 0;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.tech100-history-table {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.tech100-history-table table {
+    min-width: 640px;
+}
+
 .badge {
     display: inline-flex;
     align-items: center;
@@ -812,5 +892,13 @@ a:hover {
         right: 1rem;
         bottom: 1rem;
         font-size: 0.95rem;
+    }
+
+    .tech100-col--rank {
+        display: none;
+    }
+
+    .tech100-details__panel {
+        padding: 0.75rem;
     }
 }

@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest import mock
 
 from django.test import SimpleTestCase
@@ -6,7 +7,7 @@ from django.urls import reverse
 
 class Tech100ViewTests(SimpleTestCase):
     @mock.patch("core.views.fetch_tech100")
-    def test_tech100_view_renders(self, fetch_mock):
+    def test_tech100_view_renders_table_headers_and_details(self, fetch_mock):
         fetch_mock.return_value = {
             "items": [
                 {
@@ -17,18 +18,23 @@ class Tech100ViewTests(SimpleTestCase):
                     "gics_sector": "Software",
                     "aiges_composite_average": 88.2,
                     "summary": "Sample summary.",
+                    "transparency": 70,
                 }
             ],
             "error": None,
             "meta": {},
         }
 
-        response = self.client.get(reverse("tech100"), {"port_date": "2025-01-01", "sector": "Software"})
+        response = self.client.get(reverse("tech100"))
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
-        self.assertIn("Example Corp", content)
-        self.assertIn("tech100-data", content)
+        for header in ["Port Date", "Rank Index", "Company", "AIGES Composite", "Details"]:
+            self.assertIn(header, content)
+        self.assertIn("View details", content)
+        self.assertIn("Transparency", content)
+        self.assertIn("2025-01-01", content)
+        self.assertIn("Sample summary.", content)
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_groups_history_and_uses_latest_row(self, fetch_mock):
@@ -72,18 +78,22 @@ class Tech100ViewTests(SimpleTestCase):
         companies = response.context["companies"]
         self.assertEqual(len(companies), 1)
         latest = companies[0]
-        self.assertEqual(latest["port_date"], "2025-01-01")
+        self.assertIsInstance(latest["port_date"], datetime)
+        self.assertEqual(latest["port_date"].date().isoformat(), "2025-01-01")
         self.assertEqual(latest["rank_index"], 1)
-        self.assertEqual(latest["aiges_composite_average"], 95)
+        self.assertEqual(latest["aiges_composite"], 95)
         history = latest.get("history") or []
-        self.assertEqual([row.get("port_date") for row in history], ["2025-01-01", "2024-12-01"])
+        self.assertEqual(len(history), 2)
+        self.assertEqual(
+            [row["port_date"].date().isoformat() for row in history],
+            ["2024-12-01", "2025-01-01"],
+        )
         content = response.content.decode("utf-8")
         self.assertIn("2025-01-01", content)
         self.assertIn("2024-12-01", content)
         self.assertIn("95.0", content)
         self.assertIn("90.0", content)
-        self.assertIn("85.0", content)
-        self.assertIn("80.0", content)
+        self.assertIn("Latest governance snapshot", content)
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_maps_alternate_field_names(self, fetch_mock):
@@ -123,6 +133,17 @@ class Tech100ViewTests(SimpleTestCase):
 
         response = self.client.get(reverse("tech100"))
         self.assertEqual(response.status_code, 200)
+        companies = response.context["companies"]
+        self.assertEqual(len(companies), 1)
+        latest = companies[0]
+        self.assertEqual(latest["sector"], "Software")
+        self.assertEqual(latest["aiges_composite"], 91.2)
+        self.assertEqual(latest["summary"], "Alt naming snapshot")
+        history = latest.get("history") or []
+        self.assertEqual(
+            [row["port_date_str"] for row in history],
+            ["2025-01-01", "2025-02-01"],
+        )
         content = response.content.decode("utf-8")
         self.assertIn("91.2", content)
         self.assertIn("71.0", content)
