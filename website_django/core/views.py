@@ -114,8 +114,14 @@ def _get_value(row_map: Dict[str, any], keys) -> any:
         if key is None:
             continue
         candidate = row_map.get(str(key).lower())
-        if candidate not in ("", None):
-            return candidate
+        if candidate in ("", None):
+            continue
+        if isinstance(candidate, str):
+            candidate_stripped = candidate.strip()
+            if candidate_stripped == "":
+                continue
+            return candidate_stripped
+        return candidate
     return None
 
 
@@ -241,12 +247,18 @@ def _normalize_row(raw: Dict) -> Dict:
         )
     )
     row["aiges_composite_average"] = row["aiges_composite"]
-    row["summary"] = _get_value(lower_map, ["summary", "company_summary", "aiges_summary", "overall_summary", "description"])
+    row["summary"] = _get_value(
+        lower_map, ["summary", "company_summary", "aiges_summary", "overall_summary", "description"]
+    )
     return row
 
 
 def home(request):
-    tech100_response = fetch_tech100()
+    tech100_response = fetch_tech100(
+        port_date=filters["port_date"] or None,
+        sector=filters["sector"] or None,
+        search=search_term or None,
+    )
     news_response = fetch_news()
 
     tech100_items = tech100_response.get("items", [])
@@ -269,7 +281,11 @@ def tech100(request):
         "search": search_term,
     }
 
-    tech100_response = fetch_tech100()
+    tech100_response = fetch_tech100(
+        port_date=filters["port_date"] or None,
+        sector=filters["sector"] or None,
+        search=search_term or None,
+    )
     raw_companies = tech100_response.get("items", []) or []
     companies = [_normalize_row(c) for c in raw_companies if isinstance(c, dict)]
     _assign_rank_indexes(companies)
