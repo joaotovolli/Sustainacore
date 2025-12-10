@@ -275,6 +275,20 @@ class Tech100ViewTests(SimpleTestCase):
                     "aiges_composite": 70,
                     "summary": "Backend summary",
                 },
+                {
+                    "port_date": "2025-04-01",
+                    "rank_index": 10,
+                    "company_name": "Single Corp",
+                    "ticker": "SGL",
+                    "sector": "Health",
+                    "transparency": 40,
+                    "ethical_principles": 41,
+                    "governance_structure": 42,
+                    "regulatory_alignment": 43,
+                    "stakeholder_engagement": 44,
+                    "aiges_composite": 50,
+                    "summary": "",
+                },
             ],
             "error": None,
             "meta": {},
@@ -283,15 +297,19 @@ class Tech100ViewTests(SimpleTestCase):
         response = self.client.get(reverse("tech100"))
         self.assertEqual(response.status_code, 200)
         companies = response.context["companies"]
-        self.assertEqual(len(companies), 1)
-        company = companies[0]
-        self.assertEqual(company["rank_index"], 2)
-        self.assertEqual(company["summary"], "Backend summary")
-        history = company.get("history") or []
+        self.assertEqual(len(companies), 2)
+        history_co = next(c for c in companies if c["company_name"] == "History Corp")
+        single_co = next(c for c in companies if c["company_name"] == "Single Corp")
+
+        self.assertEqual(history_co["rank_index"], 2)
+        self.assertEqual(history_co["summary"], "Backend summary")
+        history = history_co.get("history") or []
         self.assertEqual(len(history), 2)
         self.assertEqual([h["port_date_str"] for h in history], ["2025-01-01", "2025-04-01"])
+        self.assertEqual(single_co["summary"], "")
+        self.assertEqual(len(single_co.get("history") or []), 1)
         content = response.content.decode("utf-8")
-        for expected in ["History Corp", "Backend summary", "2025-01-01", "2025-04-01", "50.0", "64.0", "70.0"]:
+        for expected in ["History Corp", "Backend summary", "2025-01-01", "2025-04-01", "50.0", "64.0", "70.0", "Single Corp"]:
             self.assertIn(expected, content)
 
 

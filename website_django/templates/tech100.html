@@ -121,12 +121,12 @@
                       {% endif %}
                     </td>
                     <td>
-                      <span class="text-link">View details</span>
+                      <a class="text-link" href="#tech100-detail-{{ forloop.counter0 }}">View details</a>
                     </td>
                   </tr>
                   <tr class="tech100__details-row">
                     <td colspan="5">
-                      <details class="tech100-details">
+                      <details class="tech100-details" id="tech100-detail-{{ forloop.counter0 }}">
                         <summary class="text-link">View details</summary>
                         <div class="card card--lined tech100-details-card">
                           <div class="tech100-details__header">
