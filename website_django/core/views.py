@@ -296,12 +296,6 @@ def tech100(request):
     companies = [_normalize_row(c) for c in raw_companies if isinstance(c, dict)]
     _assign_rank_indexes(companies)
 
-    def sort_latest(item):
-        parsed_date = item.get("port_date") or _parse_port_date(item.get("port_date_str"))
-        date_sort = parsed_date.timestamp() if parsed_date else float("-inf")
-        rank_sort = _safe_float(item.get("rank_index"), float("inf"))
-        return (date_sort, rank_sort)
-
     def history_sort(item):
         parsed_date = item.get("port_date") or _parse_port_date(item.get("port_date_str"))
         return parsed_date or datetime.min
@@ -367,7 +361,14 @@ def tech100(request):
             }
         )
 
-    display_companies = sorted(display_companies, key=lambda item: sort_latest(item), reverse=True)
+    def company_sort(item: Dict):
+        parsed_date = item.get("port_date") or _parse_port_date(item.get("port_date_str"))
+        date_sort = -(parsed_date.timestamp()) if parsed_date else float("inf")
+        rank_sort = _safe_float(item.get("rank_index"), float("inf"))
+        name_sort = (item.get("company_name") or "").lower()
+        return (date_sort, rank_sort, name_sort)
+
+    display_companies = sorted(display_companies, key=company_sort)
     if display_companies:
         sample = display_companies[0]
         logger.info(
