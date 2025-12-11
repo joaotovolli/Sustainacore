@@ -106,10 +106,12 @@
                       {% endif %}
                     </td>
                     <td class="text-right">
-                      {% if c.port_weight_display %}
-                        {{ c.port_weight_display }}
+                      {% if c.weight_display %}
+                        {{ c.weight_display }}
+                      {% elif c.weight or c.weight == 0 %}
+                        {{ c.weight|floatformat:1 }}%
                       {% elif c.port_weight or c.port_weight == 0 %}
-                        {{ c.port_weight|floatformat:2 }}%
+                        {{ c.port_weight|floatformat:1 }}%
                       {% else %}
                         —
                       {% endif %}
@@ -133,7 +135,7 @@
                   <tr class="tech100__details-row">
                     <td colspan="5">
                       <details class="tech100-details" id="tech100-detail-{{ forloop.counter0 }}">
-                        <summary class="text-link">View details</summary>
+                        <summary class="text-link">View Details</summary>
                         <div class="card card--lined tech100-details-card">
                           <div class="tech100-details__header">
                             <h3 class="h5 tech100-details__title">
