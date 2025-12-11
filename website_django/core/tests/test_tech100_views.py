@@ -110,7 +110,7 @@ class Tech100ViewTests(SimpleTestCase):
                     "symbol": "ALT",
                     "sector": "Software",
                     "overall": 91.2,
-                    "weight": "4.5",
+                    "weight": "4.5%",
                     "transparency_score": 71,
                     "ethics": 66,
                     "governance": 61,
