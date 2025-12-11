@@ -11,8 +11,9 @@ import shutil
 import subprocess
 import time
 import zlib
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Allow this module to expose the sibling package under app/
 __path__ = [str(Path(__file__).resolve().parent / "app")]
@@ -148,6 +149,9 @@ _LOGGER = logging.getLogger("app.ask2")
 _READINESS_LOGGER = logging.getLogger("app.readyz")
 _MULTI_LOGGER = logging.getLogger("app.multihit")
 _STARTUP_LOGGER = logging.getLogger("app.startup")
+_API_LOGGER = logging.getLogger("app.api")
+_API_AUTH_TOKEN = os.getenv("BACKEND_API_TOKEN") or os.getenv("API_AUTH_TOKEN")
+_API_AUTH_WARNED = False
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -160,6 +164,177 @@ def _env_flag(name: str, default: bool) -> bool:
     if raw in {"0", "false", "f", "no", "n", "off"}:
         return False
     return default
+
+
+def _api_auth_guard() -> bool:
+    """Return True when the Authorization header matches the configured token."""
+
+    global _API_AUTH_WARNED
+
+    if not _API_AUTH_TOKEN:
+        if not _API_AUTH_WARNED:
+            _LOGGER.warning("API_AUTH_TOKEN not set; denying /api/* requests")
+            _API_AUTH_WARNED = True
+        return False
+
+    header = request.headers.get("Authorization", "")
+    if not isinstance(header, str) or not header.lower().startswith("bearer "):
+        return False
+
+    candidate = header.split(" ", 1)[1].strip()
+    return bool(candidate) and candidate == _API_AUTH_TOKEN
+
+
+def _api_auth_or_unauthorized():
+    """Return a 401 response when auth fails, or None when authorized."""
+
+    if _api_auth_guard():
+        return None
+    return jsonify({"error": "unauthorized"}), 401
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return None
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        try:
+            return float(str(value).strip())
+        except Exception:
+            return None
+
+
+def _normalize_weight(value: Any) -> Optional[float]:
+    """Normalize TECH100 weight values to percentages rounded to two decimals."""
+
+    num = _coerce_float(value)
+    if num is None:
+        return None
+    normalized = num * 100 if abs(num) <= 1 else num
+    try:
+        return round(normalized, 2)
+    except Exception:
+        return normalized
+
+
+def _sanitize_limit(value: Any, default: int = 1000, max_limit: int = 2000) -> int:
+    """Clamp the limit parameter to a safe range."""
+
+    limit = _coerce_int(value)
+    if limit is None:
+        limit = default
+    if limit < 1:
+        limit = 1
+    if limit > max_limit:
+        limit = max_limit
+    return limit
+
+
+def _coerce_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        return None
+    return text or None
+
+
+def _format_date(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%d-%b-%y"):
+            try:
+                return datetime.strptime(candidate, fmt).date().isoformat()
+            except Exception:
+                continue
+        return candidate
+    try:
+        return str(value)
+    except Exception:
+        return None
+
+
+def _format_timestamp(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time()).isoformat()
+    if isinstance(value, str):
+        candidate = value.strip()
+        return candidate or None
+    try:
+        return str(value)
+    except Exception:
+        return None
+
+
+def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 response fields."""
+
+    port_date = _format_date(
+        row.get("port_date") or row.get("asof") or row.get("updated_at")
+    )
+    aiges = _coerce_float(
+        row.get("aiges_composite_average") or row.get("aiges_composite") or row.get("overall")
+    )
+    weight = _normalize_weight(row.get("port_weight") or row.get("weight"))
+    item = {
+        "port_date": port_date,
+        "rank_index": _coerce_int(row.get("rank_index") or row.get("rank")),
+        "company_name": row.get("company_name")
+        or row.get("company")
+        or row.get("name"),
+        "ticker": row.get("ticker"),
+        "port_weight": weight,
+        "weight": weight,
+        "sector": row.get("gics_sector") or row.get("sector"),
+        "gics_sector": row.get("gics_sector") or row.get("sector"),
+        "transparency": _coerce_float(row.get("transparency")),
+        "ethical_principles": _coerce_float(
+            row.get("ethical_principles") or row.get("ethics")
+        ),
+        "governance_structure": _coerce_float(
+            row.get("governance_structure") or row.get("accountability")
+        ),
+        "regulatory_alignment": _coerce_float(row.get("regulatory_alignment")),
+        "stakeholder_engagement": _coerce_float(
+            row.get("stakeholder_engagement") or row.get("stakeholder")
+        ),
+        "aiges_composite": aiges,
+        "summary": _coerce_str(row.get("summary")),
+        "source_links": _coerce_str(row.get("source_links")),
+    }
+    # Backwards-compatible aliases
+    item["rank"] = item.get("rank_index")
+    item["company"] = item.get("company_name")
+    item["overall"] = item.get("aiges_composite")
+    item["accountability"] = item.get("governance_structure")
+    item["updated_at"] = port_date
+    return item
 
 
 _ASK2_ENABLE_SMALLTALK = _env_flag("ASK2_ENABLE_SMALLTALK", True)
@@ -1018,6 +1193,131 @@ def readyz():
         extra={"rows": len(rows), "scoping": RETRIEVAL_SCOPING_ENABLED},
     )
     return jsonify({"ok": True, "rows": len(rows)}), 200
+
+
+@app.route("/api/tech100", methods=["GET"])
+def api_tech100():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    try:
+        from db_helper import _to_plain, get_connection  # type: ignore
+    except Exception as exc:
+        _LOGGER.exception("api_tech100 helper import failed", exc_info=exc)
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
+            ),
+            500,
+        )
+
+    port_date_filter = (request.args.get("port_date") or request.args.get("as_of") or "").strip()
+    sector_filter = (request.args.get("sector") or request.args.get("gics_sector") or "").strip()
+    ticker_filter = (request.args.get("ticker") or "").strip()
+    search_filter = (
+        request.args.get("company")
+        or request.args.get("search")
+        or request.args.get("q")
+        or ""
+    ).strip()
+    limit = _sanitize_limit(request.args.get("limit"))
+
+    _API_LOGGER.info(
+        "api_tech100 request",
+        extra={
+            "port_date": port_date_filter or None,
+            "sector": sector_filter or None,
+            "ticker": ticker_filter or None,
+            "search": search_filter or None,
+            "limit": limit,
+        },
+    )
+
+    where_clauses: List[str] = []
+    binds: Dict[str, Any] = {}
+
+    # Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 fields without forcing "latest" only.
+    if port_date_filter:
+        try:
+            binds["port_date"] = datetime.fromisoformat(port_date_filter).date()
+        except Exception:
+            binds["port_date"] = port_date_filter
+        where_clauses.append("TRUNC(port_date) = TRUNC(:port_date)")
+    if sector_filter:
+        binds["sector"] = sector_filter
+        where_clauses.append("LOWER(gics_sector) = LOWER(:sector)")
+    if ticker_filter:
+        binds["ticker_exact"] = ticker_filter
+        where_clauses.append("LOWER(ticker) = LOWER(:ticker_exact)")
+    if search_filter:
+        binds["search_like"] = f"%{search_filter}%"
+        where_clauses.append(
+            "(LOWER(company_name) LIKE LOWER(:search_like) OR LOWER(ticker) LIKE LOWER(:search_like))"
+        )
+
+    sql = (
+        "SELECT port_date, rank_index, company_name, ticker, port_weight, gics_sector, "
+        "transparency, ethical_principles, governance_structure, regulatory_alignment, "
+        "stakeholder_engagement, aiges_composite_average, summary, source_links "
+        "FROM tech11_ai_gov_eth_index"
+    )
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+    sql += " ORDER BY port_date, rank_index NULLS LAST FETCH FIRST :limit ROWS ONLY"
+    binds["limit"] = limit
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            columns = [desc[0].lower() for desc in cur.description]
+            raw_rows = [
+                {col: _to_plain(val) for col, val in zip(columns, raw)}
+                for raw in cur.fetchall()
+            ]
+    except Exception as exc:
+        _LOGGER.exception("api_tech100 query failed", exc_info=exc)
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
+            ),
+            500,
+        )
+
+    items = [_normalize_tech100_row(row) for row in raw_rows]
+    if items:
+        sample = items[0]
+        pillar_keys = [
+            key
+            for key in (
+                "transparency",
+                "ethical_principles",
+                "governance_structure",
+                "regulatory_alignment",
+                "stakeholder_engagement",
+                "summary",
+            )
+            if sample.get(key) not in (None, "", [])
+        ]
+        _API_LOGGER.info(
+            "api_tech100 sample",
+            extra={
+                "company": sample.get("company_name"),
+                "ticker": sample.get("ticker"),
+                "port_date": sample.get("port_date"),
+                "aiges_composite": sample.get("aiges_composite"),
+                "pillars": pillar_keys,
+            },
+        )
+    distinct_dates = sorted({item.get("port_date") for item in items if item.get("port_date")})
+    _API_LOGGER.info(
+        "/api/tech100 rows=%d dates=%s",
+        len(items),
+        ", ".join(distinct_dates[:5]),
+    )
+
+    return jsonify({"items": items, "count": len(items)}), 200
 
 
 @app.route("/ask", methods=["POST"])
