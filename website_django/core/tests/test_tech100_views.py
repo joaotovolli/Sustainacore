@@ -32,12 +32,13 @@ class Tech100ViewTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         for header in ["Rebalance Date", "Rank", "Weight", "Company", "AIGES Composite", "Details"]:
             self.assertIn(header, content)
-        self.assertIn("View details", content)
+        self.assertIn("View Details", content)
         self.assertIn("Transparency", content)
         self.assertIn("2025-01-01", content)
         self.assertIn("Sample summary.", content)
         self.assertIn("Only the latest rebalance is available", content)
         self.assertIn("5.23%", content)
+        self.assertEqual(response.context["companies"][0]["weight"], 5.23)
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_groups_history_and_uses_latest_row(self, fetch_mock):
@@ -144,6 +145,7 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertEqual(latest["aiges_composite"], 91.2)
         self.assertEqual(latest["summary"], "Alt naming snapshot")
         self.assertEqual(latest["port_weight"], 4.5)
+        self.assertEqual(latest["weight"], 4.5)
         history = latest.get("history") or []
         self.assertEqual(
             [row["port_date_str"] for row in history],
@@ -401,8 +403,9 @@ class Tech100ExportTests(SimpleTestCase):
         lines = [line for line in content.splitlines() if line.strip()]
         self.assertEqual(
             lines[0],
-            "PORT_DATE,RANK_INDEX,COMPANY_NAME,TICKER,PORT_WEIGHT,GICS_SECTOR,TRANSPARENCY,ETHICAL_PRINCIPLES,GOVERNANCE_STRUCTURE,REGULATORY_ALIGNMENT,STAKEHOLDER_ENGAGEMENT,AIGES_COMPOSITE_AVERAGE,SUMMARY",
+            "PORT_DATE,RANK_INDEX,WEIGHT,COMPANY_NAME,TICKER,GICS_SECTOR,AIGES_COMPOSITE_AVERAGE,TRANSPARENCY,ETHICAL_PRINCIPLES,GOVERNANCE_STRUCTURE,REGULATORY_ALIGNMENT,STAKEHOLDER_ENGAGEMENT,SUMMARY",
         )
         self.assertIn("Example Corp", content)
+        self.assertIn("2.50%", content)
         # Filter should remove the non-matching ticker
         self.assertNotIn("Other Corp", content)
