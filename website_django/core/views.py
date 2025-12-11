@@ -214,12 +214,14 @@ def _normalize_row(raw: Dict) -> Dict:
 
     rank_val = _get_value(lower_map, ["rank_index", "rank", "index_rank", "rnk"])
     row["rank_index"] = _safe_float(rank_val, rank_val)
-    row["port_weight"] = _safe_float(
+    port_weight_value = _safe_float(
         _get_value(
             lower_map,
             ["port_weight", "weight", "portfolio_weight", "index_weight", "port_wt", "weight_percent"],
         )
     )
+    row["port_weight"] = port_weight_value
+    row["weight"] = _safe_float(_get_value(lower_map, ["weight"]), port_weight_value)
 
     row["transparency"] = _safe_float(
         _get_value(lower_map, ["transparency", "transparency_score", "trs"]), _get_value(lower_map, ["transparency"])
@@ -334,8 +336,11 @@ def tech100(request):
             continue
         latest = rows_sorted[-1]
         summary_value = next((r.get("summary") for r in reversed(rows_sorted) if r.get("summary")), "")
-        port_weight = latest.get("port_weight")
-        formatted_port_weight = _format_port_weight(port_weight) or None
+        weight_value = _safe_float(latest.get("weight"), None)
+        port_weight = _safe_float(latest.get("port_weight"), None)
+        if weight_value is None:
+            weight_value = port_weight
+        formatted_port_weight = _format_port_weight(weight_value) or None
         history_list = [
             {
                 "port_date": entry.get("port_date"),
@@ -366,7 +371,9 @@ def tech100(request):
                 "stakeholder_engagement": latest.get("stakeholder_engagement"),
                 "aiges_composite": latest.get("aiges_composite") or _extract_aiges_score(latest),
                 "port_weight": port_weight,
+                "weight": weight_value,
                 "port_weight_display": formatted_port_weight,
+                "weight_display": formatted_port_weight,
                 "history": history_list,
             }
         )
@@ -431,16 +438,16 @@ def tech100_export(request):
     headers = [
         "PORT_DATE",
         "RANK_INDEX",
+        "WEIGHT",
         "COMPANY_NAME",
         "TICKER",
-        "PORT_WEIGHT",
         "GICS_SECTOR",
+        "AIGES_COMPOSITE_AVERAGE",
         "TRANSPARENCY",
         "ETHICAL_PRINCIPLES",
         "GOVERNANCE_STRUCTURE",
         "REGULATORY_ALIGNMENT",
         "STAKEHOLDER_ENGAGEMENT",
-        "AIGES_COMPOSITE_AVERAGE",
         "SUMMARY",
     ]
 
@@ -448,20 +455,24 @@ def tech100_export(request):
     writer.writerow(headers)
 
     for company in companies:
+        weight_value = _safe_float(company.get("weight"), None)
+        if weight_value is None:
+            weight_value = _safe_float(company.get("port_weight"), None)
+
         writer.writerow(
             [
                 company.get("port_date") or "",
                 company.get("rank_index") or "",
+                _format_port_weight(weight_value),
                 company.get("company_name") or "",
                 company.get("ticker") or "",
-                _format_port_weight(company.get("port_weight")),
                 (company.get("gics_sector") or company.get("sector") or ""),
+                _format_score(company.get("aiges_composite_average")),
                 _format_score(company.get("transparency")),
                 _format_score(company.get("ethical_principles")),
                 _format_score(company.get("governance_structure")),
                 _format_score(company.get("regulatory_alignment")),
                 _format_score(company.get("stakeholder_engagement")),
-                _format_score(company.get("aiges_composite_average")),
                 company.get("summary") or "",
             ]
         )
