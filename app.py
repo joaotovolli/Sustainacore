@@ -223,6 +223,13 @@ def _api_auth_optional():
 
     header = request.headers.get("Authorization", "")
     if not isinstance(header, str) or not header.strip():
+        return None
+
+    if _api_auth_guard():
+        return None
+    return jsonify({"error": "unauthorized"}), 401
+
+
 def _api_auth_optional_or_unauthorized():
     """Allow requests without Authorization, but validate when provided."""
 
@@ -1420,24 +1427,6 @@ def api_tech100():
         sql += " WHERE " + " AND ".join(where_clauses)
     sql += " ORDER BY port_date, rank_index NULLS LAST FETCH FIRST :limit ROWS ONLY"
     binds["limit"] = limit
-    sql = (
-        "SELECT company_name, gics_sector, transparency, governance_structure, "
-        "aiges_composite_average, port_date "
-        return (
-            jsonify(
-                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
-            ),
-            500,
-        )
-
-    sql = (
-        "SELECT rank_index, company_name, gics_sector, port_date, "
-        "aiges_composite_average, transparency, governance_structure, "
-        "ethical_principles, regulatory_alignment, stakeholder_engagement "
-        "FROM tech11_ai_gov_eth_index "
-        "WHERE port_date = (SELECT MAX(port_date) FROM tech11_ai_gov_eth_index) "
-        "ORDER BY rank_index FETCH FIRST 100 ROWS ONLY"
-    )
 
     try:
         with get_connection() as conn:
@@ -1478,46 +1467,6 @@ def api_tech100():
     _API_LOGGER.info("/api/tech100 rows=%d dates=%s", len(items), ", ".join(distinct_dates[:5]))
 
     return jsonify({"items": items, "count": len(items)}), 200
-            cur.execute(sql)
-            columns = [desc[0].lower() for desc in cur.description]
-            items = []
-            items: List[Dict[str, Any]] = []
-            for raw in cur.fetchall():
-                row = {col: _to_plain(val) for col, val in zip(columns, raw)}
-                items.append(
-                    {
-                        "company": row.get("company_name"),
-                        "sector": row.get("gics_sector"),
-                        "region": None,
-                        "overall": row.get("aiges_composite_average"),
-                        "transparency": row.get("transparency"),
-                        "accountability": row.get("governance_structure"),
-                        "rank": row.get("rank_index"),
-                        "company": row.get("company_name"),
-                        "sector": row.get("gics_sector"),
-                        "region": row.get("region")
-                        or row.get("country")
-                        or row.get("location"),
-                        "overall": row.get("aiges_composite_average"),
-                        "transparency": row.get("transparency"),
-                        "accountability": row.get("governance_structure"),
-                        "ethics": row.get("ethical_principles"),
-                        "regulatory_alignment": row.get("regulatory_alignment"),
-                        "stakeholder": row.get("stakeholder_engagement"),
-                        "updated_at": _format_date(row.get("port_date")),
-                    }
-                )
-    except Exception as exc:
-        _LOGGER.exception("api_tech100 query failed", exc_info=exc)
-        return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
-        return (
-            jsonify(
-                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
-            ),
-            500,
-        )
-
-    return jsonify({"items": items}), 200
 
 
 @app.route("/api/news", methods=["GET"])
