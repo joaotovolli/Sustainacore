@@ -14,13 +14,19 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
 5. Run the regression suite with `pytest -q` before committing changes.
 
+### CI sanity check
+- The `Sanity` GitHub Action installs the Python dependencies from `requirements.txt` plus Django test extras, sets
+  `PYTHONPATH` to include the repo root and `website_django/`, and seeds a placeholder `DJANGO_SECRET_KEY` for settings
+  import.
+- It runs a fast smoke subset (`tests/test_api_tech100.py` and `website_django/core/tests/test_api_client.py`) to catch
+  import and API regression issues without pulling in the full suite.
+
 ### ChatGPT / Codex code reviews
-- Reviews no longer run automatically on every pull request update. The ChatGPT Codex connector only runs when explicitly
-  requested.
-- To opt in on a PR, add the `codex-review` label or comment `@codex review`. Remove the label to silence new reviews on
-  subsequent pushes.
-- The connector ignores large or generated areas (`archive/**`, `datasets/**`, `website_django/venv/**`, `website_django/static/**`,
-  `tests/fixtures/**`, `docs/**`) so the credit usage focuses on meaningful code changes.
+- Reviews never run automatically on pull requests; they only trigger when explicitly requested.
+- To opt in on a PR, add the `codex-review` label. Remove the label to silence new reviews on subsequent pushes.
+- The connector ignores large or generated areas (`archive/**`, `datasets/**`, `website_django/venv/**`,
+  `website_django/static/**`, `website_django/staticfiles/**`, `tests/fixtures/**`, `docs/**`, `infra/**`) so the credit
+  usage focuses on meaningful code changes.
 
 ## VM1/VM2 architecture at a glance
 - **VM1 (API/RAG/Oracle):** Hosts the Flask/Gunicorn API with `/api/health` and `/api/ask2`. Ask2 now runs a Gemini-first pipeline (intent → planner → Oracle retriever → composer) that returns natural-language answers plus sources. Planner JSON stays in the `meta` block for debugging; user-facing fields (`answer`, `reply`, `message`, `content`) are text-only fallbacks when no facts are found.
