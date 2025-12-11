@@ -18,7 +18,7 @@
       <div>
         <form method="get" class="filters filters--stacked">
           <label>
-            Report date
+            Rebalance Date
             <select name="port_date">
               <option value="">All dates</option>
               {% for d in port_date_options %}
@@ -86,8 +86,9 @@
         <table id="tech100-data" class="table table--wide tech100-table" aria-label="TECH100 index">
           <thead>
             <tr>
-              <th>Port Date</th>
-              <th class="text-right tech100-col--rank">Rank Index</th>
+              <th>Rebalance Date</th>
+              <th class="text-right tech100-col--rank">Rank</th>
+              <th class="text-right">Weight</th>
               <th>Company</th>
               <th class="text-right">AIGES Composite</th>
             </tr>
@@ -100,6 +101,15 @@
                     <td class="text-right tech100-col--rank">
                       {% if c.rank_index or c.rank_index == 0 %}
                         {{ c.rank_index|floatformat:0 }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="text-right">
+                      {% if c.port_weight_display %}
+                        {{ c.port_weight_display }}
+                      {% elif c.port_weight or c.port_weight == 0 %}
+                        {{ c.port_weight|floatformat:2 }}%
                       {% else %}
                         —
                       {% endif %}
@@ -121,7 +131,7 @@
                     </td>
                   </tr>
                   <tr class="tech100__details-row">
-                    <td colspan="4">
+                    <td colspan="5">
                       <details class="tech100-details" id="tech100-detail-{{ forloop.counter0 }}">
                         <summary class="text-link">View details</summary>
                         <div class="card card--lined tech100-details-card">
@@ -146,7 +156,7 @@
                                 <table class="table tech100-history-table" aria-label="Historical AIGES data for {{ c.company_name }}">
                                   <thead>
                                     <tr>
-                                      <th>Port Date</th>
+                                      <th>Rebalance Date</th>
                                       <th class="text-right">Transparency</th>
                                       <th class="text-right">Ethical Principles</th>
                                       <th class="text-right">Governance Structure</th>
@@ -222,7 +232,7 @@
               {% endfor %}
             {% else %}
               <tr>
-                <td colspan="4" class="muted">Data currently unavailable.</td>
+                <td colspan="5" class="muted">Data currently unavailable.</td>
               </tr>
             {% endif %}
           </tbody>
