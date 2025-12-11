@@ -1,19 +1,18 @@
-# ChatGPT / Codex connector configuration
-# Reviews are opt-in: attach the codex-review label or comment "@codex review" to trigger the bot.
-# The connector skips large/generated areas so credits focus on meaningful code.
+# ChatGPT / Codex connector configuration (opt-in only)
+# Add the `codex-review` label to a pull request when you want an AI review.
 version: 1
 review:
   auto: false
   triggers:
     labels:
       - codex-review
-    comments:
-      - "@codex review"
   ignore:
     paths:
       - "archive/**"
       - "datasets/**"
       - "website_django/venv/**"
       - "website_django/static/**"
+      - "website_django/staticfiles/**"
       - "tests/fixtures/**"
       - "docs/**"
+      - "infra/**"
