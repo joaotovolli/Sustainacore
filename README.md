@@ -14,6 +14,14 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 4. Launch the retrieval API locally with `uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080`.
 5. Run the regression suite with `pytest -q` before committing changes.
 
+### ChatGPT / Codex code reviews
+- Reviews no longer run automatically on every pull request update. The ChatGPT Codex connector only runs when explicitly
+  requested.
+- To opt in on a PR, add the `codex-review` label or comment `@codex review`. Remove the label to silence new reviews on
+  subsequent pushes.
+- The connector ignores large or generated areas (`archive/**`, `datasets/**`, `website_django/venv/**`, `website_django/static/**`,
+  `tests/fixtures/**`, `docs/**`) so the credit usage focuses on meaningful code changes.
+
 ## VM1/VM2 architecture at a glance
 - **VM1 (API/RAG/Oracle):** Hosts the Flask/Gunicorn API with `/api/health` and `/api/ask2`. Ask2 now runs a Gemini-first pipeline (intent → planner → Oracle retriever → composer) that returns natural-language answers plus sources. Planner JSON stays in the `meta` block for debugging; user-facing fields (`answer`, `reply`, `message`, `content`) are text-only fallbacks when no facts are found.
 - **VM2 (Django website):** Runs the public site in `website_django/` and proxies chat requests to VM1. `/ask2/` serves a minimal HTML page that POSTs to `/ask2/api/`, which in turn forwards `{ "user_message": "..." }` to VM1 with an optional bearer token. Backend connectivity is controlled by `BACKEND_API_BASE` (default `http://10.0.0.120:8080`) and `BACKEND_API_TOKEN` from the environment.
