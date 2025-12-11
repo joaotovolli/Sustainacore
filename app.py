@@ -329,6 +329,17 @@ def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
     """Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 response fields."""
 
     port_date = _format_date(row.get("port_date") or row.get("asof") or row.get("updated_at"))
+    weight_candidates = (
+        row.get("port_weight"),
+        row.get("weight"),
+        row.get("portfolio_weight"),
+        row.get("index_weight"),
+    )
+    raw_weight = next((val for val in weight_candidates if val is not None), None)
+    weight_value = _coerce_float(raw_weight)
+    if weight_value is not None:
+        weight_value = weight_value * 100 if abs(weight_value) <= 1 else weight_value
+        weight_value = round(weight_value, 2)
     aiges = _coerce_float(
         row.get("aiges_composite_average") or row.get("aiges_composite") or row.get("overall")
     )
@@ -337,6 +348,7 @@ def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "rank_index": _coerce_int(row.get("rank_index") or row.get("rank")),
         "company_name": row.get("company_name") or row.get("company") or row.get("name"),
         "ticker": row.get("ticker"),
+        "port_weight": weight_value,
         "sector": row.get("gics_sector") or row.get("sector"),
         "gics_sector": row.get("gics_sector") or row.get("sector"),
         "transparency": _coerce_float(row.get("transparency")),
@@ -358,6 +370,7 @@ def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
     item["overall"] = item.get("aiges_composite")
     item["accountability"] = item.get("governance_structure")
     item["updated_at"] = port_date
+    item["weight"] = item.get("port_weight")
     return item
 
 
