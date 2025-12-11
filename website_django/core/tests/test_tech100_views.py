@@ -16,6 +16,7 @@ class Tech100ViewTests(SimpleTestCase):
                     "company_name": "Example Corp",
                     "ticker": "EXM",
                     "gics_sector": "Software",
+                    "port_weight": 5.23,
                     "aiges_composite_average": 88.2,
                     "summary": "Sample summary.",
                     "transparency": 70,
@@ -29,13 +30,14 @@ class Tech100ViewTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
-        for header in ["Port Date", "Rank Index", "Company", "AIGES Composite", "Details"]:
+        for header in ["Rebalance Date", "Rank", "Weight", "Company", "AIGES Composite", "Details"]:
             self.assertIn(header, content)
         self.assertIn("View details", content)
         self.assertIn("Transparency", content)
         self.assertIn("2025-01-01", content)
         self.assertIn("Sample summary.", content)
         self.assertIn("Only the latest rebalance is available", content)
+        self.assertIn("5.23%", content)
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_groups_history_and_uses_latest_row(self, fetch_mock):
@@ -107,6 +109,7 @@ class Tech100ViewTests(SimpleTestCase):
                     "symbol": "ALT",
                     "sector": "Software",
                     "overall": 91.2,
+                    "weight": "4.5",
                     "transparency_score": 71,
                     "ethics": 66,
                     "governance": 61,
@@ -140,6 +143,7 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertEqual(latest["sector"], "Software")
         self.assertEqual(latest["aiges_composite"], 91.2)
         self.assertEqual(latest["summary"], "Alt naming snapshot")
+        self.assertEqual(latest["port_weight"], 4.5)
         history = latest.get("history") or []
         self.assertEqual(
             [row["port_date_str"] for row in history],

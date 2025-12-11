@@ -214,6 +214,12 @@ def _normalize_row(raw: Dict) -> Dict:
 
     rank_val = _get_value(lower_map, ["rank_index", "rank", "index_rank", "rnk"])
     row["rank_index"] = _safe_float(rank_val, rank_val)
+    row["port_weight"] = _safe_float(
+        _get_value(
+            lower_map,
+            ["port_weight", "weight", "portfolio_weight", "index_weight", "port_wt", "weight_percent"],
+        )
+    )
 
     row["transparency"] = _safe_float(
         _get_value(lower_map, ["transparency", "transparency_score", "trs"]), _get_value(lower_map, ["transparency"])
@@ -328,6 +334,8 @@ def tech100(request):
             continue
         latest = rows_sorted[-1]
         summary_value = next((r.get("summary") for r in reversed(rows_sorted) if r.get("summary")), "")
+        port_weight = latest.get("port_weight")
+        formatted_port_weight = _format_port_weight(port_weight) or None
         history_list = [
             {
                 "port_date": entry.get("port_date"),
@@ -357,6 +365,8 @@ def tech100(request):
                 "regulatory_alignment": latest.get("regulatory_alignment"),
                 "stakeholder_engagement": latest.get("stakeholder_engagement"),
                 "aiges_composite": latest.get("aiges_composite") or _extract_aiges_score(latest),
+                "port_weight": port_weight,
+                "port_weight_display": formatted_port_weight,
                 "history": history_list,
             }
         )
