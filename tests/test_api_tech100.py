@@ -106,6 +106,7 @@ BASE_ROWS: List[Dict[str, Any]] = [
         "RANK_INDEX": 2,
         "COMPANY_NAME": "Acme Corp",
         "TICKER": "ACME",
+        "PORT_WEIGHT": 1.2,
         "PORT_WEIGHT": 0.02,
         "GICS_SECTOR": "Technology",
         "TRANSPARENCY": 70,
@@ -166,6 +167,8 @@ def test_api_tech100_returns_history_and_aliases(monkeypatch):
         "rank_index",
         "company_name",
         "ticker",
+        "port_weight",
+        "weight",
         "sector",
         "transparency",
         "ethical_principles",
@@ -178,6 +181,10 @@ def test_api_tech100_returns_history_and_aliases(monkeypatch):
         "overall",
         "accountability",
         "updated_at",
+    ):
+        assert key in first
+
+    acme = next(item for item in items if item["company_name"] == "Acme Corp" and item["rank_index"] == 1)
         "port_weight",
         "weight",
     ):
@@ -194,6 +201,9 @@ def test_api_tech100_returns_history_and_aliases(monkeypatch):
     assert acme["port_weight"] == 2.0
     assert acme["weight"] == 2.0
 
+    acme_prev = next(item for item in items if item["company_name"] == "Acme Corp" and item["rank_index"] == 2)
+    assert acme_prev["port_weight"] == 1.2
+    assert acme_prev["weight"] == 1.2
     bravo = next(item for item in items if item["company_name"] == "Bravo Inc")
     assert bravo["port_weight"] == 1.0
 
@@ -212,6 +222,7 @@ def test_api_tech100_filters_port_date(monkeypatch):
     assert body["count"] == 1
     assert body["items"][0]["port_date"] == "2024-06-30"
     assert body["items"][0]["company_name"] == "Acme Corp"
+    assert body["items"][0]["weight"] == 1.2
 
 
 def test_api_tech100_filters_sector(monkeypatch):
@@ -230,3 +241,4 @@ def test_api_tech100_filters_sector(monkeypatch):
     assert item["company_name"] == "Bravo Inc"
     assert item["sector"] == "Finance"
     assert item["aiges_composite"] == 70.0
+    assert item["weight"] == 1.0

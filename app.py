@@ -12,6 +12,7 @@ import subprocess
 import time
 import uuid
 import zlib
+from datetime import date, datetime
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -158,6 +159,8 @@ _READINESS_LOGGER = logging.getLogger("app.readyz")
 _MULTI_LOGGER = logging.getLogger("app.multihit")
 _STARTUP_LOGGER = logging.getLogger("app.startup")
 _API_LOGGER = logging.getLogger("app.api")
+_API_AUTH_TOKEN = os.getenv("BACKEND_API_TOKEN") or os.getenv("API_AUTH_TOKEN")
+_API_AUTH_WARNED = False
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
@@ -183,6 +186,8 @@ def _env_flag(name: str, default: bool) -> bool:
     return default
 
 
+def _api_auth_guard() -> bool:
+    """Return True when the Authorization header matches the configured token."""
 def _api_auth_guard():
     """Return ``True`` when the Authorization header matches API_AUTH_TOKEN."""
 
@@ -203,6 +208,7 @@ def _api_auth_guard():
 
 
 def _api_auth_or_unauthorized():
+    """Return a 401 response when auth fails, or None when authorized."""
     """Return a 401 response when auth fails, or ``None`` when authorized."""
 
     if _api_auth_guard():
@@ -302,6 +308,17 @@ def _coerce_float(value: Any) -> Optional[float]:
             return None
 
 
+def _normalize_weight(value: Any) -> Optional[float]:
+    """Normalize TECH100 weight values to percentages rounded to two decimals."""
+
+    num = _coerce_float(value)
+    if num is None:
+        return None
+    normalized = num * 100 if abs(num) <= 1 else num
+    try:
+        return round(normalized, 2)
+    except Exception:
+        return normalized
 def _coerce_str(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -325,6 +342,80 @@ def _sanitize_limit(value: Any, default: int = 1000, max_limit: int = 2000) -> i
     return limit
 
 
+def _coerce_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        return None
+    return text or None
+
+
+def _format_date(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%d-%b-%y"):
+            try:
+                return datetime.strptime(candidate, fmt).date().isoformat()
+            except Exception:
+                continue
+        return candidate
+    try:
+        return str(value)
+    except Exception:
+        return None
+
+
+def _format_timestamp(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time()).isoformat()
+    if isinstance(value, str):
+        candidate = value.strip()
+        return candidate or None
+    try:
+        return str(value)
+    except Exception:
+        return None
+
+
+def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 response fields."""
+
+    port_date = _format_date(
+        row.get("port_date") or row.get("asof") or row.get("updated_at")
+    )
+    aiges = _coerce_float(
+        row.get("aiges_composite_average") or row.get("aiges_composite") or row.get("overall")
+    )
+    weight = _normalize_weight(row.get("port_weight") or row.get("weight"))
+    item = {
+        "port_date": port_date,
+        "rank_index": _coerce_int(row.get("rank_index") or row.get("rank")),
+        "company_name": row.get("company_name")
+        or row.get("company")
+        or row.get("name"),
+        "ticker": row.get("ticker"),
+        "port_weight": weight,
+        "weight": weight,
+        "sector": row.get("gics_sector") or row.get("sector"),
+        "gics_sector": row.get("gics_sector") or row.get("sector"),
+        "transparency": _coerce_float(row.get("transparency")),
+        "ethical_principles": _coerce_float(
+            row.get("ethical_principles") or row.get("ethics")
+        ),
 def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
     """Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 response fields."""
 
@@ -370,6 +461,9 @@ def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
     item["overall"] = item.get("aiges_composite")
     item["accountability"] = item.get("governance_structure")
     item["updated_at"] = port_date
+    return item
+
+
     item["weight"] = item.get("port_weight")
     return item
 
@@ -1388,12 +1482,22 @@ def api_tech100():
         from db_helper import _to_plain, get_connection  # type: ignore
     except Exception as exc:
         _LOGGER.exception("api_tech100 helper import failed", exc_info=exc)
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
+            ),
+            500,
+        )
         return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
 
     port_date_filter = (request.args.get("port_date") or request.args.get("as_of") or "").strip()
     sector_filter = (request.args.get("sector") or request.args.get("gics_sector") or "").strip()
     ticker_filter = (request.args.get("ticker") or "").strip()
     search_filter = (
+        request.args.get("company")
+        or request.args.get("search")
+        or request.args.get("q")
+        or ""
         request.args.get("company") or request.args.get("search") or request.args.get("q") or ""
     ).strip()
     limit = _sanitize_limit(request.args.get("limit"))
@@ -1412,6 +1516,7 @@ def api_tech100():
     where_clauses: List[str] = []
     binds: Dict[str, Any] = {}
 
+    # Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 fields without forcing "latest" only.
     if port_date_filter:
         try:
             binds["port_date"] = datetime.fromisoformat(port_date_filter).date()
@@ -1446,6 +1551,18 @@ def api_tech100():
             cur = conn.cursor()
             cur.execute(sql, binds)
             columns = [desc[0].lower() for desc in cur.description]
+            raw_rows = [
+                {col: _to_plain(val) for col, val in zip(columns, raw)}
+                for raw in cur.fetchall()
+            ]
+    except Exception as exc:
+        _LOGGER.exception("api_tech100 query failed", exc_info=exc)
+        return (
+            jsonify(
+                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
+            ),
+            500,
+        )
             raw_rows = [{col: _to_plain(val) for col, val in zip(columns, raw)} for raw in cur.fetchall()]
     except Exception as exc:
         _LOGGER.exception("api_tech100 query failed", exc_info=exc)
@@ -1477,6 +1594,11 @@ def api_tech100():
             },
         )
     distinct_dates = sorted({item.get("port_date") for item in items if item.get("port_date")})
+    _API_LOGGER.info(
+        "/api/tech100 rows=%d dates=%s",
+        len(items),
+        ", ".join(distinct_dates[:5]),
+    )
     _API_LOGGER.info("/api/tech100 rows=%d dates=%s", len(items), ", ".join(distinct_dates[:5]))
 
     return jsonify({"items": items, "count": len(items)}), 200
