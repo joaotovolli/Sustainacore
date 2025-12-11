@@ -178,6 +178,8 @@ def test_api_tech100_returns_history_and_aliases(monkeypatch):
         "overall",
         "accountability",
         "updated_at",
+        "port_weight",
+        "weight",
     ):
         assert key in first
 
@@ -189,6 +191,11 @@ def test_api_tech100_returns_history_and_aliases(monkeypatch):
     assert acme["accountability"] == acme["governance_structure"]
     assert acme["updated_at"] == acme["port_date"]
     assert acme["summary"] == "Acme leads on governance."
+    assert acme["port_weight"] == 2.0
+    assert acme["weight"] == 2.0
+
+    bravo = next(item for item in items if item["company_name"] == "Bravo Inc")
+    assert bravo["port_weight"] == 1.0
 
 
 def test_api_tech100_filters_port_date(monkeypatch):
