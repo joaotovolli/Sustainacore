@@ -90,7 +90,6 @@
               <th class="text-right tech100-col--rank">Rank Index</th>
               <th>Company</th>
               <th class="text-right">AIGES Composite</th>
-              <th>Details</th>
             </tr>
           </thead>
           <tbody>
@@ -120,12 +119,9 @@
                         —
                       {% endif %}
                     </td>
-                    <td>
-                      <a class="text-link" href="#tech100-detail-{{ forloop.counter0 }}">View details</a>
-                    </td>
                   </tr>
                   <tr class="tech100__details-row">
-                    <td colspan="5">
+                    <td colspan="4">
                       <details class="tech100-details" id="tech100-detail-{{ forloop.counter0 }}">
                         <summary class="text-link">View details</summary>
                         <div class="card card--lined tech100-details-card">
@@ -226,7 +222,7 @@
               {% endfor %}
             {% else %}
               <tr>
-                <td colspan="5" class="muted">Data currently unavailable.</td>
+                <td colspan="4" class="muted">Data currently unavailable.</td>
               </tr>
             {% endif %}
           </tbody>
