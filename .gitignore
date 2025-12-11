@@ -20,3 +20,8 @@ build/
 *.tar.gz
 *.tar
 !archive/**
+archive/misc/adapter_backups/
+*.bak.*
+key.pem
+/etc/systemd/system/*.conf
+/opt/adb_wallet_tp/*

@@ -5,75 +5,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  preflight:
-    name: Preflight checks
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-    steps:
-      - name: Verify required secrets
-        id: check
-        env:
-          EVAL_BASE_URL: ${{ secrets.EVAL_BASE_URL }}
-        run: |
-          set -euo pipefail
-
-          missing=()
-
-          if [ -z "${EVAL_BASE_URL}" ]; then
-            missing+=("EVAL_BASE_URL")
-          fi
-
-          if [ "${#missing[@]}" -eq 0 ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "missing_secrets=" >> "$GITHUB_OUTPUT"
-            {
-              echo "## Preflight Check"
-              echo "All required secrets are configured. Persona eval will run."
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "missing_secrets=$(IFS=,; echo "${missing[*]}")" >> "$GITHUB_OUTPUT"
-
-            {
-              echo "## Preflight Check"
-              echo "The workflow skipped the Persona eval because the following secrets are missing:"
-              for secret in "${missing[@]}"; do
-                printf -- '- `%s`\n' "$secret"
-              done
-              echo
-              echo "Configure these secrets under **Settings → Secrets and variables → Actions** to enable the eval job."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Leave configuration guidance
-        if: ${{ github.event_name == 'pull_request' && steps.check.outputs.should_run == 'false' }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const missing = (process.env.MISSING_SECRETS || '')
-              .split(',')
-              .filter(Boolean)
-              .map(name => `- \`${name}\``)
-              .join('\n');
-
-            const body = [
-              '⚠️ **Persona eval skipped**',
-              '',
-              'The preflight check skipped the Persona eval because the following required secrets are not set:',
-              missing || '- (none reported)',
-              '',
-              'Add these secrets in **Settings → Secrets and variables → Actions** for the repository or organization to enable the eval job.'
-            ].join('\n');
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body
-            });
-        env:
-          MISSING_SECRETS: ${{ steps.check.outputs.missing_secrets }}
   guard-secrets:
     name: Ensure sensitive files are ignored
     runs-on: ubuntu-latest
@@ -89,83 +20,23 @@ jobs:
             exit 1
           fi
           echo "No tracked .env or wallet files detected."
-  chat-eval:
-    name: Persona eval
-    needs:
-      - preflight
-      - guard-secrets
-    if: needs.preflight.outputs.should_run == 'true'
+
+  persona-guard:
+    name: Persona guard (manual eval lives in persona-eval)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: |
-          python -m pip install -U pip wheel
-          pip install -r requirements.txt
-      - name: Launch API
-        run: |
-          uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080 &
-          echo $! > uvicorn.pid
-          sleep 1
+      - name: Provide guidance
         env:
-          PERSONA_V1: "1"
-          REQUEST_NORMALIZE: "1"
-          CI_EVAL_FIXTURES: "1"
-      - name: Run eval pack
-        env:
-          PERSONA_V1: "1"
-          REQUEST_NORMALIZE: "1"
           EVAL_BASE_URL: ${{ secrets.EVAL_BASE_URL }}
-          EVAL_FLAGS: "REQUEST_NORMALIZE,PERSONA_V1"
-          ASK2_URL: ${{ secrets.EVAL_BASE_URL }}
         run: |
-          set -euo pipefail
-
-          ask2_url="${ASK2_URL:-}"
-          if [ -z "${ask2_url}" ]; then
-            ask2_url="http://127.0.0.1:8080/ask2"
-          else
-            ask2_url="${ask2_url%/}"
-            case "${ask2_url}" in
-              */ask2) ;;
-              *)
-                ask2_url="${ask2_url}/ask2"
-                ;;
-            esac
-          fi
-
-          export ASK2_URL="${ask2_url}"
-
-          base_url="${ask2_url%/ask2}"
-          health_url="${base_url}/healthz"
-          echo "Waiting for API health at ${health_url} ..."
-          ready=0
-          for attempt in $(seq 1 20); do
-            if curl -fsS "${health_url}" >/dev/null 2>&1; then
-              ready=1
-              break
+          {
+            echo "## Persona guard";
+            echo "Full persona evaluation runs only via the **Persona eval** workflow (manual dispatch).";
+            if [ -n "${EVAL_BASE_URL}" ]; then
+              echo "- Secret \`EVAL_BASE_URL\` is configured; the manual persona eval can run when needed.";
+            else
+              echo "- Secret \`EVAL_BASE_URL\` is not configured; set it to enable manual persona eval runs.";
             fi
-            status=$(curl -sS -o /dev/null -w "%{http_code}" -X HEAD "${ask2_url}" 2>/dev/null || true)
-            if [ "${status}" = "200" ] || [ "${status}" = "405" ]; then
-              ready=1
-              break
-            fi
-            sleep 0.5
-          done
-
-          if [ "${ready}" -ne 1 ]; then
-            echo "API failed to report healthy within timeout" >&2
-            curl -v "${health_url}" || true
-            exit 1
-          fi
-
-          python scripts/run_eval.py
-      - name: Shutdown API
-        if: always()
-        run: |
-          if [ -f uvicorn.pid ]; then
-            kill $(cat uvicorn.pid) || true
-          fi
+            echo;
+            echo "Use **Actions → Persona eval → Run workflow** to execute the full evaluation when you need persona coverage.";
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 import logging
 import re
 from time import perf_counter
@@ -15,6 +17,28 @@ from .settings import settings
 
 
 LOGGER = logging.getLogger("app.gemini")
+
+
+
+
+def _synth_from_facts(facts, *, max_bullets=3):
+    if not isinstance(facts, (list, tuple)) or not facts:
+        return ""
+    lines = []
+    for fact in list(facts)[:max_bullets]:
+        if not isinstance(fact, dict):
+            continue
+        title = (fact.get("title") or fact.get("source_name") or "").strip()
+        snippet = (fact.get("snippet") or fact.get("chunk_text") or "").strip()
+        if title and snippet:
+            lines.append(f"- {title}: {snippet[:240]}")
+        elif title:
+            lines.append(f"- {title}")
+        elif snippet:
+            lines.append(f"- {snippet[:240]}")
+    if not lines:
+        return ""
+    return "Here’s a brief summary from SustainaCore sources:\n" + "\n".join(lines)
 
 
 def _parse_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -293,9 +317,10 @@ class GeminiGateway:
             answer = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
         cleaned_answer = _clean_answer_text(answer)
 
-        facts = retriever_result.get("facts") if isinstance(retriever_result, dict) else None
+        raw_facts = retriever_result.get("facts") if isinstance(retriever_result, dict) else []
+        fact_list = raw_facts if isinstance(raw_facts, list) else []
         derived_sources = _build_sources_from_facts(
-            cleaned_answer, facts if isinstance(facts, list) else [], settings.retriever_fact_cap
+            cleaned_answer, fact_list, settings.retriever_fact_cap
         )
 
         if not derived_sources:
@@ -316,22 +341,79 @@ class GeminiGateway:
                             raw_sources.append(candidate)
             derived_sources = _dedup_sources(raw_sources, settings.retriever_fact_cap)
 
+
         final_sources = _dedup_sources(derived_sources, settings.retriever_fact_cap)
 
-        return {"answer": cleaned_answer, "sources": final_sources, "raw": response}
+        composed: Dict[str, Any] = {
+            "answer": cleaned_answer,
+            "sources": final_sources,
+            "raw": response,
+        }
 
-        sources = response.get("sources") if isinstance(response, dict) else None
-        if not isinstance(sources, list):
-            sources = []
-        cleaned_sources: List[str] = []
-        for item in sources:
-            if isinstance(item, str) and item.strip():
-                cleaned_sources.append(item.strip())
-            elif isinstance(item, dict):
-                display = item.get("display") or item.get("title") or ""
-                if isinstance(display, str) and display.strip():
-                    cleaned_sources.append(display.strip())
-        return {"answer": answer.strip(), "sources": cleaned_sources[: settings.retriever_fact_cap], "raw": response}
+
+        ## PATCH: parse code-block JSON
+        raw_blobs = []
+        if isinstance(response, dict):
+            candidates = response.get('candidates')
+            if isinstance(candidates, list):
+                for candidate in candidates:
+                    content = candidate.get('content') if isinstance(candidate, dict) else None
+                    parts = content.get('parts') if isinstance(content, dict) else None
+                    if isinstance(parts, list):
+                        for part in parts:
+                            text_val = part.get('text') if isinstance(part, dict) else None
+                            if isinstance(text_val, str) and text_val:
+                                raw_blobs.append(text_val)
+        elif isinstance(response, str):
+            raw_blobs.append(response)
+        if raw_blobs:
+            for blob in raw_blobs:
+                match = re.search(r"```(?:json)?\s*(.*?)\s*```", blob, re.S | re.I)
+                if not match:
+                    continue
+                candidate = match.group(1)
+                try:
+                    parsed = json.loads(candidate)
+                except Exception:
+                    continue
+                if not isinstance(parsed, dict):
+                    continue
+                ans_val = (parsed.get('answer') or '').strip()
+                if ans_val:
+                    composed['answer'] = ans_val
+                parsed_sources = parsed.get('sources')
+                if isinstance(parsed_sources, list) and parsed_sources:
+                    composed['sources'] = parsed_sources
+                break
+
+
+        try:
+            trace = os.environ.get("ASK2_TRACE_ID", "")
+            ans_preview = (composed.get("answer") or "").strip()
+            head = ans_preview[:180].replace("\n", " ")
+            raw_payload = ""
+            if isinstance(response, dict):
+                raw_payload = json.dumps(response, ensure_ascii=False)
+            with open("/tmp/gemini_compose_raw.log", "a", encoding="utf-8") as fh:
+                ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                preview = raw_payload[:4000]
+                fh.write(f"[COMPOSE_RAW] ts={ts} trace={trace} ans_len={len(ans_preview)} head={head} raw={preview}\n")
+        except Exception:
+            pass
+
+        fallback_flag = os.getenv("ASK2_SYNTH_FALLBACK", "0").strip().lower()
+        default_apology = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
+        if fallback_flag not in {"0", "false", "no", "off"}:
+            try:
+                ans_preview = (composed.get("answer") or "").strip()
+                if (not ans_preview or ans_preview == default_apology) and fact_list:
+                    synth = _synth_from_facts(fact_list)
+                    if synth:
+                        composed["answer"] = synth
+            except Exception:
+                pass
+
+        return composed
 
 
 gateway = GeminiGateway()

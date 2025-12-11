@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 - Archived dated backups into the structured `archive/` tree and published a manifest of moves.
 - Added repo hygiene defaults (.gitignore, .editorconfig, cspell workflow) and README polish.
 - feat(chat): rewired `/ask2` to reuse the router for smalltalk, enforce a low-confidence guard, and cleanly format deduped sources.
+- feat(chat): normalize `/ask2` smalltalk replies, parse Gemini code-block JSON, and toggle fact-based synthesis behind `ASK2_SYNTH_FALLBACK`.
 
 ## 2025-09-10 – Gemini-first orchestration
 - Added Gemini CLI planning + composition as the only generation path.

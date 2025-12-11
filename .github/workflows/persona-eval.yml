@@ -12,15 +12,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  persona-noop:
-    name: Persona guard
+  persona-skip:
+    name: Persona eval (manual-only – skipped)
     if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    env:
+      ASK2_URL: ${{ secrets.ASK2_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ORG_ID: ${{ secrets.ORG_ID }}
     steps:
-      - name: Skip persona eval
+      - name: Explain manual trigger
         run: |
-          echo "Persona eval is manual; skipping"
-          exit 0
+          {
+            echo "## Persona eval (manual-only)";
+            echo "This workflow only runs the full evaluation when dispatched manually from the Actions tab.";
+            echo "- Trigger via **Actions → Persona eval → Run workflow** to validate persona responses.";
+            if [ -n "${ASK2_URL}" ] && [ -n "${OPENAI_API_KEY}" ] && [ -n "${ORG_ID}" ]; then
+              echo "- Required secrets appear to be set; manual runs should succeed.";
+            else
+              echo "- Set secrets ASK2_URL, OPENAI_API_KEY, and ORG_ID before dispatching to run the eval.";
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   preflight:
     name: Preflight checks
@@ -96,7 +108,7 @@ jobs:
         run: python scripts/run_eval.py
 
   persona-eval-skip:
-    name: Skip summary
+    name: Persona eval skipped (missing secrets)
     needs: preflight
     if: ${{ github.event_name == 'workflow_dispatch' && needs.preflight.outputs.ready != 'true' }}
     runs-on: ubuntu-latest
@@ -105,4 +117,9 @@ jobs:
         env:
           REASON: ${{ needs.preflight.outputs.reason }}
         run: |
-          echo "SKIP: persona eval not run. ${REASON:-Check repository secrets configuration.}"
+          {
+            echo "## Persona eval skipped";
+            echo "Persona eval was not run because prerequisites are missing.";
+            echo "Reason: ${REASON:-Check repository secrets configuration.}";
+            echo "Set ASK2_URL, OPENAI_API_KEY, and ORG_ID, then re-run the workflow.";
+          } >> "$GITHUB_STEP_SUMMARY"

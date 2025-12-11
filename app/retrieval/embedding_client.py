@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import List, Optional, Any
 
 from embedding_client import embed_text as _embed_text
 

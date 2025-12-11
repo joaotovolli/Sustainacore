@@ -36,6 +36,9 @@ def _make_conn(rows=None, execute_exc=None, cursor_description=None, fetch_rows=
                 return rows
             return fetch_rows or []
 
+        def fetchone(self):
+            fetched = self.fetchall()
+            return fetched[0] if fetched else None
     class DummyConn:
         def __init__(self):
             self.cursor_obj = DummyCursor()
@@ -82,6 +85,7 @@ def test_top_k_by_vector_executes_query(monkeypatch):
         return {"table": "ESG_DOCS", "column": "EMBEDDING", "dimension": 3}
 
     monkeypatch.setattr(db_helper, "get_vector_column", fake_get_vector_column)
+    monkeypatch.setattr(db_helper, "_get_vector_info", lambda: {"table": "ESG_DOCS", "column": "EMBEDDING"})
 
     cursor_holder = {}
 
@@ -106,6 +110,7 @@ def test_top_k_by_vector_raises_on_oracle_error(monkeypatch):
     _stub_oracledb(monkeypatch)
 
     monkeypatch.setattr(db_helper, "get_vector_column", lambda table="ESG_DOCS": {"table": "ESG_DOCS", "column": "EMBEDDING", "dimension": 3})
+    monkeypatch.setattr(db_helper, "_get_vector_info", lambda: {"table": "ESG_DOCS", "column": "EMBEDDING"})
 
     error = RuntimeError("ORA-29273: HTTP request failed")
 

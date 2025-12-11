@@ -6,6 +6,7 @@ SCFF_RE_LIST = [
     re.compile(r'\bwhat\s+would\s+you\s+like\??\b', re.I),
     re.compile(r'^what\s+would\s+you\s+like\s+to\s+explore\?\s*$', re.I),
     re.compile(r'^(role|task|previous\s*answer|question\s*type|answer\s*style|rules?)\s*:', re.I),
+    re.compile(r'i[\u2019\']m not confident i have enough sustainacore context', re.I),
 ]
 ALLOW_NORESULTS_MSG = os.getenv('NOSUGGEST_ALLOW_NORESULTS_MSG', '1') not in ('0','false','off')
 TOPMATCH_MAX = int(os.getenv('NOSUGGEST_MAX_MATCHES', '5'))
@@ -60,6 +61,40 @@ def _find_contexts(j):
     if isinstance(j.get('data'),dict) and isinstance(j['data'].get('contexts'),list):
         return j['data']['contexts']
     return []
+def _ctx_sources(ctx, limit=5):
+    seen=set(); out=[]
+    for c in ctx:
+        title=(c.get('title') or '').strip()
+        url=(c.get('source_url') or c.get('url') or '').strip()
+        if not title and not url:
+            continue
+        key=(title.lower(), url.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({'title': title or (url or 'Source'), 'url': url})
+        if len(out) >= limit:
+            break
+    return out
+
+def _ctx_summary(ctx, limit=4):
+    lines=[]
+    for c in ctx[:limit]:
+        snippet=(c.get('chunk_text') or c.get('snippet') or '').strip()
+        if not snippet:
+            continue
+        sentence=snippet.split('\n')[0].strip()
+        if not sentence:
+            continue
+        if len(sentence) > 220:
+            sentence=sentence[:217].rsplit(' ',1)[0].strip()+'…'
+        title=(c.get('title') or '').strip()
+        if title:
+            sentence=f"{title}: {sentence}"
+        lines.append(f"- {sentence}")
+    if not lines:
+        return ''
+    return "Here’s what the retrieved Sustainacore sources highlight:\n" + "\n".join(lines)
 def _mk_topmatches(ctx):
     seen,uniq=set(),[]
     for c in ctx:
@@ -109,7 +144,14 @@ class NoSuggestMiddleware:
                 if stripped and not cleaned:
                     ctx=_find_contexts(j)
                     if ctx:
-                        cleaned=_mk_topmatches(ctx); fallback='top_matches'
+                        summary=_ctx_summary(ctx)
+                        if summary:
+                            cleaned=summary
+                            fallback='summary'
+                        else:
+                            cleaned=_mk_topmatches(ctx); fallback='top_matches'
+                        if not isinstance(j.get('sources'), list) or not j['sources']:
+                            j['sources']=_ctx_sources(ctx)
                     elif ALLOW_NORESULTS_MSG:
                         cleaned="No Oracle documents matched your query."; fallback='no_results'
                 if stripped: add_headers.append(('X-Suggestions-Stripped','1'))

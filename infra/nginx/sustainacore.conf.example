@@ -1,0 +1,29 @@
+# Example Nginx config for sustainacore.org (VM2)
+# Mirrors the live reverse proxy: HTTP → HTTPS redirect, SSL via Certbot, proxy to Gunicorn.
+# This is the primary public path (IONOS DNS → VM2 → Nginx → Gunicorn → Django). Oracle APEX stays
+# available only for administrative/legacy flows.
+
+server {
+    listen 80;
+    server_name sustainacore.org www.sustainacore.org 141.147.76.55;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name sustainacore.org www.sustainacore.org 141.147.76.55;
+
+    ssl_certificate /etc/letsencrypt/live/sustainacore.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/sustainacore.org/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    location / {
+        include proxy_params;
+        proxy_pass http://127.0.0.1:8000;
+    }
+
+    location /static/ {
+        alias /opt/code/Sustainacore/website_django/static/;
+    }
+}

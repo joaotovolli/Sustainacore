@@ -1,63 +1,33 @@
-"""Adapter wiring Oracle retrieval and Gemini composition for /ask2."""
+"""Gemini-first adapter that orchestrates Oracle retrieval for /ask2."""
 
 from __future__ import annotations
 
 import logging
 import os
-import re
 import time
 from typing import Any, Dict, List, Tuple
 
-from app.retrieval.gemini_gateway import gateway as gemini_gateway
-from app.retrieval.oracle_retriever import retriever as oracle_retriever
+from .gemini_gateway import gateway as gemini_gateway
+from .oracle_retriever import RetrievalResult, capability_snapshot, retriever
+from .settings import settings
 
-LOGGER = logging.getLogger("sustainacore.ask2.pipeline")
-_SOURCE_BLOCK_RE = re.compile(r"(?:\r?\n){1,}\s*Sources?:.*$", re.IGNORECASE | re.DOTALL)
+try:
+    from .service import (
+        GeminiUnavailableError as _ServiceUnavailableError,
+        RateLimitError as _ServiceRateLimitError,
+        run_pipeline as _service_run_pipeline,
+    )
+except Exception:  # pragma: no cover - keep legacy path available
+    class _ServiceUnavailableError(Exception):
+        pass
 
+    class _ServiceRateLimitError(Exception):
+        detail = "rate_limited"
 
-def _strip_sources_block(answer: str) -> str:
-    if not isinstance(answer, str):
-        return ""
-    return _SOURCE_BLOCK_RE.sub("", answer).strip()
+    _service_run_pipeline = None
 
-
-def _fs_backfill(question: str, top_k: int) -> List[Dict[str, Any]]:
-    if os.getenv("FS_FALLBACK") != "1":
-        return []
-    try:
-        from app.retrieval import fs_retriever  # type: ignore
-    except Exception:
-        return []
-    try:
-        return fs_retriever.search(question, top_k=top_k)
-    except Exception:
-        return []
-
-
-def _facts_to_contexts(facts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    contexts: List[Dict[str, Any]] = []
-    for fact in facts or []:
-        if not isinstance(fact, dict):
-            continue
-        context: Dict[str, Any] = {}
-        title = fact.get("title")
-        if isinstance(title, str) and title.strip():
-            context["title"] = title.strip()
-        snippet = fact.get("snippet")
-        if isinstance(snippet, str) and snippet.strip():
-            context["snippet"] = snippet.strip()
-        url = fact.get("url") or fact.get("source_url")
-        if isinstance(url, str) and url.strip():
-            context["source_url"] = url.strip()
-        citation = fact.get("citation_id")
-        if isinstance(citation, str) and citation.strip():
-            context["citation_id"] = citation.strip()
-        score = fact.get("score")
-        if isinstance(score, (float, int)):
-            context["score"] = float(score)
-        if context:
-            contexts.append(context)
-    return contexts
+LOGGER = logging.getLogger("app.retrieval.adapter")
+_FALLBACK_ANSWER = "Gemini is momentarily unavailable, but the retrieved Sustainacore contexts are attached."
 
 
 def _contexts_to_facts(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -65,126 +35,153 @@ def _contexts_to_facts(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for idx, ctx in enumerate(contexts or []):
         if not isinstance(ctx, dict):
             continue
-        facts.append(
-            {
-                "citation_id": ctx.get("citation_id") or f"FS_{idx+1}",
-                "title": (ctx.get("title") or "Untitled excerpt"),
-                "source_name": ctx.get("source_name") or "",
-                "url": ctx.get("source_url"),
-                "snippet": ctx.get("snippet") or "",
-                "score": ctx.get("score"),
-            }
-        )
+        citation = ctx.get("doc_id") or f"CTX_{idx+1}"
+        fact = {
+            "citation_id": str(citation),
+            "title": ctx.get("title") or "",
+            "source_name": ctx.get("source_name") or "",
+            "source_url": ctx.get("source_url") or "",
+            "snippet": ctx.get("chunk_text") or ctx.get("snippet") or "",
+            "score": ctx.get("score"),
+        }
+        facts.append(fact)
     return facts
 
 
-def _build_sources(facts: List[Dict[str, Any]], limit: int) -> List[str]:
+def _build_sources_from_contexts(contexts: List[Dict[str, Any]]) -> List[str]:
     sources: List[str] = []
-    for fact in facts:
-        if not isinstance(fact, dict):
+    seen: set[str] = set()
+    for ctx in contexts or []:
+        if not isinstance(ctx, dict):
             continue
-        title = (fact.get("title") or "Untitled excerpt").strip()
-        source_name = (fact.get("source_name") or "").strip()
-        citation = (fact.get("citation_id") or "").strip()
-        label_parts = [title]
-        if source_name:
-            label_parts.append(source_name)
-        if citation:
-            label_parts.append(f"[{citation}]")
-        label = " — ".join(label_parts[:2]) if len(label_parts) >= 2 else label_parts[0]
-        if citation and citation not in label:
-            label = f"{label} [{citation}]"
-        if label:
+        title = str(ctx.get("title") or "").strip()
+        url = str(ctx.get("source_url") or "").strip()
+        label = title or url
+        if not label:
+            continue
+        key = (label.lower(), url.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        if url and url not in label:
+            sources.append(f"{label} - {url}")
+        else:
             sources.append(label)
-        if len(sources) >= limit:
+        if len(sources) >= settings.retriever_fact_cap:
             break
     return sources
 
 
-def _base_meta(routing: str, total_ms: int, oracle_ms: int, gemini_ms: int, result_meta: Dict[str, Any]) -> Dict[str, Any]:
+def _base_meta(result: RetrievalResult, *, k: int, client_ip: str) -> Dict[str, Any]:
+    capability = capability_snapshot()
+    capability["text_mode"] = result.mode if result.mode in {"oracle_text", "like"} else capability.get("text_mode")
+
     meta: Dict[str, Any] = {
-        "routing": routing,
-        "latency_ms": total_ms,
-        "latency_breakdown": {
-            "oracle_ms": oracle_ms,
-            "gemini_ms": gemini_ms,
-            "total_ms": total_ms,
+        "routing": "gemini_first",
+        "retriever": {
+            "mode": result.mode,
+            "latency_ms": result.latency_ms,
+            "note": result.note,
+            "returned": len(result.contexts),
         },
+        "client_ip": client_ip or "unknown",
+        "k": k,
     }
-    meta.update(result_meta)
+    debug_block = meta.setdefault("debug", {})
+    debug_block["capability"] = capability
     return meta
 
 
 def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") -> Tuple[Dict[str, Any], int]:
+    """Run Oracle retrieval and compose with Gemini once."""
+
     sanitized_question = (question or "").strip()
-    start = time.perf_counter()
-
     try:
-        retrieval_start = time.perf_counter()
-        result = oracle_retriever.retrieve({}, [sanitized_question], k, hop_count=1)
-        oracle_ms = int((time.perf_counter() - retrieval_start) * 1000)
-    except Exception as exc:
-        total_ms = int((time.perf_counter() - start) * 1000)
-        meta = _base_meta("gemini_first_fail", total_ms, 0, 0, {"error": str(exc)})
-        return {"answer": "", "sources": [], "contexts": [], "meta": meta}, 200
+        k_value = int(k)
+    except (TypeError, ValueError):
+        k_value = 4
+    if k_value < 1:
+        k_value = 1
 
-    facts: List[Dict[str, Any]] = list(result.facts)
-    if not facts:
-        fs_contexts = _fs_backfill(sanitized_question, k)
-        if fs_contexts:
-            facts = _contexts_to_facts(fs_contexts)
-        else:
-            total_ms = int((time.perf_counter() - start) * 1000)
-            placeholder = [{"title": "Context unavailable", "snippet": "Oracle retrieval did not return any facts."}]
-            meta = _base_meta(
-                "gemini_first_fail",
-                total_ms,
-                result.latency_ms,
-                0,
-                {
-                    "retriever": {
-                        "context_note": result.context_note,
-                        "candidates": result.candidates,
-                        "deduped": result.deduped,
-                        "hop_count": result.hop_count,
-                    },
-                    "note": "no_contexts",
-                },
-            )
-            return {"answer": "", "sources": [], "contexts": placeholder, "meta": meta}, 200
+    # Prefer the shared service pipeline (intent + planner + composer) when available.
+    if _service_run_pipeline is not None:
+        try:
+            payload = _service_run_pipeline(sanitized_question, k=k_value, client_ip=client_ip or "unknown")
+            shaped = payload if isinstance(payload, dict) else {}
+            shaped.setdefault("meta", {})
+            shaped["meta"].setdefault("routing", "gemini_first")
+            return shaped, 200
+        except _ServiceRateLimitError as exc:  # type: ignore[arg-type]
+            meta = {
+                "routing": "gemini_first",
+                "k": k_value,
+                "client_ip": client_ip or "unknown",
+                "error": getattr(exc, "detail", "rate_limited"),
+            }
+            message = "You’ve hit the current rate limit. Please retry in a few seconds."
+            return {"answer": message, "sources": [], "contexts": [], "meta": meta}, 200
+        except _ServiceUnavailableError:
+            pass  # fall through to legacy path if the service is disabled
+        except Exception as exc:  # pragma: no cover - defensive logging
+            LOGGER.exception("gemini_service_pipeline_failed", exc_info=exc)
 
-    contexts = _facts_to_contexts(facts)
+    retrieval_start = time.perf_counter()
+    result = retriever.retrieve(sanitized_question, k_value)
+    oracle_latency_ms = int((time.perf_counter() - retrieval_start) * 1000)
+    meta = _base_meta(result, k=k_value, client_ip=client_ip)
+    meta["retriever"]["latency_ms"] = oracle_latency_ms
 
-    retriever_meta = {
-        "retriever": {
-            "context_note": result.context_note,
-            "candidates": result.candidates,
-            "deduped": result.deduped,
-            "hop_count": result.hop_count,
-            "latency_ms": result.latency_ms,
-        }
+    contexts = result.contexts
+    if not contexts:
+        meta.setdefault("note", "no_contexts")
+        payload = {"answer": "", "sources": [], "contexts": [], "meta": meta}
+        return payload, 200
+
+    facts = _contexts_to_facts(contexts)
+    retriever_payload = {"facts": facts, "context_note": result.note}
+    plan_payload = {
+        "filters": {},
+        "k": k_value,
+        "query_variants": [sanitized_question] if sanitized_question else [],
     }
 
-    retriever_payload = {"facts": facts, "context_note": result.context_note}
-    plan = {"filters": {}, "k": k, "query_variants": [sanitized_question] if sanitized_question else []}
+    try:
+        compose_start = time.perf_counter()
+        composed = gemini_gateway.compose_answer(sanitized_question, retriever_payload, plan_payload, hop_count=1)
+    except Exception as exc:
+        LOGGER.exception("gemini_compose_failed", exc_info=exc)
+        meta["routing"] = "gemini_first_fail"
+        meta.setdefault("error", str(exc))
+        payload = {
+            "answer": _FALLBACK_ANSWER,
+            "sources": _build_sources_from_contexts(contexts),
+            "contexts": contexts,
+            "meta": meta,
+        }
+        return payload, 200
 
-    compose_start = time.perf_counter()
-    compose = gemini_gateway.compose_answer(sanitized_question, retriever_payload, plan, result.hop_count)
-    gemini_ms = int((time.perf_counter() - compose_start) * 1000)
-    total_ms = int((time.perf_counter() - start) * 1000)
+    answer = str(composed.get("answer") or "").strip()
+    sources_raw = composed.get("sources") if isinstance(composed, dict) else None
+    sources: List[str] = []
+    if isinstance(sources_raw, list):
+        for item in sources_raw:
+            if isinstance(item, str) and item.strip():
+                sources.append(item.strip())
+    if not sources:
+        sources = _build_sources_from_contexts(contexts)
 
     gem_meta = gemini_gateway.last_meta
     if gem_meta:
-        retriever_meta["gemini"] = gem_meta
+        meta.setdefault("gemini", gem_meta)
 
-    if compose:
-        answer_text = _strip_sources_block(compose.get("answer", ""))
-        sources = compose.get("sources") if isinstance(compose.get("sources"), list) else []
-        meta = _base_meta("gemini_first", total_ms, result.latency_ms, gemini_ms, retriever_meta)
-        return {"answer": answer_text, "sources": sources, "contexts": contexts, "meta": meta}, 200
+    fallback_needed = not answer or answer.lower().startswith("i don't have") or answer.lower().startswith("i’m sorry")
+    if fallback_needed and contexts and os.getenv("RETURN_TOP_AS_ANSWER", "0") == "1":
+        top_snippet = (contexts[0].get("chunk_text") or contexts[0].get("snippet") or "").strip()
+        if top_snippet:
+            answer = top_snippet[:500]
+            meta.setdefault("note", "vector_snippet_fallback")
+    payload = {"answer": answer, "sources": sources, "contexts": contexts, "meta": meta}
+    return payload, 200
 
-    fallback_sources = _build_sources(facts, limit=3)
-    fallback_answer = "I couldn’t generate a Gemini-composed answer right now. Please review the sourced contexts below."
-    retriever_meta["note"] = "gemini_compose_failed"
-    meta = _base_meta("gemini_first_fail", total_ms, result.latency_ms, gemini_ms, retriever_meta)
-    return {"answer": fallback_answer, "sources": fallback_sources, "contexts": contexts, "meta": meta}, 200
+
+__all__ = ["ask2_pipeline_first"]

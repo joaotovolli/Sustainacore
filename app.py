@@ -10,8 +10,10 @@ import re
 import shutil
 import subprocess
 import time
+import uuid
 import zlib
 from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +24,13 @@ import requests
 from collections import defaultdict
 from flask import Flask, request, jsonify
 
+from app.http.compat import (
+    SC_RAG_FAIL_OPEN,
+    SC_RAG_MIN_CONTEXTS,
+    SC_RAG_MIN_SCORE,
+    normalize_response,
+)
+from app.news_service import create_curated_news_item, fetch_news_items
 from app.retrieval.adapter import ask2_pipeline_first
 
 from embedder_settings import (
@@ -152,6 +161,17 @@ _STARTUP_LOGGER = logging.getLogger("app.startup")
 _API_LOGGER = logging.getLogger("app.api")
 _API_AUTH_TOKEN = os.getenv("BACKEND_API_TOKEN") or os.getenv("API_AUTH_TOKEN")
 _API_AUTH_WARNED = False
+_API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
+_API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
+_API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
+_API_AUTH_WARNED = False
+_METRIC_LOGGER = logging.getLogger("app.ask2.metrics")
+if not _METRIC_LOGGER.handlers:
+    _metric_handler = logging.StreamHandler()
+    _metric_handler.setLevel(logging.INFO)
+    _METRIC_LOGGER.addHandler(_metric_handler)
+    _METRIC_LOGGER.setLevel(logging.INFO)
+    _METRIC_LOGGER.propagate = False
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -168,6 +188,8 @@ def _env_flag(name: str, default: bool) -> bool:
 
 def _api_auth_guard() -> bool:
     """Return True when the Authorization header matches the configured token."""
+def _api_auth_guard():
+    """Return ``True`` when the Authorization header matches API_AUTH_TOKEN."""
 
     global _API_AUTH_WARNED
 
@@ -187,10 +209,79 @@ def _api_auth_guard() -> bool:
 
 def _api_auth_or_unauthorized():
     """Return a 401 response when auth fails, or None when authorized."""
+    """Return a 401 response when auth fails, or ``None`` when authorized."""
 
     if _api_auth_guard():
         return None
     return jsonify({"error": "unauthorized"}), 401
+
+
+def _api_auth_optional():
+    """
+    Return a 401 only when an Authorization header is provided but invalid.
+
+    When callers omit Authorization entirely, allow the request to proceed so
+    token wiring is optional for read-only endpoints.
+    """
+
+    if not _API_AUTH_TOKEN:
+        return None
+
+    header = request.headers.get("Authorization", "")
+    if not isinstance(header, str) or not header.strip():
+        return None
+
+    if _api_auth_guard():
+        return None
+    return jsonify({"error": "unauthorized"}), 401
+
+
+def _api_auth_optional_or_unauthorized():
+    """Allow requests without Authorization, but validate when provided."""
+
+    header = request.headers.get("Authorization", "")
+    if not header:
+        return None
+
+    if _api_auth_guard():
+        return None
+    return jsonify({"error": "unauthorized"}), 401
+
+
+def _format_date(value: Any):
+    """Normalize Oracle date-like values to ISO date strings."""
+
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        candidate = value.strip()
+        return candidate or None
+    return None
+
+
+def _format_timestamp(value: Any):
+    """Normalize Oracle timestamp-like values to ISO 8601 strings in UTC."""
+
+    if isinstance(value, datetime):
+        ts = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        ts = datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+        return ts.isoformat().replace("+00:00", "Z")
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            return candidate
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return None
 
 
 def _coerce_int(value: Any) -> Optional[int]:
@@ -228,6 +319,14 @@ def _normalize_weight(value: Any) -> Optional[float]:
         return round(normalized, 2)
     except Exception:
         return normalized
+def _coerce_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        return None
+    return text or None
 
 
 def _sanitize_limit(value: Any, default: int = 1000, max_limit: int = 2000) -> int:
@@ -317,6 +416,34 @@ def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "ethical_principles": _coerce_float(
             row.get("ethical_principles") or row.get("ethics")
         ),
+def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 response fields."""
+
+    port_date = _format_date(row.get("port_date") or row.get("asof") or row.get("updated_at"))
+    weight_candidates = (
+        row.get("port_weight"),
+        row.get("weight"),
+        row.get("portfolio_weight"),
+        row.get("index_weight"),
+    )
+    raw_weight = next((val for val in weight_candidates if val is not None), None)
+    weight_value = _coerce_float(raw_weight)
+    if weight_value is not None:
+        weight_value = weight_value * 100 if abs(weight_value) <= 1 else weight_value
+        weight_value = round(weight_value, 2)
+    aiges = _coerce_float(
+        row.get("aiges_composite_average") or row.get("aiges_composite") or row.get("overall")
+    )
+    item = {
+        "port_date": port_date,
+        "rank_index": _coerce_int(row.get("rank_index") or row.get("rank")),
+        "company_name": row.get("company_name") or row.get("company") or row.get("name"),
+        "ticker": row.get("ticker"),
+        "port_weight": weight_value,
+        "sector": row.get("gics_sector") or row.get("sector"),
+        "gics_sector": row.get("gics_sector") or row.get("sector"),
+        "transparency": _coerce_float(row.get("transparency")),
+        "ethical_principles": _coerce_float(row.get("ethical_principles") or row.get("ethics")),
         "governance_structure": _coerce_float(
             row.get("governance_structure") or row.get("accountability")
         ),
@@ -335,6 +462,75 @@ def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
     item["accountability"] = item.get("governance_structure")
     item["updated_at"] = port_date
     return item
+
+
+    item["weight"] = item.get("port_weight")
+    return item
+
+
+def _api_coerce_k(value, default: int = 4) -> int:
+    """Best-effort coercion for /api/ask2 k parameter with safe bounds."""
+
+    try:
+        # Preferred path: use the configured sanitizer (router may override).
+        return _sanitize_meta_k(value)  # type: ignore[arg-type]
+    except TypeError:
+        # Some router overrides may not accept kwargs; fall through.
+        try:
+            return _sanitize_meta_k(value, default)  # type: ignore[arg-type]
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    try:
+        k_val = int(value)
+    except Exception:
+        k_val = default
+
+    if k_val < 1:
+        k_val = 1
+    if k_val > 10:
+        k_val = 10
+    return k_val
+
+
+def _format_date(value: Any) -> Optional[str]:
+    """Return a YYYY-MM-DD string for Oracle DATE/TIMESTAMP values."""
+
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    try:
+        return value.strftime("%Y-%m-%d")  # type: ignore[call-arg]
+    except Exception:
+        try:
+            text = str(value).strip()
+            if text:
+                return text.split("T")[0].split(" ")[0]
+        except Exception:
+            pass
+    return None
+
+
+def _format_timestamp(value: Any) -> Optional[str]:
+    """Return an ISO 8601 timestamp string in UTC with Z suffix."""
+
+    dt_value: Optional[datetime] = None
+    if isinstance(value, datetime):
+        dt_value = value
+    elif isinstance(value, date):
+        dt_value = datetime.combine(value, datetime.min.time())
+
+    if dt_value is None:
+        return None
+
+    if dt_value.tzinfo is None:
+        dt_value = dt_value.replace(tzinfo=timezone.utc)
+    else:
+        dt_value = dt_value.astimezone(timezone.utc)
+    return dt_value.isoformat().replace("+00:00", "Z")
 
 
 _ASK2_ENABLE_SMALLTALK = _env_flag("ASK2_ENABLE_SMALLTALK", True)
@@ -952,6 +1148,32 @@ def _collect_sources(chunks, maxn=CITES_MAX):
             break
     return collected
 
+
+def _build_default_sources(chunks):
+    if not chunks:
+        return []
+    labels = []
+    seen = set()
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        title = (chunk.get('title') or '').strip()
+        url = (chunk.get('source_url') or '').strip()
+        label = title or url
+        if not label:
+            continue
+        key = (label.lower(), url.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        if url and url not in label:
+            labels.append(f"{label} - {url}")
+        else:
+            labels.append(label)
+        if len(labels) >= _ASK2_MAX_SOURCES:
+            break
+    return labels
+
 def sources_block(chunks, maxn=CITES_MAX):
     return [c["title"] for c in _collect_sources(chunks, maxn)]
 
@@ -1059,6 +1281,20 @@ def compose_answer_baseline(intent, q, entities, chunks, quotes):
         return body, intent, sources_detailed(chunks)
     head="Here’s the best supported answer from the retrieved sources."
     body=head
+    if chunks:
+        bullets=[]
+        for chunk in chunks[:4]:
+            snippet=(chunk.get("chunk_text") or "").strip()
+            if not snippet:
+                continue
+            sentence=snippet.split("\n")[0].strip()
+            if not sentence:
+                continue
+            if len(sentence) > 220:
+                sentence=sentence[:217].rsplit(" ",1)[0].strip()+"…"
+            bullets.append(f"- {sentence}")
+        if bullets:
+            body=head+"\n"+"\n".join(bullets)
     return body, "general", sources_detailed(chunks)
 
 def compose_answer(intent, q, entities, chunks, quotes):
@@ -1195,6 +1431,47 @@ def readyz():
     return jsonify({"ok": True, "rows": len(rows)}), 200
 
 
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    oracle_status = "unknown"
+    model_status = "unknown"
+
+    try:
+        from db_helper import get_connection  # local import to avoid startup failures
+
+        with get_connection() as conn:
+            try:
+                ping = getattr(conn, "ping", None)
+                if callable(ping):
+                    ping()
+            except Exception:
+                pass
+        oracle_status = "ok"
+    except Exception as exc:
+        oracle_status = "error"
+        _LOGGER.debug("api_health oracle check failed", exc_info=exc)
+
+    try:
+        embed("api health probe")
+        model_status = "ok"
+    except Exception as exc:
+        model_status = "error"
+        _LOGGER.debug("api_health model check failed", exc_info=exc)
+
+    status_value = "ok" if oracle_status != "error" and model_status != "error" else "degraded"
+    payload = {
+        "status": status_value,
+        "oracle": oracle_status,
+        "model": model_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return jsonify(payload), 200
+
+
 @app.route("/api/tech100", methods=["GET"])
 def api_tech100():
     auth = _api_auth_or_unauthorized()
@@ -1211,6 +1488,7 @@ def api_tech100():
             ),
             500,
         )
+        return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
 
     port_date_filter = (request.args.get("port_date") or request.args.get("as_of") or "").strip()
     sector_filter = (request.args.get("sector") or request.args.get("gics_sector") or "").strip()
@@ -1220,6 +1498,7 @@ def api_tech100():
         or request.args.get("search")
         or request.args.get("q")
         or ""
+        request.args.get("company") or request.args.get("search") or request.args.get("q") or ""
     ).strip()
     limit = _sanitize_limit(request.args.get("limit"))
 
@@ -1284,6 +1563,10 @@ def api_tech100():
             ),
             500,
         )
+            raw_rows = [{col: _to_plain(val) for col, val in zip(columns, raw)} for raw in cur.fetchall()]
+    except Exception as exc:
+        _LOGGER.exception("api_tech100 query failed", exc_info=exc)
+        return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
 
     items = [_normalize_tech100_row(row) for row in raw_rows]
     if items:
@@ -1316,8 +1599,127 @@ def api_tech100():
         len(items),
         ", ".join(distinct_dates[:5]),
     )
+    _API_LOGGER.info("/api/tech100 rows=%d dates=%s", len(items), ", ".join(distinct_dates[:5]))
 
     return jsonify({"items": items, "count": len(items)}), 200
+
+
+@app.route("/api/news", methods=["GET"])
+def api_news():
+    auth = _api_auth_optional()
+    if auth is not None:
+        return auth
+
+    try:
+        from app.news_service import fetch_news_items  # type: ignore
+    except Exception as exc:
+        _LOGGER.exception("api_news helper import failed", exc_info=exc)
+        return jsonify({"error": "backend_failure", "message": "Unable to load news data."}), 500
+
+    args = request.args or {}
+    raw_limit = args.get("limit")
+    try:
+        limit = int(raw_limit) if raw_limit is not None else None
+    except (TypeError, ValueError):
+        limit = None
+
+    raw_days = args.get("days")
+    try:
+        days = int(raw_days) if raw_days is not None else None
+    except (TypeError, ValueError):
+        days = None
+
+    source = args.get("source") or None
+    tag_value = args.get("tag")
+    tags = [tag_value] if tag_value else []
+    ticker = args.get("ticker") or None
+
+    try:
+        items, has_more, effective_limit = fetch_news_items(
+            limit=limit,
+            days=days,
+            source=source,
+            tags=tags,
+            ticker=ticker,
+        )
+    except Exception as exc:
+        _LOGGER.exception("api_news query failed", exc_info=exc)
+        return jsonify({"error": "backend_failure", "message": "Unable to load news data."}), 500
+
+    payload = {
+        "items": items,
+        "meta": {
+            "count": len(items),
+            "limit": effective_limit,
+            "has_more": has_more,
+        },
+    }
+
+    return jsonify(payload), 200
+    auth = _api_auth_optional_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    limit = request.args.get("limit", type=int)
+    days = request.args.get("days", type=int)
+    source = request.args.get("source")
+    ticker = request.args.get("ticker")
+    tag_values = request.args.getlist("tag") or request.args.get("tag")
+
+    try:
+        items, has_more, effective_limit = fetch_news_items(
+            limit=limit, days=days, source=source, tags=tag_values, ticker=ticker
+        )
+    except Exception as exc:
+        _LOGGER.exception("api_news query failed", exc_info=exc)
+        return (
+            jsonify(
+                {
+                    "error": "news_unavailable",
+                    "message": "News is temporarily unavailable.",
+                }
+            ),
+            500,
+        )
+
+    return (
+        jsonify(
+            {
+                "items": items,
+                "meta": {
+                    "count": len(items),
+                    "limit": effective_limit,
+                    "has_more": has_more,
+                },
+            }
+        ),
+        200,
+    )
+
+
+@app.route("/api/news/admin/items", methods=["POST"])
+def api_news_admin_items():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    try:
+        payload = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "bad_request", "message": "Invalid JSON payload."}), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({"error": "bad_request", "message": "Payload must be an object."}), 400
+
+    try:
+        item = create_curated_news_item(payload)
+    except ValueError as exc:
+        return jsonify({"error": "bad_request", "message": str(exc)}), 400
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOGGER.exception("api_news_admin_items failed", exc_info=exc)
+        return jsonify({"error": "news_unavailable", "message": "Unable to create news item."}), 500
+
+    return jsonify({"item": item}), 201
 
 
 @app.route("/ask", methods=["POST"])
@@ -1695,6 +2097,51 @@ def _is_insufficient(shaped: Optional[Dict[str, Any]]) -> bool:
 
 @app.route('/ask2', methods=['GET', 'POST'])
 def ask2():
+    request_started = time.perf_counter()
+
+    def _respond(payload, contexts, *, provider: str, confidence, status: int = 200, headers: Optional[Dict[str, str]] = None):
+        compat_payload = normalize_response(
+            payload,
+            contexts,
+            provider=provider,
+            confidence=confidence,
+        )
+        latency_ms = int((time.perf_counter() - request_started) * 1000)
+        compat_contexts = compat_payload.get('contexts') if isinstance(compat_payload.get('contexts'), list) else []
+        max_score = None
+        for entry in compat_contexts:
+            if not isinstance(entry, dict):
+                continue
+            score_val = entry.get('score')
+            if score_val is None:
+                continue
+            try:
+                score_float = float(score_val)
+            except (TypeError, ValueError):
+                continue
+            max_score = score_float if max_score is None else max(max_score, score_float)
+
+        log_record = {
+            'route': '/ask2',
+            'provider': compat_payload.get('provider'),
+            'ok': compat_payload.get('ok'),
+            'answered': compat_payload.get('answered'),
+            'n_contexts': len(compat_contexts),
+            'max_score': max_score,
+            'confidence': compat_payload.get('confidence'),
+            'lat_ms': latency_ms,
+        }
+        try:
+            _METRIC_LOGGER.info(json.dumps(log_record, separators=(',', ':')))
+        except Exception:  # pragma: no cover - defensive logging
+            _METRIC_LOGGER.info(log_record)
+
+        response = jsonify(compat_payload)
+        if headers:
+            for key, value in headers.items():
+                response.headers[key] = value
+        return response, status
+
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
         q_raw = data.get('q') or data.get('question') or data.get('text')
@@ -1726,21 +2173,31 @@ def ask2():
             if _router_is_smalltalk(question):
                 routed = _route_ask2(question, k_eff)
                 if isinstance(routed, dict):
-                    routed_meta = routed.get("meta") if isinstance(routed.get("meta"), dict) else {}
+                    routed_meta = routed.get('meta') if isinstance(routed.get('meta'), dict) else {}
                     meta = dict(routed_meta)
-                    meta.setdefault("routing", "smalltalk")
+                    meta.setdefault('routing', 'smalltalk')
+                    meta.setdefault('provider', 'smalltalk')
                     if header_hints:
-                        meta.setdefault("request_hints", header_hints)
-                    answer_text = _strip_source_sections((routed.get("answer") or "").strip())
+                        meta.setdefault('request_hints', header_hints)
+                    meta.setdefault(
+                        'compat_thresholds',
+                        {'min_score': SC_RAG_MIN_SCORE, 'min_contexts': SC_RAG_MIN_CONTEXTS},
+                    )
+                    answer_text = _strip_source_sections((routed.get('answer') or '').strip())
                     payload = {
-                        "answer": answer_text,
-                        "sources": [],
-                        "contexts": [],
-                        "meta": meta,
+                        'answer': answer_text,
+                        'sources': [],
+                        'contexts': [],
+                        'meta': meta,
                     }
-                    return jsonify(payload), 200
+                    return _respond(
+                        payload,
+                        payload.get('contexts'),
+                        provider=meta.get('provider', 'smalltalk'),
+                        confidence=None,
+                    )
         except Exception as exc:  # pragma: no cover - defensive logging
-            _LOGGER.debug("smalltalk routing failed; continuing pipeline", exc_info=exc)
+            _LOGGER.debug('smalltalk routing failed; continuing pipeline', exc_info=exc)
 
     forwarded = request.headers.get('X-Forwarded-For', '')
     client_ip = (
@@ -1748,51 +2205,69 @@ def ask2():
         if forwarded
         else (request.remote_addr or 'unknown')
     )
-    try:
-        shaped, status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
-    except Exception as exc:
-        shaped = {
-            "answer": "",
-            "sources": [],
-            "contexts": [],
-            "meta": {"routing": "gemini_first_fail", "error": str(exc)},
-        }
-        status = 599
 
-    contexts_raw = shaped.get("contexts") if isinstance(shaped, dict) else []
-    contexts_list: list = contexts_raw if isinstance(contexts_raw, list) else []
+    try:
+        pipeline_payload, _status = ask2_pipeline_first(question, k_eff, client_ip=client_ip)
+    except Exception as exc:  # pragma: no cover - defensive log
+        _LOGGER.exception('ask2_pipeline_first_failed', exc_info=exc)
+        pipeline_payload = {}
+
+    shaped = pipeline_payload if isinstance(pipeline_payload, dict) else {}
+    answer_val = _strip_source_sections(str(shaped.get('answer') or '').strip())
+    contexts_raw = shaped.get('contexts') if isinstance(shaped.get('contexts'), list) else []
+    meta_val = shaped.get('meta') if isinstance(shaped.get('meta'), dict) else {}
+    if header_hints:
+        meta_val.setdefault('request_hints', header_hints)
+    meta_val.setdefault('routing', 'gemini_first')
+    meta_val.setdefault('k', k_eff)
+    if isinstance(meta_val, dict):
+        meta_val.setdefault('provider', 'gemini')
+        meta_val.setdefault(
+            'compat_thresholds',
+            {'min_score': SC_RAG_MIN_SCORE, 'min_contexts': SC_RAG_MIN_CONTEXTS},
+        )
+
     normalized_contexts: list = []
-    for entry in contexts_list:
+    for entry in contexts_raw:
         if not isinstance(entry, dict):
             continue
         candidate = dict(entry)
-        url_value = candidate.get("source_url") or candidate.get("url") or ""
-        candidate.setdefault("source_url", url_value)
+        url_value = candidate.get('source_url') or candidate.get('url') or ''
+        if isinstance(url_value, str):
+            candidate.setdefault('source_url', url_value)
         normalized_contexts.append(candidate)
 
     deduped_contexts = dedupe_contexts(normalized_contexts) if normalized_contexts else []
-    has_contexts = status == 200 and bool(deduped_contexts)
+    top_similarity = _extract_top_similarity(deduped_contexts)
+    meta_val['top_score'] = top_similarity
 
-    if has_contexts:
-        answer = _strip_source_sections((shaped.get("answer") or "").strip())
-        meta_raw = shaped.get("meta") if isinstance(shaped.get("meta"), dict) else {}
-        meta = dict(meta_raw)
-        top_similarity = _extract_top_similarity(deduped_contexts)
-        meta.setdefault("routing", "gemini_first")
-        meta["top_score"] = top_similarity
-        meta.setdefault("k", k_eff)
-        if header_hints:
-            meta.setdefault("request_hints", header_hints)
+    debug_block = meta_val.setdefault('debug', {})
+    if 'capability' not in debug_block:
+        try:
+            from app.retrieval import oracle_retriever as _oracle_module
 
-        if _below_similarity_floor(top_similarity):
-            meta.update({"routing": "low_conf", "floor_warning": True})
-            guard_payload = {
-                "answer": _LOW_CONFIDENCE_MESSAGE,
-                "sources": [],
-                "contexts": [],
-                "meta": meta,
-            }
-            return jsonify(guard_payload), 200
+            debug_block['capability'] = _oracle_module.capability_snapshot()
+        except Exception:  # pragma: no cover - defensive
+            debug_block['capability'] = {}
+
+    if deduped_contexts:
+        floor_triggered = _below_similarity_floor(top_similarity)
+        if floor_triggered:
+            meta_val.update({'routing': 'low_conf', 'floor_warning': True})
+            if not SC_RAG_FAIL_OPEN:
+                guard_payload = {
+                    'answer': _LOW_CONFIDENCE_MESSAGE,
+                    'sources': [],
+                    'contexts': [],
+                    'meta': meta_val,
+                }
+                return _respond(
+                    guard_payload,
+                    guard_payload.get('contexts'),
+                    provider='gemini',
+                    confidence=top_similarity,
+                    headers={'X-Orch': 'pass', 'X-Orig': '1'},
+                )
 
         if callable(_format_router_sources):
             sources = _format_router_sources(
@@ -1801,29 +2276,160 @@ def ask2():
                 label_mode=_ASK2_SOURCE_LABEL_MODE,
             )
         else:
-            raw_sources = shaped.get("sources") if isinstance(shaped.get("sources"), list) else []
-            sources = [str(item) for item in raw_sources[:_ASK2_MAX_SOURCES]]
+            raw_sources = shaped.get('sources') if isinstance(shaped.get('sources'), list) else []
+            sources = [str(item).strip() for item in raw_sources[:_ASK2_MAX_SOURCES] if str(item).strip()]
+            if not sources:
+                sources = _build_default_sources(deduped_contexts)
 
-        normalized = {
-            "answer": answer,
-            "sources": sources,
-            "contexts": deduped_contexts,
-            "meta": meta,
+        payload = {
+            'answer': answer_val,
+            'sources': sources,
+            'contexts': deduped_contexts,
+            'meta': meta_val,
         }
-        return jsonify(normalized), 200
+        return _respond(
+            payload,
+            deduped_contexts,
+            provider='gemini',
+            confidence=top_similarity,
+            headers={'X-Orch': 'pass', 'X-Orig': '1'},
+        )
 
-    shaped, status = _call_route_ask2_facade(
+    shaped_fallback, status = _call_route_ask2_facade(
         question, k_eff, client_ip=client_ip, header_hints=header_hints
     )
-    shaped = shaped if isinstance(shaped, dict) else {}
-    answer = (shaped.get("answer") or "").strip()
-    sources = shaped.get("sources") if isinstance(shaped.get("sources"), list) else []
-    contexts = shaped.get("contexts") if isinstance(shaped.get("contexts"), list) else []
-    meta = shaped.get("meta") if isinstance(shaped.get("meta"), dict) else {}
-    normalized = {"answer": answer, "sources": sources, "contexts": contexts, "meta": meta}
-    return jsonify(normalized), status
+    shaped_fallback = shaped_fallback if isinstance(shaped_fallback, dict) else {}
+    answer_fb = _strip_source_sections((shaped_fallback.get('answer') or '').strip())
+    sources_fb = shaped_fallback.get('sources') if isinstance(shaped_fallback.get('sources'), list) else []
+    contexts_fb = shaped_fallback.get('contexts') if isinstance(shaped_fallback.get('contexts'), list) else []
+    meta_fb = shaped_fallback.get('meta') if isinstance(shaped_fallback.get('meta'), dict) else {}
+    if header_hints:
+        meta_fb.setdefault('request_hints', header_hints)
+    if isinstance(meta_fb, dict):
+        meta_fb.setdefault('provider', meta_fb.get('routing', 'router'))
+        meta_fb.setdefault(
+            'compat_thresholds',
+            {'min_score': SC_RAG_MIN_SCORE, 'min_contexts': SC_RAG_MIN_CONTEXTS},
+        )
+    fallback_conf = _extract_top_similarity(contexts_fb)
+    payload = {'answer': answer_fb, 'sources': sources_fb, 'contexts': contexts_fb, 'meta': meta_fb}
+    return _respond(
+        payload,
+        contexts_fb,
+        provider=meta_fb.get('provider', meta_fb.get('routing', 'router')),
+        confidence=fallback_conf,
+        status=status,
+        headers={'X-Orch': 'pass', 'X-Orig': '1'},
+    )
 
 
+@app.route("/api/ask2", methods=["POST"])
+def api_ask2():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    body = request.get_json(silent=True) or {}
+    question_val = (
+        body.get("user_message")
+        or body.get("question")
+        or body.get("q")
+        or body.get("text")
+    )
+    question_text = question_val.strip() if isinstance(question_val, str) else ""
+    raw_top_k = body.get("top_k") or body.get("k") or body.get("limit")
+    k_eff = _api_coerce_k(raw_top_k, default=4)
+
+    if not question_text:
+        return jsonify({"error": "question is required"}), 400
+
+    forwarded_for = request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown"
+    passthrough_headers = {}
+    for header_name in ("X-Ask2-Hints", "X-Ask2-Meta", "X-Ask2-Routing", "X-Forwarded-For"):
+        value = request.headers.get(header_name)
+        if value:
+            passthrough_headers[header_name] = value
+    passthrough_headers.setdefault("X-Forwarded-For", forwarded_for)
+
+    try:
+        with app.test_request_context(
+            path="/ask2",
+            method="POST",
+            json={"question": question_text, "k": k_eff},
+            headers=passthrough_headers,
+        ):
+            upstream = ask2()
+    except Exception as exc:
+        _LOGGER.exception("api_ask2 delegation failed", exc_info=exc)
+        return (
+            jsonify(
+                {
+                    "error": "backend_failure",
+                    "message": "Ask2 backend failed while processing the request.",
+                    "hint": "Check VM1 logs for details.",
+                }
+            ),
+            502,
+        )
+
+    if isinstance(upstream, tuple):
+        upstream_response, upstream_status = upstream
+    else:
+        upstream_response, upstream_status = upstream, getattr(upstream, "status_code", 200)
+
+    upstream_json = {}
+    try:
+        upstream_json = upstream_response.get_json(silent=True) or {}
+    except Exception as exc:
+        _LOGGER.exception("api_ask2 response parse failed", exc_info=exc)
+        return (
+            jsonify(
+                {
+                    "error": "backend_failure",
+                    "message": "Ask2 backend failed while processing the request.",
+                    "hint": "Check VM1 logs for details.",
+                }
+            ),
+            502,
+        )
+
+    if upstream_status >= 500:
+        _LOGGER.warning("api_ask2 upstream error status=%s", upstream_status)
+        return (
+            jsonify(
+                {
+                    "error": "backend_failure",
+                    "message": "Ask2 backend failed while processing the request.",
+                    "hint": "Check VM1 logs for details.",
+                }
+            ),
+            502,
+        )
+
+    meta = upstream_json.get("meta") if isinstance(upstream_json.get("meta"), dict) else {}
+    session_id = (
+        upstream_json.get("session_id")
+        or upstream_json.get("trace_id")
+        or meta.get("session_id")
+        or meta.get("trace_id")
+    )
+    if not session_id:
+        session_id = str(uuid.uuid4())
+
+    reply = str(upstream_json.get("answer") or "").strip()
+    shaped = {
+        "session_id": session_id,
+        "reply": reply,
+        "meta": meta,
+    }
+    if "sources" in upstream_json:
+        shaped["sources"] = upstream_json.get("sources")
+    if "contexts" in upstream_json:
+        shaped["contexts"] = upstream_json.get("contexts")
+    if "answer" in upstream_json:
+        shaped["answer"] = upstream_json.get("answer")
+
+    return jsonify(shaped), upstream_status
 
 @app.route("/ask", methods=["GET"], endpoint="ask_get_shim")
 def ask_get_shim():
