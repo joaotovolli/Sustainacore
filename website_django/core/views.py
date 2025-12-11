@@ -105,6 +105,15 @@ def _safe_float(value, default=None):
         return default
 
 
+def _parse_weight_value(value, default=None):
+    """Parse weight values that may arrive as raw numbers or strings with a % suffix."""
+    if isinstance(value, str):
+        candidate = value.strip().rstrip("%").strip()
+    else:
+        candidate = value
+    return _safe_float(candidate, default)
+
+
 def _lower_key_map(row: Dict) -> Dict[str, any]:
     return {str(key).lower(): value for key, value in row.items()}
 
@@ -214,14 +223,14 @@ def _normalize_row(raw: Dict) -> Dict:
 
     rank_val = _get_value(lower_map, ["rank_index", "rank", "index_rank", "rnk"])
     row["rank_index"] = _safe_float(rank_val, rank_val)
-    port_weight_value = _safe_float(
+    port_weight_value = _parse_weight_value(
         _get_value(
             lower_map,
             ["port_weight", "weight", "portfolio_weight", "index_weight", "port_wt", "weight_percent"],
         )
     )
     row["port_weight"] = port_weight_value
-    row["weight"] = _safe_float(_get_value(lower_map, ["weight"]), port_weight_value)
+    row["weight"] = _parse_weight_value(_get_value(lower_map, ["weight"]), port_weight_value)
 
     row["transparency"] = _safe_float(
         _get_value(lower_map, ["transparency", "transparency_score", "trs"]), _get_value(lower_map, ["transparency"])
