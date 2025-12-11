@@ -184,6 +184,20 @@ def _format_date(value: Any) -> Optional[str]:
     return None
 
 
+def _format_weight(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        weight = float(value)
+    except Exception:
+        try:
+            weight = float(str(value).strip())
+        except Exception:
+            return None
+    weight = weight * 100 if abs(weight) <= 1 else weight
+    return round(weight, 2)
+
+
 def _format_timestamp(value: Any) -> Optional[str]:
     if isinstance(value, datetime):
         ts = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -516,7 +530,7 @@ async def api_tech100(request: Request) -> JSONResponse:
         )
 
     sql = (
-        "SELECT rank_index, company_name, gics_sector, port_date, "
+        "SELECT rank_index, company_name, gics_sector, port_date, port_weight, "
         "aiges_composite_average, transparency, governance_structure, "
         "region, country, location "
         "FROM tech11_ai_gov_eth_index "
@@ -543,6 +557,8 @@ async def api_tech100(request: Request) -> JSONResponse:
                         "transparency": row.get("transparency"),
                         "accountability": row.get("governance_structure"),
                         "updated_at": _format_date(row.get("port_date")),
+                        "port_weight": _format_weight(row.get("port_weight")),
+                        "weight": _format_weight(row.get("port_weight")),
                     }
                 )
     except Exception as exc:
