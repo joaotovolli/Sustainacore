@@ -1,12 +1,19 @@
-"""News helper utilities for the /api/news endpoint."""
+"""Shared helpers for querying news items and curated entries."""
 
 from __future__ import annotations
 
+import logging
 import re
-from datetime import datetime, timezone, date
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from datetime import date, datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from db_helper import _to_plain, get_connection
+
+LOGGER = logging.getLogger("sustainacore.news")
+
+_DEFAULT_LIMIT = 20
+_MAX_LIMIT = 100
+_MAX_DAYS = 365
 
 
 def _parse_list(raw: Any) -> List[str]:
@@ -20,26 +27,6 @@ def _parse_list(raw: Any) -> List[str]:
         parts = re.split(r"[;,]", raw)
         return [part.strip() for part in parts if part.strip()]
     return []
-
-
-def _format_timestamp(value: Any) -> Optional[str]:
-    """Normalize timestamp-like values to ISO 8601 strings in UTC with Z suffix."""
-
-"""Shared helpers for querying news items and curated entries."""
-
-from __future__ import annotations
-
-import logging
-from datetime import date, datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
-
-from db_helper import _to_plain, get_connection
-
-LOGGER = logging.getLogger("sustainacore.news")
-
-_DEFAULT_LIMIT = 20
-_MAX_LIMIT = 100
-_MAX_DAYS = 365
 
 
 def _format_timestamp(value: Any) -> Optional[str]:
@@ -75,6 +62,8 @@ def _sanitize_limit(raw_limit: Optional[int], default: int = 20, max_limit: int 
     if limit > max_limit:
         limit = max_limit
     return limit
+
+
 def _coerce_int(value: Any, default: int, max_value: int) -> int:
     try:
         coerced = int(value)
@@ -172,45 +161,6 @@ def _build_news_sql(
         "ORDER BY dt_pub DESC "
         "FETCH FIRST :limit_plus_one ROWS ONLY"
     )
-
-    tags: List[str],
-    ticker: Optional[str],
-    limit: int,
-) -> Tuple[str, Dict[str, Any]]:
-    clauses: List[str] = ["1 = 1"]
-    binds: Dict[str, Any] = {}
-
-    if days is not None:
-        clauses.append("dt_pub >= (SYSDATE - :days)")
-        binds["days"] = days
-
-    if source:
-        clauses.append("UPPER(source_name) = UPPER(:source)")
-        binds["source"] = source
-
-    tag_clauses: List[str] = []
-    for idx, tag in enumerate(tags):
-        bind_key = f"tag_{idx}"
-        binds[bind_key] = tag
-        tag_clauses.append(f"tags LIKE '%' || :{bind_key} || '%'")
-    if tag_clauses:
-        clauses.append("(" + " OR ".join(tag_clauses) + ")")
-
-    if ticker:
-        binds["ticker"] = ticker
-        clauses.append("tickers LIKE '%' || :ticker || '%'")
-
-    where_clause = " WHERE " + " AND ".join(clauses) if clauses else ""
-
-    limit_plus_one = limit + 1
-    binds["limit_plus_one"] = limit_plus_one
-    sql = (
-        "SELECT item_table, item_id, dt_pub, ticker, title, url, source_name, body, pillar_tags, categories, tags, tickers "
-        "FROM v_news_recent"
-        f"{where_clause} "
-        "ORDER BY dt_pub DESC "
-        "FETCH FIRST :limit_plus_one ROWS ONLY"
-    )
     return sql, binds
 
 
@@ -292,67 +242,11 @@ def fetch_news_items(
                     "published_at": _format_timestamp(dt_pub),
                 }
             )
-    limit: Any = None,
-    days: Any = None,
-    source: Optional[str] = None,
-    tags: Optional[Iterable[str]] = None,
-    ticker: Optional[str] = None,
-) -> Tuple[List[Dict[str, Any]], bool, int]:
-    """Query recent news with optional filters.
-
-    Returns a tuple of (items, has_more, effective_limit).
-    """
-
-    effective_limit = _coerce_int(limit, _DEFAULT_LIMIT, _MAX_LIMIT)
-    effective_days = _coerce_int(days, _MAX_DAYS, _MAX_DAYS) if days is not None else None
-    normalized_source = source.strip() if isinstance(source, str) else None
-    normalized_tags = _normalize_tags(tags)
-    normalized_ticker = ticker.strip() if isinstance(ticker, str) else None
-
-    sql, binds = _build_news_sql(
-        days=effective_days,
-        source=normalized_source,
-        tags=normalized_tags,
-        ticker=normalized_ticker,
-        limit=effective_limit,
-    )
-
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, binds)
-        columns = [desc[0].lower() for desc in cur.description]
-        rows = cur.fetchall()
-
-    has_more = len(rows) > effective_limit
-    items: List[Dict[str, Any]] = []
-    for raw in rows[:effective_limit]:
-        row = {col: _to_plain(val) for col, val in zip(columns, raw)}
-        tags_list = _parse_list(row.get("tags"))
-        categories = _parse_list(row.get("categories"))
-        pillar_tags = _parse_list(row.get("pillar_tags"))
-        tickers = _parse_list(row.get("tickers")) or _parse_list(row.get("ticker"))
-        ticker_value = ", ".join(tickers) if tickers else (row.get("ticker") or row.get("tickers"))
-        item_table = row.get("item_table")
-        item_id = row.get("item_id")
-        items.append(
-            {
-                "id": f"{item_table}:{item_id}" if item_table and item_id is not None else row.get("id"),
-                "title": row.get("title"),
-                "source": row.get("source_name") or row.get("source"),
-                "url": row.get("url"),
-                "summary": row.get("body") or row.get("summary"),
-                "tags": tags_list,
-                "categories": categories,
-                "pillar_tags": pillar_tags,
-                "ticker": ticker_value,
-                "published_at": _format_timestamp(row.get("dt_pub")),
-            }
-        )
-
     return items, has_more, effective_limit
 
-
 __all__ = ["_build_news_sql", "fetch_news_items"]
+
+
 def _parse_datetime(value: Any) -> Optional[datetime]:
     if value is None:
         return None
