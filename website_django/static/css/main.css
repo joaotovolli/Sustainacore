@@ -389,6 +389,18 @@ a:hover {
     text-align: right;
 }
 
+.text-left {
+    text-align: left;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-right {
+    text-align: right;
+}
+
 .table__note {
     margin-top: 0.8rem;
 }
@@ -396,6 +408,18 @@ a:hover {
 .tech100-table th,
 .tech100-table td {
     vertical-align: top;
+}
+
+.tech100-table thead th.text-left {
+    text-align: left;
+}
+
+.tech100-table thead th.text-center {
+    text-align: center;
+}
+
+.tech100-table thead th.text-right {
+    text-align: right;
 }
 
 .tech100-company {
