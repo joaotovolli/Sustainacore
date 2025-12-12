@@ -2,28 +2,58 @@
 from __future__ import annotations
 
 import datetime as _dt
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, Optional
 
 from db_helper import get_connection
 
 
 def fetch_constituent_tickers(trade_date: _dt.date) -> list[str]:
-    """Return TECH100 tickers for the most recent rebalance on or before the date."""
+    """
+    Return TECH100 tickers from the latest rebalance (matches /api/tech100 source).
+
+    The trade_date argument is currently ignored; we always pull the most recent
+    port_date that contains tickers and use the ranked basket (top 25).
+    """
 
     sql = (
-        "SELECT DISTINCT ticker "
+        "WITH latest AS ("
+        "  SELECT MAX(port_date) AS port_date "
+        "  FROM tech11_ai_gov_eth_index "
+        "  WHERE ticker IS NOT NULL"
+        ") "
+        "SELECT ticker "
         "FROM tech11_ai_gov_eth_index "
         "WHERE ticker IS NOT NULL "
-        "AND port_date = ("
-        "  SELECT MAX(port_date) FROM tech11_ai_gov_eth_index WHERE port_date <= :trade_date"
-        ")"
+        "AND port_date = (SELECT port_date FROM latest) "
+        "AND rank_index <= 25 "
+        "GROUP BY ticker, rank_index "
+        "ORDER BY rank_index"
     )
 
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql, {"trade_date": trade_date})
+        cur.execute(sql)
         rows = cur.fetchall()
-        return [str(row[0]).strip() for row in rows if row and row[0] is not None]
+        tickers: list[str] = []
+        for row in rows:
+            if not row or row[0] is None:
+                continue
+            cleaned = str(row[0]).strip().upper()
+            if cleaned:
+                tickers.append(cleaned)
+        return tickers
+
+
+def get_current_user() -> Optional[str]:
+    """Return the current Oracle user for verification."""
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT USER FROM dual")
+        row = cur.fetchone()
+        if not row or row[0] is None:
+            return None
+        return str(row[0]).strip()
 
 
 def upsert_prices_raw(rows: Iterable[Mapping]) -> int:
@@ -66,6 +96,10 @@ def upsert_prices_raw(rows: Iterable[Mapping]) -> int:
 
     with get_connection() as conn:
         cur = conn.cursor()
+        try:
+            cur.execute("ALTER SESSION DISABLE PARALLEL DML")
+        except Exception:
+            pass
         cur.executemany(sql, binds)
         conn.commit()
         return len(binds)
@@ -110,6 +144,10 @@ def upsert_prices_canon(rows: Iterable[Mapping]) -> int:
 
     with get_connection() as conn:
         cur = conn.cursor()
+        try:
+            cur.execute("ALTER SESSION DISABLE PARALLEL DML")
+        except Exception:
+            pass
         cur.executemany(sql, binds)
         conn.commit()
         return len(binds)
