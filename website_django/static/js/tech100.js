@@ -61,3 +61,90 @@
     }
   });
 })();
+
+(function () {
+  const rebalanceSelect = document.querySelector('select[name="port_date"]');
+  const filterForm = rebalanceSelect?.closest("form");
+
+  if (!rebalanceSelect) {
+    return;
+  }
+
+  const monthLabels = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  function formatMMMYYYY(dateString) {
+    const [year, month] = dateString.split("-");
+    const monthIndex = Number.parseInt(month, 10) - 1;
+    if (!monthLabels[monthIndex] || !year) {
+      return dateString;
+    }
+    return `${monthLabels[monthIndex]}-${year}`;
+  }
+
+  function requestFilterSubmit() {
+    if (!filterForm) return;
+    const submitButton = filterForm.querySelector('button[type="submit"]');
+    if (typeof filterForm.requestSubmit === "function") {
+      filterForm.requestSubmit(submitButton || undefined);
+    } else {
+      filterForm.submit();
+    }
+  }
+
+  function setupRebalanceSelect() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramPortDate = urlParams.get("port_date");
+    const hasPortDateQuery = Boolean(paramPortDate);
+
+    const optionValues = Array.from(rebalanceSelect.querySelectorAll("option"))
+      .map((option) => option.value)
+      .filter(Boolean);
+
+    if (!optionValues.length) {
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    let latestValue = optionValues[0];
+
+    optionValues.forEach((value) => {
+      if (value > latestValue) {
+        latestValue = value;
+      }
+
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = formatMMMYYYY(value);
+      fragment.appendChild(option);
+    });
+
+    rebalanceSelect.innerHTML = "";
+    rebalanceSelect.appendChild(fragment);
+
+    const targetValue =
+      hasPortDateQuery && optionValues.includes(paramPortDate)
+        ? paramPortDate
+        : latestValue;
+
+    rebalanceSelect.value = targetValue;
+
+    if (!hasPortDateQuery && latestValue) {
+      requestFilterSubmit();
+    }
+  }
+
+  setupRebalanceSelect();
+})();
