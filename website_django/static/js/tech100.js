@@ -106,9 +106,17 @@
 
   async function loadAvailableRebalanceDates() {
     const params = new URLSearchParams({ limit: "200" });
+    const apiBase =
+      (window.SC_BACKEND_API_BASE || window.TECH100_API_BASE || "").toString().trim().replace(/\/$/, "");
+    const url = `${apiBase}/api/tech100/rebalance_dates?${params.toString()}`;
     try {
-      const response = await fetch(`/api/tech100/rebalance_dates?${params.toString()}`);
+      const response = await fetch(url);
       if (!response.ok) {
+        console.warn(
+          "TECH100 rebalance dates request failed",
+          response.status,
+          response.statusText
+        );
         return [];
       }
       const payload = await response.json();
@@ -118,7 +126,7 @@
         .filter((value) => typeof value === "string" && Boolean(value))
         .sort((a, b) => (a < b ? 1 : -1));
     } catch (error) {
-      console.error("Unable to load TECH100 rebalance dates", error);
+      console.warn("Unable to load TECH100 rebalance dates", error);
       return [];
     }
   }

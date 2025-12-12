@@ -1606,7 +1606,8 @@ def api_tech100():
 
 @app.route("/api/tech100/rebalance_dates", methods=["GET"])
 def api_tech100_rebalance_dates():
-    auth = _api_auth_or_unauthorized()
+    # Allow anonymous access so the website can populate the dropdown without a token.
+    auth = _api_auth_optional()
     if auth is not None:
         return auth
 
@@ -1622,9 +1623,12 @@ def api_tech100_rebalance_dates():
     limit = _sanitize_limit(request.args.get("limit"), default=200)
 
     sql = (
-        "SELECT DISTINCT port_date FROM tech11_ai_gov_eth_index "
-        "WHERE port_date IS NOT NULL "
-        "ORDER BY port_date DESC FETCH FIRST :limit ROWS ONLY"
+        "SELECT port_date FROM ("
+        "  SELECT DISTINCT TRUNC(port_date) AS port_date"
+        "  FROM tech11_ai_gov_eth_index"
+        "  WHERE port_date IS NOT NULL"
+        "  ORDER BY port_date DESC"
+        ") WHERE ROWNUM <= :limit"
     )
 
     try:
