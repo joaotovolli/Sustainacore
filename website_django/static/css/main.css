@@ -422,6 +422,20 @@ a:hover {
     text-align: right;
 }
 
+.tech100-table thead th.text-left > *,
+.tech100-table thead th.text-center > *,
+.tech100-table thead th.text-right > * {
+    text-align: inherit;
+}
+
+.tech100-table thead th.text-left > :is(button, span, div, a) {
+    justify-content: flex-start;
+}
+
+.tech100-table thead th.text-center > :is(button, span, div, a) {
+    justify-content: center;
+}
+
 .tech100-company {
     display: inline-flex;
     align-items: baseline;
