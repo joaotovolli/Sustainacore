@@ -410,6 +410,18 @@ a:hover {
     vertical-align: top;
 }
 
+.tech100-table thead th.text-left {
+    text-align: left;
+}
+
+.tech100-table thead th.text-center {
+    text-align: center;
+}
+
+.tech100-table thead th.text-right {
+    text-align: right;
+}
+
 .tech100-company {
     display: inline-flex;
     align-items: baseline;
