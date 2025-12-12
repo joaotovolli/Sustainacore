@@ -21,7 +21,6 @@
           <label>
             Rebalance Date
             <select name="port_date">
-              <option value="">All dates</option>
               {% for d in port_date_options %}
                 <option value="{{ d }}" {% if filters.port_date == d %}selected{% endif %}>{{ d }}</option>
               {% endfor %}
