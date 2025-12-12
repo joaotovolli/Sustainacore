@@ -1,0 +1,31 @@
+import datetime as _dt
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from tools.index_engine.ingest_prices import compute_canonical_rows
+
+
+def test_compute_canonical_uses_provider_close_when_adj_missing():
+    trade_date = _dt.date(2025, 1, 2)
+    raw_rows = [
+        {
+            "ticker": "ABC",
+            "trade_date": trade_date,
+            "provider": "TWELVEDATA",
+            "close_px": 12.34,
+            "adj_close_px": None,
+            "status": "OK",
+        }
+    ]
+
+    canon_rows = compute_canonical_rows(raw_rows)
+
+    assert len(canon_rows) == 1
+    row = canon_rows[0]
+    assert row["canon_adj_close_px"] == 12.34
+    assert row["canon_close_px"] == 12.34
+    assert row["chosen_provider"] == "TWELVEDATA"
+    assert row["quality"] == "LOW"
+    assert row["providers_ok"] == 1
