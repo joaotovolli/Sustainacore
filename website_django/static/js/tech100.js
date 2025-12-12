@@ -62,7 +62,7 @@
   });
 })();
 
-(function () {
+(async function () {
   const rebalanceSelect = document.querySelector('select[name="port_date"]');
   const filterForm = rebalanceSelect?.closest("form");
 
@@ -104,27 +104,57 @@
     }
   }
 
-  function setupRebalanceSelect() {
+  async function loadAvailableRebalanceDates() {
+    const params = new URLSearchParams({ limit: "2000" });
+    try {
+      const response = await fetch(`/api/tech100?${params.toString()}`);
+      if (!response.ok) {
+        return [];
+      }
+      const payload = await response.json();
+      const items = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload.items)
+        ? payload.items
+        : [];
+
+      const distinct = new Set();
+      items.forEach((item) => {
+        const value = item && typeof item.port_date === "string" ? item.port_date : null;
+        if (value) {
+          distinct.add(value);
+        }
+      });
+
+      return Array.from(distinct).sort((a, b) => (a < b ? 1 : -1));
+    } catch (error) {
+      console.error("Unable to load TECH100 rebalance dates", error);
+      return [];
+    }
+  }
+
+  async function setupRebalanceSelect() {
     const urlParams = new URLSearchParams(window.location.search);
     const paramPortDate = urlParams.get("port_date");
     const hasPortDateQuery = Boolean(paramPortDate);
 
-    const optionValues = Array.from(rebalanceSelect.querySelectorAll("option"))
-      .map((option) => option.value)
-      .filter(Boolean);
+    const apiDates = await loadAvailableRebalanceDates();
+
+    const optionValues = apiDates.length
+      ? apiDates
+      : Array.from(rebalanceSelect.querySelectorAll("option"))
+          .map((option) => option.value)
+          .filter(Boolean);
 
     if (!optionValues.length) {
       return;
     }
 
+    const sortedValues = [...new Set(optionValues)].sort((a, b) => (a < b ? 1 : -1));
+    const latestValue = sortedValues[0];
+
     const fragment = document.createDocumentFragment();
-    let latestValue = optionValues[0];
-
-    optionValues.forEach((value) => {
-      if (value > latestValue) {
-        latestValue = value;
-      }
-
+    sortedValues.forEach((value) => {
       const option = document.createElement("option");
       option.value = value;
       option.textContent = formatMMMYYYY(value);
@@ -135,13 +165,16 @@
     rebalanceSelect.appendChild(fragment);
 
     const targetValue =
-      hasPortDateQuery && optionValues.includes(paramPortDate)
+      hasPortDateQuery && sortedValues.includes(paramPortDate)
         ? paramPortDate
         : latestValue;
 
     rebalanceSelect.value = targetValue;
 
-    if (!hasPortDateQuery && latestValue) {
+    if (
+      (!hasPortDateQuery && latestValue) ||
+      (hasPortDateQuery && paramPortDate !== targetValue && targetValue)
+    ) {
       requestFilterSubmit();
     }
   }
