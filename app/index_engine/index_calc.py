@@ -1,4 +1,5 @@
 """Index level calculation utilities for SC_IDX indexes."""
+from __future__ import annotations
 
 
 def compute_index_level(
