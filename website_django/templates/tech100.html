@@ -86,37 +86,39 @@
         <table id="tech100-data" class="table table--wide tech100-table" aria-label="TECH100 index">
           <thead>
             <tr>
-              <th>Rebalance Date</th>
-              <th class="text-right tech100-col--rank">Rank</th>
-              <th class="text-right">Weight</th>
-              <th>Company</th>
-              <th class="text-right">AIGES Composite</th>
+              <th class="text-left">Rebalance Date</th>
+              <th class="text-center tech100-col--rank">Rank</th>
+              <th class="text-center">Weight</th>
+              <th class="text-left">Company</th>
+              <th class="text-center">AIGES Composite</th>
             </tr>
           </thead>
           <tbody>
             {% if companies %}
               {% for c in companies %}
                   <tr class="tech100-row">
-                    <td>{{ c.port_date_str|default:"—" }}</td>
-                    <td class="text-right tech100-col--rank">
+                    <td class="text-left" data-order="{{ c.port_date_str|default:'' }}">
+                      {{ c.port_date_display|default:"—" }}
+                    </td>
+                    <td class="text-center tech100-col--rank" data-order="{{ c.rank_index|default_if_none:'' }}">
                       {% if c.rank_index or c.rank_index == 0 %}
                         {{ c.rank_index|floatformat:0 }}
                       {% else %}
                         —
                       {% endif %}
                     </td>
-                    <td class="text-right">
-                      {% if c.weight_display %}
-                        {{ c.weight_display }}
+                    <td class="text-center" data-order="{{ c.weight|default_if_none:c.port_weight }}">
+                      {% if c.weight_display_whole %}
+                        {{ c.weight_display_whole }}
                       {% elif c.weight or c.weight == 0 %}
-                        {{ c.weight|floatformat:1 }}%
+                        {{ c.weight|floatformat:0 }}%
                       {% elif c.port_weight or c.port_weight == 0 %}
-                        {{ c.port_weight|floatformat:1 }}%
+                        {{ c.port_weight|floatformat:0 }}%
                       {% else %}
                         —
                       {% endif %}
                     </td>
-                    <td>
+                    <td class="text-left">
                       <div class="tech100-company">
                         <span class="tech100-company__name">{{ c.company_name|default:"—" }}</span>
                         {% if c.ticker %}
@@ -124,7 +126,7 @@
                         {% endif %}
                       </div>
                     </td>
-                    <td class="text-right">
+                    <td class="text-center" data-order="{{ c.aiges_composite|default_if_none:'' }}">
                       {% if c.aiges_composite or c.aiges_composite == 0 %}
                         {{ c.aiges_composite|floatformat:1 }}
                       {% else %}
