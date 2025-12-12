@@ -1,18 +1,14 @@
 name: Sanity
+
 on:
   pull_request:
     paths:
+      - ".github/workflows/**"
+      - "website_django/**"
       - "**/*.py"
       - "**/*.sh"
-      - "app/**"
-      - "ops/**"
-      - "retrieval/**"
-      - "scripts/**"
-      - "tools/**"
-      - "website_django/**"
-      - "tests/**"
-      - ".github/workflows/**"
   workflow_dispatch:
+
 jobs:
   sanity:
     runs-on: ubuntu-latest
@@ -20,46 +16,49 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/website_django
       DJANGO_SETTINGS_MODULE: core.settings
       DJANGO_SECRET_KEY: test-secret-key
+
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch main
-        run: git fetch origin main --depth=1
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Detect changed areas
+
+      # Determine what changed in the PR WITHOUT relying on git merge-base.
+      - name: Detect changed paths
         id: changes
-        run: |
-          git diff --name-only origin/main...HEAD > /tmp/changed_files
-          website_changed=false
-          if grep -qE '^website_django/' /tmp/changed_files; then
-            website_changed=true
-          fi
-          echo "website_changed=$website_changed" >> "$GITHUB_OUTPUT"
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            website:
+              - 'website_django/**'
+
       - name: Fail on conflict markers
         run: |
-          # Exclude the committed venv from conflict-marker scan (its METADATA files contain "======" lines).
           ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ':(exclude)website_django/venv/**' || \
             (echo 'ERROR: conflict markers present' && exit 1)
-      - name: Install deps
+
+      # Only set up Python + deps if website_django changed
+      - uses: actions/setup-python@v5
+        if: steps.changes.outputs.website == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal test deps (VM2 only)
+        if: steps.changes.outputs.website == 'true'
         run: |
           python -m pip install -U pip wheel
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          python -m pip install \
-            Django==5.2.8 \
-            pytest \
-            pytest-django
-      - name: Compile tree
-        if: steps.changes.outputs.website_changed == 'true'
+          python -m pip install Django==5.2.8 pytest pytest-django
+
+      - name: Compile website tree
+        if: steps.changes.outputs.website == 'true'
         run: python -m compileall -q website_django
-      - name: Run tests
-        if: steps.changes.outputs.website_changed == 'true'
+
+      - name: Run website tests
+        if: steps.changes.outputs.website == 'true'
         run: pytest -q website_django/core/tests/test_api_client.py
+
       - name: Sanity guidance
         if: failure()
         run: |
           {
             echo "## Sanity check failed";
-            echo "- Inspect the compile/test output above for failing modules or tests.";
-            echo "- Common fixes: update dependencies, refresh fixtures, or adjust failing assertions.";
+            echo "- Inspect the logs above.";
+            echo "- This workflow only runs VM2 checks when website_django/** changes.";
           } >> "$GITHUB_STEP_SUMMARY"
