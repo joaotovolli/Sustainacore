@@ -105,28 +105,18 @@
   }
 
   async function loadAvailableRebalanceDates() {
-    const params = new URLSearchParams({ limit: "2000" });
+    const params = new URLSearchParams({ limit: "200" });
     try {
-      const response = await fetch(`/api/tech100?${params.toString()}`);
+      const response = await fetch(`/api/tech100/rebalance_dates?${params.toString()}`);
       if (!response.ok) {
         return [];
       }
       const payload = await response.json();
-      const items = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload.items)
-        ? payload.items
-        : [];
+      const items = Array.isArray(payload?.items) ? payload.items : [];
 
-      const distinct = new Set();
-      items.forEach((item) => {
-        const value = item && typeof item.port_date === "string" ? item.port_date : null;
-        if (value) {
-          distinct.add(value);
-        }
-      });
-
-      return Array.from(distinct).sort((a, b) => (a < b ? 1 : -1));
+      return items
+        .filter((value) => typeof value === "string" && Boolean(value))
+        .sort((a, b) => (a < b ? 1 : -1));
     } catch (error) {
       console.error("Unable to load TECH100 rebalance dates", error);
       return [];

@@ -1604,6 +1604,52 @@ def api_tech100():
     return jsonify({"items": items, "count": len(items)}), 200
 
 
+@app.route("/api/tech100/rebalance_dates", methods=["GET"])
+def api_tech100_rebalance_dates():
+    auth = _api_auth_or_unauthorized()
+    if auth is not None:
+        return auth
+
+    try:
+        from db_helper import _to_plain, get_connection  # type: ignore
+    except Exception as exc:
+        _LOGGER.exception("api_tech100_rebalance_dates helper import failed", exc_info=exc)
+        return (
+            jsonify({"error": "backend_failure", "message": "Unable to load TECH100 dates."}),
+            500,
+        )
+
+    limit = _sanitize_limit(request.args.get("limit"), default=200)
+
+    sql = (
+        "SELECT DISTINCT port_date FROM tech11_ai_gov_eth_index "
+        "WHERE port_date IS NOT NULL "
+        "ORDER BY port_date DESC FETCH FIRST :limit ROWS ONLY"
+    )
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, {"limit": limit})
+            rows = cur.fetchall()
+    except Exception as exc:
+        _LOGGER.exception("api_tech100_rebalance_dates query failed", exc_info=exc)
+        return (
+            jsonify({"error": "backend_failure", "message": "Unable to load TECH100 dates."}),
+            500,
+        )
+
+    items: List[str] = []
+    for raw in rows:
+        formatted = _format_date(_to_plain(raw[0]))
+        if formatted:
+            items.append(formatted)
+
+    _API_LOGGER.info("/api/tech100/rebalance_dates count=%d", len(items))
+
+    return jsonify({"items": items}), 200
+
+
 @app.route("/api/news", methods=["GET"])
 def api_news():
     auth = _api_auth_optional()
