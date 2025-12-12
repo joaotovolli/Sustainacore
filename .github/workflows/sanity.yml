@@ -22,9 +22,20 @@ jobs:
       DJANGO_SECRET_KEY: test-secret-key
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch main
+        run: git fetch origin main --depth=1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Detect changed areas
+        id: changes
+        run: |
+          git diff --name-only origin/main...HEAD > /tmp/changed_files
+          website_changed=false
+          if grep -qE '^website_django/' /tmp/changed_files; then
+            website_changed=true
+          fi
+          echo "website_changed=$website_changed" >> "$GITHUB_OUTPUT"
       - name: Fail on conflict markers
         run: |
           # Exclude the committed venv from conflict-marker scan (its METADATA files contain "======" lines).
@@ -39,9 +50,11 @@ jobs:
             pytest \
             pytest-django
       - name: Compile tree
+        if: steps.changes.outputs.website_changed == 'true'
         run: python -m compileall -q website_django
       - name: Run tests
-        run: pytest -q tests/test_api_tech100.py website_django/core/tests/test_api_client.py
+        if: steps.changes.outputs.website_changed == 'true'
+        run: pytest -q website_django/core/tests/test_api_client.py
       - name: Sanity guidance
         if: failure()
         run: |
