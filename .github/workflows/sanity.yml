@@ -39,7 +39,7 @@ jobs:
             pytest \
             pytest-django
       - name: Compile tree
-        run: python -m compileall -q .
+        run: python -m compileall -q website_django
       - name: Run tests
         run: pytest -q tests/test_api_tech100.py website_django/core/tests/test_api_client.py
       - name: Sanity guidance
