@@ -13,7 +13,12 @@ APP_PATH = pathlib.Path(__file__).resolve().parents[2] / "app"
 if str(APP_PATH) not in sys.path:
     sys.path.insert(0, str(APP_PATH))
 
-from index_engine.db import fetch_constituent_tickers, upsert_prices_canon, upsert_prices_raw
+from index_engine.db import (
+    fetch_constituent_tickers,
+    get_current_user,
+    upsert_prices_canon,
+    upsert_prices_raw,
+)
 from index_engine.reconcile import reconcile_canonical
 from providers.twelvedata import fetch_eod_prices
 
@@ -153,11 +158,49 @@ def _print_summary(raw_rows: list[dict], canon_rows: list[dict]) -> None:
     )
 
 
+def _print_debug(
+    *,
+    dates: list[_dt.date],
+    tickers_by_date: dict[_dt.date, list[str]],
+    all_tickers: list[str],
+    provider_called: bool,
+    provider_rows: list[dict],
+    raw_rows: list[dict],
+    canon_rows: list[dict],
+    provider_error: str | None,
+    oracle_user: str | None,
+    oracle_user_error: str | None,
+) -> None:
+    print(f"debug: dates={len(dates)} total_unique_tickers={len(all_tickers)}")
+    for trade_date in sorted(tickers_by_date):
+        tickers = tickers_by_date.get(trade_date) or []
+        preview = ", ".join(tickers[:5])
+        suffix = f" preview=[{preview}]" if preview else ""
+        print(f"debug: {trade_date.isoformat()} tickers={len(tickers)}{suffix}")
+    if oracle_user:
+        print(f"debug: oracle_user={oracle_user}")
+    elif oracle_user_error:
+        print(f"debug: oracle_user_lookup_failed={oracle_user_error}")
+
+    if provider_error:
+        print(f"debug: provider_error={provider_error}")
+
+    print(
+        "debug: provider_called={called} provider_rows={provider_rows} raw_rows={raw_rows} canon_rows={canon_rows}".format(
+            called=provider_called,
+            provider_rows=len(provider_rows),
+            raw_rows=len(raw_rows),
+            canon_rows=len(canon_rows),
+        )
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ingest TECH100 EOD prices")
     parser.add_argument("--date", help="single trade date (YYYY-MM-DD)")
     parser.add_argument("--start", help="start date inclusive (YYYY-MM-DD)")
     parser.add_argument("--end", help="end date inclusive (YYYY-MM-DD)")
+    parser.add_argument("--debug", action="store_true", help="print ingest diagnostics")
 
     args = parser.parse_args(argv)
 
@@ -173,11 +216,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Failed to load constituents: {exc}")
         return 1
 
+    oracle_user = None
+    oracle_user_error = None
+    if args.debug:
+        try:
+            oracle_user = get_current_user()
+        except Exception as exc:  # pragma: no cover - defensive diagnostics
+            oracle_user_error = str(exc)
+
     all_tickers = sorted({t for vals in tickers_by_date.values() for t in vals})
     provider_rows: list[dict] = []
     provider_error: str | None = None
+    provider_called = False
 
     if all_tickers:
+        provider_called = True
         try:
             provider_rows = fetch_eod_prices(
                 all_tickers,
@@ -195,6 +248,20 @@ def main(argv: list[str] | None = None) -> int:
     canon_rows = compute_canonical_rows(raw_rows)
     if canon_rows:
         upsert_prices_canon(canon_rows)
+
+    if args.debug:
+        _print_debug(
+            dates=dates,
+            tickers_by_date=tickers_by_date,
+            all_tickers=all_tickers,
+            provider_called=provider_called,
+            provider_rows=provider_rows,
+            raw_rows=raw_rows,
+            canon_rows=canon_rows,
+            provider_error=provider_error,
+            oracle_user=oracle_user,
+            oracle_user_error=oracle_user_error,
+        )
 
     _print_summary(raw_rows, canon_rows)
     return 0
