@@ -389,6 +389,18 @@ a:hover {
     text-align: right;
 }
 
+.text-left {
+    text-align: left;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-right {
+    text-align: right;
+}
+
 .table__note {
     margin-top: 0.8rem;
 }
