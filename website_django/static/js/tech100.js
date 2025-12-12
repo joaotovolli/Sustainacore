@@ -171,10 +171,7 @@
 
     rebalanceSelect.value = targetValue;
 
-    if (
-      (!hasPortDateQuery && latestValue) ||
-      (hasPortDateQuery && paramPortDate !== targetValue && targetValue)
-    ) {
+    if (!hasPortDateQuery && targetValue) {
       requestFilterSubmit();
     }
   }

@@ -1543,7 +1543,7 @@ def api_tech100():
     )
     if where_clauses:
         sql += " WHERE " + " AND ".join(where_clauses)
-    sql += " ORDER BY port_date, rank_index NULLS LAST FETCH FIRST :limit ROWS ONLY"
+    sql += " ORDER BY port_date DESC, rank_index NULLS LAST FETCH FIRST :limit ROWS ONLY"
     binds["limit"] = limit
 
     try:
