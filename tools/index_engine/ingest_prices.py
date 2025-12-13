@@ -7,7 +7,7 @@ import http.client  # preload stdlib http to avoid app.http shadowing
 import pathlib
 import sys
 from collections import defaultdict
-from typing import Iterable
+from typing import Iterable, List, Optional
 
 APP_PATH = pathlib.Path(__file__).resolve().parents[2] / "app"
 if str(APP_PATH) not in sys.path:
@@ -38,10 +38,21 @@ def _parse_dates(args: argparse.Namespace) -> list[_dt.date]:
     raise ValueError("Provide --date or both --start and --end")
 
 
-def _collect_constituents(dates: Iterable[_dt.date]) -> dict[_dt.date, list[str]]:
+def _split_tickers(raw: Optional[str]) -> list[str]:
+    if not raw:
+        return []
+    tickers: List[str] = []
+    for part in raw.split(","):
+        cleaned = part.strip().upper()
+        if cleaned:
+            tickers.append(cleaned)
+    return tickers
+
+
+def _collect_constituents(dates: Iterable[_dt.date], override: list[str] | None = None) -> dict[_dt.date, list[str]]:
     tickers_by_date: dict[_dt.date, list[str]] = {}
     for trade_date in dates:
-        tickers_by_date[trade_date] = fetch_constituent_tickers(trade_date)
+        tickers_by_date[trade_date] = override or fetch_constituent_tickers(trade_date)
     return tickers_by_date
 
 
@@ -200,9 +211,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", help="single trade date (YYYY-MM-DD)")
     parser.add_argument("--start", help="start date inclusive (YYYY-MM-DD)")
     parser.add_argument("--end", help="end date inclusive (YYYY-MM-DD)")
+    parser.add_argument("--tickers", help="comma-separated ticker override")
     parser.add_argument("--debug", action="store_true", help="print ingest diagnostics")
 
     args = parser.parse_args(argv)
+
+    manual_tickers = _split_tickers(args.tickers)
 
     try:
         dates = _parse_dates(args)
@@ -211,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        tickers_by_date = _collect_constituents(dates)
+        tickers_by_date = _collect_constituents(dates, manual_tickers)
     except Exception as exc:
         print(f"Failed to load constituents: {exc}")
         return 1
