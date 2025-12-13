@@ -1,20 +1,30 @@
 """Twelve Data EOD price fetcher (throttled for free tier limits)."""
 from __future__ import annotations
 
+import datetime as _dt
 import json
+import logging
 import os
 import time
 import http.client  # preload stdlib http to avoid app.http shadowing
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 API_URL = "https://api.twelvedata.com/time_series"
+_API_BASE = "https://api.twelvedata.com"
+_API_KEY_ENV_VARS = ("SC_TWELVEDATA_API_KEY", "TWELVEDATA_API_KEY")
 RATE_LIMIT_PER_MIN = 8
 MAX_RETRIES = 5
 _TOKENS = RATE_LIMIT_PER_MIN
 _RESET_AT = time.time() + 60.0
+_LOGGER = logging.getLogger(__name__)
+_urlopen = urllib.request.urlopen
+
+
+class TwelveDataError(RuntimeError):
+    """Raised when Twelve Data returns an unexpected error."""
 
 
 def _to_float(value):
@@ -35,7 +45,34 @@ def _to_int(value):
         return None
 
 
-def _build_url(ticker: str, start: str, end: str, api_key: str) -> str:
+def _coerce_int(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_date(raw: Any) -> Optional[_dt.date]:
+    if raw is None:
+        return None
+    text = str(raw)
+    try:
+        return _dt.date.fromisoformat(text)
+    except ValueError:
+        try:
+            return _dt.datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+
+
+def _extract_trade_date(entry: Dict[str, Any]) -> Optional[_dt.date]:
+    for key in ("trade_date", "datetime", "date"):
+        if key in entry:
+            return _coerce_date(entry.get(key))
+    return None
+
+
+def _build_time_series_url(ticker: str, start: str, end: str, api_key: str) -> str:
     params = {
         "symbol": ticker,
         "interval": "1day",
@@ -119,7 +156,7 @@ def _fetch_ticker(
     api_key: str,
     max_retries: int = MAX_RETRIES,
 ) -> list[dict]:
-    url = _build_url(ticker, start, end, api_key)
+    url = _build_time_series_url(ticker, start, end, api_key)
     request = urllib.request.Request(url, headers={"User-Agent": "sustainacore-index-engine"})
 
     for attempt in range(1, max_retries + 1):
@@ -166,7 +203,7 @@ def fetch_eod_prices(tickers: Iterable[str], start: str, end: str) -> list[dict]
     if not tickers_list:
         return []
 
-    api_key = os.getenv("TWELVEDATA_API_KEY")
+    api_key = os.getenv("TWELVEDATA_API_KEY") or os.getenv("SC_TWELVEDATA_API_KEY")
     if not api_key:
         raise RuntimeError("TWELVEDATA_API_KEY is not set")
 
@@ -174,3 +211,141 @@ def fetch_eod_prices(tickers: Iterable[str], start: str, end: str) -> list[dict]
     for ticker in sorted(set(tickers_list)):
         rows.extend(_fetch_ticker(ticker, start, end, api_key))
     return rows
+
+
+def _build_api_url(path: str, params: Dict[str, Any]) -> str:
+    safe_params = {k: v for k, v in params.items() if v is not None}
+    return f"{_API_BASE}/{path}?{urllib.parse.urlencode(safe_params)}"
+
+
+def _get_api_key(explicit: Optional[str] = None) -> str:
+    if explicit:
+        return explicit
+    for env_var in _API_KEY_ENV_VARS:
+        raw = os.getenv(env_var)
+        if raw:
+            return raw.strip()
+    raise TwelveDataError("TWELVEDATA_API_KEY is not configured")
+
+
+def _request_json(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    url = _build_api_url(path, params)
+    req = urllib.request.Request(url)
+    try:
+        with _urlopen(req, timeout=30) as resp:
+            payload = resp.read()
+    except urllib.error.HTTPError as exc:  # pragma: no cover - exercised via URLError branch
+        payload = exc.read()
+    except urllib.error.URLError as exc:
+        raise TwelveDataError(f"Unable to reach Twelve Data: {exc.reason}") from exc
+
+    try:
+        return json.loads(payload.decode("utf-8"))
+    except Exception as exc:
+        raise TwelveDataError("Malformed response from Twelve Data") from exc
+
+
+def fetch_api_usage(api_key: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch the current API usage/plan details."""
+
+    key = _get_api_key(api_key)
+    payload = _request_json("api_usage", {"apikey": key})
+
+    if isinstance(payload, dict) and payload.get("status") == "error":
+        message = payload.get("message") or "unknown error"
+        raise TwelveDataError(f"Twelve Data api_usage error: {message}")
+
+    return {
+        "timestamp": payload.get("timestamp") or payload.get("datetime"),
+        "current_usage": _coerce_int(payload.get("current_usage")),
+        "plan_limit": _coerce_int(payload.get("plan_limit") or payload.get("api_limit")),
+        "plan_category": payload.get("plan_category") or payload.get("plan") or payload.get("plan_id"),
+    }
+
+
+def remaining_credits(usage: Dict[str, Any]) -> int:
+    """Compute remaining credits from an api_usage payload."""
+
+    plan_limit = _coerce_int(usage.get("plan_limit"))
+    current_usage = _coerce_int(usage.get("current_usage"))
+
+    if plan_limit is None or current_usage is None:
+        return 0
+
+    remaining = plan_limit - current_usage
+    return remaining if remaining > 0 else 0
+
+
+def fetch_time_series(
+    ticker: str,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    *,
+    api_key: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch daily time series data for the given ticker."""
+
+    key = _get_api_key(api_key)
+    payload = _request_json(
+        "time_series",
+        {
+            "symbol": ticker,
+            "interval": "1day",
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "order": "ASC",
+            "apikey": key,
+        },
+    )
+
+    if payload.get("status") == "error":
+        message = payload.get("message") or "unknown error"
+        if "no data is available" in message.lower():
+            return []
+        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {message}")
+
+    values = payload.get("values") or payload.get("data") or []
+    if not isinstance(values, list):
+        return []
+    return values
+
+
+def has_eod_for_date(ticker: str, date: _dt.date, *, api_key: Optional[str] = None) -> bool:
+    """Return True if Twelve Data already exposes an end-of-day bar for the date."""
+
+    key = _get_api_key(api_key)
+    payload = _request_json(
+        "time_series",
+        {
+            "symbol": ticker,
+            "interval": "1day",
+            "start_date": date.isoformat(),
+            "end_date": date.isoformat(),
+            "outputsize": 1,
+            "apikey": key,
+        },
+    )
+
+    message = str(payload.get("message") or "").lower()
+    if payload.get("status") == "error":
+        if "no data is available" in message:
+            return False
+        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+
+    values: Iterable[Dict[str, Any]] = payload.get("values") or payload.get("data") or []
+    for entry in values:
+        trade_date = _extract_trade_date(entry)
+        if trade_date == date:
+            return True
+    return False
+
+
+__all__ = [
+    "fetch_api_usage",
+    "fetch_eod_prices",
+    "fetch_time_series",
+    "has_eod_for_date",
+    "remaining_credits",
+    "TwelveDataError",
+]
+

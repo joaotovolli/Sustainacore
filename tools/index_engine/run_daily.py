@@ -1,10 +1,10 @@
-"""Wrapper to run daily SC_IDX backfill up to the latest completed trading day."""
+"""Wrapper to run daily SC_IDX backfill with Twelve Data budgeting."""
 from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import os
 import sys
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,40 +13,72 @@ if str(ROOT) not in sys.path:
 
 from tools.index_engine import ingest_prices
 from index_engine.db import fetch_constituent_tickers
+from providers import twelvedata
 
 DEFAULT_START = _dt.date(2025, 1, 2)
-CHUNK_SIZE = 2  # keep under 8 credits/minute
-SLEEP_SECONDS = 15
+DEFAULT_BUFFER = 25
+BUFFER_ENV = "SC_IDX_TWELVEDATA_CREDIT_BUFFER"
+PROBE_SYMBOL_ENV = "SC_IDX_PROBE_SYMBOL"
 
 
 def _parse_date(value: str) -> _dt.date:
     return _dt.date.fromisoformat(value)
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _select_end_date(probe_symbol: str, today_utc: _dt.date) -> _dt.date:
+    try:
+        if twelvedata.has_eod_for_date(probe_symbol, today_utc):
+            return today_utc
+    except Exception as exc:
+        print(
+            f"warning: falling back to yesterday; could not probe {probe_symbol}: {exc}",
+            file=sys.stderr,
+        )
+    return today_utc - _dt.timedelta(days=1)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run SC_IDX daily backfill (TwelveData)")
-    parser.add_argument(
-        "--start",
-        help="start date (YYYY-MM-DD), default 2025-01-02",
-    )
-    parser.add_argument(
-        "--end",
-        help="end date (YYYY-MM-DD), default yesterday UTC",
-    )
-    parser.add_argument(
-        "--tickers",
-        help="comma-separated ticker override (optional)",
-    )
+    parser.add_argument("--start", help="start date (YYYY-MM-DD), default 2025-01-02")
+    parser.add_argument("--end", help="end date (YYYY-MM-DD); default probes today vs yesterday")
+    parser.add_argument("--tickers", help="comma-separated ticker override (optional)")
 
     args = parser.parse_args(argv)
 
-    start_date = _parse_date(args.start) if args.start else DEFAULT_START
-    if args.end:
-        end_date = _parse_date(args.end)
-    else:
-        end_date = _dt.datetime.utcnow().date() - _dt.timedelta(days=1)
+    try:
+        usage = twelvedata.fetch_api_usage()
+    except Exception as exc:
+        print(f"error fetching Twelve Data usage: {exc}", file=sys.stderr)
+        return 1
 
-    if end_date < start_date:
+    remaining = twelvedata.remaining_credits(usage)
+    buffer = _env_int(BUFFER_ENV, DEFAULT_BUFFER)
+    max_provider_calls = max(0, remaining - buffer - 1)
+
+    today_utc = _dt.datetime.now(_dt.timezone.utc).date()
+    end_date = _parse_date(args.end) if args.end else _select_end_date(os.getenv(PROBE_SYMBOL_ENV, "AAPL"), today_utc)
+    start_date = _parse_date(args.start) if args.start else DEFAULT_START
+
+    print(
+        f"index_engine_daily: end={end_date.isoformat()} remaining={remaining} "
+        f"buffer={buffer} max_provider_calls={max_provider_calls}"
+    )
+
+    if max_provider_calls <= 0:
+        print("budget_stop: provider_calls_used=0 max_provider_calls=0")
+        return 0
+
+    if start_date > end_date:
         print(f"Invalid date range: start={start_date} end={end_date}")
         return 1
 
@@ -59,25 +91,21 @@ def main(argv: list[str] | None = None) -> int:
         print("No tickers returned; aborting")
         return 1
 
-    print(f"Running SC_IDX backfill from {start_date} to {end_date} for {len(tickers)} tickers")
-    rc = 0
-    for idx in range(0, len(tickers), CHUNK_SIZE):
-        chunk = tickers[idx : idx + CHUNK_SIZE]
-        print(f"  chunk {idx // CHUNK_SIZE + 1}: {', '.join(chunk)}")
-        cli_args = [
-            "--start",
-            start_date.isoformat(),
-            "--end",
-            end_date.isoformat(),
-            "--tickers",
-            ",".join(chunk),
-        ]
-        result = ingest_prices.main(cli_args)
-        rc = rc or result
-        if idx + CHUNK_SIZE < len(tickers):
-            time.sleep(SLEEP_SECONDS)
-    return rc
+    ingest_args = [
+        "--backfill",
+        "--start",
+        start_date.isoformat(),
+        "--end",
+        end_date.isoformat(),
+        "--tickers",
+        ",".join(tickers),
+        "--max-provider-calls",
+        str(max_provider_calls),
+    ]
+
+    return ingest_prices.main(ingest_args)
 
 
 if __name__ == "__main__":
     sys.exit(main())
+

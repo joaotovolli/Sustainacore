@@ -8,16 +8,15 @@ import pathlib
 import sys
 from collections import defaultdict
 from typing import Iterable, List, Optional
-from typing import Optional
 
 APP_PATH = pathlib.Path(__file__).resolve().parents[2] / "app"
 if str(APP_PATH) not in sys.path:
     sys.path.insert(0, str(APP_PATH))
 
 from index_engine.db import (
+    fetch_constituent_tickers,
     fetch_distinct_tech100_tickers,
     fetch_max_ok_trade_date,
-    fetch_constituent_tickers,
     get_current_user,
     upsert_prices_canon,
     upsert_prices_raw,
@@ -49,7 +48,6 @@ def _split_tickers(raw: Optional[str]) -> list[str]:
     if not raw:
         return []
     tickers: List[str] = []
-    tickers: list[str] = []
     for part in raw.split(","):
         cleaned = part.strip().upper()
         if cleaned:
@@ -132,13 +130,13 @@ def compute_canonical_rows(raw_rows: list[dict]) -> list[dict]:
     return canon_rows
 
 
-def _print_summary(raw_rows: list[dict], canon_rows: list[dict]) -> None:
+def _print_summary(raw_rows: list[dict], canon_rows: list[dict], provider_calls_used: int | None = None) -> None:
     status_counts = {"OK": 0, "MISSING": 0, "ERROR": 0}
     for row in raw_rows:
         status = row.get("status")
         if status in status_counts:
             status_counts[status] += 1
-    print(
+    summary = (
         "rows_ok={ok} rows_missing={missing} rows_error={error} canon_written={canon}".format(
             ok=status_counts["OK"],
             missing=status_counts["MISSING"],
@@ -146,6 +144,9 @@ def _print_summary(raw_rows: list[dict], canon_rows: list[dict]) -> None:
             canon=len(canon_rows),
         )
     )
+    if provider_calls_used is not None:
+        summary = f"{summary} provider_calls_used={provider_calls_used}"
+    print(summary)
 
 
 def _print_debug(
@@ -161,6 +162,7 @@ def _print_debug(
     oracle_user: str | None,
     oracle_user_error: str | None,
     backfill: bool = False,
+    provider_calls_used: int | None = None,
 ) -> None:
     print(f"debug: dates={len(dates)} total_unique_tickers={len(all_tickers)} backfill={backfill}")
     if tickers_by_date:
@@ -177,27 +179,20 @@ def _print_debug(
     if provider_error:
         print(f"debug: provider_error={provider_error}")
 
+    budget_note = ""
+    if provider_calls_used is not None:
+        budget_note = f" provider_calls_used={provider_calls_used}"
+
     print(
-        "debug: provider_called={called} provider_rows={provider_rows} raw_rows={raw_rows} canon_rows={canon_rows}".format(
+        "debug: provider_called={called} provider_rows={provider_rows} raw_rows={raw_rows} canon_rows={canon_rows}{budget}".format(
             called=provider_called,
             provider_rows=len(provider_rows),
             raw_rows=len(raw_rows),
             canon_rows=len(canon_rows),
+            budget=budget_note,
         )
     )
 
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Ingest TECH100 EOD prices")
-    parser.add_argument("--date", help="single trade date (YYYY-MM-DD)")
-    parser.add_argument("--start", help="start date inclusive (YYYY-MM-DD)")
-    parser.add_argument("--end", help="end date inclusive (YYYY-MM-DD)")
-    parser.add_argument("--tickers", help="comma-separated ticker override")
-    parser.add_argument("--debug", action="store_true", help="print ingest diagnostics")
-
-    args = parser.parse_args(argv)
-
-    manual_tickers = _split_tickers(args.tickers)
 
 def _run_single(args: argparse.Namespace) -> int:
     try:
@@ -210,8 +205,6 @@ def _run_single(args: argparse.Namespace) -> int:
     manual_tickers = _split_tickers(args.tickers)
     try:
         tickers_by_date = _collect_constituents(dates, manual_tickers)
-        for trade_date in dates:
-            tickers_by_date[trade_date] = manual_tickers or fetch_constituent_tickers(trade_date)
     except Exception as exc:
         print(f"Failed to load constituents: {exc}")
         return 1
@@ -278,6 +271,9 @@ def _run_backfill(args: argparse.Namespace) -> int:
         print("Invalid date range: end must be on or after start")
         return 1
 
+    max_provider_calls = args.max_provider_calls
+    provider_calls_used = 0
+
     oracle_user = None
     oracle_user_error = None
     if args.debug:
@@ -299,6 +295,13 @@ def _run_backfill(args: argparse.Namespace) -> int:
     provider_error: str | None = None
 
     for ticker in tickers:
+        if max_provider_calls is not None and provider_calls_used >= max_provider_calls:
+            print(
+                f"budget_stop: provider_calls_used={provider_calls_used} "
+                f"max_provider_calls={max_provider_calls}"
+            )
+            break
+
         provider_error = None
         try:
             max_ok = fetch_max_ok_trade_date(ticker, PROVIDER)
@@ -312,6 +315,7 @@ def _run_backfill(args: argparse.Namespace) -> int:
                 continue
             ticker_start = max(max_ok + _dt.timedelta(days=1), start_date)
 
+        provider_calls_used += 1
         try:
             provider_rows = fetch_eod_prices(
                 [ticker],
@@ -343,11 +347,12 @@ def _run_backfill(args: argparse.Namespace) -> int:
                 oracle_user=oracle_user,
                 oracle_user_error=oracle_user_error,
                 backfill=True,
+                provider_calls_used=provider_calls_used,
             )
 
     print(
-        "backfill_summary: raw_upserts={raw} canon_upserts={canon}".format(
-            raw=total_raw, canon=total_canon
+        "backfill_summary: raw_upserts={raw} canon_upserts={canon} provider_calls_used={calls}".format(
+            raw=total_raw, canon=total_canon, calls=provider_calls_used
         )
     )
     return 0
@@ -361,6 +366,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backfill", action="store_true", help="run in backfill mode")
     parser.add_argument("--tickers", help="comma-separated ticker list override")
     parser.add_argument("--debug", action="store_true", help="print ingest diagnostics")
+    parser.add_argument(
+        "--max-provider-calls",
+        type=int,
+        default=None,
+        help="Maximum Twelve Data requests to issue in backfill mode.",
+    )
 
     args = parser.parse_args(argv)
 
@@ -371,3 +382,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
