@@ -1,13 +1,14 @@
 ## SC_IDX daily price ingest (systemd)
 
-Units live in this repo under `infra/systemd/`:
+Units live under `infra/systemd/`:
 - `sc-idx-price-ingest.service`
 - `sc-idx-price-ingest.timer`
 
 ### Behavior
 - Runs incremental backfill up to yesterday UTC via `/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/run_daily.py`.
-- Default range: start `2025-01-02` to `end = (UTC today - 1 day)`, chunked tickers to stay under TwelveData free-tier limits.
-- Environment files loaded: `/etc/sustainacore/db.env`, `/etc/sustainacore-ai/secrets.env`.
+- Default range: start `2025-01-02` to `end = (UTC today - 1 day)`, ticker batches sized to stay under TwelveData free-tier limits.
+- Environment files loaded on VM1: `/etc/sustainacore/db.env`, `/etc/sustainacore-ai/secrets.env`.
+- Timer schedule: **23:30 UTC** daily with `Persistent=true` so missed runs catch up on restart.
 
 ### Install / enable
 ```bash
@@ -31,7 +32,10 @@ Override tickers if needed:
 python tools/index_engine/run_daily.py --tickers MSFT,GOOGL
 ```
 
-### Logs
-```bash
-sudo journalctl -u sc-idx-price-ingest.service -n 200 --no-pager
-```
+### Troubleshooting
+- Check timer status/schedule: `systemctl list-timers sc-idx-price-ingest.timer`
+- Check last run + logs: `sudo journalctl -u sc-idx-price-ingest.service -n 200 --no-pager`
+- Common causes of `rows_ok=0`:
+  - Weekend/market holiday (no provider data).
+  - Ticker mapping issues (symbol not recognized by TwelveData).
+  - Upstream throttling (wait and rerun the service).
