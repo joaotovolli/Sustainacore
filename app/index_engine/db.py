@@ -56,6 +56,44 @@ def get_current_user() -> Optional[str]:
         return str(row[0]).strip()
 
 
+def fetch_distinct_tech100_tickers() -> list[str]:
+    """Return all distinct TECH100 tickers (ignores date)."""
+
+    sql = "SELECT DISTINCT ticker FROM tech11_ai_gov_eth_index WHERE ticker IS NOT NULL ORDER BY ticker"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+        tickers: list[str] = []
+        for row in rows:
+            if not row or row[0] is None:
+                continue
+            cleaned = str(row[0]).strip().upper()
+            if cleaned:
+                tickers.append(cleaned)
+        return tickers
+
+
+def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:
+    """Return the latest trade_date with status OK for the ticker/provider."""
+
+    sql = (
+        "SELECT MAX(trade_date) "
+        "FROM SC_IDX_PRICES_RAW "
+        "WHERE ticker = :ticker AND provider = :provider AND status = 'OK'"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"ticker": ticker, "provider": provider})
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
 def upsert_prices_raw(rows: Iterable[Mapping]) -> int:
     """Upsert rows into SC_IDX_PRICES_RAW. Returns affected row count."""
 
