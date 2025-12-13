@@ -2,6 +2,8 @@ import datetime as dt
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
+import sys
 
 
 def _load_provider():
@@ -16,7 +18,10 @@ def _load_provider():
 
 twelvedata = _load_provider()
 def _load_ingest():
-    module_path = Path(__file__).resolve().parent.parent / "tools" / "index_engine" / "ingest_prices.py"
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    module_path = repo_root / "tools" / "index_engine" / "ingest_prices.py"
     spec = importlib.util.spec_from_file_location("ingest_prices_test", module_path)
     if spec is None or spec.loader is None:
         raise ImportError("Unable to import ingest_prices for tests")
@@ -63,32 +68,48 @@ def test_fetch_api_usage_parsing_and_remaining(monkeypatch):
     assert twelvedata.remaining_credits(usage) == payload["plan_limit"] - payload["current_usage"]
 
 
-def test_backfill_halts_when_budget_reached(tmp_path: Path, capsys):
-    start = dt.date(2025, 1, 1)
-    end = dt.date(2025, 1, 5)
+def test_backfill_halts_when_budget_reached(monkeypatch, capsys):
     calls = []
 
-    def _fake_fetch(ticker: str, start_date: dt.date, end_date: dt.date):
-        calls.append(ticker)
-        return [{"datetime": start_date.isoformat(), "close": "1"}]
-
-    summary = ingest_prices.backfill_prices(
-        ["AAA", "BBB", "CCC"],
-        start,
-        end,
-        max_provider_calls=2,
-        fetcher=_fake_fetch,
-        data_dir=tmp_path,
-        sleep_seconds=0,
+    monkeypatch.setattr(ingest_prices, "fetch_distinct_tech100_tickers", lambda: ["AAA", "BBB", "CCC"])
+    monkeypatch.setattr(
+        ingest_prices,
+        "fetch_max_ok_trade_date",
+        lambda ticker, provider: None,
     )
+    monkeypatch.setattr(
+        ingest_prices,
+        "upsert_prices_raw",
+        lambda rows: len(rows),
+    )
+    monkeypatch.setattr(
+        ingest_prices,
+        "upsert_prices_canon",
+        lambda rows: len(rows),
+    )
+
+    def _fake_fetch(tickers, start_date: str, end_date: str):
+        for ticker in tickers:
+            calls.append(ticker)
+        return [{"trade_date": start_date, "ticker": tickers[0], "close": 1}]
+
+    monkeypatch.setattr(ingest_prices, "fetch_eod_prices", _fake_fetch)
+
+    args = SimpleNamespace(
+        start="2025-01-01",
+        end="2025-01-05",
+        backfill=True,
+        tickers=None,
+        debug=False,
+        max_provider_calls=2,
+    )
+
+    rc = ingest_prices._run_backfill(args)  # type: ignore[attr-defined]
     captured = capsys.readouterr()
 
-    assert summary["provider_calls_used"] == 2
+    assert rc == 0
     assert calls == ["AAA", "BBB"]
     assert "budget_stop: provider_calls_used=2 max_provider_calls=2" in captured.out
-    assert (tmp_path / "AAA.jsonl").exists()
-    assert (tmp_path / "BBB.jsonl").exists()
-    assert not (tmp_path / "CCC.jsonl").exists()
 
 
 def test_has_eod_for_date_true(monkeypatch):
