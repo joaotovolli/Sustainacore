@@ -1,3 +1,1 @@
-"""Index engine price ingestion utilities."""
-
-"""Index engine tooling."""
+"""Index engine tooling and price ingestion utilities."""
