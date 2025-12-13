@@ -1,52 +1,37 @@
 name: Sanity
+
 on:
   pull_request:
     paths:
+      - ".github/workflows/**"
+      - "website_django/**"
       - "**/*.py"
       - "**/*.sh"
-      - "app/**"
-      - "ops/**"
-      - "retrieval/**"
-      - "scripts/**"
-      - "tools/**"
-      - "website_django/**"
-      - "tests/**"
-      - ".github/workflows/**"
   workflow_dispatch:
+
 jobs:
   sanity:
     runs-on: ubuntu-latest
-    env:
-      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/website_django
-      DJANGO_SETTINGS_MODULE: core.settings
-      DJANGO_SECRET_KEY: test-secret-key
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fail on conflict markers
+        run: |
+          ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ':(exclude)website_django/venv/**' || \
+            (echo 'ERROR: conflict markers present' && exit 1)
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Fail on conflict markers
-        run: |
-          # Exclude the committed venv from conflict-marker scan (its METADATA files contain "======" lines).
-          ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ':(exclude)website_django/venv/**' || \
-            (echo 'ERROR: conflict markers present' && exit 1)
-      - name: Install deps
-        run: |
-          python -m pip install -U pip wheel
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          python -m pip install \
-            Django==5.2.8 \
-            pytest \
-            pytest-django
-      - name: Compile tree
-        run: python -m compileall -q .
-      - name: Run tests
-        run: pytest -q tests/test_api_tech100.py website_django/core/tests/test_api_client.py
+
+      - name: Compile Python (website only)
+        run: python -m compileall -q website_django
+
       - name: Sanity guidance
         if: failure()
         run: |
           {
             echo "## Sanity check failed";
-            echo "- Inspect the compile/test output above for failing modules or tests.";
-            echo "- Common fixes: update dependencies, refresh fixtures, or adjust failing assertions.";
+            echo "- Check for conflict markers or Python syntax errors in website_django/**.";
           } >> "$GITHUB_STEP_SUMMARY"

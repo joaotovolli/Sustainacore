@@ -24,6 +24,17 @@ def _format_port_weight(value) -> str:
     return f"{num:.{decimals}f}%"
 
 
+def _format_port_weight_whole(value) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return ""
+    rounded = int(round(num))
+    return f"{rounded}%"
+
+
 def _format_score(value) -> str:
     if value is None or value == "":
         return ""
@@ -44,6 +55,16 @@ def _port_date_to_string(value) -> str:
     if isinstance(value, date):
         return value.isoformat()
     return str(value or "").strip()
+
+
+def _format_port_date_display(value) -> str:
+    parsed = _parse_port_date(value)
+    if parsed:
+        return parsed.strftime("%b-%Y")
+    if isinstance(value, (datetime, date)):
+        return datetime.combine(value, datetime.min.time()).strftime("%b-%Y")
+    text = str(value or "").strip()
+    return text
 
 
 def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> List[Dict]:
@@ -350,6 +371,8 @@ def tech100(request):
         if weight_value is None:
             weight_value = port_weight
         formatted_port_weight = _format_port_weight(weight_value) or None
+        formatted_port_weight_whole = _format_port_weight_whole(weight_value) or None
+        port_date_display = _format_port_date_display(latest.get("port_date") or latest.get("port_date_str"))
         history_list = [
             {
                 "port_date": entry.get("port_date"),
@@ -369,6 +392,7 @@ def tech100(request):
                 "ticker": latest.get("ticker"),
                 "port_date": latest.get("port_date"),
                 "port_date_str": latest.get("port_date_str"),
+                "port_date_display": port_date_display,
                 "rank_index": latest.get("rank_index"),
                 "gics_sector": latest.get("gics_sector"),
                 "sector": latest.get("sector"),
@@ -383,6 +407,7 @@ def tech100(request):
                 "weight": weight_value,
                 "port_weight_display": formatted_port_weight,
                 "weight_display": formatted_port_weight,
+                "weight_display_whole": formatted_port_weight_whole,
                 "history": history_list,
             }
         )

@@ -5,6 +5,8 @@ echo "[VM2] Starting SustainaCore Django deploy..."
 
 REPO_ROOT="/opt/code/Sustainacore"
 VENV_PATH="$REPO_ROOT/website_django/venv"
+NGINX_CONF_SRC="$REPO_ROOT/infra/nginx/sustainacore.conf"
+NGINX_CONF_DEST="/etc/nginx/sites-available/sustainacore"
 
 # 1) Go to repo root
 cd "$REPO_ROOT"
@@ -58,8 +60,20 @@ echo "[VM2] Collecting static files..."
 # 7) Return to repo root and restart services
 cd "$REPO_ROOT"
 
+# 7) Ensure Nginx config is up to date and enabled
+if [ -f "$NGINX_CONF_SRC" ]; then
+  echo "[VM2] Updating nginx config..."
+  sudo cp "$NGINX_CONF_SRC" "$NGINX_CONF_DEST"
+  sudo ln -sf "$NGINX_CONF_DEST" /etc/nginx/sites-enabled/sustainacore
+else
+  echo "[VM2] Nginx config not found at $NGINX_CONF_SRC; skipping copy."
+fi
+
 echo "[VM2] Restarting gunicorn.service..."
 sudo systemctl restart gunicorn.service
+
+echo "[VM2] Validating nginx config..."
+sudo nginx -t
 
 echo "[VM2] Reloading nginx..."
 sudo systemctl reload nginx

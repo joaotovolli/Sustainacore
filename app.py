@@ -394,31 +394,6 @@ def _format_timestamp(value: Any) -> Optional[str]:
 def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
     """Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 response fields."""
 
-    port_date = _format_date(
-        row.get("port_date") or row.get("asof") or row.get("updated_at")
-    )
-    aiges = _coerce_float(
-        row.get("aiges_composite_average") or row.get("aiges_composite") or row.get("overall")
-    )
-    weight = _normalize_weight(row.get("port_weight") or row.get("weight"))
-    item = {
-        "port_date": port_date,
-        "rank_index": _coerce_int(row.get("rank_index") or row.get("rank")),
-        "company_name": row.get("company_name")
-        or row.get("company")
-        or row.get("name"),
-        "ticker": row.get("ticker"),
-        "port_weight": weight,
-        "weight": weight,
-        "sector": row.get("gics_sector") or row.get("sector"),
-        "gics_sector": row.get("gics_sector") or row.get("sector"),
-        "transparency": _coerce_float(row.get("transparency")),
-        "ethical_principles": _coerce_float(
-            row.get("ethical_principles") or row.get("ethics")
-        ),
-def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Map TECH11_AI_GOV_ETH_INDEX columns to canonical TECH100 response fields."""
-
     port_date = _format_date(row.get("port_date") or row.get("asof") or row.get("updated_at"))
     weight_candidates = (
         row.get("port_weight"),
@@ -461,9 +436,6 @@ def _normalize_tech100_row(row: Dict[str, Any]) -> Dict[str, Any]:
     item["overall"] = item.get("aiges_composite")
     item["accountability"] = item.get("governance_structure")
     item["updated_at"] = port_date
-    return item
-
-
     item["weight"] = item.get("port_weight")
     return item
 
@@ -1488,7 +1460,6 @@ def api_tech100():
             ),
             500,
         )
-        return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
 
     port_date_filter = (request.args.get("port_date") or request.args.get("as_of") or "").strip()
     sector_filter = (request.args.get("sector") or request.args.get("gics_sector") or "").strip()
@@ -1498,7 +1469,6 @@ def api_tech100():
         or request.args.get("search")
         or request.args.get("q")
         or ""
-        request.args.get("company") or request.args.get("search") or request.args.get("q") or ""
     ).strip()
     limit = _sanitize_limit(request.args.get("limit"))
 
@@ -1543,7 +1513,7 @@ def api_tech100():
     )
     if where_clauses:
         sql += " WHERE " + " AND ".join(where_clauses)
-    sql += " ORDER BY port_date, rank_index NULLS LAST FETCH FIRST :limit ROWS ONLY"
+    sql += " ORDER BY port_date DESC, rank_index NULLS LAST FETCH FIRST :limit ROWS ONLY"
     binds["limit"] = limit
 
     try:
@@ -1555,15 +1525,6 @@ def api_tech100():
                 {col: _to_plain(val) for col, val in zip(columns, raw)}
                 for raw in cur.fetchall()
             ]
-    except Exception as exc:
-        _LOGGER.exception("api_tech100 query failed", exc_info=exc)
-        return (
-            jsonify(
-                {"error": "backend_failure", "message": "Unable to load TECH100 data."}
-            ),
-            500,
-        )
-            raw_rows = [{col: _to_plain(val) for col, val in zip(columns, raw)} for raw in cur.fetchall()]
     except Exception as exc:
         _LOGGER.exception("api_tech100 query failed", exc_info=exc)
         return jsonify({"error": "backend_failure", "message": "Unable to load TECH100 data."}), 500
@@ -1602,6 +1563,56 @@ def api_tech100():
     _API_LOGGER.info("/api/tech100 rows=%d dates=%s", len(items), ", ".join(distinct_dates[:5]))
 
     return jsonify({"items": items, "count": len(items)}), 200
+
+
+@app.route("/api/tech100/rebalance_dates", methods=["GET"])
+def api_tech100_rebalance_dates():
+    # Allow anonymous access so the website can populate the dropdown without a token.
+    auth = _api_auth_optional()
+    if auth is not None:
+        return auth
+
+    try:
+        from db_helper import _to_plain, get_connection  # type: ignore
+    except Exception as exc:
+        _LOGGER.exception("api_tech100_rebalance_dates helper import failed", exc_info=exc)
+        return (
+            jsonify({"error": "backend_failure", "message": "Unable to load TECH100 dates."}),
+            500,
+        )
+
+    limit = _sanitize_limit(request.args.get("limit"), default=200)
+
+    sql = (
+        "SELECT port_date FROM ("
+        "  SELECT DISTINCT TRUNC(port_date) AS port_date"
+        "  FROM tech11_ai_gov_eth_index"
+        "  WHERE port_date IS NOT NULL"
+        "  ORDER BY port_date DESC"
+        ") WHERE ROWNUM <= :limit"
+    )
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, {"limit": limit})
+            rows = cur.fetchall()
+    except Exception as exc:
+        _LOGGER.exception("api_tech100_rebalance_dates query failed", exc_info=exc)
+        return (
+            jsonify({"error": "backend_failure", "message": "Unable to load TECH100 dates."}),
+            500,
+        )
+
+    items: List[str] = []
+    for raw in rows:
+        formatted = _format_date(_to_plain(raw[0]))
+        if formatted:
+            items.append(formatted)
+
+    _API_LOGGER.info("/api/tech100/rebalance_dates count=%d", len(items))
+
+    return jsonify({"items": items}), 200
 
 
 @app.route("/api/news", methods=["GET"])
