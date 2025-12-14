@@ -5,7 +5,7 @@ import datetime as _dt
 import os
 import pathlib
 import sys
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List
 
 ROOT_PATH = pathlib.Path(__file__).resolve().parents[2]
 APP_PATH = ROOT_PATH / "app"
@@ -14,7 +14,7 @@ for path in (ROOT_PATH, APP_PATH):
         sys.path.append(str(path))
 
 from db_helper import get_connection
-from providers.twelvedata import TwelveDataError, fetch_api_usage, fetch_eod_prices
+from providers.twelvedata import TwelveDataError, fetch_api_usage, fetch_latest_bar
 
 ENV_FILES = ("/etc/sustainacore-ai/secrets.env", "/etc/sustainacore/db.env")
 
@@ -44,28 +44,17 @@ def _load_env_files() -> None:
             continue
 
 
-def _utc_today() -> _dt.date:
-    return _dt.datetime.now(_dt.timezone.utc).date()
+def _fetch_latest_bar_for_symbol(symbol: str) -> tuple[list[dict], str | None, str | None]:
+    try:
+        rows = fetch_latest_bar(symbol)
+    except Exception as exc:  # pragma: no cover - network / env driven
+        return [], None, f"provider_error: {exc}"
+    if not rows:
+        return [], None, "provider_empty: no rows returned"
 
-
-def _select_probe_dates() -> List[_dt.date]:
-    today = _utc_today()
-    return [today - _dt.timedelta(days=offset) for offset in range(2, 6)]
-
-
-def _call_provider_for_first_available(dates: Iterable[_dt.date]) -> Tuple[_dt.date | None, List[dict], int, str | None]:
-    attempts = 0
-    last_date: _dt.date | None = None
-    for trade_date in dates:
-        attempts += 1
-        last_date = trade_date
-        try:
-            rows = fetch_eod_prices(["AAPL"], trade_date.isoformat(), trade_date.isoformat())
-        except Exception as exc:  # pragma: no cover - network / env driven
-            return trade_date, [], attempts, f"provider_error: {exc}"
-        if rows:
-            return trade_date, rows, attempts, None
-    return last_date, [], attempts, None
+    first = rows[0] if isinstance(rows[0], dict) else {}
+    latest_dt = str(first.get("datetime") or first.get("date") or first.get("trade_date") or "").strip() or None
+    return rows, latest_dt, None
 
 
 def _query_oracle() -> Dict[str, Any]:
@@ -147,8 +136,7 @@ def main() -> int:
         return 1
     _print_usage("usage_before", usage_before)
 
-    probe_dates = _select_probe_dates()
-    chosen_date, provider_rows, attempts, provider_error = _call_provider_for_first_available(probe_dates)
+    provider_rows, latest_dt, provider_error = _fetch_latest_bar_for_symbol("AAPL")
 
     try:
         usage_after = fetch_api_usage()
@@ -158,10 +146,9 @@ def main() -> int:
     _print_usage("usage_after", usage_after)
 
     print(
-        "provider_call: attempts={attempts} chosen_date={chosen_date} provider_rows={rows} provider_error={error}".format(
-            attempts=attempts,
-            chosen_date=chosen_date,
+        "provider_call: symbol=AAPL provider_rows={rows} latest_datetime={latest_dt} provider_error={error}".format(
             rows=len(provider_rows),
+            latest_dt=latest_dt,
             error=provider_error,
         )
     )
@@ -170,9 +157,9 @@ def main() -> int:
     after_value = usage_after.get("current_usage") or 0
     delta = after_value - before_value
     if delta > 0:
-        print(f"PASS credits delta observed: delta={delta} attempts={attempts} chosen_date={chosen_date}")
+        print(f"PASS credits delta observed: delta={delta} latest_datetime={latest_dt}")
     else:
-        print(f"FAIL credits did not change: delta={delta} attempts={attempts} chosen_date={chosen_date} provider_error={provider_error}")
+        print(f"FAIL credits did not change: delta={delta} latest_datetime={latest_dt} provider_error={provider_error}")
 
     print("\n== Oracle verification ==")
     try:

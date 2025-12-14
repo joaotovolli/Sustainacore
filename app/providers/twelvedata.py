@@ -310,6 +310,38 @@ def fetch_time_series(
     return values
 
 
+def fetch_latest_bar(
+    ticker: str,
+    *,
+    api_key: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch the most recent daily bar for a ticker."""
+
+    key = _get_api_key(api_key)
+    payload = _request_json(
+        "time_series",
+        {
+            "symbol": ticker,
+            "interval": "1day",
+            "outputsize": 1,
+            "order": "DESC",
+            "timezone": "Exchange",
+            "apikey": key,
+        },
+    )
+
+    message = str(payload.get("message") or "").lower()
+    if payload.get("status") == "error":
+        if "no data is available" in message:
+            return []
+        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+
+    values = payload.get("values") or payload.get("data") or []
+    if not isinstance(values, list):
+        return []
+    return values
+
+
 def has_eod_for_date(ticker: str, date: _dt.date, *, api_key: Optional[str] = None) -> bool:
     """Return True if Twelve Data already exposes an end-of-day bar for the date."""
 
@@ -343,6 +375,7 @@ def has_eod_for_date(ticker: str, date: _dt.date, *, api_key: Optional[str] = No
 __all__ = [
     "fetch_api_usage",
     "fetch_eod_prices",
+    "fetch_latest_bar",
     "fetch_time_series",
     "has_eod_for_date",
     "remaining_credits",
