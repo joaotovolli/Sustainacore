@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import fcntl
 import json
 import logging
 import os
@@ -10,17 +11,24 @@ import http.client  # preload stdlib http to avoid app.http shadowing
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Iterable, List, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 API_URL = "https://api.twelvedata.com/time_series"
 _API_BASE = "https://api.twelvedata.com"
 _API_KEY_ENV_VARS = ("SC_TWELVEDATA_API_KEY", "TWELVEDATA_API_KEY")
-RATE_LIMIT_PER_MIN = 8
+DEFAULT_CALLS_PER_WINDOW = 6
+DEFAULT_WINDOW_SECONDS = 120
 MAX_RETRIES = 5
-_TOKENS = RATE_LIMIT_PER_MIN
-_RESET_AT = time.time() + 60.0
+_LOCK_PATH = "/tmp/sc_idx_twelvedata.lock"
+_CALLS_PER_WINDOW: int
+_WINDOW_SECONDS: int
+_TOKENS: int
+_RESET_AT: float
 _LOGGER = logging.getLogger(__name__)
 _urlopen = urllib.request.urlopen
+_CALLS_PER_WINDOW_ENV = "SC_IDX_TWELVEDATA_CALLS_PER_WINDOW"
+_WINDOW_SECONDS_ENV = "SC_IDX_TWELVEDATA_WINDOW_SECONDS"
 
 
 class TwelveDataError(RuntimeError):
@@ -72,6 +80,48 @@ def _extract_trade_date(entry: Dict[str, Any]) -> Optional[_dt.date]:
     return None
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _load_throttle_config() -> Tuple[int, int]:
+    global _CALLS_PER_WINDOW, _WINDOW_SECONDS, _TOKENS, _RESET_AT
+    _CALLS_PER_WINDOW = _env_int(_CALLS_PER_WINDOW_ENV, DEFAULT_CALLS_PER_WINDOW)
+    _WINDOW_SECONDS = _env_int(_WINDOW_SECONDS_ENV, DEFAULT_WINDOW_SECONDS)
+    _TOKENS = _CALLS_PER_WINDOW
+    _RESET_AT = time.monotonic() + _WINDOW_SECONDS
+    return _CALLS_PER_WINDOW, _WINDOW_SECONDS
+
+
+def get_throttle_config(*, refresh: bool = False) -> Dict[str, int]:
+    """Return the active throttling config."""
+
+    if refresh:
+        _load_throttle_config()
+    return {"calls_per_window": _CALLS_PER_WINDOW, "window_seconds": _WINDOW_SECONDS}
+
+
+@contextmanager
+def _provider_lock():
+    """Cross-process lock to serialize Twelve Data calls."""
+
+    handle = open(_LOCK_PATH, "a+")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
 def _build_time_series_url(ticker: str, start: str, end: str, api_key: str) -> str:
     params = {
         "symbol": ticker,
@@ -115,16 +165,16 @@ def _parse_rows(payload: dict, ticker: str | None) -> list[dict]:
 def _refresh_tokens(now: float) -> None:
     global _TOKENS, _RESET_AT
     if now >= _RESET_AT:
-        _TOKENS = RATE_LIMIT_PER_MIN
-        _RESET_AT = now + 60.0
+        _TOKENS = _CALLS_PER_WINDOW
+        _RESET_AT = now + _WINDOW_SECONDS
 
 
-def _acquire_token() -> None:
-    """Blocking token reservation for the per-minute quota."""
+def _acquire_token_blocking() -> None:
+    """Blocking token reservation for the current window."""
 
     global _TOKENS, _RESET_AT
     while True:
-        now = time.time()
+        now = time.monotonic()
         _refresh_tokens(now)
         if _TOKENS > 0:
             _TOKENS -= 1
@@ -133,8 +183,8 @@ def _acquire_token() -> None:
         time.sleep(sleep_for or 0.1)
 
 
-def _sleep_until_reset() -> None:
-    now = time.time()
+def _sleep_until_window_reset() -> None:
+    now = time.monotonic()
     _refresh_tokens(now)
     sleep_for = max(0.0, _RESET_AT - now)
     time.sleep(sleep_for or 0.1)
@@ -149,6 +199,47 @@ def _should_retry_rate_limit(payload: dict) -> bool:
     return "credit" in message or "limit" in message
 
 
+def _throttled_json_request(
+    request: urllib.request.Request,
+    *,
+    timeout: int = 30,
+    max_retries: int = MAX_RETRIES,
+    error_cls=RuntimeError,
+) -> Dict[str, Any]:
+    """Perform a Twelve Data HTTP request with shared throttling + locking."""
+
+    for attempt in range(1, max_retries + 1):
+        with _provider_lock():
+            _acquire_token_blocking()
+            try:
+                with _urlopen(request, timeout=timeout) as resp:  # nosec: B310
+                    body = resp.read()
+            except urllib.error.HTTPError as exc:  # pragma: no cover - network specific
+                body = exc.read()
+                if exc.code == 429 and attempt < max_retries:
+                    _sleep_until_window_reset()
+                    continue
+                raise error_cls(f"twelvedata_http_error:{exc.code}") from exc
+            except urllib.error.URLError as exc:  # pragma: no cover - network specific
+                raise error_cls(f"twelvedata_url_error:{exc.reason}") from exc
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            if attempt < max_retries:
+                _sleep_until_window_reset()
+                continue
+            raise error_cls("twelvedata_invalid_json") from exc
+
+        if _should_retry_rate_limit(payload) and attempt < max_retries:
+            _sleep_until_window_reset()
+            continue
+
+        return payload
+
+    raise error_cls("twelvedata_max_retries_exceeded")
+
+
 def _fetch_ticker(
     ticker: str,
     start: str,
@@ -159,38 +250,13 @@ def _fetch_ticker(
     url = _build_time_series_url(ticker, start, end, api_key)
     request = urllib.request.Request(url, headers={"User-Agent": "sustainacore-index-engine"})
 
-    for attempt in range(1, max_retries + 1):
-        _acquire_token()
-        try:
-            with urllib.request.urlopen(request, timeout=30) as resp:  # nosec: B310
-                body = resp.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:  # pragma: no cover - network specific
-            if exc.code == 429 and attempt < max_retries:
-                _sleep_until_reset()
-                continue
-            raise RuntimeError(f"twelvedata_http_error:{exc.code}") from exc
-        except urllib.error.URLError as exc:  # pragma: no cover - network specific
-            raise RuntimeError(f"twelvedata_url_error:{exc.reason}") from exc
+    payload = _throttled_json_request(request, max_retries=max_retries, error_cls=RuntimeError)
 
-        try:
-            payload = json.loads(body)
-        except json.JSONDecodeError as exc:
-            if attempt < max_retries:
-                _sleep_until_reset()
-                continue
-            raise RuntimeError("twelvedata_invalid_json") from exc
+    if isinstance(payload, dict) and payload.get("status") == "error":
+        message = payload.get("message") or "twelvedata_error"
+        raise RuntimeError(message)
 
-        if _should_retry_rate_limit(payload) and attempt < max_retries:
-            _sleep_until_reset()
-            continue
-
-        if isinstance(payload, dict) and payload.get("status") == "error":
-            message = payload.get("message") or "twelvedata_error"
-            raise RuntimeError(message)
-
-        return _parse_rows(payload, ticker)
-
-    return []
+    return _parse_rows(payload, ticker)
 
 
 def fetch_eod_prices(tickers: Iterable[str], start: str, end: str) -> list[dict]:
@@ -231,18 +297,7 @@ def _get_api_key(explicit: Optional[str] = None) -> str:
 def _request_json(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     url = _build_api_url(path, params)
     req = urllib.request.Request(url)
-    try:
-        with _urlopen(req, timeout=30) as resp:
-            payload = resp.read()
-    except urllib.error.HTTPError as exc:  # pragma: no cover - exercised via URLError branch
-        payload = exc.read()
-    except urllib.error.URLError as exc:
-        raise TwelveDataError(f"Unable to reach Twelve Data: {exc.reason}") from exc
-
-    try:
-        return json.loads(payload.decode("utf-8"))
-    except Exception as exc:
-        raise TwelveDataError("Malformed response from Twelve Data") from exc
+    return _throttled_json_request(req, error_cls=TwelveDataError)
 
 
 def fetch_api_usage(api_key: Optional[str] = None) -> Dict[str, Any]:
@@ -372,7 +427,11 @@ def has_eod_for_date(ticker: str, date: _dt.date, *, api_key: Optional[str] = No
     return False
 
 
+_load_throttle_config()
+
+
 __all__ = [
+    "get_throttle_config",
     "fetch_api_usage",
     "fetch_eod_prices",
     "fetch_latest_bar",
