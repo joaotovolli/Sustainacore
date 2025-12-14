@@ -146,6 +146,8 @@ def main() -> int:
         "usage_remaining": usage_remaining,
     }
 
+    email_on_budget_stop = os.getenv(EMAIL_ON_BUDGET_STOP_ENV) == "1"
+
     if os.getenv("SC_IDX_FORCE_FAIL") == "1":
         status = "ERROR"
         error_msg = "forced failure via SC_IDX_FORCE_FAIL=1"
@@ -172,7 +174,6 @@ def main() -> int:
 
     status = "OK"
     error_msg = None
-    email_on_budget_stop = os.getenv(EMAIL_ON_BUDGET_STOP_ENV) == "1"
 
     if max_provider_calls <= 0:
         print(
