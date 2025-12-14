@@ -146,6 +146,15 @@ def main() -> int:
         "usage_remaining": usage_remaining,
     }
 
+    if os.getenv("SC_IDX_FORCE_FAIL") == "1":
+        status = "ERROR"
+        error_msg = "forced failure via SC_IDX_FORCE_FAIL=1"
+        summary["status"] = status
+        summary["error_msg"] = error_msg
+        finish_run(run_id, summary)
+        _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
+        return 1
+
     print(
         "index_engine_daily: end={end} calls_used_today={used} remaining_daily={remaining_daily} "
         "daily_limit={daily_limit} daily_buffer={daily_buffer} max_provider_calls={max_calls} "
