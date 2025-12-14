@@ -17,6 +17,7 @@ Environment:
 - `SC_IDX_TWELVEDATA_DAILY_LIMIT` sets the daily call ceiling (default 800).
 - `SC_IDX_TWELVEDATA_DAILY_BUFFER` reserves extra headroom near the daily cap (default 25; alias `SC_IDX_TWELVEDATA_CREDIT_BUFFER` for back-compat).
 - Optional: `SC_IDX_TICKERS` (comma separated) and `SC_IDX_PROBE_SYMBOL`.
+- Daily usage is persisted in `SC_IDX_JOB_RUNS` (DDL: `oracle_scripts/sc_idx_job_runs_v1.sql`). Run `oracle_scripts/sc_idx_job_runs_v1_drop.sql` to drop if rollback is needed.
 
 New CLI flag:
 
