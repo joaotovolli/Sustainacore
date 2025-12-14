@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 import datetime as _dt
 import importlib.util
 import os
 import sys
+import subprocess
+import uuid
 from pathlib import Path
 
+from app.index_engine.alerts import send_email
+from app.index_engine.run_log import fetch_calls_used_today, finish_run, start_run
+from app.index_engine.run_report import format_run_report
 
 DEFAULT_START = _dt.date(2025, 1, 2)
 DEFAULT_BUFFER = 25
@@ -12,6 +19,7 @@ BUFFER_ENV = "SC_IDX_TWELVEDATA_CREDIT_BUFFER"
 DAILY_LIMIT_ENV = "SC_IDX_TWELVEDATA_DAILY_LIMIT"
 DAILY_BUFFER_ENV = "SC_IDX_TWELVEDATA_DAILY_BUFFER"
 PROBE_SYMBOL_ENV = "SC_IDX_PROBE_SYMBOL"
+EMAIL_ON_BUDGET_STOP_ENV = "SC_IDX_EMAIL_ON_BUDGET_STOP"
 
 
 def _load_provider_module():
@@ -73,6 +81,7 @@ def _select_end_date(provider, probe_symbol: str, today_utc: _dt.date) -> _dt.da
 
 
 def main() -> int:
+    run_id = str(uuid.uuid4())
     provider = _load_provider_module()
     run_log = _load_run_log_module()
     ingest_module = _load_ingest_module()
@@ -96,6 +105,47 @@ def main() -> int:
     probe_symbol = os.getenv(PROBE_SYMBOL_ENV, "AAPL")
     end_date = _select_end_date(provider, probe_symbol, today_utc)
 
+    usage_remaining = None
+    if plan_limit is not None and current_usage is not None:
+        try:
+            usage_remaining = int(plan_limit) - int(current_usage)
+        except Exception:
+            usage_remaining = None
+
+    run_log.start_run(
+        run_id,
+        job_name="sc_idx_price_ingest",
+        provider="TWELVEDATA",
+        start_date=DEFAULT_START,
+        end_date=end_date,
+        usage_current=current_usage,
+        usage_limit=plan_limit,
+        usage_remaining=usage_remaining,
+        credit_buffer=daily_buffer,
+        max_provider_calls=max_provider_calls,
+        oracle_user=None,
+    )
+
+    summary = {
+        "run_id": run_id,
+        "status": "STARTED",
+        "error_msg": None,
+        "provider": "TWELVEDATA",
+        "end_date": end_date,
+        "max_provider_calls": max_provider_calls,
+        "provider_calls_used": None,
+        "raw_upserts": None,
+        "canon_upserts": None,
+        "raw_ok": None,
+        "raw_missing": None,
+        "raw_error": None,
+        "max_ok_trade_date": None,
+        "oracle_user": None,
+        "usage_current": current_usage,
+        "usage_limit": plan_limit,
+        "usage_remaining": usage_remaining,
+    }
+
     print(
         "index_engine_daily: end={end} calls_used_today={used} remaining_daily={remaining_daily} "
         "daily_limit={daily_limit} daily_buffer={daily_buffer} max_provider_calls={max_calls} "
@@ -111,11 +161,20 @@ def main() -> int:
         )
     )
 
+    status = "OK"
+    error_msg = None
+    email_on_budget_stop = os.getenv(EMAIL_ON_BUDGET_STOP_ENV) == "1"
+
     if max_provider_calls <= 0:
         print(
             "daily_budget_stop: provider_calls_used=0 max_provider_calls=0 "
             f"calls_used_today={calls_used_today} daily_limit={daily_limit} daily_buffer={daily_buffer}"
         )
+        status = "DAILY_BUDGET_STOP"
+        summary["status"] = status
+        summary["provider_calls_used"] = 0
+        finish_run(run_id, summary)
+        _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
         return 0
 
     ingest_args = [
@@ -132,7 +191,47 @@ def main() -> int:
     if tickers_env:
         ingest_args.extend(["--tickers", tickers_env])
 
-    return ingest_module.main(ingest_args)
+    exit_code = 0
+    try:
+        exit_code = ingest_module.main(ingest_args)
+        if exit_code != 0:
+            status = "ERROR"
+            error_msg = f"ingest_exit_code={exit_code}"
+    except Exception as exc:  # pragma: no cover - defensive
+        status = "ERROR"
+        error_msg = str(exc)
+    summary["status"] = status
+    summary["error_msg"] = error_msg
+    finish_run(run_id, summary)
+
+    _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
+
+    return exit_code
+
+
+def _safe_journal_tail() -> str | None:
+    try:
+        proc = subprocess.run(
+            ["journalctl", "-u", "sc-idx-price-ingest.service", "-n", "120", "--no-pager"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            return proc.stdout
+    except Exception:
+        return None
+    return None
+
+
+def _maybe_send_alert(status: str, summary: dict, run_id: str, email_on_budget_stop: bool) -> None:
+    if status == "ERROR":
+        tail_log = _safe_journal_tail()
+        body = format_run_report(run_id, summary, tail_log)
+        send_email(f"SC_IDX ingest ERROR on VM1 (run_id={run_id})", body)
+    elif status == "DAILY_BUDGET_STOP" and email_on_budget_stop:
+        body = format_run_report(run_id, summary, None)
+        send_email(f"SC_IDX ingest DAILY_BUDGET_STOP on VM1 (run_id={run_id})", body)
 
 
 if __name__ == "__main__":
