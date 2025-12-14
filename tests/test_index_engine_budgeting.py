@@ -1,3 +1,4 @@
+import argparse
 import datetime as dt
 import importlib.util
 import json
@@ -63,32 +64,35 @@ def test_fetch_api_usage_parsing_and_remaining(monkeypatch):
     assert twelvedata.remaining_credits(usage) == payload["plan_limit"] - payload["current_usage"]
 
 
-def test_backfill_halts_when_budget_reached(tmp_path: Path, capsys):
-    start = dt.date(2025, 1, 1)
-    end = dt.date(2025, 1, 5)
-    calls = []
-
-    def _fake_fetch(ticker: str, start_date: dt.date, end_date: dt.date):
-        calls.append(ticker)
-        return [{"datetime": start_date.isoformat(), "close": "1"}]
-
-    summary = ingest_prices.backfill_prices(
-        ["AAA", "BBB", "CCC"],
-        start,
-        end,
+def test_backfill_halts_when_budget_reached(monkeypatch, capsys):
+    args = argparse.Namespace(
+        start="2025-01-01",
+        end="2025-01-05",
+        tickers="AAA,BBB,CCC",
         max_provider_calls=2,
-        fetcher=_fake_fetch,
-        data_dir=tmp_path,
-        sleep_seconds=0,
+        backfill=True,
+        debug=False,
+        date=None,
     )
-    captured = capsys.readouterr()
 
-    assert summary["provider_calls_used"] == 2
+    calls: list[str] = []
+
+    def _fake_fetch_eod_prices(tickers, start, end):
+        calls.append(tickers[0])
+        return [{"ticker": tickers[0], "trade_date": start, "close": 1.0, "adj_close": 1.0}]
+
+    monkeypatch.setattr(ingest_prices, "fetch_eod_prices", _fake_fetch_eod_prices)
+    monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_raw", lambda rows: len(rows))
+    monkeypatch.setattr(ingest_prices, "upsert_prices_canon", lambda rows: len(rows))
+    monkeypatch.setattr(ingest_prices, "compute_canonical_rows", lambda rows: rows)
+
+    exit_code = ingest_prices._run_backfill(args)
+    captured = capsys.readouterr().out
+
+    assert exit_code == 0
     assert calls == ["AAA", "BBB"]
-    assert "budget_stop: provider_calls_used=2 max_provider_calls=2" in captured.out
-    assert (tmp_path / "AAA.jsonl").exists()
-    assert (tmp_path / "BBB.jsonl").exists()
-    assert not (tmp_path / "CCC.jsonl").exists()
+    assert "budget_stop: provider_calls_used=2 max_provider_calls=2" in captured
 
 
 def test_has_eod_for_date_true(monkeypatch):
@@ -107,3 +111,101 @@ def test_has_eod_for_date_no_data(monkeypatch):
     monkeypatch.setattr(twelvedata, "_urlopen", lambda req, timeout=30: _FakeResponse(payload))
 
     assert not twelvedata.has_eod_for_date("AAPL", target)
+
+
+def test_daily_budget_math():
+    from tools.index_engine import run_daily
+
+    remaining, max_calls = run_daily._compute_daily_budget(800, 25, 100)
+    assert remaining == 700
+    assert max_calls == 675
+
+    remaining_low, max_calls_low = run_daily._compute_daily_budget(800, 25, 790)
+    assert remaining_low == 10
+    assert max_calls_low == 0
+
+
+def test_run_daily_stops_on_daily_cap(monkeypatch, capsys):
+    from tools.index_engine import run_daily
+
+    class FakeProvider:
+        def fetch_api_usage(self):
+            return {"current_usage": 1, "plan_limit": 8}
+
+        def has_eod_for_date(self, symbol, today):
+            return True
+
+    class FakeIngest:
+        def __init__(self):
+            self.called = False
+
+        def main(self, args):
+            self.called = True
+            return 0
+
+    class FakeRunLog:
+        def __init__(self, calls):
+            self.calls = calls
+
+        def fetch_calls_used_today(self, provider):
+            return self.calls
+
+    fake_ingest = FakeIngest()
+    fake_run_log = FakeRunLog(790)
+
+    monkeypatch.setenv("SC_IDX_TWELVEDATA_DAILY_LIMIT", "800")
+    monkeypatch.setenv("SC_IDX_TWELVEDATA_DAILY_BUFFER", "25")
+    monkeypatch.setattr(run_daily, "_load_provider_module", lambda: FakeProvider())
+    monkeypatch.setattr(run_daily, "_load_ingest_module", lambda: fake_ingest)
+    monkeypatch.setattr(run_daily, "_load_run_log_module", lambda: fake_run_log)
+
+    exit_code = run_daily.main()
+    captured = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "daily_budget_stop" in captured
+    assert fake_ingest.called is False
+
+
+def test_run_daily_runs_when_budget_available(monkeypatch):
+    from tools.index_engine import run_daily
+
+    class FakeProvider:
+        def fetch_api_usage(self):
+            return {"current_usage": 1, "plan_limit": 8}
+
+        def has_eod_for_date(self, symbol, today):
+            return True
+
+    class FakeIngest:
+        def __init__(self):
+            self.called_with = None
+
+        def main(self, args):
+            self.called_with = list(args)
+            return 0
+
+    class FakeRunLog:
+        def __init__(self, calls):
+            self.calls = calls
+
+        def fetch_calls_used_today(self, provider):
+            return self.calls
+
+    fake_ingest = FakeIngest()
+    fake_run_log = FakeRunLog(100)
+
+    monkeypatch.setenv("SC_IDX_TWELVEDATA_DAILY_LIMIT", "800")
+    monkeypatch.setenv("SC_IDX_TWELVEDATA_DAILY_BUFFER", "25")
+    monkeypatch.setattr(run_daily, "_load_provider_module", lambda: FakeProvider())
+    monkeypatch.setattr(run_daily, "_load_ingest_module", lambda: fake_ingest)
+    monkeypatch.setattr(run_daily, "_load_run_log_module", lambda: fake_run_log)
+
+    exit_code = run_daily.main()
+
+    assert exit_code == 0
+    assert fake_ingest.called_with is not None
+    assert "--max-provider-calls" in fake_ingest.called_with
+    max_calls_value = fake_ingest.called_with[fake_ingest.called_with.index("--max-provider-calls") + 1]
+    # daily_limit=800, buffer=25, calls_used=100 => max=675
+    assert max_calls_value == "675"
