@@ -1,4 +1,5 @@
 import string
+from types import SimpleNamespace
 
 import app.index_engine.alerts as alerts
 from app.index_engine.run_report import format_run_report
@@ -31,6 +32,8 @@ def test_send_email_no_env(monkeypatch):
             pass
 
     monkeypatch.setattr(alerts.smtplib, "SMTP", DummySMTP)
+    for name in ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "MAIL_FROM", "MAIL_TO"):
+        monkeypatch.delenv(name, raising=False)
     # Required envs missing, should no-op
     alerts.send_email("subj", "body")
     assert called["count"] == 0
@@ -120,3 +123,39 @@ def test_maybe_send_alert_controls_budget_stop(monkeypatch):
 
     run_daily._maybe_send_alert("DAILY_BUDGET_STOP", summary, "rid3", True)
     assert any("DAILY_BUDGET_STOP" in s for s in calls["subjects"])
+
+
+def test_maybe_send_alert_swallows_errors(monkeypatch):
+    def explode(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(run_daily, "send_email", explode)
+    # Should not raise
+    run_daily._maybe_send_alert("ERROR", {"status": "ERROR"}, "rid4", False)
+
+
+def test_force_fail_has_safe_defaults(monkeypatch):
+    dummy_provider = SimpleNamespace(
+        fetch_api_usage=lambda: {"current_usage": 0, "plan_limit": 8},
+        has_eod_for_date=lambda symbol, trade_date: True,
+    )
+    dummy_ingest = SimpleNamespace(run_ingest=lambda args: (0, {}))
+    calls = {"start": 0, "finish": 0}
+
+    monkeypatch.setattr(run_daily, "_load_provider_module", lambda: dummy_provider)
+    monkeypatch.setattr(run_daily, "_load_ingest_module", lambda: dummy_ingest)
+    monkeypatch.setattr(run_daily, "fetch_calls_used_today", lambda provider: 0)
+    monkeypatch.setattr(run_daily, "_safe_journal_tail", lambda: "log")
+    monkeypatch.setattr(run_daily, "send_email", lambda *args, **kwargs: None)
+    monkeypatch.setattr(run_daily, "start_run", lambda *args, **kwargs: calls.__setitem__("start", calls["start"] + 1))
+    monkeypatch.setattr(
+        run_daily,
+        "finish_run",
+        lambda *args, **kwargs: calls.__setitem__("finish", calls["finish"] + 1),
+    )
+    monkeypatch.setenv("SC_IDX_FORCE_FAIL", "1")
+
+    rc = run_daily.main()
+    assert rc == 1
+    assert calls["start"] == 1
+    assert calls["finish"] == 1

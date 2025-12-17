@@ -14,6 +14,7 @@ The daily index ingestion timer calls `tools/index_engine/run_daily.py` at 23:30
 Environment:
 
 - `SC_TWELVEDATA_API_KEY` or `TWELVEDATA_API_KEY` must be set (never logged).
+- All index-engine CLI tools auto-load environment files (best-effort) on startup via `tools/index_engine/env_loader.py`, reading (in order): `/etc/sustainacore/db.env` then `/etc/sustainacore-ai/secrets.env`. Explicit shell env vars still win.
 - `SC_IDX_TWELVEDATA_DAILY_LIMIT` sets the daily call ceiling (default 800).
 - `SC_IDX_TWELVEDATA_DAILY_BUFFER` reserves extra headroom near the daily cap (default 25; alias `SC_IDX_TWELVEDATA_CREDIT_BUFFER` for back-compat).
 - Twelve Data throttle override (rarely needed): `SC_IDX_TWELVEDATA_CALLS_PER_WINDOW` (default 6) and `SC_IDX_TWELVEDATA_WINDOW_SECONDS` (default 120). All provider calls are serialized via `/tmp/sc_idx_twelvedata.lock` to avoid cross-process spikes.
@@ -25,11 +26,13 @@ Environment:
 
 - The new `tools/index_engine/ingest_alphavantage.py` script keeps `SC_IDX_PRICES_RAW` populated for provider `ALPHAVANTAGE`. It tracks `SC_IDX_JOB_RUNS` usage just like the Twelve Data flow, upserts `ERROR` rows when single-ticker fetches fail, and runs `compute_canonical_rows` on the returned rows (merged with existing `TWELVEDATA` feeds) before writing `SC_IDX_PRICES_CANON`.
 - Run `python tools/index_engine/ingest_alphavantage.py --incremental` manually for ad-hoc updates or `--backfill --start --end` for the `full` history download. The automatic timer now fires at 23:40 UTC Monday–Friday and reconciles repetitively.
+- Alpha Vantage `outputsize=full` can be restricted on the free tier; when detected the provider raises `alphavantage_full_history_unavailable_free_tier` and the backfill run is marked `ERROR` in `SC_IDX_JOB_RUNS` (with an alert email if SMTP is configured).
 - Environment variables in `/etc/sustainacore-ai/secrets.env`:
   - `ALPHAVANTAGE_API_KEY=<REPLACE_ME>` (required for any Alpha Vantage call).
   - `SC_IDX_ALPHAVANTAGE_DAILY_LIMIT` (default `25`) and `SC_IDX_ALPHAVANTAGE_DAILY_BUFFER` (default `3`) define the daily cap and reserved headroom.
   - `SC_IDX_ALPHAVANTAGE_CALLS_PER_WINDOW` (default `4`) and `SC_IDX_ALPHAVANTAGE_WINDOW_SECONDS` (default `70`) control the in-code token bucket; calls are serialized via `/tmp/sc_idx_alphavantage.lock`.
   - The script prints `budget_stop_av` whenever `remaining_daily <= buffer` so systemd sees an exit code `0` without wasting further calls.
+- To validate end-to-end Alpha Vantage + Oracle plumbing: `python tools/index_engine/verify_alphavantage.py` (does an Oracle preflight, fetches AAPL compact data, and upserts + reads back one raw row).
 
 New CLI flag:
 

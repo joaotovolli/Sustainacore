@@ -132,10 +132,17 @@ def _build_url(ticker: str, outputsize: str, api_key: str) -> str:
 
 
 def _extract_error_message(payload: dict[str, Any]) -> tuple[str | None, bool]:
-    for key in ("Note", "Information"):
-        if key in payload:
-            value = payload.get(key)
-            return (str(value).strip() if value is not None else "rate limit"), True
+    if "Note" in payload:
+        value = payload.get("Note")
+        return (str(value).strip() if value is not None else "rate limit"), True
+
+    if "Information" in payload:
+        value = payload.get("Information")
+        message = str(value).strip() if value is not None else "information"
+        lowered = message.lower()
+        if "premium" in lowered or "subscription" in lowered or "not available" in lowered:
+            return "alphavantage_full_history_unavailable_free_tier", False
+        return message, True
 
     if "Error Message" in payload:
         value = payload.get("Error Message")
@@ -233,4 +240,9 @@ def fetch_daily_adjusted(ticker: str, *, outputsize: str) -> list[dict]:
     url = _build_url(normalized_ticker, outputsize, api_key)
     request = urllib.request.Request(url, headers={"User-Agent": "sustainacore-index-engine"})
     payload = _throttled_json_request(request)
-    return _parse_rows(payload, normalized_ticker)
+    rows = _parse_rows(payload, normalized_ticker)
+    if outputsize == "full":
+        points = len(rows)
+        if points >= 95 and points <= 105:
+            raise RuntimeError("alphavantage_full_history_unavailable_free_tier")
+    return rows

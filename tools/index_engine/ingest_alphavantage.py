@@ -10,7 +10,15 @@ import uuid
 from pathlib import Path
 from typing import Iterable
 
-APP_PATH = Path(__file__).resolve().parents[2] / "app"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.index_engine.env_loader import load_default_env
+
+load_default_env()
+
+APP_PATH = REPO_ROOT / "app"
 if str(APP_PATH) not in sys.path:
     sys.path.insert(0, str(APP_PATH))
 
@@ -21,9 +29,15 @@ from index_engine.db import (
     upsert_prices_canon,
     upsert_prices_raw,
 )
+from index_engine import alerts as _alerts
 from index_engine.run_log import fetch_calls_used_today, finish_run, start_run
 from tools.index_engine.ingest_prices import compute_canonical_rows
 from providers.alphavantage import fetch_daily_adjusted
+from tools.index_engine.oracle_preflight import (
+    collect_wallet_diagnostics,
+    format_wallet_diagnostics,
+    probe_oracle_user,
+)
 
 PROVIDER = "ALPHAVANTAGE"
 JOB_NAME = "sc_idx_av_price_ingest"
@@ -131,6 +145,26 @@ def _print_summary(summary: dict) -> None:
     )
 
 
+def _oracle_preflight_or_exit() -> str:
+    try:
+        user = probe_oracle_user()
+        if user:
+            return user
+        return "UNKNOWN"
+    except Exception as exc:
+        print("oracle_preflight_failed:", str(exc), file=sys.stderr)
+        diagnostics = collect_wallet_diagnostics()
+        print(format_wallet_diagnostics(diagnostics), file=sys.stderr)
+        return ""
+
+
+def _maybe_send_alert(subject: str, body: str) -> None:
+    try:
+        _alerts.send_email(subject, body)
+    except Exception:
+        return
+
+
 def _run_backfill(
     tickers: list[str],
     start_date: _dt.date,
@@ -178,6 +212,8 @@ def _run_backfill(
                     if earliest_ok is None or min_date < earliest_ok:
                         earliest_ok = min_date
         except Exception as exc:
+            if str(exc) == "alphavantage_full_history_unavailable_free_tier":
+                raise
             error_date = ticker_start if ticker_start <= end_date else end_date
             error_row = {
                 "ticker": ticker,
@@ -314,6 +350,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Specify only one of --backfill or --incremental")
         return 1
 
+    oracle_user = _oracle_preflight_or_exit()
+    if not oracle_user:
+        return 2
+
     try:
         tickers = _prepare_ticker_list(args.tickers)
     except Exception as exc:
@@ -358,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
             "usage_limit": daily_limit,
             "usage_remaining": remaining_daily,
             "credit_buffer": daily_buffer,
+            "oracle_user": oracle_user,
         },
     )
 
@@ -386,6 +427,12 @@ def main(argv: list[str] | None = None) -> int:
             status = "BUDGET_STOP"
     except Exception as exc:
         status = "ERROR"
+        error_text = str(exc)
+        if error_text == "alphavantage_full_history_unavailable_free_tier":
+            _maybe_send_alert(
+                "SC_IDX Alpha Vantage ingest blocked (full history unavailable)",
+                "alphavantage_full_history_unavailable_free_tier",
+            )
         finish_run(
             run_id,
             status=status,
@@ -399,8 +446,8 @@ def main(argv: list[str] | None = None) -> int:
             usage_current=None,
             usage_limit=daily_limit,
             usage_remaining=remaining_daily,
-            oracle_user=None,
-            error=str(exc),
+            oracle_user=oracle_user,
+            error=error_text,
         )
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -417,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
         usage_current=None,
         usage_limit=daily_limit,
         usage_remaining=remaining_daily,
-        oracle_user=None,
+        oracle_user=oracle_user,
     )
     return 0
 

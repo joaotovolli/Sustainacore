@@ -126,3 +126,21 @@ def test_fetch_daily_adjusted_note_fails_after_retries(monkeypatch):
         av.fetch_daily_adjusted("acme", outputsize="compact")
 
     assert calls["count"] >= av.MAX_RETRIES
+
+
+def test_full_history_unavailable_detects_compact_payload(monkeypatch):
+    payload = {"Time Series (Daily)": {}}
+    for i in range(100):
+        date = (i + 1)
+        trade_date = f"2025-01-{date:02d}"
+        payload["Time Series (Daily)"][trade_date] = {
+            "4. close": "10",
+            "5. adjusted close": "10",
+            "6. volume": "1",
+        }
+
+    monkeypatch.setenv("ALPHAVANTAGE_API_KEY", "test-key")
+    monkeypatch.setattr(av, "_throttled_json_request", lambda request, **kwargs: payload)
+
+    with pytest.raises(RuntimeError, match="alphavantage_full_history_unavailable_free_tier"):
+        av.fetch_daily_adjusted("AAPL", outputsize="full")

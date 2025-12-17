@@ -9,6 +9,14 @@ import sys
 from collections import defaultdict
 from typing import Iterable, List, Optional
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.index_engine.env_loader import load_default_env
+
+load_default_env()
+
 APP_PATH = pathlib.Path(__file__).resolve().parents[2] / "app"
 if str(APP_PATH) not in sys.path:
     sys.path.insert(0, str(APP_PATH))
@@ -194,12 +202,21 @@ def _print_debug(
     )
 
 
-def _run_single(args: argparse.Namespace) -> int:
+def _run_single(args: argparse.Namespace) -> tuple[int, dict]:
+    summary: dict[str, int | _dt.date | None] = {
+        "provider_calls_used": 0,
+        "raw_upserts": 0,
+        "canon_upserts": 0,
+        "raw_ok": 0,
+        "raw_missing": 0,
+        "raw_error": 0,
+        "max_ok_trade_date": None,
+    }
     try:
         dates = _parse_dates(args)
     except Exception as exc:
         print(f"Invalid date arguments: {exc}")
-        return 1
+        return 1, summary
 
     tickers_by_date: dict[_dt.date, list[str]] = {}
     manual_tickers = _split_tickers(args.tickers)
@@ -207,7 +224,7 @@ def _run_single(args: argparse.Namespace) -> int:
         tickers_by_date = _collect_constituents(dates, manual_tickers)
     except Exception as exc:
         print(f"Failed to load constituents: {exc}")
-        return 1
+        return 1, summary
 
     oracle_user = None
     oracle_user_error = None
@@ -235,12 +252,21 @@ def _run_single(args: argparse.Namespace) -> int:
             print(f"Provider fetch failed: {exc}")
 
     raw_rows = _build_raw_rows_from_provider(provider_rows)
-    if raw_rows:
-        upsert_prices_raw(raw_rows)
+    status_counts = {"OK": 0, "MISSING": 0, "ERROR": 0}
+    for row in raw_rows:
+        status = row.get("status")
+        if status in status_counts:
+            status_counts[status] += 1
+
+    raw_written = upsert_prices_raw(raw_rows) if raw_rows else 0
 
     canon_rows = compute_canonical_rows(raw_rows)
-    if canon_rows:
-        upsert_prices_canon(canon_rows)
+    canon_written = upsert_prices_canon(canon_rows) if canon_rows else 0
+
+    max_ok = None
+    ok_dates = [row.get("trade_date") for row in raw_rows if row.get("status") == "OK" and row.get("trade_date")]
+    if ok_dates:
+        max_ok = max(ok_dates)
 
     if args.debug:
         _print_debug(
@@ -256,20 +282,41 @@ def _run_single(args: argparse.Namespace) -> int:
             oracle_user_error=oracle_user_error,
         )
 
-    _print_summary(raw_rows, canon_rows)
-    return 0
+    _print_summary(raw_rows, canon_rows, provider_calls_used=1 if provider_called else 0)
+
+    summary.update(
+        {
+            "provider_calls_used": 1 if provider_called else 0,
+            "raw_upserts": raw_written,
+            "canon_upserts": canon_written,
+            "raw_ok": status_counts["OK"],
+            "raw_missing": status_counts["MISSING"],
+            "raw_error": status_counts["ERROR"],
+            "max_ok_trade_date": max_ok,
+        }
+    )
+    return 0, summary
 
 
-def _run_backfill(args: argparse.Namespace) -> int:
+def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
+    empty_summary = {
+        "provider_calls_used": 0,
+        "raw_upserts": 0,
+        "canon_upserts": 0,
+        "raw_ok": 0,
+        "raw_missing": 0,
+        "raw_error": 0,
+        "max_ok_trade_date": None,
+    }
     if not args.start or not args.end:
         print("Backfill mode requires --start and --end")
-        return 1
+        return 1, empty_summary
 
     start_date = _parse_date(args.start)
     end_date = _parse_date(args.end)
     if end_date < start_date:
         print("Invalid date range: end must be on or after start")
-        return 1
+        return 1, empty_summary
 
     max_provider_calls = args.max_provider_calls
     provider_calls_used = 0
@@ -288,11 +335,13 @@ def _run_backfill(args: argparse.Namespace) -> int:
             tickers = fetch_distinct_tech100_tickers()
         except Exception as exc:
             print(f"Failed to load tickers: {exc}")
-            return 1
+            return 1, empty_summary
 
     total_raw = 0
     total_canon = 0
+    total_status = {"OK": 0, "MISSING": 0, "ERROR": 0}
     provider_error: str | None = None
+    max_ok_trade_date = None
 
     for ticker in tickers:
         if max_provider_calls is not None and provider_calls_used >= max_provider_calls:
@@ -330,6 +379,14 @@ def _run_backfill(args: argparse.Namespace) -> int:
         raw_rows = _build_raw_rows_from_provider(provider_rows)
         if raw_rows:
             total_raw += upsert_prices_raw(raw_rows)
+        for row in raw_rows:
+            status = row.get("status")
+            if status in total_status:
+                total_status[status] += 1
+            if status == "OK" and row.get("trade_date"):
+                date_value = row.get("trade_date")
+                if max_ok_trade_date is None or date_value > max_ok_trade_date:
+                    max_ok_trade_date = date_value
         canon_rows = compute_canonical_rows(raw_rows)
         if canon_rows:
             total_canon += upsert_prices_canon(canon_rows)
@@ -355,10 +412,19 @@ def _run_backfill(args: argparse.Namespace) -> int:
             raw=total_raw, canon=total_canon, calls=provider_calls_used
         )
     )
-    return 0
+    summary = {
+        "provider_calls_used": provider_calls_used,
+        "raw_upserts": total_raw,
+        "canon_upserts": total_canon,
+        "raw_ok": total_status["OK"],
+        "raw_missing": total_status["MISSING"],
+        "raw_error": total_status["ERROR"],
+        "max_ok_trade_date": max_ok_trade_date,
+    }
+    return 0, summary
 
 
-def main(argv: list[str] | None = None) -> int:
+def run_ingest(argv: list[str] | None = None) -> tuple[int, dict]:
     parser = argparse.ArgumentParser(description="Ingest TECH100 EOD prices")
     parser.add_argument("--date", help="single trade date (YYYY-MM-DD)")
     parser.add_argument("--start", help="start date inclusive (YYYY-MM-DD)")
@@ -380,6 +446,10 @@ def main(argv: list[str] | None = None) -> int:
     return _run_single(args)
 
 
+def main(argv: list[str] | None = None) -> int:
+    exit_code, _summary = run_ingest(argv)
+    return exit_code
+
+
 if __name__ == "__main__":
     sys.exit(main())
-

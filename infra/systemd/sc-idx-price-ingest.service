@@ -10,6 +10,11 @@ WorkingDirectory=/opt/sustainacore-ai
 Environment=PYTHONPATH=/opt/sustainacore-ai
 EnvironmentFile=/etc/sustainacore/db.env
 EnvironmentFile=/etc/sustainacore-ai/secrets.env
+ExecStartPre=/usr/bin/test -r /etc/sustainacore/db.env
+ExecStartPre=/usr/bin/test -r /etc/sustainacore-ai/secrets.env
+ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore-ai/secrets.env
+ExecStartPre=/usr/bin/namei -l /etc/sustainacore/db.env
+ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env
 ExecStart=/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/run_daily.py
 Restart=on-failure
 RestartSec=10
