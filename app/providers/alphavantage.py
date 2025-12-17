@@ -139,9 +139,6 @@ def _extract_error_message(payload: dict[str, Any]) -> tuple[str | None, bool]:
     if "Information" in payload:
         value = payload.get("Information")
         message = str(value).strip() if value is not None else "information"
-        lowered = message.lower()
-        if "premium" in lowered or "subscription" in lowered or "not available" in lowered:
-            return "alphavantage_full_history_unavailable_free_tier", False
         return message, True
 
     if "Error Message" in payload:
@@ -245,4 +242,9 @@ def fetch_daily_adjusted(ticker: str, *, outputsize: str) -> list[dict]:
         points = len(rows)
         if points >= 95 and points <= 105:
             raise RuntimeError("alphavantage_full_history_unavailable_free_tier")
+        info = payload.get("Information")
+        if info:
+            lowered = str(info).lower()
+            if "premium" in lowered or "subscription" in lowered or "full" in lowered:
+                raise RuntimeError("alphavantage_full_history_unavailable_free_tier")
     return rows
