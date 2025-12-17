@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as _dt
-import os
 import pathlib
 import sys
 from typing import Any, Dict, List
@@ -13,36 +12,12 @@ for path in (ROOT_PATH, APP_PATH):
     if str(path) not in sys.path:
         sys.path.append(str(path))
 
+from tools.index_engine.env_loader import load_default_env
+
+load_default_env()
+
 from db_helper import get_connection
 from providers.twelvedata import TwelveDataError, fetch_api_usage, fetch_latest_bar
-
-ENV_FILES = ("/etc/sustainacore-ai/secrets.env", "/etc/sustainacore/db.env")
-
-
-def _load_env_files() -> None:
-    """Load key=value pairs from known env files without printing secrets."""
-
-    for path in ENV_FILES:
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                for line in handle:
-                    text = line.strip()
-                    if not text or text.startswith("#"):
-                        continue
-                    if text.startswith("export "):
-                        text = text[len("export ") :].strip()
-                    name, sep, value = text.partition("=")
-                    if sep != "=":
-                        continue
-                    key = name.strip()
-                    if not key or key in os.environ:
-                        continue
-                    os.environ[key] = value.strip().strip("\"'")
-        except (FileNotFoundError, PermissionError):
-            continue
-        except Exception:
-            continue
-
 
 def _fetch_latest_bar_for_symbol(symbol: str) -> tuple[list[dict], str | None, str | None]:
     try:
@@ -126,8 +101,6 @@ def _print_usage(label: str, usage: Dict[str, Any]) -> None:
 
 
 def main() -> int:
-    _load_env_files()
-
     print("== Twelve Data usage check ==")
     try:
         usage_before = fetch_api_usage()

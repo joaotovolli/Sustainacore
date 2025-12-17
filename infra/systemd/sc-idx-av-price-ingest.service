@@ -1,5 +1,5 @@
 [Unit]
-Description=SC_IDX daily price ingest (TwelveData)
+Description=SC_IDX Alpha Vantage price ingest
 After=network-online.target
 Wants=network-online.target
 
@@ -15,7 +15,7 @@ ExecStartPre=/usr/bin/test -r /etc/sustainacore-ai/secrets.env
 ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore-ai/secrets.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env
-ExecStart=/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/run_daily.py
+ExecStart=/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/ingest_alphavantage.py --incremental
 Restart=on-failure
 RestartSec=10
 

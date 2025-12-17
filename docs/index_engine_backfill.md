@@ -19,6 +19,10 @@ Notes:
 - Each ticker probes `SC_IDX_PRICES_RAW` for the last OK `trade_date` before fetching, so reruns are idempotent.
 - Weekends/holidays are naturally skipped because the provider does not return rows for those dates.
 
+## Alpha Vantage full-history backfill
+- Run `python tools/index_engine/ingest_alphavantage.py --backfill --start 2025-01-02 --end <date>` to populate `SC_IDX_PRICES_RAW` for `ALPHAVANTAGE`. The tool filters the `full` output to only new dates per ticker and inserts `ERROR` rows when a fetch fails, so the run is idempotent when re-targeted.
+- After this backfill, the same tool can be run with `--incremental` to keep the `SC_IDX_PRICES_CANON` table reconciled with both `TWELVEDATA` and `ALPHAVANTAGE` rows.
+
 ## Verification queries (Oracle)
 ```sql
 -- Provider status counts

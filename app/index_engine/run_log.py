@@ -37,53 +37,69 @@ def fetch_calls_used_today(provider: str) -> int:
 
 
 def start_run(
-    run_id: Optional[str],
+    run_type: str,
     *,
-    job_name: str,
+    end_date: Any,
     provider: str,
-    start_date: Any = None,
-    end_date: Any = None,
-    usage_current: Any = None,
-    usage_limit: Any = None,
-    usage_remaining: Any = None,
-    credit_buffer: Any = None,
-    max_provider_calls: Any = None,
-    oracle_user: Any = None,
+    max_provider_calls: Any,
+    meta: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Insert a START row; returns the run_id used."""
+    """
+    Insert a START row; returns the run_id used.
 
-    run_id = run_id or str(uuid.uuid4())
+    meta allows optional fields: run_id, start_date, oracle_user, usage_current,
+    usage_limit, usage_remaining, credit_buffer.
+    """
+
+    meta = meta or {}
+    run_id = meta.get("run_id") or str(uuid.uuid4())
     sql = (
         "INSERT INTO SC_IDX_JOB_RUNS "
-        "(run_id, job_name, started_at, start_date, end_date, provider, oracle_user, usage_current, usage_limit, usage_remaining, credit_buffer, max_provider_calls, status) "
-        "VALUES (:run_id, :job_name, SYSTIMESTAMP, :start_date, :end_date, :provider, :oracle_user, :usage_current, :usage_limit, :usage_remaining, :credit_buffer, :max_provider_calls, 'STARTED')"
+        "(run_id, job_name, started_at, start_date, end_date, provider, oracle_user, usage_current, usage_limit, "
+        "usage_remaining, credit_buffer, max_provider_calls, status) "
+        "VALUES (:run_id, :job_name, SYSTIMESTAMP, :start_date, :end_date, :provider, :oracle_user, "
+        ":usage_current, :usage_limit, :usage_remaining, :credit_buffer, :max_provider_calls, 'STARTED')"
     )
+    binds = {
+        "run_id": run_id,
+        "job_name": run_type,
+        "start_date": meta.get("start_date"),
+        "end_date": end_date,
+        "provider": provider,
+        "oracle_user": meta.get("oracle_user"),
+        "usage_current": meta.get("usage_current"),
+        "usage_limit": meta.get("usage_limit"),
+        "usage_remaining": meta.get("usage_remaining"),
+        "credit_buffer": meta.get("credit_buffer"),
+        "max_provider_calls": max_provider_calls,
+    }
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(
-                sql,
-                {
-                    "run_id": run_id,
-                    "job_name": job_name,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "provider": provider,
-                    "oracle_user": oracle_user,
-                    "usage_current": usage_current,
-                    "usage_limit": usage_limit,
-                    "usage_remaining": usage_remaining,
-                    "credit_buffer": credit_buffer,
-                    "max_provider_calls": max_provider_calls,
-                },
-            )
+            cur.execute(sql, binds)
             conn.commit()
     except Exception as exc:  # pragma: no cover - database availability
         LOGGER.warning("run_log: failed to insert start row: %s", exc)
     return run_id
 
 
-def finish_run(run_id: str, summary: Dict[str, Any]) -> None:
+def finish_run(
+    run_id: str,
+    *,
+    status: str,
+    provider_calls_used: Any = None,
+    raw_upserts: Any = None,
+    canon_upserts: Any = None,
+    raw_ok: Any = None,
+    raw_missing: Any = None,
+    raw_error: Any = None,
+    max_provider_calls: Any = None,
+    usage_current: Any = None,
+    usage_limit: Any = None,
+    usage_remaining: Any = None,
+    oracle_user: Any = None,
+    error: Any = None,
+) -> None:
     """Update a run row with summary fields."""
 
     sql = (
@@ -100,30 +116,30 @@ def finish_run(run_id: str, summary: Dict[str, Any]) -> None:
         "max_provider_calls = :max_provider_calls, "
         "usage_current = :usage_current, "
         "usage_limit = :usage_limit, "
-        "usage_remaining = :usage_remaining "
+        "usage_remaining = :usage_remaining, "
+        "oracle_user = :oracle_user "
         "WHERE run_id = :run_id"
     )
+    binds = {
+        "run_id": run_id,
+        "status": status,
+        "error_msg": error,
+        "provider_calls_used": provider_calls_used,
+        "raw_upserts": raw_upserts,
+        "canon_upserts": canon_upserts,
+        "raw_ok": raw_ok,
+        "raw_error": raw_error,
+        "raw_missing": raw_missing,
+        "max_provider_calls": max_provider_calls,
+        "usage_current": usage_current,
+        "usage_limit": usage_limit,
+        "usage_remaining": usage_remaining,
+        "oracle_user": oracle_user,
+    }
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(
-                sql,
-                {
-                    "run_id": run_id,
-                    "status": summary.get("status"),
-                    "error_msg": summary.get("error_msg"),
-                    "provider_calls_used": summary.get("provider_calls_used"),
-                    "raw_upserts": summary.get("raw_upserts"),
-                    "canon_upserts": summary.get("canon_upserts"),
-                    "raw_ok": summary.get("raw_ok"),
-                    "raw_error": summary.get("raw_error"),
-                    "raw_missing": summary.get("raw_missing"),
-                    "max_provider_calls": summary.get("max_provider_calls"),
-                    "usage_current": summary.get("usage_current"),
-                    "usage_limit": summary.get("usage_limit"),
-                    "usage_remaining": summary.get("usage_remaining"),
-                },
-            )
+            cur.execute(sql, binds)
             conn.commit()
     except Exception as exc:  # pragma: no cover - database availability
         LOGGER.warning("run_log: failed to update run row: %s", exc)

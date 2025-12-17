@@ -7,21 +7,44 @@ The daily index ingestion timer calls `tools/index_engine/run_daily.py` at 23:30
 - Applies a daily cap: `remaining_daily = daily_limit - calls_used_today`, `max_provider_calls = max(0, remaining_daily - daily_buffer)`. Environment:
   - `SC_IDX_TWELVEDATA_DAILY_LIMIT` (default 800)
   - `SC_IDX_TWELVEDATA_DAILY_BUFFER` (default 25; falls back to `SC_IDX_TWELVEDATA_CREDIT_BUFFER` if set)
-- Hitting the daily cap prints `daily_budget_stop: ...` and exits 0 so systemd does not treat it as a failure.
+- Hitting the daily cap prints `daily_budget_stop: ...` and exits 0 so systemd does not treat it as a failure (email only when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`).
 - Probes whether a daily bar for today is already published using a single `time_series` request (default probe symbol: `AAPL`, override with `SC_IDX_PROBE_SYMBOL`). If found, we ingest through today; otherwise we fall back to yesterday.
 - Runs `tools/index_engine/ingest_prices.py --backfill --start 2025-01-02 --end <chosen_end> --max-provider-calls <computed>` and passes `SC_IDX_TICKERS` when present for the ticker list.
 
 Environment:
 
 - `SC_TWELVEDATA_API_KEY` or `TWELVEDATA_API_KEY` must be set (never logged).
+- All index-engine CLI tools auto-load environment files (best-effort) on startup via `tools/index_engine/env_loader.py`, reading (in order): `/etc/sustainacore/db.env` then `/etc/sustainacore-ai/secrets.env`. Explicit shell env vars still win.
 - `SC_IDX_TWELVEDATA_DAILY_LIMIT` sets the daily call ceiling (default 800).
 - `SC_IDX_TWELVEDATA_DAILY_BUFFER` reserves extra headroom near the daily cap (default 25; alias `SC_IDX_TWELVEDATA_CREDIT_BUFFER` for back-compat).
 - Twelve Data throttle override (rarely needed): `SC_IDX_TWELVEDATA_CALLS_PER_WINDOW` (default 6) and `SC_IDX_TWELVEDATA_WINDOW_SECONDS` (default 120). All provider calls are serialized via `/tmp/sc_idx_twelvedata.lock` to avoid cross-process spikes.
 - Optional: `SC_IDX_TICKERS` (comma separated) and `SC_IDX_PROBE_SYMBOL`.
-- Twelve Data throttle override (rarely needed): `SC_IDX_TWELVEDATA_CALLS_PER_WINDOW` (default 6) and `SC_IDX_TWELVEDATA_WINDOW_SECONDS` (default 120). All provider calls are serialized via `/tmp/sc_idx_twelvedata.lock` to avoid cross-process spikes.
 - Email alerts on failure use SMTP envs from `/etc/sustainacore-ai/secrets.env`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`. Errors trigger an email with a compact run report; set `SC_IDX_EMAIL_ON_BUDGET_STOP=1` to also email budget stops.
 - Daily usage and statuses are persisted in `SC_IDX_JOB_RUNS` (DDL: `oracle_scripts/sc_idx_job_runs_v1.sql`). Run `oracle_scripts/sc_idx_job_runs_v1_drop.sql` to drop if rollback is needed. Example query: `SELECT run_id, status, error_msg, started_at, ended_at FROM SC_IDX_JOB_RUNS ORDER BY started_at DESC FETCH FIRST 20 ROWS ONLY;`
+
+## Alpha Vantage incremental ingest
+
+- The new `tools/index_engine/ingest_alphavantage.py` script keeps `SC_IDX_PRICES_RAW` populated for provider `ALPHAVANTAGE`. It tracks `SC_IDX_JOB_RUNS` usage just like the Twelve Data flow, upserts `ERROR` rows when single-ticker fetches fail, and runs `compute_canonical_rows` on the returned rows (merged with existing `TWELVEDATA` feeds) before writing `SC_IDX_PRICES_CANON`.
+- Run `python tools/index_engine/ingest_alphavantage.py --incremental` manually for ad-hoc updates or `--backfill --start --end` for the `full` history download. The automatic timer now fires at 23:40 UTC Monday–Friday and reconciles repetitively.
+- Alpha Vantage `outputsize=full` can be restricted on the free tier; when detected the provider raises `alphavantage_full_history_unavailable_free_tier` and the backfill run is marked `ERROR` in `SC_IDX_JOB_RUNS` (with an alert email if SMTP is configured).
+- Environment variables in `/etc/sustainacore-ai/secrets.env`:
+  - `ALPHAVANTAGE_API_KEY=<REPLACE_ME>` (required for any Alpha Vantage call).
+  - `SC_IDX_ALPHAVANTAGE_DAILY_LIMIT` (default `25`) and `SC_IDX_ALPHAVANTAGE_DAILY_BUFFER` (default `3`) define the daily cap and reserved headroom.
+  - `SC_IDX_ALPHAVANTAGE_CALLS_PER_WINDOW` (default `4`) and `SC_IDX_ALPHAVANTAGE_WINDOW_SECONDS` (default `70`) control the in-code token bucket; calls are serialized via `/tmp/sc_idx_alphavantage.lock`.
+  - The script prints `budget_stop_av` whenever `remaining_daily <= buffer` so systemd sees an exit code `0` without wasting further calls.
+- To validate end-to-end Alpha Vantage + Oracle plumbing: `python tools/index_engine/verify_alphavantage.py` (does an Oracle preflight, fetches AAPL compact data, and upserts + reads back one raw row).
 
 New CLI flag:
 
 - `--max-provider-calls N` enforces the credit budget in backfill runs. Each ticker download counts as one provider call.
+
+Environment files and permissions:
+
+- Service unit (`infra/systemd/sc-idx-price-ingest.service`) now pre-checks `EnvironmentFile` readability with `ExecStartPre` and prints `ls -l`/`namei -l` for `/etc/sustainacore/db.env` and `/etc/sustainacore-ai/secrets.env` to make permission failures obvious.
+- Use `tools/index_engine/fix_env_permissions.sh` to set expected ownership/mode (root:opc 640, directories 750) and SELinux context `etc_t` if enabled.
+
+Alert testing and failure drills:
+
+- To force an error without spending credits: run `python tools/index_engine/verify_sc_idx_env.py --force-fail-run` (uses `SC_IDX_FORCE_FAIL=1`, sends an ERROR email if SMTP envs are present).
+- To send a benign ping email without failing the ingest: `python tools/index_engine/verify_sc_idx_env.py --send-email`.
+- To inspect recent outcomes: `SELECT run_id, status, error_msg, provider_calls_used, raw_upserts, canon_upserts, end_date FROM SC_IDX_JOB_RUNS ORDER BY started_at DESC FETCH FIRST 20 ROWS ONLY;`.
