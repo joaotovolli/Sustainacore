@@ -289,6 +289,23 @@ a:hover {
     font-weight: 700;
     font-size: 1.05rem;
     line-height: 1.35;
+.snapshot-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin: 1rem 0 0.75rem;
+}
+
+.snapshot-header__title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    line-height: 1.3;
+}
+
+.snapshot-header__subtitle {
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.4;
 }
 
 .list {
