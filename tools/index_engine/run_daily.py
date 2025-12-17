@@ -17,6 +17,12 @@ from tools.index_engine.env_loader import load_default_env
 
 load_default_env()
 
+from tools.index_engine.oracle_preflight import (
+    collect_wallet_diagnostics,
+    format_wallet_diagnostics,
+    probe_oracle_user,
+)
+
 DEFAULT_START = _dt.date(2025, 1, 2)
 DEFAULT_BUFFER = 25
 DEFAULT_DAILY_LIMIT = 800
@@ -115,6 +121,58 @@ def _select_end_date(provider, probe_symbol: str, today_utc: _dt.date) -> _dt.da
         )
     return today_utc - _dt.timedelta(days=1)
 
+def _oracle_preflight_or_exit(*, run_id: str, today_utc: _dt.date, email_on_budget_stop: bool) -> str | None:
+    """
+    Ensure Oracle connectivity/wallet is working before provider calls.
+
+    On failure:
+      - prints wallet diagnostics
+      - writes a SC_IDX_JOB_RUNS row (best-effort) with status ERROR and error token oracle_preflight_failed
+      - sends an email alert (best-effort)
+      - returns None so caller can exit with code 2
+    """
+
+    try:
+        oracle_user = probe_oracle_user()
+        return oracle_user or "UNKNOWN"
+    except Exception as exc:
+        print("oracle_preflight_failed:", str(exc), file=sys.stderr)
+        print(format_wallet_diagnostics(collect_wallet_diagnostics()), file=sys.stderr)
+
+        try:
+            start_run(
+                "sc_idx_price_ingest",
+                end_date=today_utc,
+                provider="TWELVEDATA",
+                max_provider_calls=0,
+                meta={"run_id": run_id, "start_date": DEFAULT_START, "oracle_user": None},
+            )
+            finish_run(
+                run_id,
+                status="ERROR",
+                provider_calls_used=0,
+                raw_upserts=0,
+                canon_upserts=0,
+                raw_ok=0,
+                raw_missing=0,
+                raw_error=0,
+                max_provider_calls=0,
+                usage_current=None,
+                usage_limit=None,
+                usage_remaining=None,
+                oracle_user=None,
+                error="oracle_preflight_failed",
+            )
+        except Exception:
+            # DB may be unavailable; logging is best-effort.
+            pass
+
+        try:
+            _maybe_send_alert("ERROR", {"status": "ERROR", "error_msg": "oracle_preflight_failed"}, run_id, email_on_budget_stop)
+        except Exception:
+            pass
+        return None
+
 
 def main() -> int:
     run_id = str(uuid.uuid4())
@@ -123,6 +181,10 @@ def main() -> int:
     email_on_budget_stop = os.getenv(EMAIL_ON_BUDGET_STOP_ENV) == "1"
     force_fail = os.getenv("SC_IDX_FORCE_FAIL") == "1"
     today_utc = _dt.datetime.now(_dt.timezone.utc).date()
+
+    oracle_user = _oracle_preflight_or_exit(run_id=run_id, today_utc=today_utc, email_on_budget_stop=email_on_budget_stop)
+    if oracle_user is None:
+        return 2
 
     summary: dict = {
         "run_id": run_id,
@@ -138,7 +200,7 @@ def main() -> int:
         "raw_missing": 0,
         "raw_error": 0,
         "max_ok_trade_date": None,
-        "oracle_user": None,
+        "oracle_user": oracle_user,
         "usage_current": None,
         "usage_limit": None,
         "usage_remaining": None,
@@ -157,7 +219,7 @@ def main() -> int:
                 "usage_limit": None,
                 "usage_remaining": None,
                 "credit_buffer": None,
-                "oracle_user": None,
+                "oracle_user": oracle_user,
             },
         )
         status = "ERROR"
@@ -177,7 +239,7 @@ def main() -> int:
             usage_current=None,
             usage_limit=None,
             usage_remaining=None,
-            oracle_user=None,
+            oracle_user=oracle_user,
             error=error_msg,
         )
         _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
@@ -227,7 +289,7 @@ def main() -> int:
             "usage_limit": plan_limit,
             "usage_remaining": usage_remaining,
             "credit_buffer": daily_buffer,
-            "oracle_user": None,
+            "oracle_user": oracle_user,
         },
     )
 
@@ -249,7 +311,7 @@ def main() -> int:
             usage_current=current_usage,
             usage_limit=plan_limit,
             usage_remaining=usage_remaining,
-            oracle_user=None,
+            oracle_user=oracle_user,
             error=error_msg,
         )
         _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
@@ -292,7 +354,7 @@ def main() -> int:
             usage_current=current_usage,
             usage_limit=plan_limit,
             usage_remaining=usage_remaining,
-            oracle_user=None,
+            oracle_user=oracle_user,
             error=None,
         )
         _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
@@ -342,7 +404,7 @@ def main() -> int:
         usage_current=current_usage,
         usage_limit=plan_limit,
         usage_remaining=usage_remaining,
-        oracle_user=None,
+        oracle_user=oracle_user,
         error=error_msg,
     )
 
