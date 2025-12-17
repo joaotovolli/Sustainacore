@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import sys
 import time
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.oracle.env_bootstrap import load_env_files
 
 try:
     import oracledb
@@ -22,6 +29,7 @@ def _redact(value: str) -> str:
 
 
 def main() -> None:
+    load_env_files()
     user = os.environ.get("DB_USER")
     pwd = (
         os.environ.get("DB_PASSWORD")
