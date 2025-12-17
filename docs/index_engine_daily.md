@@ -22,21 +22,9 @@ Environment:
 - Email alerts on failure use SMTP envs from `/etc/sustainacore-ai/secrets.env`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`. Errors trigger an email with a compact run report; set `SC_IDX_EMAIL_ON_BUDGET_STOP=1` to also email budget stops.
 - Daily usage and statuses are persisted in `SC_IDX_JOB_RUNS` (DDL: `oracle_scripts/sc_idx_job_runs_v1.sql`). Run `oracle_scripts/sc_idx_job_runs_v1_drop.sql` to drop if rollback is needed. Example query: `SELECT run_id, status, error_msg, started_at, ended_at FROM SC_IDX_JOB_RUNS ORDER BY started_at DESC FETCH FIRST 20 ROWS ONLY;`
 
-## Alpha Vantage incremental ingest
+## Oracle preflight
 
-- The new `tools/index_engine/ingest_alphavantage.py` script keeps `SC_IDX_PRICES_RAW` populated for provider `ALPHAVANTAGE`. It tracks `SC_IDX_JOB_RUNS` usage just like the Twelve Data flow, upserts `ERROR` rows when single-ticker fetches fail, and runs `compute_canonical_rows` on the returned rows (merged with existing `TWELVEDATA` feeds) before writing `SC_IDX_PRICES_CANON`.
-- Run `python tools/index_engine/ingest_alphavantage.py --incremental` manually for ad-hoc updates or `--backfill --start --end` for the `full` history download. The automatic timer now fires at 23:40 UTC Monday–Friday and reconciles repetitively.
-- Alpha Vantage `outputsize=full` can be restricted on the free tier; when detected the provider raises `alphavantage_full_history_unavailable_free_tier` and the backfill run is marked `ERROR` in `SC_IDX_JOB_RUNS` (with an alert email if SMTP is configured).
-- Environment variables in `/etc/sustainacore-ai/secrets.env`:
-  - `ALPHAVANTAGE_API_KEY=<REPLACE_ME>` (required for any Alpha Vantage call).
-  - `SC_IDX_ALPHAVANTAGE_DAILY_LIMIT` (default `25`) and `SC_IDX_ALPHAVANTAGE_DAILY_BUFFER` (default `3`) define the daily cap and reserved headroom.
-  - `SC_IDX_ALPHAVANTAGE_CALLS_PER_WINDOW` (default `4`) and `SC_IDX_ALPHAVANTAGE_WINDOW_SECONDS` (default `70`) control the in-code token bucket; calls are serialized via `/tmp/sc_idx_alphavantage.lock`.
-  - The script prints `budget_stop_av` whenever `remaining_daily <= buffer` so systemd sees an exit code `0` without wasting further calls.
-- To validate end-to-end Alpha Vantage + Oracle plumbing: `python tools/index_engine/verify_alphavantage.py` (does an Oracle preflight, fetches AAPL compact data, and upserts + reads back one raw row).
-
-## Oracle preflight for both providers
-
-- Both `tools/index_engine/run_daily.py` (Twelve Data) and `tools/index_engine/ingest_alphavantage.py` (Alpha Vantage) run an Oracle preflight (`SELECT USER FROM dual`) before doing any provider/API work.
+- `tools/index_engine/run_daily.py` (Twelve Data) runs an Oracle preflight (`SELECT USER FROM dual`) before doing any provider/API work.
 - If the wallet/env is broken, the job prints wallet diagnostics (TNS_ADMIN + best-effort `sqlnet.ora`/`cwallet.sso` checks), writes an `ERROR` run log row with error token `oracle_preflight_failed`, sends an email alert (if SMTP is configured), and exits with code `2` so systemd treats it as a failure.
 
 New CLI flag:
