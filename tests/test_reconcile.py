@@ -9,8 +9,8 @@ from index_engine.reconcile import reconcile_canonical
 
 
 def test_two_providers_within_threshold_high_quality():
-    provider_adj_closes = {"TWELVEDATA": 100.0, "ALPHAVANTAGE": 100.4}
-    provider_closes = {"TWELVEDATA": 101.0, "ALPHAVANTAGE": 101.4}
+    provider_adj_closes = {"TWELVEDATA": 100.0, "OTHER": 100.4}
+    provider_closes = {"TWELVEDATA": 101.0, "OTHER": 101.4}
 
     result = reconcile_canonical(provider_adj_closes, provider_closes)
 
@@ -23,8 +23,8 @@ def test_two_providers_within_threshold_high_quality():
 
 
 def test_two_providers_above_threshold_conflict_prefers_twelvedata():
-    provider_adj_closes = {"TWELVEDATA": 100.0, "ALPHAVANTAGE": 101.0}
-    provider_closes = {"TWELVEDATA": 99.5, "ALPHAVANTAGE": 101.2}
+    provider_adj_closes = {"TWELVEDATA": 100.0, "OTHER": 101.0}
+    provider_closes = {"TWELVEDATA": 99.5, "OTHER": 101.2}
 
     result = reconcile_canonical(provider_adj_closes, provider_closes)
 
@@ -37,13 +37,13 @@ def test_two_providers_above_threshold_conflict_prefers_twelvedata():
 
 
 def test_single_provider_low_quality():
-    provider_adj_closes = {"ALPHAVANTAGE": 50.0}
-    provider_closes = {"ALPHAVANTAGE": 49.8}
+    provider_adj_closes = {"TWELVEDATA": 50.0}
+    provider_closes = {"TWELVEDATA": 49.8}
 
     result = reconcile_canonical(provider_adj_closes, provider_closes)
 
     assert result["providers_ok"] == 1
-    assert result["chosen_provider"] == "ALPHAVANTAGE"
+    assert result["chosen_provider"] == "TWELVEDATA"
     assert result["quality"] == "LOW"
     assert result["canon_adj_close"] == 50.0
     assert result["canon_close"] == 49.8
