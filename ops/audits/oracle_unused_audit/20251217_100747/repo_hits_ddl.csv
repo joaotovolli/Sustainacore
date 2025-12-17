@@ -1,0 +1,83 @@
+object_name,object_type,hit_count,hit_locations
+CONTACT_US_MESSAGES,TABLE,24,db/schema/schema.sql:136; db/schema/schema.sql:139; db/schema/schema.sql:4393; db/schema/schema.sql:4396; db/schema/schema.sql:4397
+DR$ESG_DOCS_TEXT_IDX$B,TABLE,0,
+DR$ESG_DOCS_TEXT_IDX$C,TABLE,0,
+DR$ESG_DOCS_TEXT_IDX$I,TABLE,0,
+DR$ESG_DOCS_TEXT_IDX$K,TABLE,0,
+DR$ESG_DOCS_TEXT_IDX$N,TABLE,0,
+DR$ESG_DOCS_TEXT_IDX$Q,TABLE,0,
+DR$ESG_DOCS_TEXT_IDX$U,TABLE,0,
+DR$X_ESG_NEWS_TEXT_FT$B,TABLE,0,
+DR$X_ESG_NEWS_TEXT_FT$C,TABLE,0,
+DR$X_ESG_NEWS_TEXT_FT$I,TABLE,21,db/schema/schema.sql:2068; db/schema/schema.sql:3749; db/schema/schema.sql:3752; db/schema/schema.sql:3753; db/schema/schema.sql:3754
+DR$X_ESG_NEWS_TEXT_FT$K,TABLE,6,db/schema/schema.sql:2112; db/schema/schema.sql:2132; db/migrations/V0001__baseline.sql:2113; db/migrations/V0001__baseline.sql:2133; app/apex/f101_latest.sql:2112
+DR$X_ESG_NEWS_TEXT_FT$N,TABLE,9,db/schema/schema.sql:4374; db/schema/schema.sql:4377; db/schema/schema.sql:4378; db/migrations/V0001__baseline.sql:4375; db/migrations/V0001__baseline.sql:4378
+DR$X_ESG_NEWS_TEXT_FT$Q,TABLE,0,
+DR$X_ESG_NEWS_TEXT_FT$U,TABLE,6,db/schema/schema.sql:4300; db/schema/schema.sql:4303; db/migrations/V0001__baseline.sql:4301; db/migrations/V0001__baseline.sql:4304; app/apex/f101_latest.sql:4300
+DR$X_ESG_NEWS_TITLE_FT$B,TABLE,0,
+DR$X_ESG_NEWS_TITLE_FT$C,TABLE,0,
+DR$X_ESG_NEWS_TITLE_FT$I,TABLE,21,db/schema/schema.sql:1699; db/schema/schema.sql:4069; db/schema/schema.sql:4072; db/schema/schema.sql:4073; db/schema/schema.sql:4074
+DR$X_ESG_NEWS_TITLE_FT$K,TABLE,6,db/schema/schema.sql:1683; db/schema/schema.sql:2122; db/migrations/V0001__baseline.sql:1684; db/migrations/V0001__baseline.sql:2123; app/apex/f101_latest.sql:1683
+DR$X_ESG_NEWS_TITLE_FT$N,TABLE,9,db/schema/schema.sql:4189; db/schema/schema.sql:4192; db/schema/schema.sql:4193; db/migrations/V0001__baseline.sql:4190; db/migrations/V0001__baseline.sql:4193
+DR$X_ESG_NEWS_TITLE_FT$Q,TABLE,0,
+DR$X_ESG_NEWS_TITLE_FT$U,TABLE,6,db/schema/schema.sql:4293; db/schema/schema.sql:4296; db/migrations/V0001__baseline.sql:4294; db/migrations/V0001__baseline.sql:4297; app/apex/f101_latest.sql:4293
+DR$X_NEWS_ITEMS_FT$B,TABLE,0,
+DR$X_NEWS_ITEMS_FT$C,TABLE,0,
+DR$X_NEWS_ITEMS_FT$I,TABLE,21,db/schema/schema.sql:2179; db/schema/schema.sql:4384; db/schema/schema.sql:4387; db/schema/schema.sql:4388; db/schema/schema.sql:4389
+DR$X_NEWS_ITEMS_FT$K,TABLE,6,db/schema/schema.sql:1902; db/schema/schema.sql:2055; db/migrations/V0001__baseline.sql:1903; db/migrations/V0001__baseline.sql:2056; app/apex/f101_latest.sql:1902
+DR$X_NEWS_ITEMS_FT$N,TABLE,9,db/schema/schema.sql:3816; db/schema/schema.sql:3819; db/schema/schema.sql:3820; db/migrations/V0001__baseline.sql:3817; db/migrations/V0001__baseline.sql:3820
+DR$X_NEWS_ITEMS_FT$Q,TABLE,0,
+DR$X_NEWS_ITEMS_FT$U,TABLE,6,db/schema/schema.sql:4148; db/schema/schema.sql:4151; db/migrations/V0001__baseline.sql:4149; db/migrations/V0001__baseline.sql:4152; app/apex/f101_latest.sql:4148
+DR$X_NEWS_ITEMS_SUMMARY_FT$B,TABLE,0,
+DR$X_NEWS_ITEMS_SUMMARY_FT$C,TABLE,0,
+DR$X_NEWS_ITEMS_SUMMARY_FT$I,TABLE,21,db/schema/schema.sql:1998; db/schema/schema.sql:3910; db/schema/schema.sql:3913; db/schema/schema.sql:3914; db/schema/schema.sql:3915
+DR$X_NEWS_ITEMS_SUMMARY_FT$K,TABLE,6,db/schema/schema.sql:2098; db/schema/schema.sql:2196; db/migrations/V0001__baseline.sql:2099; db/migrations/V0001__baseline.sql:2197; app/apex/f101_latest.sql:2098
+DR$X_NEWS_ITEMS_SUMMARY_FT$N,TABLE,9,db/schema/schema.sql:4011; db/schema/schema.sql:4014; db/schema/schema.sql:4015; db/migrations/V0001__baseline.sql:4012; db/migrations/V0001__baseline.sql:4015
+DR$X_NEWS_ITEMS_SUMMARY_FT$Q,TABLE,0,
+DR$X_NEWS_ITEMS_SUMMARY_FT$U,TABLE,6,db/schema/schema.sql:3673; db/schema/schema.sql:3676; db/migrations/V0001__baseline.sql:3674; db/migrations/V0001__baseline.sql:3677; app/apex/f101_latest.sql:3673
+EEA_LIST_UPLOADED,TABLE,6,db/schema/schema.sql:450; db/schema/schema.sql:453; db/migrations/V0001__baseline.sql:451; db/migrations/V0001__baseline.sql:454; app/apex/f101_latest.sql:450
+EEA_LIST_UPLOADED_OLD,TABLE,6,db/schema/schema.sql:467; db/schema/schema.sql:470; db/migrations/V0001__baseline.sql:468; db/migrations/V0001__baseline.sql:471; app/apex/f101_latest.sql:467
+EEA_LIST_UPLOAD_DOWNLOAD,TABLE,15,db/schema/schema.sql:484; db/schema/schema.sql:487; db/schema/schema.sql:2088; db/schema/schema.sql:4199; db/schema/schema.sql:4202
+EEA_LIST_UPLOAD_DOWNLOAD_OLD,TABLE,6,db/schema/schema.sql:504; db/schema/schema.sql:507; db/migrations/V0001__baseline.sql:505; db/migrations/V0001__baseline.sql:508; app/apex/f101_latest.sql:504
+EEA_LIST_UPLOAD_PENDING,TABLE,6,db/schema/schema.sql:521; db/schema/schema.sql:524; db/migrations/V0001__baseline.sql:522; db/migrations/V0001__baseline.sql:525; app/apex/f101_latest.sql:521
+EMEA_GREEN_BOND_ISS_PERC,TABLE,15,db/schema/schema.sql:540; db/schema/schema.sql:543; db/schema/schema.sql:3691; db/schema/schema.sql:3694; db/schema/schema.sql:3695
+ESG_EMBEDDINGS,TABLE,0,
+ESG_METADATA,TABLE,27,db/schema/schema.sql:684; db/schema/schema.sql:687; db/schema/schema.sql:4261; db/schema/schema.sql:4264; db/schema/schema.sql:4265
+ESG_SCORES,TABLE,21,db/schema/schema.sql:730; db/schema/schema.sql:733; db/schema/schema.sql:1801; db/schema/schema.sql:3883; db/schema/schema.sql:3886
+EU_SDG_13_31_AVG_CO2_KM_NEW_PASSENGER_CARS,TABLE,6,db/schema/schema.sql:768; db/schema/schema.sql:771; db/migrations/V0001__baseline.sql:769; db/migrations/V0001__baseline.sql:772; app/apex/f101_latest.sql:768
+INDEX_ACTIONS,TABLE,21,db/schema/schema.sql:790; db/schema/schema.sql:793; db/schema/schema.sql:4166; db/schema/schema.sql:4169; db/schema/schema.sql:4170
+INDEX_BALANCE_SHEET,TABLE,21,db/schema/schema.sql:804; db/schema/schema.sql:807; db/schema/schema.sql:4328; db/schema/schema.sql:4331; db/schema/schema.sql:4332
+INDEX_CASH_FLOW,TABLE,21,db/schema/schema.sql:822; db/schema/schema.sql:825; db/schema/schema.sql:4174; db/schema/schema.sql:4177; db/schema/schema.sql:4178
+INDEX_CONSTITUENT_PRICES,TABLE,15,db/schema/schema.sql:885; db/schema/schema.sql:888; db/schema/schema.sql:1709; db/schema/schema.sql:4364; db/schema/schema.sql:4367
+INDEX_DAILY_LEVELS,TABLE,12,db/schema/schema.sql:904; db/schema/schema.sql:907; db/schema/schema.sql:3903; db/schema/schema.sql:3906; db/migrations/V0001__baseline.sql:905
+INDEX_DAILY_RETURNS,TABLE,15,db/schema/schema.sql:915; db/schema/schema.sql:918; db/schema/schema.sql:1825; db/schema/schema.sql:3724; db/schema/schema.sql:3727
+INDEX_DIVIDENDS,TABLE,21,db/schema/schema.sql:927; db/schema/schema.sql:930; db/schema/schema.sql:4133; db/schema/schema.sql:4136; db/schema/schema.sql:4137
+INDEX_ESG_SCORES,TABLE,21,db/schema/schema.sql:940; db/schema/schema.sql:943; db/schema/schema.sql:4061; db/schema/schema.sql:4064; db/schema/schema.sql:4065
+INDEX_FINANCIALS,TABLE,21,db/schema/schema.sql:957; db/schema/schema.sql:960; db/schema/schema.sql:4032; db/schema/schema.sql:4035; db/schema/schema.sql:4036
+INDEX_REBALANCE_DATES,TABLE,12,db/schema/schema.sql:993; db/schema/schema.sql:996; db/schema/schema.sql:4141; db/schema/schema.sql:4144; db/migrations/V0001__baseline.sql:994
+INDEX_SPLITS,TABLE,21,db/schema/schema.sql:1003; db/schema/schema.sql:1006; db/schema/schema.sql:3931; db/schema/schema.sql:3934; db/schema/schema.sql:3935
+INDEX_STOCK_PRICES,TABLE,24,db/schema/schema.sql:1016; db/schema/schema.sql:1019; db/schema/schema.sql:1726; db/schema/schema.sql:4407; db/schema/schema.sql:4410
+NEWS_SOURCES,TABLE,27,db/schema/schema.sql:1116; db/schema/schema.sql:1119; db/schema/schema.sql:3849; db/schema/schema.sql:3852; db/schema/schema.sql:3853
+SC_IDX_DIVISOR,TABLE,0,
+SC_IDX_HOLDINGS,TABLE,0,
+SC_IDX_JOB_RUNS,TABLE,0,
+SC_IDX_LEVELS,TABLE,0,
+SC_IDX_PRICES_CANON,TABLE,0,
+SC_IDX_PRICES_RAW,TABLE,0,
+TECH100_COMPANIES,TABLE,0,
+VECTOR$ESG_DOCS_HNSW$165913_172112_0$HNSW_CHECKPOINTS,TABLE,18,db/schema/schema.sql:1189; db/schema/schema.sql:1192; db/schema/schema.sql:4182; db/schema/schema.sql:4185; db/schema/schema.sql:4186
+VECTOR$ESG_DOCS_HNSW$165913_172112_0$HNSW_SHARED_JOURNAL_CHANGE_LOG,TABLE,27,db/schema/schema.sql:1220; db/schema/schema.sql:1223; db/schema/schema.sql:1786; db/schema/schema.sql:4244; db/schema/schema.sql:4247
+VECTOR$ESG_DOCS_HNSW$165913_172112_2$HNSW_ROWID_VID_MAP,TABLE,0,
+ESG_BENCH_RISK_30D,VIEW,6,db/schema/schema.sql:1278; db/schema/schema.sql:1281; db/migrations/V0001__baseline.sql:1279; db/migrations/V0001__baseline.sql:1282; app/apex/f101_latest.sql:1278
+ESG_INDEX_RISK_30D,VIEW,6,db/schema/schema.sql:1323; db/schema/schema.sql:1326; db/migrations/V0001__baseline.sql:1324; db/migrations/V0001__baseline.sql:1327; app/apex/f101_latest.sql:1323
+ESG_INDEX_VS_BENCH_YTD,VIEW,6,db/schema/schema.sql:1359; db/schema/schema.sql:1362; db/migrations/V0001__baseline.sql:1360; db/migrations/V0001__baseline.sql:1363; app/apex/f101_latest.sql:1359
+ESG_SCORE_00,VIEW,36,db/schema/schema.sql:1383; db/schema/schema.sql:1386; db/schema/schema.sql:1407; db/schema/schema.sql:1408; db/schema/schema.sql:1409
+ESG_SCORE_ENVIRONMENTAL,VIEW,6,db/schema/schema.sql:1425; db/schema/schema.sql:1428; db/migrations/V0001__baseline.sql:1426; db/migrations/V0001__baseline.sql:1429; app/apex/f101_latest.sql:1425
+ESG_SCORE_GOVERNANCE,VIEW,6,db/schema/schema.sql:1456; db/schema/schema.sql:1459; db/migrations/V0001__baseline.sql:1457; db/migrations/V0001__baseline.sql:1460; app/apex/f101_latest.sql:1456
+ESG_SCORE_SOCIAL,VIEW,6,db/schema/schema.sql:1478; db/schema/schema.sql:1481; db/migrations/V0001__baseline.sql:1479; db/migrations/V0001__baseline.sql:1482; app/apex/f101_latest.sql:1478
+NET_GREENHOUSE_GAS_EMISSIONS_MAX_YEAR,VIEW,6,db/schema/schema.sql:1526; db/schema/schema.sql:1529; db/migrations/V0001__baseline.sql:1527; db/migrations/V0001__baseline.sql:1530; app/apex/f101_latest.sql:1526
+SC_CHUNKS,VIEW,6,db/schema/schema.sql:1552; db/schema/schema.sql:1555; db/migrations/V0001__baseline.sql:1553; db/migrations/V0001__baseline.sql:1556; app/apex/f101_latest.sql:1552
+TECH11_AI_GOV_ETH_PERF_00,VIEW,6,db/schema/schema.sql:1564; db/schema/schema.sql:1567; db/migrations/V0001__baseline.sql:1565; db/migrations/V0001__baseline.sql:1568; app/apex/f101_latest.sql:1564
+V_NEWS_RECENT,VIEW,6,db/schema/schema.sql:1642; db/schema/schema.sql:1645; db/migrations/V0001__baseline.sql:1643; db/migrations/V0001__baseline.sql:1646; app/apex/f101_latest.sql:1642
+V_NEWS_SEARCH,VIEW,6,db/schema/schema.sql:1651; db/schema/schema.sql:1654; db/migrations/V0001__baseline.sql:1652; db/migrations/V0001__baseline.sql:1655; app/apex/f101_latest.sql:1651
+V_TECH100_NEWS,VIEW,6,db/schema/schema.sql:1661; db/schema/schema.sql:1664; db/migrations/V0001__baseline.sql:1662; db/migrations/V0001__baseline.sql:1665; app/apex/f101_latest.sql:1661
