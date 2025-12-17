@@ -270,6 +270,27 @@ a:hover {
     color: var(--muted);
 }
 
+.hero__card-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 1rem 0 0.75rem;
+}
+
+.hero__card-pill {
+    align-self: flex-start;
+    padding: 0.3rem 0.7rem;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--surface-muted);
+}
+
+.hero__card-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    line-height: 1.35;
+}
+
 .list {
     display: grid;
     gap: 0.8rem;
