@@ -34,6 +34,11 @@ Environment:
   - The script prints `budget_stop_av` whenever `remaining_daily <= buffer` so systemd sees an exit code `0` without wasting further calls.
 - To validate end-to-end Alpha Vantage + Oracle plumbing: `python tools/index_engine/verify_alphavantage.py` (does an Oracle preflight, fetches AAPL compact data, and upserts + reads back one raw row).
 
+## Oracle preflight for both providers
+
+- Both `tools/index_engine/run_daily.py` (Twelve Data) and `tools/index_engine/ingest_alphavantage.py` (Alpha Vantage) run an Oracle preflight (`SELECT USER FROM dual`) before doing any provider/API work.
+- If the wallet/env is broken, the job prints wallet diagnostics (TNS_ADMIN + best-effort `sqlnet.ora`/`cwallet.sso` checks), writes an `ERROR` run log row with error token `oracle_preflight_failed`, sends an email alert (if SMTP is configured), and exits with code `2` so systemd treats it as a failure.
+
 New CLI flag:
 
 - `--max-provider-calls N` enforces the credit budget in backfill runs. Each ticker download counts as one provider call.
