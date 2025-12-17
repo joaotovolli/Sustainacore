@@ -1,0 +1,6 @@
+text_index_name,suggested_old_name,action,reason
+ESG_DOCS_TEXT_IDX,OLD_ESG_DOCS_TEXT_IDX,RENAME_INDEX,0 runtime hits on DR$ segments
+X_ESG_NEWS_TEXT_FT,OLD_X_ESG_NEWS_TEXT_FT,RENAME_INDEX,0 runtime hits on DR$ segments
+X_ESG_NEWS_TITLE_FT,OLD_X_ESG_NEWS_TITLE_FT,RENAME_INDEX,0 runtime hits on DR$ segments
+X_NEWS_ITEMS_FT,OLD_X_NEWS_ITEMS_FT,RENAME_INDEX,0 runtime hits on DR$ segments
+X_NEWS_ITEMS_SUMMARY_FT,OLD_X_NEWS_ITEMS_SUMMARY_FT,RENAME_INDEX,0 runtime hits on DR$ segments
