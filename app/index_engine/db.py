@@ -94,6 +94,47 @@ def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:
         return value
 
 
+def fetch_raw_ok_rows(tickers: list[str], start: _dt.date, end: _dt.date) -> list[dict]:
+    """Return OK rows for the given tickers/date range (inclusive)."""
+
+    cleaned = [t.strip().upper() for t in tickers if t and str(t).strip()]
+    if not cleaned:
+        return []
+
+    placeholders = ",".join(f":ticker_{i}" for i in range(len(cleaned)))
+    sql = (
+        "SELECT ticker, trade_date, provider, close_px, adj_close_px, status "
+        "FROM SC_IDX_PRICES_RAW "
+        f"WHERE ticker IN ({placeholders}) "
+        "AND trade_date BETWEEN :start AND :end "
+        "AND status = 'OK'"
+    )
+    binds = {f"ticker_{i}": ticker for i, ticker in enumerate(cleaned)}
+    binds.update({"start": start, "end": end})
+
+    rows: list[dict] = []
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        for row in cur.fetchall():
+            if not row:
+                continue
+            trade_date = row[1]
+            if isinstance(trade_date, _dt.datetime):
+                trade_date = trade_date.date()
+            rows.append(
+                {
+                    "ticker": str(row[0]).strip().upper() if row[0] else None,
+                    "trade_date": trade_date,
+                    "provider": row[2],
+                    "close_px": row[3],
+                    "adj_close_px": row[4],
+                    "status": row[5],
+                }
+            )
+    return rows
+
+
 def upsert_prices_raw(rows: Iterable[Mapping]) -> int:
     """Upsert rows into SC_IDX_PRICES_RAW. Returns affected row count."""
 

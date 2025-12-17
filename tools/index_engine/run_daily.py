@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import http.client  # preload stdlib http to avoid app.http shadowing
 import importlib.util
 import os
 import sys
@@ -8,9 +9,13 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from app.index_engine.alerts import send_email
-from app.index_engine.run_log import fetch_calls_used_today, finish_run, start_run
-from app.index_engine.run_report import format_run_report
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.index_engine.env_loader import load_default_env
+
+load_default_env()
 
 DEFAULT_START = _dt.date(2025, 1, 2)
 DEFAULT_BUFFER = 25
@@ -32,6 +37,16 @@ def _load_provider_module():
     return module
 
 
+def _load_alerts_module():
+    module_path = Path(__file__).resolve().parents[2] / "app" / "index_engine" / "alerts.py"
+    spec = importlib.util.spec_from_file_location("index_engine_alerts", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError("Unable to load alerts module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[arg-type]
+    return module
+
+
 def _load_run_log_module():
     module_path = Path(__file__).resolve().parents[2] / "app" / "index_engine" / "run_log.py"
     spec = importlib.util.spec_from_file_location("index_engine_run_log", module_path)
@@ -40,6 +55,27 @@ def _load_run_log_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[arg-type]
     return module
+
+
+def _load_run_report_module():
+    module_path = Path(__file__).resolve().parents[2] / "app" / "index_engine" / "run_report.py"
+    spec = importlib.util.spec_from_file_location("index_engine_run_report", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError("Unable to load run_report module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[arg-type]
+    return module
+
+
+_alerts_module = _load_alerts_module()
+_run_log_module = _load_run_log_module()
+_run_report_module = _load_run_report_module()
+
+send_email = _alerts_module.send_email
+fetch_calls_used_today = _run_log_module.fetch_calls_used_today
+start_run = _run_log_module.start_run
+finish_run = _run_log_module.finish_run
+format_run_report = _run_report_module.format_run_report
 
 
 def _load_ingest_module():
@@ -82,28 +118,94 @@ def _select_end_date(provider, probe_symbol: str, today_utc: _dt.date) -> _dt.da
 
 def main() -> int:
     run_id = str(uuid.uuid4())
+    status = "STARTED"
+    error_msg = None
+    email_on_budget_stop = os.getenv(EMAIL_ON_BUDGET_STOP_ENV) == "1"
+    force_fail = os.getenv("SC_IDX_FORCE_FAIL") == "1"
+    today_utc = _dt.datetime.now(_dt.timezone.utc).date()
+
+    summary: dict = {
+        "run_id": run_id,
+        "status": status,
+        "error_msg": None,
+        "provider": "TWELVEDATA",
+        "end_date": today_utc,
+        "max_provider_calls": 0,
+        "provider_calls_used": 0,
+        "raw_upserts": 0,
+        "canon_upserts": 0,
+        "raw_ok": 0,
+        "raw_missing": 0,
+        "raw_error": 0,
+        "max_ok_trade_date": None,
+        "oracle_user": None,
+        "usage_current": None,
+        "usage_limit": None,
+        "usage_remaining": None,
+    }
+
+    if force_fail:
+        start_run(
+            "sc_idx_price_ingest",
+            end_date=today_utc,
+            provider="TWELVEDATA",
+            max_provider_calls=0,
+            meta={
+                "run_id": run_id,
+                "start_date": DEFAULT_START,
+                "usage_current": None,
+                "usage_limit": None,
+                "usage_remaining": None,
+                "credit_buffer": None,
+                "oracle_user": None,
+            },
+        )
+        status = "ERROR"
+        error_msg = "forced failure via SC_IDX_FORCE_FAIL=1"
+        summary["status"] = status
+        summary["error_msg"] = error_msg
+        finish_run(
+            run_id,
+            status=status,
+            provider_calls_used=0,
+            raw_upserts=0,
+            canon_upserts=0,
+            raw_ok=0,
+            raw_missing=0,
+            raw_error=0,
+            max_provider_calls=0,
+            usage_current=None,
+            usage_limit=None,
+            usage_remaining=None,
+            oracle_user=None,
+            error=error_msg,
+        )
+        _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
+        return 1
+
     provider = _load_provider_module()
-    run_log = _load_run_log_module()
     ingest_module = _load_ingest_module()
+
     try:
         usage = provider.fetch_api_usage()
+        summary["usage_current"] = usage.get("current_usage")
+        summary["usage_limit"] = usage.get("plan_limit")
     except Exception as exc:
         usage = {}
-        current_usage = None
-        plan_limit = None
         print(f"warning: unable to fetch Twelve Data usage (per-minute probe only): {exc}", file=sys.stderr)
-    else:
-        current_usage = usage.get("current_usage")
-        plan_limit = usage.get("plan_limit")
 
-    calls_used_today = run_log.fetch_calls_used_today("TWELVEDATA")
+    current_usage = summary.get("usage_current")
+    plan_limit = summary.get("usage_limit")
+
+    calls_used_today = fetch_calls_used_today("TWELVEDATA")
     daily_limit = _env_int(DAILY_LIMIT_ENV, DEFAULT_DAILY_LIMIT)
     daily_buffer = _env_int(DAILY_BUFFER_ENV, _env_int(BUFFER_ENV, DEFAULT_BUFFER))
     remaining_daily, max_provider_calls = _compute_daily_budget(daily_limit, daily_buffer, calls_used_today)
 
-    today_utc = _dt.datetime.now(_dt.timezone.utc).date()
     probe_symbol = os.getenv(PROBE_SYMBOL_ENV, "AAPL")
     end_date = _select_end_date(provider, probe_symbol, today_utc)
+    summary["end_date"] = end_date
+    summary["max_provider_calls"] = max_provider_calls
 
     usage_remaining = None
     if plan_limit is not None and current_usage is not None:
@@ -111,49 +213,45 @@ def main() -> int:
             usage_remaining = int(plan_limit) - int(current_usage)
         except Exception:
             usage_remaining = None
+    summary["usage_remaining"] = usage_remaining
 
-    run_log.start_run(
-        run_id,
-        job_name="sc_idx_price_ingest",
-        provider="TWELVEDATA",
-        start_date=DEFAULT_START,
+    start_run(
+        "sc_idx_price_ingest",
         end_date=end_date,
-        usage_current=current_usage,
-        usage_limit=plan_limit,
-        usage_remaining=usage_remaining,
-        credit_buffer=daily_buffer,
+        provider="TWELVEDATA",
         max_provider_calls=max_provider_calls,
-        oracle_user=None,
+        meta={
+            "run_id": run_id,
+            "start_date": DEFAULT_START,
+            "usage_current": current_usage,
+            "usage_limit": plan_limit,
+            "usage_remaining": usage_remaining,
+            "credit_buffer": daily_buffer,
+            "oracle_user": None,
+        },
     )
-
-    summary = {
-        "run_id": run_id,
-        "status": "STARTED",
-        "error_msg": None,
-        "provider": "TWELVEDATA",
-        "end_date": end_date,
-        "max_provider_calls": max_provider_calls,
-        "provider_calls_used": None,
-        "raw_upserts": None,
-        "canon_upserts": None,
-        "raw_ok": None,
-        "raw_missing": None,
-        "raw_error": None,
-        "max_ok_trade_date": None,
-        "oracle_user": None,
-        "usage_current": current_usage,
-        "usage_limit": plan_limit,
-        "usage_remaining": usage_remaining,
-    }
-
-    email_on_budget_stop = os.getenv(EMAIL_ON_BUDGET_STOP_ENV) == "1"
 
     if os.getenv("SC_IDX_FORCE_FAIL") == "1":
         status = "ERROR"
         error_msg = "forced failure via SC_IDX_FORCE_FAIL=1"
         summary["status"] = status
         summary["error_msg"] = error_msg
-        finish_run(run_id, summary)
+        finish_run(
+            run_id,
+            status=status,
+            provider_calls_used=0,
+            raw_upserts=0,
+            canon_upserts=0,
+            raw_ok=0,
+            raw_missing=0,
+            raw_error=0,
+            max_provider_calls=max_provider_calls,
+            usage_current=current_usage,
+            usage_limit=plan_limit,
+            usage_remaining=usage_remaining,
+            oracle_user=None,
+            error=error_msg,
+        )
         _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
         return 1
 
@@ -172,8 +270,7 @@ def main() -> int:
         )
     )
 
-    status = "OK"
-    error_msg = None
+    exit_code = 0
 
     if max_provider_calls <= 0:
         print(
@@ -182,8 +279,22 @@ def main() -> int:
         )
         status = "DAILY_BUDGET_STOP"
         summary["status"] = status
-        summary["provider_calls_used"] = 0
-        finish_run(run_id, summary)
+        finish_run(
+            run_id,
+            status=status,
+            provider_calls_used=0,
+            raw_upserts=0,
+            canon_upserts=0,
+            raw_ok=0,
+            raw_missing=0,
+            raw_error=0,
+            max_provider_calls=max_provider_calls,
+            usage_current=current_usage,
+            usage_limit=plan_limit,
+            usage_remaining=usage_remaining,
+            oracle_user=None,
+            error=None,
+        )
         _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
         return 0
 
@@ -201,18 +312,39 @@ def main() -> int:
     if tickers_env:
         ingest_args.extend(["--tickers", tickers_env])
 
-    exit_code = 0
+    ingest_summary: dict = {}
     try:
-        exit_code = ingest_module.main(ingest_args)
+        exit_code, ingest_summary = ingest_module.run_ingest(ingest_args)
+        if not isinstance(ingest_summary, dict):
+            ingest_summary = {}
+        status = "OK" if exit_code == 0 else "ERROR"
         if exit_code != 0:
-            status = "ERROR"
             error_msg = f"ingest_exit_code={exit_code}"
     except Exception as exc:  # pragma: no cover - defensive
         status = "ERROR"
         error_msg = str(exc)
+        exit_code = 1
+
+    summary.update(ingest_summary)
     summary["status"] = status
     summary["error_msg"] = error_msg
-    finish_run(run_id, summary)
+
+    finish_run(
+        run_id,
+        status=status,
+        provider_calls_used=ingest_summary.get("provider_calls_used"),
+        raw_upserts=ingest_summary.get("raw_upserts"),
+        canon_upserts=ingest_summary.get("canon_upserts"),
+        raw_ok=ingest_summary.get("raw_ok"),
+        raw_missing=ingest_summary.get("raw_missing"),
+        raw_error=ingest_summary.get("raw_error"),
+        max_provider_calls=max_provider_calls,
+        usage_current=current_usage,
+        usage_limit=plan_limit,
+        usage_remaining=usage_remaining,
+        oracle_user=None,
+        error=error_msg,
+    )
 
     _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
 
@@ -235,13 +367,16 @@ def _safe_journal_tail() -> str | None:
 
 
 def _maybe_send_alert(status: str, summary: dict, run_id: str, email_on_budget_stop: bool) -> None:
-    if status == "ERROR":
-        tail_log = _safe_journal_tail()
-        body = format_run_report(run_id, summary, tail_log)
-        send_email(f"SC_IDX ingest ERROR on VM1 (run_id={run_id})", body)
-    elif status == "DAILY_BUDGET_STOP" and email_on_budget_stop:
-        body = format_run_report(run_id, summary, None)
-        send_email(f"SC_IDX ingest DAILY_BUDGET_STOP on VM1 (run_id={run_id})", body)
+    try:
+        if status == "ERROR":
+            tail_log = _safe_journal_tail()
+            body = format_run_report(run_id, summary, tail_log)
+            send_email(f"SC_IDX ingest ERROR on VM1 (run_id={run_id})", body)
+        elif status == "DAILY_BUDGET_STOP" and email_on_budget_stop:
+            body = format_run_report(run_id, summary, None)
+            send_email(f"SC_IDX ingest DAILY_BUDGET_STOP on VM1 (run_id={run_id})", body)
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"warning: failed to send alert: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

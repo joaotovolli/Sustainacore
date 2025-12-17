@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule SC_IDX Alpha Vantage price ingest
+
+[Timer]
+OnCalendar=Mon..Fri 23:40:00 UTC
+Persistent=true
+Unit=sc-idx-av-price-ingest.service
+
+[Install]
+WantedBy=timers.target
