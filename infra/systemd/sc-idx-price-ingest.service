@@ -8,6 +8,7 @@ Type=simple
 User=opc
 WorkingDirectory=/opt/sustainacore-ai
 Environment=PYTHONPATH=/opt/sustainacore-ai
+Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/etc/sustainacore/db.env
 EnvironmentFile=/etc/sustainacore-ai/secrets.env
 ExecStartPre=/usr/bin/test -r /etc/sustainacore/db.env
