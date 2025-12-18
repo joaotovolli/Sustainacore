@@ -56,6 +56,8 @@ Optional flags:
 - `--debug`
 - `--preflight-self-heal` / `--no-preflight-self-heal`
 - `--diagnose-missing` / `--no-diagnose-missing`
+- `--diagnose-missing-sql` / `--no-diagnose-missing-sql`
+- `--max-dates` / `--max-tickers` / `--max-samples`
 - `--email-on-fail` (send one alert/day when strict fails)
 - `--dry-run` (print missing diagnostics only)
 

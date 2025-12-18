@@ -17,6 +17,110 @@ def _disable_parallel_dml(conn) -> None:
         return
 
 
+def diagnose_missing_canon_sql(
+    start: _dt.date,
+    end: _dt.date,
+    *,
+    max_dates: int = 10,
+    max_tickers: int = 10,
+    max_samples: int = 25,
+) -> dict[str, object]:
+    """Return missing canonical coverage diagnostics using SQL aggregation."""
+
+    if start > end:
+        raise ValueError("start_after_end")
+
+    base_cte = (
+        "WITH trading_days AS ("
+        "  SELECT trade_date "
+        "  FROM SC_IDX_TRADING_DAYS "
+        "  WHERE trade_date BETWEEN :start_date AND :end_date"
+        "), port_dates AS ("
+        "  SELECT td.trade_date, "
+        "         (SELECT MAX(port_date) FROM tech11_ai_gov_eth_index "
+        "          WHERE port_date <= td.trade_date) AS port_date "
+        "  FROM trading_days td"
+        "), ranked AS ("
+        "  SELECT pd.trade_date, t.ticker, "
+        "         ROW_NUMBER() OVER (PARTITION BY pd.trade_date ORDER BY t.port_weight DESC, t.rank_index) AS rn "
+        "  FROM port_dates pd "
+        "  JOIN tech11_ai_gov_eth_index t "
+        "    ON t.port_date = pd.port_date "
+        "  WHERE t.port_weight > 0 AND t.ticker IS NOT NULL"
+        "), universe AS ("
+        "  SELECT trade_date, ticker "
+        "  FROM ranked "
+        "  WHERE rn <= 25"
+        "), priced AS ("
+        "  SELECT u.trade_date, u.ticker, "
+        "         c.canon_adj_close_px, c.canon_close_px, c.quality "
+        "  FROM universe u "
+        "  LEFT JOIN SC_IDX_PRICES_CANON c "
+        "    ON c.trade_date = u.trade_date AND c.ticker = u.ticker"
+        ") "
+    )
+
+    missing_by_date_sql = (
+        base_cte
+        + "SELECT trade_date, "
+        "       SUM(CASE WHEN canon_adj_close_px IS NULL AND canon_close_px IS NULL THEN 1 ELSE 0 END) AS missing_count, "
+        "       COUNT(*) AS expected_count, "
+        "       SUM(CASE WHEN quality = 'IMPUTED' THEN 1 ELSE 0 END) AS imputed_count "
+        "FROM priced "
+        "GROUP BY trade_date "
+        "ORDER BY missing_count DESC, trade_date "
+        "FETCH FIRST :max_dates ROWS ONLY"
+    )
+
+    missing_by_ticker_sql = (
+        base_cte
+        + "SELECT ticker, "
+        "       SUM(CASE WHEN canon_adj_close_px IS NULL AND canon_close_px IS NULL THEN 1 ELSE 0 END) AS missing_days "
+        "FROM priced "
+        "GROUP BY ticker "
+        "ORDER BY missing_days DESC, ticker "
+        "FETCH FIRST :max_tickers ROWS ONLY"
+    )
+
+    sample_missing_sql = (
+        base_cte
+        + "SELECT trade_date, ticker, "
+        "       CASE "
+        "         WHEN canon_adj_close_px IS NULL AND canon_close_px IS NULL THEN 'no_canon_price' "
+        "         ELSE 'unknown' "
+        "       END AS reason "
+        "FROM priced "
+        "WHERE canon_adj_close_px IS NULL AND canon_close_px IS NULL "
+        "ORDER BY trade_date, ticker "
+        "FETCH FIRST :max_samples ROWS ONLY"
+    )
+
+    binds = {
+        "start_date": start,
+        "end_date": end,
+        "max_dates": max_dates,
+        "max_tickers": max_tickers,
+        "max_samples": max_samples,
+    }
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(missing_by_date_sql, binds)
+        missing_by_date = [(row[0], int(row[1]), int(row[2]), int(row[3])) for row in cur.fetchall()]
+
+        cur.execute(missing_by_ticker_sql, binds)
+        missing_by_ticker = [(row[0], int(row[1])) for row in cur.fetchall()]
+
+        cur.execute(sample_missing_sql, binds)
+        sample_missing = [(row[0], row[1], row[2]) for row in cur.fetchall()]
+
+    return {
+        "missing_by_date": missing_by_date,
+        "missing_by_ticker": missing_by_ticker,
+        "sample_missing": sample_missing,
+    }
+
+
 def fetch_trading_days(start: _dt.date, end: _dt.date) -> list[_dt.date]:
     sql = (
         "SELECT trade_date "
