@@ -7,6 +7,8 @@ Units live under `infra/systemd/`:
 - `sc-idx-completeness-check.timer`
 - `sc-idx-index-calc.service`
 - `sc-idx-index-calc.timer`
+- `sc-idx-pipeline.service`
+- `sc-idx-pipeline.timer`
 
 ### Behavior
 - Runs incremental backfill up to the latest available EOD trade date (SPY) via `/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/run_daily.py`.
@@ -19,10 +21,9 @@ Units live under `infra/systemd/`:
 sudo cp infra/systemd/sc-idx-price-ingest.* /etc/systemd/system/
 sudo cp infra/systemd/sc-idx-completeness-check.* /etc/systemd/system/
 sudo cp infra/systemd/sc-idx-index-calc.* /etc/systemd/system/
+sudo cp infra/systemd/sc-idx-pipeline.* /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now sc-idx-price-ingest.timer
-sudo systemctl enable --now sc-idx-completeness-check.timer
-sudo systemctl enable --now sc-idx-index-calc.timer
+sudo systemctl enable --now sc-idx-pipeline.timer
 ```
 
 ### Manual run
@@ -54,6 +55,7 @@ python tools/index_engine/run_daily.py --tickers MSFT,GOOGL
 - Check timer status/schedule: `systemctl list-timers sc-idx-price-ingest.timer`
 - Check completeness timer: `systemctl list-timers sc-idx-completeness-check.timer`
 - Check index calc timer: `systemctl list-timers sc-idx-index-calc.timer`
+- Check pipeline timer: `systemctl list-timers sc-idx-pipeline.timer`
 <!-- cspell:disable-next-line -->
 - Check last run + logs: `sudo journalctl -u sc-idx-price-ingest.service -n 200 --no-pager`
 <!-- cspell:disable-next-line -->
