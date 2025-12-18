@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
+import inspect
 from typing import Callable, List
 
 from tools.index_engine.env_loader import load_default_env
@@ -15,7 +17,17 @@ if str(REPO_ROOT) not in sys.path:
 def _run_stage(name: str, func: Callable[[List[str]], int], args: List[str]) -> None:
     start = time.time()
     print(f"[pipeline] start {name} args={args}", flush=True)
-    code = func(args)
+    sig = inspect.signature(func)
+    if len(sig.parameters) == 0:
+        # Stage mains that self-parse argv.
+        original_argv = sys.argv[:]
+        sys.argv = [f"run_pipeline_{name}"] + list(args)
+        try:
+            code = func()
+        finally:
+            sys.argv = original_argv
+    else:
+        code = func(args)
     duration = time.time() - start
     print(f"[pipeline] end {name} exit={code} duration_sec={duration:.1f}", flush=True)
     if code != 0:
@@ -24,13 +36,16 @@ def _run_stage(name: str, func: Callable[[List[str]], int], args: List[str]) -> 
 
 def main() -> int:
     load_default_env()
+    skip_ingest = os.getenv("SC_IDX_PIPELINE_SKIP_INGEST") == "1"
 
     from tools.index_engine import run_daily
     from tools.index_engine import check_price_completeness
     from tools.index_engine import impute_missing_prices
     from tools.index_engine import calc_index
-
-    _run_stage("ingest", run_daily.main, ["--debug"])
+    if skip_ingest:
+        print("[pipeline] skip ingest stage via SC_IDX_PIPELINE_SKIP_INGEST", flush=True)
+    else:
+        _run_stage("ingest", run_daily.main, ["--debug"])
     _run_stage(
         "completeness",
         check_price_completeness.main,
@@ -44,7 +59,7 @@ def main() -> int:
     _run_stage(
         "index_calc",
         calc_index.main,
-        ["--since-base", "--strict", "--debug"],
+        ["--since-base", "--strict", "--debug", "--no-preflight-self-heal"],
     )
     print("[pipeline] DONE", flush=True)
     return 0

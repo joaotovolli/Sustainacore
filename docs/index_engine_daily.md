@@ -27,6 +27,14 @@ Environment:
 - Email alerts on failure use SMTP envs from `/etc/sustainacore-ai/secrets.env`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`. Errors trigger an email with a compact run report; set `SC_IDX_EMAIL_ON_BUDGET_STOP=1` to also email budget stops.
 - Daily usage and statuses are persisted in `SC_IDX_JOB_RUNS` (DDL: `oracle_scripts/sc_idx_job_runs_v1.sql`). Run `oracle_scripts/sc_idx_job_runs_v1_drop.sql` to drop if rollback is needed. Example query: `SELECT run_id, status, error_msg, started_at, ended_at FROM SC_IDX_JOB_RUNS ORDER BY started_at DESC FETCH FIRST 20 ROWS ONLY;`
 
+## Manual pipeline run (orchestrator)
+
+- Normal timers run ingest → completeness → impute → index calc with ingest enabled.
+- For manual data-preserving checks (skip ingest only):  
+  `SC_IDX_PIPELINE_SKIP_INGEST=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_pipeline.py`
+- The orchestrator invokes index calc with `--no-preflight-self-heal` to avoid a second ingest/impute pass because the earlier stages already ran in-process.
+- Keep `SC_IDX_PIPELINE_SKIP_INGEST` for manual runs only; systemd timers should run with ingest enabled.
+
 ## Oracle preflight
 
 - `tools/index_engine/run_daily.py` (Twelve Data) runs an Oracle preflight (`SELECT USER FROM dual`) before doing any provider/API work.
