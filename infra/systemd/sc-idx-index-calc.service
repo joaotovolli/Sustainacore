@@ -16,7 +16,8 @@ ExecStartPre=/usr/bin/test -r /etc/sustainacore-ai/secrets.env
 ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore-ai/secrets.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env
-ExecStart=/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/calc_index.py --since-base --strict
+ExecStart=/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/calc_index.py --since-base --strict --preflight-self-heal --diagnose-missing --email-on-fail
+SuccessExitStatus=2
 Restart=on-failure
 RestartSec=10
 

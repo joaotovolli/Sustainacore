@@ -54,6 +54,21 @@ Optional flags:
 - `--rebuild` (delete and recompute the range)
 - `--allow-close` (use close if adj close is missing)
 - `--debug`
+- `--preflight-self-heal` / `--no-preflight-self-heal`
+- `--diagnose-missing` / `--no-diagnose-missing`
+- `--email-on-fail` (send one alert/day when strict fails)
+- `--dry-run` (print missing diagnostics only)
+
+## Strict failure diagnostics
+
+When strict mode fails, the script prints a diagnostic block with:
+
+- date range evaluated
+- impacted universe definition (top 25, `PORT_WEIGHT > 0`, latest rebalance <= trade date)
+- top missing dates and tickers
+- sample missing rows
+
+Use this to pinpoint which dates/tickers need ingest or imputation.
 
 ## Validation queries (Oracle)
 
