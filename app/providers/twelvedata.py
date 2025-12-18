@@ -426,7 +426,7 @@ def fetch_latest_bar(
         raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
 
     values = payload.get("values") or payload.get("data") or []
-    if not isinstance(values, list):
+    if not isinstance(values, list) or not values:
         return []
     return values
 
