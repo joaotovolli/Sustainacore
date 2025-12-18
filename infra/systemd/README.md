@@ -5,6 +5,8 @@ Units live under `infra/systemd/`:
 - `sc-idx-price-ingest.timer`
 - `sc-idx-completeness-check.service`
 - `sc-idx-completeness-check.timer`
+- `sc-idx-index-calc.service`
+- `sc-idx-index-calc.timer`
 
 ### Behavior
 - Runs incremental backfill up to the latest available EOD trade date (SPY) via `/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/run_daily.py`.
@@ -16,9 +18,11 @@ Units live under `infra/systemd/`:
 ```bash
 sudo cp infra/systemd/sc-idx-price-ingest.* /etc/systemd/system/
 sudo cp infra/systemd/sc-idx-completeness-check.* /etc/systemd/system/
+sudo cp infra/systemd/sc-idx-index-calc.* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now sc-idx-price-ingest.timer
 sudo systemctl enable --now sc-idx-completeness-check.timer
+sudo systemctl enable --now sc-idx-index-calc.timer
 ```
 
 ### Manual run
@@ -32,6 +36,11 @@ Completeness check:
 sudo systemctl start sc-idx-completeness-check.service
 python tools/index_engine/check_price_completeness.py --since-base --end today --email-on-fail
 ```
+Index calc:
+```bash
+sudo systemctl start sc-idx-index-calc.service
+python tools/index_engine/calc_index.py --since-base --strict
+```
 Override end date if needed:
 ```bash
 python tools/index_engine/run_daily.py --end 2025-02-15
@@ -44,10 +53,13 @@ python tools/index_engine/run_daily.py --tickers MSFT,GOOGL
 ### Troubleshooting
 - Check timer status/schedule: `systemctl list-timers sc-idx-price-ingest.timer`
 - Check completeness timer: `systemctl list-timers sc-idx-completeness-check.timer`
+- Check index calc timer: `systemctl list-timers sc-idx-index-calc.timer`
 <!-- cspell:disable-next-line -->
 - Check last run + logs: `sudo journalctl -u sc-idx-price-ingest.service -n 200 --no-pager`
 <!-- cspell:disable-next-line -->
 - Completeness logs: `sudo journalctl -u sc-idx-completeness-check.service -n 200 --no-pager`
+<!-- cspell:disable-next-line -->
+- Index calc logs: `sudo journalctl -u sc-idx-index-calc.service -n 200 --no-pager`
 - Common causes of `rows_ok=0`:
   - Weekend/market holiday (no provider data).
   - Ticker mapping issues (symbol not recognized by TwelveData).
