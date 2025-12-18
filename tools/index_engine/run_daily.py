@@ -113,6 +113,7 @@ fetch_latest_trading_day_on_or_before = _db_module.fetch_latest_trading_day_on_o
 fetch_impacted_tickers_for_trade_date = _db_module.fetch_impacted_tickers_for_trade_date
 fetch_imputed_rows = _db_module.fetch_imputed_rows
 fetch_imputations = _db_module.fetch_imputations
+fetch_missing_real_for_trade_date = _db_module.fetch_missing_real_for_trade_date
 
 
 def _load_ingest_module():
@@ -169,6 +170,18 @@ def _compute_daily_budget(daily_limit: int, daily_buffer: int, calls_used_today:
     remaining_daily = max(0, daily_limit - calls_used_today)
     max_provider_calls = max(0, remaining_daily - daily_buffer)
     return remaining_daily, max_provider_calls
+
+
+def compute_eligible_end_date(
+    *,
+    provider_latest: _dt.date,
+    today_utc: _dt.date,
+    trading_days: list[_dt.date],
+) -> _dt.date | None:
+    """Choose the latest trading day on/before provider_latest and before today (no same-day ingest/impute)."""
+    guard_date = min(provider_latest, today_utc - _dt.timedelta(days=1))
+    eligible_days = [d for d in trading_days if d <= guard_date]
+    return select_effective_end_date(guard_date, eligible_days)
 
 
 def select_effective_end_date(provider_latest: _dt.date, trading_days: list[_dt.date]) -> _dt.date | None:
@@ -393,7 +406,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     trading_days = fetch_trading_days(DEFAULT_START, provider_latest)
-    effective_end_date = select_effective_end_date(provider_latest, trading_days)
+    effective_end_date = compute_eligible_end_date(
+        provider_latest=provider_latest,
+        today_utc=today_utc,
+        trading_days=trading_days,
+    )
     if effective_end_date is None:
         status = "ERROR"
         error_msg = "latest_trading_day_unavailable"
@@ -419,7 +436,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     end_date = effective_end_date
-    print(f"latest_eod_date_spy={provider_latest.isoformat()} effective_end_date={end_date.isoformat()}")
+    impacted_cache: dict[_dt.date, list[str]] = {}
+    impacted_end = fetch_impacted_tickers_for_trade_date(end_date, cache=impacted_cache)
+    missing_real_end = fetch_missing_real_for_trade_date(end_date, impacted_end)
+    print(
+        f"sc_idx_ingest_plan: now_utc={today_utc.isoformat()} provider_latest={provider_latest.isoformat()} "
+        f"eligible_end={end_date.isoformat()} impacted_count={len(impacted_end)}"
+    )
+    summary["end_date"] = end_date
     summary["end_date"] = end_date
     summary["max_provider_calls"] = max_provider_calls
 
@@ -519,34 +543,70 @@ def main(argv: list[str] | None = None) -> int:
         _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
         return 0
 
-    ingest_args = [
-        "--backfill",
-        "--start",
-        DEFAULT_START.isoformat(),
-        "--end",
-        end_date.isoformat(),
-        "--max-provider-calls",
-        str(max_provider_calls),
-    ]
-    if args.debug:
-        ingest_args.append("--debug")
-
-    tickers_env = args.force_backfill_tickers or os.getenv("SC_IDX_TICKERS")
-    if tickers_env:
-        ingest_args.extend(["--tickers", tickers_env])
-
     ingest_summary: dict = {}
-    try:
-        exit_code, ingest_summary = ingest_module.run_ingest(ingest_args)
-        if not isinstance(ingest_summary, dict):
-            ingest_summary = {}
-        status = "OK" if exit_code == 0 else "ERROR"
-        if exit_code != 0:
-            error_msg = f"ingest_exit_code={exit_code}"
-    except Exception as exc:  # pragma: no cover - defensive
-        status = "ERROR"
-        error_msg = str(exc)
-        exit_code = 1
+    fetch_needed = len(missing_real_end) > 0
+
+    replacement_days = _env_int(IMPUTATION_REPLACEMENT_DAYS_ENV, 30)
+    replacement_limit = _env_int(IMPUTATION_REPLACEMENT_LIMIT_ENV, 10)
+    trading_days = fetch_trading_days(DEFAULT_START, end_date)
+    replacement_range = [d for d in trading_days if d <= end_date]
+    replacement_range = replacement_range[-replacement_days:] if replacement_range else []
+    imputed_rows = fetch_imputed_rows(replacement_range[0], replacement_range[-1]) if replacement_range else []
+    impacted_by_date = {
+        trade_date: fetch_impacted_tickers_for_trade_date(trade_date, cache=impacted_cache)
+        for trade_date in replacement_range
+    } if replacement_range else {}
+    replacement_candidates = [
+        (ticker, trade_date)
+        for ticker, trade_date in imputed_rows
+        if trade_date in impacted_by_date and ticker in impacted_by_date.get(trade_date, [])
+    ]
+
+    print(
+        f"sc_idx_ingest_actions: fetch_needed_end_date={len(missing_real_end)} "
+        f"replace_imputed_candidates={len(replacement_candidates)} "
+        f"max_provider_calls={max_provider_calls}"
+    )
+
+    exit_code = 0
+    if fetch_needed:
+        ingest_args = [
+            "--backfill",
+            "--start",
+            end_date.isoformat(),
+            "--end",
+            end_date.isoformat(),
+            "--max-provider-calls",
+            str(max_provider_calls),
+        ]
+        if args.debug:
+            ingest_args.append("--debug")
+
+        tickers_env = args.force_backfill_tickers or os.getenv("SC_IDX_TICKERS")
+        if tickers_env:
+            ingest_args.extend(["--tickers", tickers_env])
+
+        try:
+            exit_code, ingest_summary = ingest_module.run_ingest(ingest_args)
+            if not isinstance(ingest_summary, dict):
+                ingest_summary = {}
+            status = "OK" if exit_code == 0 else "ERROR"
+            if exit_code != 0:
+                error_msg = f"ingest_exit_code={exit_code}"
+        except Exception as exc:  # pragma: no cover - defensive
+            status = "ERROR"
+            error_msg = str(exc)
+            exit_code = 1
+    else:
+        ingest_summary = {
+            "provider_calls_used": 0,
+            "raw_upserts": 0,
+            "canon_upserts": 0,
+            "raw_ok": 0,
+            "raw_missing": 0,
+            "raw_error": 0,
+            "max_ok_trade_date": end_date,
+        }
 
     summary.update(ingest_summary)
     summary["status"] = status
@@ -593,29 +653,27 @@ def main(argv: list[str] | None = None) -> int:
                 summary["status"] = status
                 summary["error_msg"] = error_msg
 
+    if exit_code == 0 and status == "STARTED":
+        status = "OK"
+
     missing_without_prior = int(impute_summary.get("missing_without_prior") or 0)
     imputed_total = int(impute_summary.get("total_imputed") or 0)
     if missing_without_prior > 0:
         body = f"missing_without_prior={missing_without_prior} end_date={end_date.isoformat()}"
         _send_once_per_day("sc_idx_missing_without_prior", "SC_IDX missing prior prices", body, "ERROR")
 
-    replacement_days = _env_int(IMPUTATION_REPLACEMENT_DAYS_ENV, 30)
-    replacement_limit = _env_int(IMPUTATION_REPLACEMENT_LIMIT_ENV, 10)
-    trading_days = fetch_trading_days(DEFAULT_START, end_date)
-    replacement_range = trading_days[-replacement_days:] if trading_days else []
     replacement_used = 0
 
     if replacement_range and replacement_limit > 0 and max_provider_calls is not None:
         remaining_calls = max(0, max_provider_calls - int(ingest_summary.get("provider_calls_used") or 0))
         replacement_limit = min(replacement_limit, remaining_calls)
 
-    if replacement_range and replacement_limit > 0:
-        imputed_rows = fetch_imputed_rows(replacement_range[0], replacement_range[-1])
-        impacted_cache: dict[_dt.date, list[str]] = {}
-        impacted_by_date = {
-            trade_date: fetch_impacted_tickers_for_trade_date(trade_date, cache=impacted_cache)
-            for trade_date in replacement_range
-        }
+    if replacement_range and replacement_limit > 0 and replacement_candidates:
+        tickers_to_refresh = impute_module.select_replacement_tickers(
+            replacement_candidates,
+            impacted_by_date,
+            replacement_limit,
+        )
         tickers_to_refresh = impute_module.select_replacement_tickers(
             imputed_rows,
             impacted_by_date,
