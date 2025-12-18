@@ -14,7 +14,9 @@ Units live under `infra/systemd/`:
 - Runs incremental backfill up to the latest available EOD trade date (SPY) via `/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/run_daily.py`.
 - Default range: start `2025-01-02` to `end = latest_eod_date(SPY)`, ticker batches sized to stay under TwelveData free-tier limits.
 - Environment files loaded on VM1: `/etc/sustainacore/db.env`, `/etc/sustainacore-ai/secrets.env`.
-- Timer schedule: **00:30, 06:30, 12:30, 18:30 UTC** with `Persistent=true` so missed runs catch up on restart.
+- Timer schedule:
+  - Ingest: **00:30, 06:30, 12:30, 18:30 UTC** with `Persistent=true` so missed runs catch up on restart.
+  - Pipeline orchestrator (ingest + completeness + impute + index calc): **01:00, 07:00, 13:00, 19:00 UTC** (runs ~30 minutes after ingest to include the latest effective end date).
 
 ### Install / enable
 ```bash
