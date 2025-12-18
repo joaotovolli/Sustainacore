@@ -236,11 +236,11 @@ def main() -> int:
     _load_env()
 
     run_id = start_run(
-        None,
-        job_name="completeness_check",
-        provider=args.provider,
-        start_date=start_date,
+        "completeness_check",
         end_date=end_date,
+        provider=args.provider,
+        max_provider_calls=None,
+        meta={"start_date": start_date},
     )
 
     status = "ERROR"
@@ -338,10 +338,8 @@ def main() -> int:
 
     finish_run(
         run_id,
-        {
-            "status": "OK" if status != "ERROR" else "ERROR",
-            "error_msg": summary_text,
-        },
+        status="OK" if status != "ERROR" else "ERROR",
+        error=summary_text,
     )
 
     if status == "PASS":
