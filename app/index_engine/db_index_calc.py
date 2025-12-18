@@ -95,23 +95,24 @@ def diagnose_missing_canon_sql(
         "FETCH FIRST :max_samples ROWS ONLY"
     )
 
-    binds = {
-        "start_date": start,
-        "end_date": end,
-        "max_dates": max_dates,
-        "max_tickers": max_tickers,
-        "max_samples": max_samples,
-    }
-
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(missing_by_date_sql, binds)
+        cur.execute(
+            missing_by_date_sql,
+            {"start_date": start, "end_date": end, "max_dates": max_dates},
+        )
         missing_by_date = [(row[0], int(row[1]), int(row[2]), int(row[3])) for row in cur.fetchall()]
 
-        cur.execute(missing_by_ticker_sql, binds)
+        cur.execute(
+            missing_by_ticker_sql,
+            {"start_date": start, "end_date": end, "max_tickers": max_tickers},
+        )
         missing_by_ticker = [(row[0], int(row[1])) for row in cur.fetchall()]
 
-        cur.execute(sample_missing_sql, binds)
+        cur.execute(
+            sample_missing_sql,
+            {"start_date": start, "end_date": end, "max_samples": max_samples},
+        )
         sample_missing = [(row[0], row[1], row[2]) for row in cur.fetchall()]
 
     return {
