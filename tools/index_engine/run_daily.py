@@ -335,11 +335,38 @@ def main(argv: list[str] | None = None) -> int:
     daily_buffer = _env_int(DAILY_BUFFER_ENV, _env_int(BUFFER_ENV, DEFAULT_BUFFER))
     remaining_daily, max_provider_calls = _compute_daily_budget(daily_limit, daily_buffer, calls_used_today)
 
+    usage_remaining = None
     try:
         provider_latest = provider.fetch_latest_eod_date("SPY")
     except Exception as exc:
         status = "ERROR"
         error_msg = f"latest_eod_probe_failed:{exc}"
+        summary["status"] = status
+        summary["error_msg"] = error_msg
+        finish_run(
+            run_id,
+            status=status,
+            provider_calls_used=0,
+            raw_upserts=0,
+            canon_upserts=0,
+            raw_ok=0,
+            raw_missing=0,
+            raw_error=0,
+            max_provider_calls=max_provider_calls,
+            usage_current=current_usage,
+            usage_limit=plan_limit,
+            usage_remaining=usage_remaining,
+            oracle_user=oracle_user,
+            error=error_msg,
+        )
+        _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
+        return 1
+
+    try:
+        trading_days_module.update_trading_days(auto_extend=True)
+    except Exception as exc:
+        status = "ERROR"
+        error_msg = f"trading_days_update_failed:{exc}"
         summary["status"] = status
         summary["error_msg"] = error_msg
         finish_run(
@@ -460,31 +487,7 @@ def main(argv: list[str] | None = None) -> int:
 
     exit_code = 0
 
-    try:
-        trading_days_module.update_trading_days()
-    except Exception as exc:
-        status = "ERROR"
-        error_msg = f"trading_days_update_failed:{exc}"
-        summary["status"] = status
-        summary["error_msg"] = error_msg
-        finish_run(
-            run_id,
-            status=status,
-            provider_calls_used=0,
-            raw_upserts=0,
-            canon_upserts=0,
-            raw_ok=0,
-            raw_missing=0,
-            raw_error=0,
-            max_provider_calls=max_provider_calls,
-            usage_current=current_usage,
-            usage_limit=plan_limit,
-            usage_remaining=usage_remaining,
-            oracle_user=oracle_user,
-            error=error_msg,
-        )
-        _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
-        return 1
+    # trading days already updated before effective_end_date selection
 
     if max_provider_calls <= 0:
         print(

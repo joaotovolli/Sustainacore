@@ -114,7 +114,9 @@ def main() -> int:
     print(f"effective_end_date={effective_end}")
 
     if effective_end and oracle_dates["overall"]:
-        if effective_end > oracle_dates["overall"]:
+        if oracle_dates["trading_days"] and oracle_dates["trading_days"] < spy_latest:
+            hint = "Trading-day calendar is behind provider latest; run update_trading_days --auto."
+        elif effective_end > oracle_dates["overall"]:
             hint = "Provider latest ahead of Oracle canon; ingest should catch up."
         elif effective_end < oracle_dates["overall"]:
             hint = "Oracle canon ahead of effective_end; check trading day calendar."
