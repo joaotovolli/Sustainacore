@@ -171,6 +171,16 @@ def _compute_daily_budget(daily_limit: int, daily_buffer: int, calls_used_today:
     return remaining_daily, max_provider_calls
 
 
+def select_effective_end_date(provider_latest: _dt.date, trading_days: list[_dt.date]) -> _dt.date | None:
+    """Pick latest trading day on or before provider_latest."""
+    if not trading_days:
+        return None
+    for day in reversed(trading_days):
+        if day <= provider_latest:
+            return day
+    return None
+
+
 def _oracle_preflight_or_exit(*, run_id: str, today_utc: _dt.date, email_on_budget_stop: bool) -> str | None:
     """
     Ensure Oracle connectivity/wallet is working before provider calls.
@@ -351,7 +361,8 @@ def main(argv: list[str] | None = None) -> int:
         _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
         return 1
 
-    effective_end_date = fetch_latest_trading_day_on_or_before(provider_latest)
+    trading_days = fetch_trading_days(DEFAULT_START, provider_latest)
+    effective_end_date = select_effective_end_date(provider_latest, trading_days)
     if effective_end_date is None:
         status = "ERROR"
         error_msg = "latest_trading_day_unavailable"

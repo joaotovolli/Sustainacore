@@ -128,3 +128,8 @@ Manual run:
 ```bash
 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_daily.py --debug
 ```
+
+Stuck latest date diagnostics:
+```bash
+PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_latest_eod.py --debug
+```
