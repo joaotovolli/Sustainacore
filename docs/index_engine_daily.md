@@ -30,6 +30,7 @@ Environment:
 ## Manual pipeline run (orchestrator)
 
 - Normal timers run ingest → completeness → impute → index calc with ingest enabled.
+- Systemd schedule (UTC): ingest at 00:30 / 06:30 / 12:30 / 18:30; pipeline at 01:00 / 07:00 / 13:00 / 19:00 (~30m after ingest to catch latest EOD).
 - For manual data-preserving checks (skip ingest only):  
   `SC_IDX_PIPELINE_SKIP_INGEST=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_pipeline.py`
 - The orchestrator invokes index calc with `--no-preflight-self-heal` to avoid a second ingest/impute pass because the earlier stages already ran in-process.

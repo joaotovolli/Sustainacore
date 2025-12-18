@@ -37,6 +37,12 @@ def _run_stage(name: str, func: Callable[[List[str]], int], args: List[str]) -> 
 def main() -> int:
     load_default_env()
     skip_ingest = os.getenv("SC_IDX_PIPELINE_SKIP_INGEST") == "1"
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    head_commit = os.popen("cd /opt/sustainacore-ai && git rev-parse --short HEAD").read().strip()
+    print(
+        f"sc_idx_pipeline_run: started_at_utc={started_at} head={head_commit} skip_ingest={skip_ingest}",
+        flush=True,
+    )
 
     from tools.index_engine import run_daily
     from tools.index_engine import check_price_completeness
