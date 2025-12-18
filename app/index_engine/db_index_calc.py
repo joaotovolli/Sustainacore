@@ -9,6 +9,14 @@ from db_helper import get_connection
 INDEX_CODE = "TECH100"
 
 
+def _disable_parallel_dml(conn) -> None:
+    try:
+        cur = conn.cursor()
+        cur.execute("ALTER SESSION DISABLE PARALLEL DML")
+    except Exception:
+        return
+
+
 def fetch_trading_days(start: _dt.date, end: _dt.date) -> list[_dt.date]:
     sql = (
         "SELECT trade_date "
@@ -198,10 +206,7 @@ def upsert_holdings(rebalance_date: _dt.date, rows: list[dict]) -> None:
     ]
     with get_connection() as conn:
         cur = conn.cursor()
-        try:
-            cur.execute("ALTER SESSION DISABLE PARALLEL DML")
-        except Exception:
-            pass
+        _disable_parallel_dml(conn)
         cur.executemany(sql, binds)
         conn.commit()
 
@@ -220,6 +225,7 @@ def upsert_divisor(effective_date: _dt.date, divisor: float, reason: str | None 
     )
     with get_connection() as conn:
         cur = conn.cursor()
+        _disable_parallel_dml(conn)
         cur.execute(
             sql,
             {
@@ -256,6 +262,7 @@ def upsert_levels(rows: list[dict]) -> None:
     ]
     with get_connection() as conn:
         cur = conn.cursor()
+        _disable_parallel_dml(conn)
         cur.executemany(sql, binds)
         conn.commit()
 
@@ -294,6 +301,7 @@ def upsert_constituent_daily(rows: list[dict]) -> None:
     ]
     with get_connection() as conn:
         cur = conn.cursor()
+        _disable_parallel_dml(conn)
         cur.executemany(sql, binds)
         conn.commit()
 
@@ -326,6 +334,7 @@ def upsert_contribution_daily(rows: list[dict]) -> None:
     ]
     with get_connection() as conn:
         cur = conn.cursor()
+        _disable_parallel_dml(conn)
         cur.executemany(sql, binds)
         conn.commit()
 
@@ -373,6 +382,7 @@ def upsert_stats_daily(rows: list[dict]) -> None:
     ]
     with get_connection() as conn:
         cur = conn.cursor()
+        _disable_parallel_dml(conn)
         cur.executemany(sql, binds)
         conn.commit()
 
@@ -386,6 +396,7 @@ def delete_index_range(start: _dt.date, end: _dt.date) -> None:
     ]
     with get_connection() as conn:
         cur = conn.cursor()
+        _disable_parallel_dml(conn)
         for table in tables:
             cur.execute(
                 f"DELETE FROM {table} WHERE trade_date BETWEEN :start_date AND :end_date",
@@ -403,6 +414,7 @@ def delete_holdings_divisor(rebalance_dates: Iterable[_dt.date]) -> None:
     binds["index_code"] = INDEX_CODE
     with get_connection() as conn:
         cur = conn.cursor()
+        _disable_parallel_dml(conn)
         cur.execute(
             f"DELETE FROM SC_IDX_HOLDINGS WHERE index_code = :index_code AND rebalance_date IN ({placeholders})",
             binds,
