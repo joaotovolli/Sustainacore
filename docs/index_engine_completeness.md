@@ -1,18 +1,13 @@
 ## Index price completeness checker
 
-This tool verifies whether TECH100 has enough canonical price history to calculate index levels. It focuses on canonical prices in `SC_IDX_PRICES_CANON` and ignores weekends and inferred market holidays.
+This tool verifies whether TECH100 has enough canonical price history to calculate index levels. It focuses on canonical prices in `SC_IDX_PRICES_CANON` and uses the explicit trading-day calendar in `SC_IDX_TRADING_DAYS`.
 
 ### What it checks
 
-- Generates weekday candidates between the requested start and end dates.
-- Uses the TECH100 constituent list (latest rebalance via `tech11_ai_gov_eth_index`) as the expected ticker set.
+- Uses `SC_IDX_TRADING_DAYS` as the expected trading date set.
+- Uses the TECH100 impacted universe for each trade_date: `PORT_WEIGHT > 0`, top 25, with `port_date = MAX(port_date) <= trade_date`.
 - Counts canonical prices for each weekday using `canon_adj_close_px` (preferred) and `canon_close_px` when `--allow-canon-close` is set.
-- Infers market holidays when daily coverage is extremely low (default: <= 10%).
-- Flags weekdays that fall below the minimum daily coverage threshold.
-
-### Holiday inference
-
-Weekdays are treated as holidays when overall coverage is at or below the `--holiday-coverage-threshold` (default: `0.10`). These days are ignored as gaps even if raw data contains `MISSING` rows.
+- Flags trading days that fall below the minimum daily coverage threshold.
 
 ### Running the tool
 
@@ -26,17 +21,17 @@ python tools/index_engine/check_price_completeness.py --since-base --end today -
 
 Optional flags:
 
-- `--min-daily-coverage 0.90`
-- `--holiday-coverage-threshold 0.10`
+- `--min-daily-coverage 1.00`
 - `--max-bad-days 0`
 - `--allow-canon-close` (count `canon_close_px` when `canon_adj_close_px` is missing)
+- `--allow-imputation` (treat gaps as pass for calculation mode)
 
 ### Interpreting output
 
 The summary line reports:
 
-- `expected_trading_days`: weekdays between start and end (Mon–Fri)
-- `actual_trading_days`: weekdays minus inferred holidays
+- `expected_trading_days`: trading days between start and end
+- `actual_trading_days`: same as expected trading days
 - `total_gaps`: total missing ticker-days on trading days
 - `worst_dates`: lowest-coverage trading dates
 - `worst_tickers`: tickers with most missing trading days
@@ -46,5 +41,5 @@ The tool also prints top-10 lists for low coverage dates and tickers with the mo
 ### Recommended thresholds for TECH100
 
 - `min_daily_coverage`: `0.90` (minimum 90% of tickers available per trading day)
-- `holiday_coverage_threshold`: `0.10` (treat days with <= 10% coverage as holidays)
+- `min_daily_coverage`: `1.00` (require 100% canonical coverage per trading day)
 - `max_bad_days`: `0` (no bad days allowed)

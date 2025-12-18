@@ -25,6 +25,7 @@ from index_engine.db import (
     fetch_constituent_tickers,
     fetch_distinct_tech100_tickers,
     fetch_max_ok_trade_date,
+    fetch_trading_days,
     get_current_user,
     upsert_prices_canon,
     upsert_prices_raw,
@@ -80,13 +81,16 @@ def _build_raw_rows_from_provider(provider_rows: list[dict]) -> list[dict]:
         ticker = str(row.get("ticker") or "").upper()
         if not ticker:
             continue
+        close_px = row.get("close")
+        if close_px is None:
+            continue
         raw_rows.append(
             {
                 "ticker": ticker,
                 "trade_date": trade_date,
                 "provider": PROVIDER,
-                "close_px": row.get("close"),
-                "adj_close_px": row.get("adj_close") if row.get("adj_close") is not None else row.get("close"),
+                "close_px": close_px,
+                "adj_close_px": row.get("adj_close") if row.get("adj_close") is not None else close_px,
                 "volume": row.get("volume"),
                 "currency": row.get("currency"),
                 "status": "OK",
@@ -115,10 +119,13 @@ def compute_canonical_rows(raw_rows: list[dict]) -> list[dict]:
             if not provider:
                 continue
             adj_value = entry.get("adj_close_px")
+            close_value = entry.get("close_px")
             if adj_value is None:
-                adj_value = entry.get("close_px")
+                adj_value = close_value
+            if adj_value is None or close_value is None:
+                continue
             provider_adj_closes[provider] = adj_value
-            provider_closes[provider] = entry.get("close_px")
+            provider_closes[provider] = close_value
 
         recon = reconcile_canonical(provider_adj_closes, provider_closes)
         if recon.get("providers_ok", 0) == 0:
@@ -318,6 +325,12 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
         print("Invalid date range: end must be on or after start")
         return 1, empty_summary
 
+    trading_days = fetch_trading_days(start_date, end_date)
+    if not trading_days:
+        print("No trading days found for requested range")
+        return 1, empty_summary
+    last_trading_day = trading_days[-1]
+
     max_provider_calls = args.max_provider_calls
     provider_calls_used = 0
 
@@ -360,16 +373,18 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
 
         ticker_start = start_date
         if max_ok:
-            if max_ok >= end_date:
+            if max_ok >= last_trading_day:
                 continue
             ticker_start = max(max_ok + _dt.timedelta(days=1), start_date)
+        if ticker_start > last_trading_day:
+            continue
 
         provider_calls_used += 1
         try:
             provider_rows = fetch_eod_prices(
                 [ticker],
                 ticker_start.isoformat(),
-                end_date.isoformat(),
+                last_trading_day.isoformat(),
             )
         except Exception as exc:
             provider_error = str(exc)

@@ -1,8 +1,8 @@
 [Unit]
-Description=Run SC_IDX price ingest daily (23:30 UTC)
+Description=Run SC_IDX price ingest every 6 hours (UTC)
 
 [Timer]
-OnCalendar=*-*-* 23:30:00 UTC
+OnCalendar=*-*-* 00,06,12,18:30:00 UTC
 Persistent=true
 Unit=sc-idx-price-ingest.service
 

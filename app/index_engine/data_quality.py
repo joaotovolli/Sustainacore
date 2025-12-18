@@ -32,6 +32,17 @@ def generate_weekdays(start: _dt.date, end: _dt.date) -> list[_dt.date]:
     return weekdays
 
 
+def select_trading_days(
+    trading_days: Sequence[_dt.date],
+    start: _dt.date,
+    end: _dt.date,
+) -> list[_dt.date]:
+    """Filter trading days to the requested date range (inclusive)."""
+    if end < start:
+        raise ValueError("end must be on or after start")
+    return [day for day in trading_days if start <= day <= end]
+
+
 def infer_holidays(
     coverage_by_date: Mapping[_dt.date, float],
     *,
@@ -79,10 +90,53 @@ def evaluate_completeness(
     return {"status": status, "bad_days": bad_days}
 
 
+def find_previous_available(
+    trading_days: Sequence[_dt.date],
+    target_date: _dt.date,
+    available_dates: set[_dt.date],
+) -> _dt.date | None:
+    """Return the most recent trading day before target_date with available data."""
+    for day in reversed(trading_days):
+        if day >= target_date:
+            continue
+        if day in available_dates:
+            return day
+    return None
+
+
+def format_imputation_alert(
+    *,
+    date_range: tuple[_dt.date, _dt.date],
+    total_imputed: int,
+    total_missing_without_prior: int,
+    per_date_counts: Sequence[tuple[_dt.date, int]],
+    top_tickers: Sequence[tuple[str, int]],
+) -> str:
+    """Build an imputation alert body."""
+    start, end = date_range
+    lines = [
+        f"date_range={start.isoformat()}..{end.isoformat()}",
+        f"total_imputed={total_imputed}",
+        f"missing_without_prior={total_missing_without_prior}",
+        "",
+        "imputations_by_date:",
+    ]
+    for trade_date, count in per_date_counts:
+        lines.append(f"- {trade_date.isoformat()} count={count}")
+    lines.append("")
+    lines.append("top_tickers:")
+    for ticker, count in top_tickers:
+        lines.append(f"- {ticker} count={count}")
+    return "\n".join(lines)
+
+
 __all__ = [
     "CoverageRecord",
     "evaluate_completeness",
     "find_bad_days",
+    "find_previous_available",
+    "format_imputation_alert",
     "generate_weekdays",
     "infer_holidays",
+    "select_trading_days",
 ]
