@@ -144,29 +144,27 @@ def fetch_missing_real_for_trade_date(trade_date: _dt.date, impacted: Optional[l
     if not impacted:
         return []
 
+    values_clause = " UNION ALL ".join([f"SELECT :t{i} AS ticker FROM dual" for i in range(len(impacted))])
     sql = (
-        "WITH impacted AS (SELECT :trade_date AS trade_date, COLUMN_VALUE AS ticker FROM TABLE(:tickers)) "
+        f"WITH impacted AS ({values_clause}) "
         "SELECT i.ticker "
         "FROM impacted i "
         "WHERE NOT EXISTS ("
         "  SELECT 1 FROM sc_idx_prices_canon c "
-        "  WHERE c.trade_date = i.trade_date "
+        "  WHERE c.trade_date = :trade_date "
         "    AND c.ticker = i.ticker "
         "    AND NVL(c.canon_adj_close_px, c.canon_close_px) IS NOT NULL "
         "    AND c.quality <> 'IMPUTED'"
         ") "
         "ORDER BY i.ticker"
     )
+    binds: dict[str, object] = {"trade_date": trade_date}
+    for idx, ticker in enumerate(impacted):
+        binds[f"t{idx}"] = ticker
 
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(
-            sql,
-            {
-                "trade_date": trade_date,
-                "tickers": impacted,
-            },
-        )
+        cur.execute(sql, binds)
         rows = cur.fetchall()
         missing: list[str] = []
         for row in rows:
