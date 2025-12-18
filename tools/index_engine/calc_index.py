@@ -249,6 +249,16 @@ def main() -> int:
         print("no_trading_days_in_range")
         return 1
 
+    pre_diag_output = ""
+    if args.diagnose_missing and not args.dry_run and args.diagnose_missing_sql:
+        pre_diag_output = _print_missing_diagnostics(
+            start_date=start_date,
+            end_date=end_date,
+            max_dates=args.max_dates,
+            max_tickers=args.max_tickers,
+            max_samples=args.max_samples,
+        )
+
     if args.dry_run:
         if args.diagnose_missing:
             _print_missing_diagnostics(
@@ -281,15 +291,16 @@ def main() -> int:
             email_on_fail=False,
         )
         if str(completeness.get("status")) in {"FAIL", "ERROR"}:
-            summary = ""
+            summary = pre_diag_output or ""
             if args.diagnose_missing:
-                summary = _print_missing_diagnostics(
-                    start_date=start_date,
-                    end_date=end_date,
-                    max_dates=args.max_dates,
-                    max_tickers=args.max_tickers,
-                    max_samples=args.max_samples,
-                )
+                if not summary:
+                    summary = _print_missing_diagnostics(
+                        start_date=start_date,
+                        end_date=end_date,
+                        max_dates=args.max_dates,
+                        max_tickers=args.max_tickers,
+                        max_samples=args.max_samples,
+                    )
             if args.email_on_fail and should_send_alert_once_per_day(
                 "sc_idx_index_calc_fail", detail=summary, status="FAIL"
             ):
@@ -443,15 +454,16 @@ def main() -> int:
         prev_trade = trade_date
 
     if args.strict and missing_by_date:
-        summary = ""
+        summary = pre_diag_output or ""
         if args.diagnose_missing:
-            summary = _print_missing_diagnostics(
-                start_date=start_date,
-                end_date=end_date,
-                max_dates=args.max_dates,
-                max_tickers=args.max_tickers,
-                max_samples=args.max_samples,
-            )
+            if not summary:
+                summary = _print_missing_diagnostics(
+                    start_date=start_date,
+                    end_date=end_date,
+                    max_dates=args.max_dates,
+                    max_tickers=args.max_tickers,
+                    max_samples=args.max_samples,
+                )
         if args.email_on_fail and should_send_alert_once_per_day(
             "sc_idx_index_calc_fail", detail=summary, status="FAIL"
         ):
