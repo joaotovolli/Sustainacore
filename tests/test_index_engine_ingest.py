@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from tools.index_engine.ingest_prices import compute_canonical_rows
+from tools.index_engine.ingest_prices import compute_canonical_rows, _build_raw_rows_from_provider
 
 
 def test_compute_canonical_uses_provider_close_when_adj_missing():
@@ -29,3 +29,13 @@ def test_compute_canonical_uses_provider_close_when_adj_missing():
     assert row["chosen_provider"] == "TWELVEDATA"
     assert row["quality"] == "LOW"
     assert row["providers_ok"] == 1
+
+
+def test_build_raw_rows_skips_null_close():
+    rows = [
+        {"ticker": "AAA", "trade_date": "2025-01-02", "close": None},
+        {"ticker": "BBB", "trade_date": "2025-01-02", "close": 12.34},
+    ]
+    raw_rows = _build_raw_rows_from_provider(rows)
+    assert len(raw_rows) == 1
+    assert raw_rows[0]["ticker"] == "BBB"
