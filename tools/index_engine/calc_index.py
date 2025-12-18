@@ -219,6 +219,7 @@ def main() -> int:
         default=True,
         help="Use SQL-based diagnostics (default: on)",
     )
+    parser.add_argument("--diagnose-only", action="store_true", help="Run diagnostics and exit immediately")
     parser.add_argument("--max-dates", type=int, default=10)
     parser.add_argument("--max-tickers", type=int, default=10)
     parser.add_argument("--max-samples", type=int, default=25)
@@ -258,6 +259,10 @@ def main() -> int:
             max_tickers=args.max_tickers,
             max_samples=args.max_samples,
         )
+        if args.diagnose_only:
+            if "missing=0" in pre_diag_output or "missing_days=0" in pre_diag_output:
+                return 0
+            return 2
 
     if args.dry_run:
         if args.diagnose_missing:

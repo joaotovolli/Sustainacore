@@ -58,3 +58,21 @@ def test_print_missing_diagnostics_header(capsys, monkeypatch) -> None:
     )
     captured = capsys.readouterr()
     assert "starting diagnostics..." in captured.out
+
+
+def test_diagnose_only_exits_early(monkeypatch) -> None:
+    calc_index = _load_calc_index_module()
+
+    def _fake_print_missing_diagnostics(**_kwargs):
+        return "missing=0"
+
+    monkeypatch.setattr(calc_index, "_print_missing_diagnostics", _fake_print_missing_diagnostics)
+
+    exit_code = calc_index.main.__wrapped__(  # type: ignore[attr-defined]
+        ) if hasattr(calc_index.main, "__wrapped__") else None
+    # fallback: call main with args to hit diagnose-only path
+    with monkeypatch.context() as m:
+        m.setattr("sys.argv", ["calc_index.py", "--since-base", "--strict", "--diagnose-only"])
+        m.setattr(calc_index, "_print_missing_diagnostics", _fake_print_missing_diagnostics)
+        code = calc_index.main()
+    assert code == 0

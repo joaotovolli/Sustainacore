@@ -16,7 +16,7 @@ ExecStartPre=/usr/bin/test -r /etc/sustainacore-ai/secrets.env
 ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore-ai/secrets.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env
-ExecStart=/usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/check_price_completeness.py --since-base --end today --email-on-fail
+ExecStart=/usr/bin/flock -n /tmp/sc_idx_pipeline.lock /usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/check_price_completeness.py --since-base --end today --email-on-fail
 Restart=on-failure
 RestartSec=10
 
