@@ -4,7 +4,7 @@ import argparse
 import datetime as _dt
 import os
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -28,6 +28,7 @@ from index_engine.index_calc_v1 import (
 from index_engine.run_log import finish_run, start_run
 from index_engine import db_index_calc as db
 from index_engine import db as engine_db
+from db_helper import get_connection
 
 
 BASE_DATE = _dt.date(2025, 1, 2)
@@ -62,6 +63,18 @@ def _collect_missing(
     return missing
 
 
+def _build_in_clause(values: List[str], prefix: str) -> tuple[str, dict[str, object]]:
+    binds: dict[str, object] = {}
+    keys: list[str] = []
+    for idx, value in enumerate(values):
+        key = f"{prefix}_{idx}"
+        keys.append(f":{key}")
+        binds[key] = value
+    if not keys:
+        return "(NULL)", binds
+    return "(" + ", ".join(keys) + ")", binds
+
+
 def _collect_impacted_universe(trading_days: List[_dt.date]) -> tuple[dict[_dt.date, list[str]], list[str]]:
     impacted_cache: dict[_dt.date, list[str]] = {}
     impacted_by_date: dict[_dt.date, list[str]] = {}
@@ -84,6 +97,30 @@ def _collect_missing_diagnostics(
     allow_close: bool,
 ) -> dict[str, object]:
     impacted_by_date, _ = _collect_impacted_universe(trading_days)
+    union = sorted({ticker for tickers in impacted_by_date.values() for ticker in tickers})
+    ok_by_date: dict[_dt.date, dict[str, str]] = defaultdict(dict)
+
+    if union:
+        in_clause, binds = _build_in_clause(union, "ticker")
+        sql = (
+            "SELECT trade_date, ticker, canon_adj_close_px, canon_close_px, quality "
+            "FROM SC_IDX_PRICES_CANON "
+            "WHERE trade_date BETWEEN :start_date AND :end_date "
+            f"AND ticker IN {in_clause}"
+        )
+        binds.update({"start_date": trading_days[0], "end_date": trading_days[-1]})
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            for trade_date, ticker, adj_close, close_px, quality in cur.fetchall():
+                if trade_date is None or ticker is None:
+                    continue
+                if isinstance(trade_date, _dt.datetime):
+                    trade_date = trade_date.date()
+                price = adj_close if adj_close is not None else (close_px if allow_close else None)
+                if price is None:
+                    continue
+                ok_by_date[trade_date][str(ticker).strip().upper()] = str(quality or "").upper()
     missing_by_date: dict[_dt.date, list[str]] = {}
     missing_by_ticker: Counter[str] = Counter()
     imputed_by_date: Counter[_dt.date] = Counter()
@@ -93,13 +130,10 @@ def _collect_missing_diagnostics(
     for trade_date in trading_days:
         tickers = impacted_by_date.get(trade_date, [])
         expected_by_date[trade_date] = len(tickers)
-        prices = db.fetch_prices(trade_date, tickers, allow_close=allow_close)
         missing = []
         for ticker in tickers:
-            info = prices.get(ticker)
-            price = info.get("price") if info else None
-            quality = str(info.get("quality") or "").upper() if info else ""
-            if price is None:
+            quality = ok_by_date.get(trade_date, {}).get(ticker)
+            if quality is None:
                 missing.append(ticker)
                 missing_by_ticker[ticker] += 1
                 if len(sample_missing) < 10:
