@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SC_IDX pipeline every 6 hours (UTC)
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00 UTC
+Persistent=true
+Unit=sc-idx-pipeline.service
+
+[Install]
+WantedBy=timers.target
