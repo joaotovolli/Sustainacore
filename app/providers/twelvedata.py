@@ -3,14 +3,13 @@ from __future__ import annotations
 
 import datetime as _dt
 import fcntl
+import importlib.util
 import json
 import logging
 import os
+import sys
+import sysconfig
 import time
-import http.client  # preload stdlib http to avoid app.http shadowing
-import urllib.error
-import urllib.parse
-import urllib.request
 from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -25,10 +24,45 @@ _CALLS_PER_WINDOW: int
 _WINDOW_SECONDS: int
 _TOKENS: int
 _RESET_AT: float
-_LOGGER = logging.getLogger(__name__)
-_urlopen = urllib.request.urlopen
 _CALLS_PER_WINDOW_ENV = "SC_IDX_TWELVEDATA_CALLS_PER_WINDOW"
 _WINDOW_SECONDS_ENV = "SC_IDX_TWELVEDATA_WINDOW_SECONDS"
+
+
+def _ensure_stdlib_http_client() -> None:
+    """Load stdlib http.client even if app.http shadows the stdlib package."""
+
+    if "http.client" in sys.modules:
+        return
+    stdlib = sysconfig.get_paths().get("stdlib")
+    if not stdlib:
+        return
+    http_init = os.path.join(stdlib, "http", "__init__.py")
+    http_client = os.path.join(stdlib, "http", "client.py")
+    if os.path.isfile(http_init) and "http" not in sys.modules:
+        spec = importlib.util.spec_from_file_location("http", http_init)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["http"] = module
+            spec.loader.exec_module(module)
+    if os.path.isfile(http_client):
+        spec = importlib.util.spec_from_file_location("http.client", http_client)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["http.client"] = module
+            spec.loader.exec_module(module)
+            parent = sys.modules.get("http")
+            if parent is not None and not hasattr(parent, "client"):
+                setattr(parent, "client", module)
+
+
+_ensure_stdlib_http_client()
+import http.client  # noqa: E402  # preload stdlib http to avoid app.http shadowing
+import urllib.error  # noqa: E402
+import urllib.parse  # noqa: E402
+import urllib.request  # noqa: E402
+
+_LOGGER = logging.getLogger(__name__)
+_urlopen = urllib.request.urlopen
 
 
 class TwelveDataError(RuntimeError):
@@ -397,6 +431,39 @@ def fetch_latest_bar(
     return values
 
 
+def fetch_latest_eod_date(ticker: str, *, api_key: Optional[str] = None) -> _dt.date:
+    """Return the latest available EOD trade date for the ticker."""
+
+    key = _get_api_key(api_key)
+    payload = _request_json(
+        "time_series",
+        {
+            "symbol": ticker,
+            "interval": "1day",
+            "outputsize": 1,
+            "order": "DESC",
+            "timezone": "Exchange",
+            "adjust": "all",
+            "apikey": key,
+        },
+    )
+
+    message = str(payload.get("message") or "").lower()
+    if payload.get("status") == "error":
+        if "no data is available" in message:
+            raise TwelveDataError(f"Twelve Data time_series empty for {ticker}")
+        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+
+    values = payload.get("values") or payload.get("data") or []
+    if not isinstance(values, list) or not values:
+        raise TwelveDataError(f"Twelve Data time_series empty for {ticker}")
+
+    trade_date = _extract_trade_date(values[0])
+    if trade_date is None:
+        raise TwelveDataError(f"Twelve Data time_series missing date for {ticker}")
+    return trade_date
+
+
 def has_eod_for_date(ticker: str, date: _dt.date, *, api_key: Optional[str] = None) -> bool:
     """Return True if Twelve Data already exposes an end-of-day bar for the date."""
 
@@ -434,6 +501,7 @@ __all__ = [
     "get_throttle_config",
     "fetch_api_usage",
     "fetch_eod_prices",
+    "fetch_latest_eod_date",
     "fetch_latest_bar",
     "fetch_time_series",
     "has_eod_for_date",

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import datetime as _dt
-from typing import Iterable, Mapping, Optional
+from typing import Iterable, Mapping, Optional, Sequence
 
 from db_helper import get_connection
 
@@ -74,6 +74,66 @@ def fetch_distinct_tech100_tickers() -> list[str]:
         return tickers
 
 
+def fetch_port_date_for_trade_date(trade_date: _dt.date) -> Optional[_dt.date]:
+    """Return the latest port_date <= trade_date."""
+
+    sql = "SELECT MAX(port_date) FROM tech11_ai_gov_eth_index WHERE port_date <= :trade_date"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"trade_date": trade_date})
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
+def fetch_impacted_tickers_for_port_date(port_date: _dt.date) -> list[str]:
+    """Return top 25 TECH100 tickers with PORT_WEIGHT > 0 for a port_date."""
+
+    sql = (
+        "SELECT ticker "
+        "FROM tech11_ai_gov_eth_index "
+        "WHERE port_date = :port_date "
+        "AND port_weight > 0 "
+        "AND ticker IS NOT NULL "
+        "ORDER BY port_weight DESC, rank_index "
+        "FETCH FIRST 25 ROWS ONLY"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"port_date": port_date})
+        rows = cur.fetchall()
+        tickers: list[str] = []
+        for row in rows:
+            if not row or row[0] is None:
+                continue
+            cleaned = str(row[0]).strip().upper()
+            if cleaned:
+                tickers.append(cleaned)
+        return tickers
+
+
+def fetch_impacted_tickers_for_trade_date(
+    trade_date: _dt.date,
+    *,
+    cache: Optional[dict[_dt.date, list[str]]] = None,
+) -> list[str]:
+    """Return impacted tickers for a trade_date (top 25, PORT_WEIGHT > 0)."""
+
+    port_date = fetch_port_date_for_trade_date(trade_date)
+    if port_date is None:
+        return []
+    if cache is not None and port_date in cache:
+        return cache[port_date]
+    tickers = fetch_impacted_tickers_for_port_date(port_date)
+    if cache is not None:
+        cache[port_date] = tickers
+    return tickers
+
+
 def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:
     """Return the latest trade_date with status OK for the ticker/provider."""
 
@@ -92,6 +152,131 @@ def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:
         if isinstance(value, _dt.datetime):
             return value.date()
         return value
+
+
+def fetch_trading_days(start: _dt.date, end: _dt.date) -> list[_dt.date]:
+    """Return trading days between start and end (inclusive)."""
+
+    sql = (
+        "SELECT trade_date "
+        "FROM SC_IDX_TRADING_DAYS "
+        "WHERE trade_date BETWEEN :start_date AND :end_date "
+        "ORDER BY trade_date"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"start_date": start, "end_date": end})
+        rows = cur.fetchall()
+        trading_days: list[_dt.date] = []
+        for (trade_date,) in rows:
+            if isinstance(trade_date, _dt.datetime):
+                trade_date = trade_date.date()
+            if isinstance(trade_date, _dt.date):
+                trading_days.append(trade_date)
+        return trading_days
+
+
+def fetch_latest_trading_day() -> Optional[_dt.date]:
+    """Return the latest trading day in the calendar."""
+
+    sql = "SELECT MAX(trade_date) FROM SC_IDX_TRADING_DAYS"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql)
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
+def fetch_latest_trading_day_on_or_before(target_date: _dt.date) -> Optional[_dt.date]:
+    """Return the latest trading day on or before target_date."""
+
+    sql = "SELECT MAX(trade_date) FROM SC_IDX_TRADING_DAYS WHERE trade_date <= :target_date"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"target_date": target_date})
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
+def upsert_trading_days(trading_days: Sequence[_dt.date], source: str) -> int:
+    """Upsert trading days into SC_IDX_TRADING_DAYS. Returns affected count."""
+
+    if not trading_days:
+        return 0
+
+    sql = (
+        "MERGE INTO SC_IDX_TRADING_DAYS dst "
+        "USING (SELECT :trade_date AS trade_date FROM dual) src "
+        "ON (dst.trade_date = src.trade_date) "
+        "WHEN MATCHED THEN UPDATE SET "
+        "  source = :source "
+        "WHEN NOT MATCHED THEN INSERT (trade_date, source) "
+        "VALUES (:trade_date, :source)"
+    )
+    binds = [{"trade_date": day, "source": source} for day in trading_days]
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("ALTER SESSION DISABLE PARALLEL DML")
+        except Exception:
+            pass
+        cur.executemany(sql, binds)
+        conn.commit()
+        return len(binds)
+
+
+def fetch_imputed_rows(start: _dt.date, end: _dt.date) -> list[tuple[str, _dt.date]]:
+    """Return imputed canonical rows within the date range."""
+
+    sql = (
+        "SELECT ticker, trade_date "
+        "FROM SC_IDX_PRICES_CANON "
+        "WHERE quality = 'IMPUTED' "
+        "AND trade_date BETWEEN :start_date AND :end_date"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"start_date": start, "end_date": end})
+        rows = []
+        for ticker, trade_date in cur.fetchall():
+            if ticker is None or trade_date is None:
+                continue
+            if isinstance(trade_date, _dt.datetime):
+                trade_date = trade_date.date()
+            rows.append((str(ticker).strip().upper(), trade_date))
+        return rows
+
+
+def fetch_imputations(start: _dt.date, end: _dt.date) -> list[tuple[str, _dt.date]]:
+    """Return imputation audit rows within the date range."""
+
+    sql = (
+        "SELECT ticker, trade_date "
+        "FROM SC_IDX_IMPUTATIONS "
+        "WHERE trade_date BETWEEN :start_date AND :end_date"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"start_date": start, "end_date": end})
+        rows = []
+        for ticker, trade_date in cur.fetchall():
+            if ticker is None or trade_date is None:
+                continue
+            if isinstance(trade_date, _dt.datetime):
+                trade_date = trade_date.date()
+            rows.append((str(ticker).strip().upper(), trade_date))
+        return rows
 
 
 def fetch_raw_ok_rows(tickers: list[str], start: _dt.date, end: _dt.date) -> list[dict]:
