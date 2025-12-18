@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -8,28 +9,57 @@ if str(REPO_ROOT) not in sys.path:
 import tools.index_engine.run_pipeline as pipeline
 
 
-def test_run_pipeline_order(monkeypatch):
+def test_run_stage_handles_noarg_main(monkeypatch):
+    original_argv = sys.argv[:]
+    seen = {}
+
+    def noarg_main():
+        seen["argv"] = sys.argv[:]
+        return 0
+
+    pipeline._run_stage("noarg", noarg_main, ["--foo", "bar"])
+    assert seen["argv"][1:] == ["--foo", "bar"]
+    assert sys.argv == original_argv
+
+
+def test_run_stage_handles_argv_main():
+    captured = []
+
+    def argv_main(argv):
+        captured.extend(argv)
+        return 0
+
+    pipeline._run_stage("withargv", argv_main, ["a", "b"])
+    assert captured == ["a", "b"]
+
+
+def test_pipeline_skip_ingest(monkeypatch):
     calls = []
 
-    def _stage(name):
-        def _impl(args):
+    def _record(name):
+        def _impl(args=None):
             calls.append(name)
             return 0
 
         return _impl
 
+    monkeypatch.setenv("SC_IDX_PIPELINE_SKIP_INGEST", "1")
     monkeypatch.setattr(pipeline, "load_default_env", lambda: None)
-    monkeypatch.setattr(pipeline, "_run_stage", lambda n, f, a: f(a))
-    monkeypatch.setattr(pipeline, "sys", pipeline.sys)
+    # Use real _run_stage to exercise branching.
+    class _FakeIngest:
+        def main(self, argv=None):
+            calls.append("ingest_should_skip")
+            return 0
 
-    class _FakeMod:
+    class _FakeNoArg:
         def __init__(self, name):
-            self.main = _stage(name)
+            self.main = _record(name)
 
-    monkeypatch.setitem(sys.modules, "tools.index_engine.run_daily", _FakeMod("ingest"))
-    monkeypatch.setitem(sys.modules, "tools.index_engine.check_price_completeness", _FakeMod("completeness"))
-    monkeypatch.setitem(sys.modules, "tools.index_engine.impute_missing_prices", _FakeMod("impute"))
-    monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", _FakeMod("index_calc"))
+    monkeypatch.setitem(sys.modules, "tools.index_engine.run_daily", _FakeIngest())
+    monkeypatch.setitem(sys.modules, "tools.index_engine.check_price_completeness", _FakeNoArg("completeness"))
+    monkeypatch.setitem(sys.modules, "tools.index_engine.impute_missing_prices", _FakeNoArg("impute"))
+    monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", _FakeNoArg("index_calc"))
 
     pipeline.main()
-    assert calls == ["ingest", "completeness", "impute", "index_calc"]
+    assert "ingest_should_skip" not in calls
+    assert calls == ["completeness", "impute", "index_calc"]
