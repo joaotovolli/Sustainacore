@@ -2,7 +2,7 @@
 Description=Run SC_IDX index calc every 6 hours (UTC)
 
 [Timer]
-OnCalendar=*-*-* 00,06,12,18:40:00 UTC
+OnCalendar=*-*-* 01:30:00 UTC
 Persistent=true
 Unit=sc-idx-index-calc.service
 
