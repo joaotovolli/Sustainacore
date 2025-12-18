@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import os
 import sys
+from collections import Counter
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from tools.index_engine.env_loader import load_default_env
 
@@ -25,10 +27,12 @@ from index_engine.index_calc_v1 import (
 )
 from index_engine.run_log import finish_run, start_run
 from index_engine import db_index_calc as db
+from index_engine import db as engine_db
 
 
 BASE_DATE = _dt.date(2025, 1, 2)
 BASE_LEVEL = 1000.0
+UNIVERSE_DEF = "top25_port_weight_gt0_latest_port_date_le_trade_date"
 
 
 def _parse_date(value: str) -> _dt.date:
@@ -58,6 +62,144 @@ def _collect_missing(
     return missing
 
 
+def _collect_impacted_universe(trading_days: List[_dt.date]) -> tuple[dict[_dt.date, list[str]], list[str]]:
+    impacted_cache: dict[_dt.date, list[str]] = {}
+    impacted_by_date: dict[_dt.date, list[str]] = {}
+    union: list[str] = []
+    seen = set()
+    for trade_date in trading_days:
+        tickers = engine_db.fetch_impacted_tickers_for_trade_date(trade_date, cache=impacted_cache)
+        impacted_by_date[trade_date] = tickers
+        for ticker in tickers:
+            if ticker in seen:
+                continue
+            seen.add(ticker)
+            union.append(ticker)
+    return impacted_by_date, union
+
+
+def _collect_missing_diagnostics(
+    *,
+    trading_days: List[_dt.date],
+    allow_close: bool,
+) -> dict[str, object]:
+    impacted_by_date, _ = _collect_impacted_universe(trading_days)
+    missing_by_date: dict[_dt.date, list[str]] = {}
+    missing_by_ticker: Counter[str] = Counter()
+    imputed_by_date: Counter[_dt.date] = Counter()
+    sample_missing: list[tuple[_dt.date, str, str]] = []
+    expected_by_date: dict[_dt.date, int] = {}
+
+    for trade_date in trading_days:
+        tickers = impacted_by_date.get(trade_date, [])
+        expected_by_date[trade_date] = len(tickers)
+        prices = db.fetch_prices(trade_date, tickers, allow_close=allow_close)
+        missing = []
+        for ticker in tickers:
+            info = prices.get(ticker)
+            price = info.get("price") if info else None
+            quality = str(info.get("quality") or "").upper() if info else ""
+            if price is None:
+                missing.append(ticker)
+                missing_by_ticker[ticker] += 1
+                if len(sample_missing) < 10:
+                    sample_missing.append((trade_date, ticker, "no_canon_price"))
+                continue
+            if quality == "IMPUTED":
+                imputed_by_date[trade_date] += 1
+        if missing:
+            missing_by_date[trade_date] = missing
+
+    worst_dates = sorted(
+        ((date, len(tickers), expected_by_date.get(date, 0)) for date, tickers in missing_by_date.items()),
+        key=lambda item: (-item[1], item[0]),
+    )[:10]
+    worst_tickers = sorted(missing_by_ticker.items(), key=lambda item: (-item[1], item[0]))[:10]
+
+    return {
+        "missing_by_date": missing_by_date,
+        "missing_by_ticker": dict(missing_by_ticker),
+        "imputed_by_date": dict(imputed_by_date),
+        "worst_dates": worst_dates,
+        "worst_tickers": worst_tickers,
+        "sample_missing": sample_missing,
+        "expected_by_date": expected_by_date,
+    }
+
+
+def _render_missing_diagnostics(
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    diagnostics: dict[str, object],
+) -> str:
+    lines = [
+        "index_calc_missing_diagnostics:",
+        f"date_range={start_date.isoformat()}..{end_date.isoformat()}",
+        f"impacted_universe={UNIVERSE_DEF}",
+    ]
+
+    worst_dates: List[Tuple[_dt.date, int, int]] = diagnostics.get("worst_dates", [])
+    worst_tickers: List[Tuple[str, int]] = diagnostics.get("worst_tickers", [])
+    sample_missing: List[Tuple[_dt.date, str, str]] = diagnostics.get("sample_missing", [])
+    imputed_by_date: dict = diagnostics.get("imputed_by_date", {})
+
+    lines.append("top_missing_dates:")
+    if worst_dates:
+        for date, missing_count, expected in worst_dates:
+            imputed = imputed_by_date.get(date, 0)
+            lines.append(
+                f"  {date.isoformat()} missing={missing_count} expected={expected} imputed={imputed}"
+            )
+    else:
+        lines.append("  none")
+
+    lines.append("top_missing_tickers:")
+    if worst_tickers:
+        for ticker, count in worst_tickers:
+            lines.append(f"  {ticker} missing_days={count}")
+    else:
+        lines.append("  none")
+
+    lines.append("sample_missing:")
+    if sample_missing:
+        for trade_date, ticker, reason in sample_missing:
+            lines.append(f"  {trade_date.isoformat()} {ticker} reason={reason}")
+    else:
+        lines.append("  none")
+
+    return "\n".join(lines)
+
+
+def _run_self_heal(
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    allow_close: bool,
+    debug: bool,
+) -> None:
+    from tools.index_engine import run_daily
+
+    trading_days = engine_db.fetch_trading_days(start_date, end_date)
+    _impacted_by_date, union = _collect_impacted_universe(trading_days)
+    previous_override = os.environ.get("SC_IDX_TICKERS")
+    if union:
+        os.environ["SC_IDX_TICKERS"] = ",".join(union)
+
+    run_args: list[str] = []
+    if debug:
+        run_args.append("--debug")
+    run_daily.main(run_args)
+
+    # Clear override so later runs do not inherit
+    if previous_override is None:
+        os.environ.pop("SC_IDX_TICKERS", None)
+    else:
+        os.environ["SC_IDX_TICKERS"] = previous_override
+
+    # run_daily already handles completeness + imputation; nothing else required here
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="TECH100 index calc v1")
     parser.add_argument("--start", help="Start date YYYY-MM-DD")
@@ -67,9 +209,29 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--allow-close", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--email-on-fail", action="store_true")
+    parser.add_argument(
+        "--preflight-self-heal",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run ingest+impute before strict calc (default: on)",
+    )
+    parser.add_argument(
+        "--diagnose-missing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Print missing tickers/dates on strict failure (default: on)",
+    )
     args = parser.parse_args()
 
     load_default_env()
+
+    preflight_self_heal = args.preflight_self_heal and not args.dry_run
+    if preflight_self_heal:
+        from tools.index_engine import update_trading_days
+
+        update_trading_days.update_trading_days(auto_extend=True)
 
     end_date = _parse_date(args.end) if args.end else db.fetch_max_trading_day()
     if end_date is None:
@@ -87,6 +249,62 @@ def main() -> int:
     if not trading_days:
         print("no_trading_days_in_range")
         return 1
+
+    if args.dry_run:
+        diagnostics = _collect_missing_diagnostics(
+            trading_days=trading_days,
+            allow_close=args.allow_close,
+        )
+        if args.diagnose_missing:
+            print(
+                _render_missing_diagnostics(
+                    start_date=start_date,
+                    end_date=end_date,
+                    diagnostics=diagnostics,
+                )
+            )
+        return 0
+
+    if preflight_self_heal:
+        _run_self_heal(
+            start_date=start_date,
+            end_date=end_date,
+            allow_close=args.allow_close,
+            debug=args.debug,
+        )
+
+        from tools.index_engine import check_price_completeness
+
+        completeness = check_price_completeness.run_check(
+            start_date=start_date,
+            end_date=end_date,
+            min_daily_coverage=1.0,
+            max_bad_days=0,
+            provider="CANON",
+            allow_canon_close=args.allow_close,
+            allow_imputation=True,
+            email_on_fail=False,
+        )
+        if str(completeness.get("status")) in {"FAIL", "ERROR"}:
+            diagnostics = _collect_missing_diagnostics(
+                trading_days=trading_days,
+                allow_close=args.allow_close,
+            )
+            summary = _render_missing_diagnostics(
+                start_date=start_date,
+                end_date=end_date,
+                diagnostics=diagnostics,
+            )
+            if args.diagnose_missing:
+                print(summary)
+            if args.email_on_fail and should_send_alert_once_per_day(
+                "sc_idx_index_calc_fail", detail=summary, status="FAIL"
+            ):
+                send_email(
+                    "SC_IDX index calc missing prices",
+                    summary,
+                )
+            return 2
 
     if not args.rebuild:
         last_date, _ = db.fetch_last_level_before(start_date)
@@ -232,11 +450,21 @@ def main() -> int:
         prev_trade = trade_date
 
     if args.strict and missing_by_date:
-        missing_preview = ", ".join(
-            f"{date.isoformat()}:{','.join(tickers[:5])}" for date, tickers in list(missing_by_date.items())[:5]
+        diagnostics = _collect_missing_diagnostics(
+            trading_days=trading_days,
+            allow_close=args.allow_close,
         )
-        if should_send_alert_once_per_day("index_calc_missing_prices", detail=missing_preview, status="ERROR"):
-            send_email("SC_IDX index calc missing prices", missing_preview)
+        summary = _render_missing_diagnostics(
+            start_date=start_date,
+            end_date=end_date,
+            diagnostics=diagnostics,
+        )
+        if args.diagnose_missing:
+            print(summary)
+        if args.email_on_fail and should_send_alert_once_per_day(
+            "sc_idx_index_calc_fail", detail=summary, status="FAIL"
+        ):
+            send_email("SC_IDX index calc missing prices", summary)
         finish_run(run_id, status="ERROR", error="missing_prices")
         return 2
 
