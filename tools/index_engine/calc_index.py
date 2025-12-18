@@ -4,7 +4,6 @@ import argparse
 import datetime as _dt
 import os
 import sys
-from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -28,7 +27,6 @@ from index_engine.index_calc_v1 import (
 from index_engine.run_log import finish_run, start_run
 from index_engine import db_index_calc as db
 from index_engine import db as engine_db
-from db_helper import get_connection
 
 
 BASE_DATE = _dt.date(2025, 1, 2)
@@ -63,18 +61,6 @@ def _collect_missing(
     return missing
 
 
-def _build_in_clause(values: List[str], prefix: str) -> tuple[str, dict[str, object]]:
-    binds: dict[str, object] = {}
-    keys: list[str] = []
-    for idx, value in enumerate(values):
-        key = f"{prefix}_{idx}"
-        keys.append(f":{key}")
-        binds[key] = value
-    if not keys:
-        return "(NULL)", binds
-    return "(" + ", ".join(keys) + ")", binds
-
-
 def _collect_impacted_universe(trading_days: List[_dt.date]) -> tuple[dict[_dt.date, list[str]], list[str]]:
     impacted_cache: dict[_dt.date, list[str]] = {}
     impacted_by_date: dict[_dt.date, list[str]] = {}
@@ -93,72 +79,19 @@ def _collect_impacted_universe(trading_days: List[_dt.date]) -> tuple[dict[_dt.d
 
 def _collect_missing_diagnostics(
     *,
-    trading_days: List[_dt.date],
-    allow_close: bool,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    max_dates: int,
+    max_tickers: int,
+    max_samples: int,
 ) -> dict[str, object]:
-    impacted_by_date, _ = _collect_impacted_universe(trading_days)
-    union = sorted({ticker for tickers in impacted_by_date.values() for ticker in tickers})
-    ok_by_date: dict[_dt.date, dict[str, str]] = defaultdict(dict)
-
-    if union:
-        in_clause, binds = _build_in_clause(union, "ticker")
-        sql = (
-            "SELECT trade_date, ticker, canon_adj_close_px, canon_close_px, quality "
-            "FROM SC_IDX_PRICES_CANON "
-            "WHERE trade_date BETWEEN :start_date AND :end_date "
-            f"AND ticker IN {in_clause}"
-        )
-        binds.update({"start_date": trading_days[0], "end_date": trading_days[-1]})
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(sql, binds)
-            for trade_date, ticker, adj_close, close_px, quality in cur.fetchall():
-                if trade_date is None or ticker is None:
-                    continue
-                if isinstance(trade_date, _dt.datetime):
-                    trade_date = trade_date.date()
-                price = adj_close if adj_close is not None else (close_px if allow_close else None)
-                if price is None:
-                    continue
-                ok_by_date[trade_date][str(ticker).strip().upper()] = str(quality or "").upper()
-    missing_by_date: dict[_dt.date, list[str]] = {}
-    missing_by_ticker: Counter[str] = Counter()
-    imputed_by_date: Counter[_dt.date] = Counter()
-    sample_missing: list[tuple[_dt.date, str, str]] = []
-    expected_by_date: dict[_dt.date, int] = {}
-
-    for trade_date in trading_days:
-        tickers = impacted_by_date.get(trade_date, [])
-        expected_by_date[trade_date] = len(tickers)
-        missing = []
-        for ticker in tickers:
-            quality = ok_by_date.get(trade_date, {}).get(ticker)
-            if quality is None:
-                missing.append(ticker)
-                missing_by_ticker[ticker] += 1
-                if len(sample_missing) < 10:
-                    sample_missing.append((trade_date, ticker, "no_canon_price"))
-                continue
-            if quality == "IMPUTED":
-                imputed_by_date[trade_date] += 1
-        if missing:
-            missing_by_date[trade_date] = missing
-
-    worst_dates = sorted(
-        ((date, len(tickers), expected_by_date.get(date, 0)) for date, tickers in missing_by_date.items()),
-        key=lambda item: (-item[1], item[0]),
-    )[:10]
-    worst_tickers = sorted(missing_by_ticker.items(), key=lambda item: (-item[1], item[0]))[:10]
-
-    return {
-        "missing_by_date": missing_by_date,
-        "missing_by_ticker": dict(missing_by_ticker),
-        "imputed_by_date": dict(imputed_by_date),
-        "worst_dates": worst_dates,
-        "worst_tickers": worst_tickers,
-        "sample_missing": sample_missing,
-        "expected_by_date": expected_by_date,
-    }
+    return db.diagnose_missing_canon_sql(
+        start=start_date,
+        end=end_date,
+        max_dates=max_dates,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+    )
 
 
 def _render_missing_diagnostics(
@@ -173,15 +106,13 @@ def _render_missing_diagnostics(
         f"impacted_universe={UNIVERSE_DEF}",
     ]
 
-    worst_dates: List[Tuple[_dt.date, int, int]] = diagnostics.get("worst_dates", [])
-    worst_tickers: List[Tuple[str, int]] = diagnostics.get("worst_tickers", [])
+    worst_dates: List[Tuple[_dt.date, int, int, int]] = diagnostics.get("missing_by_date", [])
+    worst_tickers: List[Tuple[str, int]] = diagnostics.get("missing_by_ticker", [])
     sample_missing: List[Tuple[_dt.date, str, str]] = diagnostics.get("sample_missing", [])
-    imputed_by_date: dict = diagnostics.get("imputed_by_date", {})
 
     lines.append("top_missing_dates:")
     if worst_dates:
-        for date, missing_count, expected in worst_dates:
-            imputed = imputed_by_date.get(date, 0)
+        for date, missing_count, expected, imputed in worst_dates:
             lines.append(
                 f"  {date.isoformat()} missing={missing_count} expected={expected} imputed={imputed}"
             )
@@ -203,6 +134,31 @@ def _render_missing_diagnostics(
         lines.append("  none")
 
     return "\n".join(lines)
+
+
+def _print_missing_diagnostics(
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    max_dates: int,
+    max_tickers: int,
+    max_samples: int,
+) -> str:
+    print("starting diagnostics...", flush=True)
+    diagnostics = _collect_missing_diagnostics(
+        start_date=start_date,
+        end_date=end_date,
+        max_dates=max_dates,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+    )
+    output = _render_missing_diagnostics(
+        start_date=start_date,
+        end_date=end_date,
+        diagnostics=diagnostics,
+    )
+    print(output, flush=True)
+    return output
 
 
 def _run_self_heal(
@@ -257,6 +213,15 @@ def main() -> int:
         default=True,
         help="Print missing tickers/dates on strict failure (default: on)",
     )
+    parser.add_argument(
+        "--diagnose-missing-sql",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use SQL-based diagnostics (default: on)",
+    )
+    parser.add_argument("--max-dates", type=int, default=10)
+    parser.add_argument("--max-tickers", type=int, default=10)
+    parser.add_argument("--max-samples", type=int, default=25)
     args = parser.parse_args()
 
     load_default_env()
@@ -285,17 +250,13 @@ def main() -> int:
         return 1
 
     if args.dry_run:
-        diagnostics = _collect_missing_diagnostics(
-            trading_days=trading_days,
-            allow_close=args.allow_close,
-        )
         if args.diagnose_missing:
-            print(
-                _render_missing_diagnostics(
-                    start_date=start_date,
-                    end_date=end_date,
-                    diagnostics=diagnostics,
-                )
+            _print_missing_diagnostics(
+                start_date=start_date,
+                end_date=end_date,
+                max_dates=args.max_dates,
+                max_tickers=args.max_tickers,
+                max_samples=args.max_samples,
             )
         return 0
 
@@ -320,17 +281,15 @@ def main() -> int:
             email_on_fail=False,
         )
         if str(completeness.get("status")) in {"FAIL", "ERROR"}:
-            diagnostics = _collect_missing_diagnostics(
-                trading_days=trading_days,
-                allow_close=args.allow_close,
-            )
-            summary = _render_missing_diagnostics(
-                start_date=start_date,
-                end_date=end_date,
-                diagnostics=diagnostics,
-            )
+            summary = ""
             if args.diagnose_missing:
-                print(summary)
+                summary = _print_missing_diagnostics(
+                    start_date=start_date,
+                    end_date=end_date,
+                    max_dates=args.max_dates,
+                    max_tickers=args.max_tickers,
+                    max_samples=args.max_samples,
+                )
             if args.email_on_fail and should_send_alert_once_per_day(
                 "sc_idx_index_calc_fail", detail=summary, status="FAIL"
             ):
@@ -484,17 +443,15 @@ def main() -> int:
         prev_trade = trade_date
 
     if args.strict and missing_by_date:
-        diagnostics = _collect_missing_diagnostics(
-            trading_days=trading_days,
-            allow_close=args.allow_close,
-        )
-        summary = _render_missing_diagnostics(
-            start_date=start_date,
-            end_date=end_date,
-            diagnostics=diagnostics,
-        )
+        summary = ""
         if args.diagnose_missing:
-            print(summary)
+            summary = _print_missing_diagnostics(
+                start_date=start_date,
+                end_date=end_date,
+                max_dates=args.max_dates,
+                max_tickers=args.max_tickers,
+                max_samples=args.max_samples,
+            )
         if args.email_on_fail and should_send_alert_once_per_day(
             "sc_idx_index_calc_fail", detail=summary, status="FAIL"
         ):
