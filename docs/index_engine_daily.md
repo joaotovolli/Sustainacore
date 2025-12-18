@@ -133,3 +133,8 @@ Stuck latest date diagnostics:
 ```bash
 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_latest_eod.py --debug
 ```
+
+Trading day calendar auto-extend:
+```bash
+PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/update_trading_days.py --auto --debug
+```
