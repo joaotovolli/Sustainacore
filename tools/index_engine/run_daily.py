@@ -238,6 +238,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="SC_IDX daily ingest runner")
     parser.add_argument("--debug", action="store_true", help="Enable verbose ingest diagnostics")
     parser.add_argument("--dry-run", action="store_true", help="Print latest EOD date and exit")
+    parser.add_argument(
+        "--force-backfill-tickers",
+        help="Comma-separated tickers to backfill regardless of env",
+    )
     return parser.parse_args(argv)
 
 
@@ -527,7 +531,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.debug:
         ingest_args.append("--debug")
 
-    tickers_env = os.getenv("SC_IDX_TICKERS")
+    tickers_env = args.force_backfill_tickers or os.getenv("SC_IDX_TICKERS")
     if tickers_env:
         ingest_args.extend(["--tickers", tickers_env])
 
