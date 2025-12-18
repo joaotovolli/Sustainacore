@@ -138,21 +138,3 @@ Trading day calendar auto-extend:
 ```bash
 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/update_trading_days.py --auto --debug
 ```
-
-Force catch-up ingest for latest effective date:
-```bash
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_once_latest.py --debug --force-no-budget-stop
-```
-
-Oracle verification for impacted coverage (example date):
-```sql
-SELECT COUNT(*) FROM SC_IDX_PRICES_CANON
-WHERE trade_date = DATE '2025-12-17'
-AND ticker IN (
-  SELECT ticker
-  FROM tech11_ai_gov_eth_index
-  WHERE port_weight > 0
-  AND port_date = (SELECT MAX(port_date) FROM tech11_ai_gov_eth_index WHERE port_date <= DATE '2025-12-17')
-  FETCH FIRST 25 ROWS ONLY
-);
-```
