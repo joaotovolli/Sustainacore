@@ -134,6 +134,50 @@ def fetch_impacted_tickers_for_trade_date(
     return tickers
 
 
+def fetch_missing_real_for_trade_date(trade_date: _dt.date, impacted: Optional[list[str]] = None) -> list[str]:
+    """
+    Return impacted tickers lacking REAL canonical price (quality <> 'IMPUTED') on the given trade_date.
+    """
+
+    if impacted is None:
+        impacted = fetch_impacted_tickers_for_trade_date(trade_date)
+    if not impacted:
+        return []
+
+    sql = (
+        "WITH impacted AS (SELECT :trade_date AS trade_date, COLUMN_VALUE AS ticker FROM TABLE(:tickers)) "
+        "SELECT i.ticker "
+        "FROM impacted i "
+        "WHERE NOT EXISTS ("
+        "  SELECT 1 FROM sc_idx_prices_canon c "
+        "  WHERE c.trade_date = i.trade_date "
+        "    AND c.ticker = i.ticker "
+        "    AND NVL(c.canon_adj_close_px, c.canon_close_px) IS NOT NULL "
+        "    AND c.quality <> 'IMPUTED'"
+        ") "
+        "ORDER BY i.ticker"
+    )
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            sql,
+            {
+                "trade_date": trade_date,
+                "tickers": impacted,
+            },
+        )
+        rows = cur.fetchall()
+        missing: list[str] = []
+        for row in rows:
+            if not row or row[0] is None:
+                continue
+            cleaned = str(row[0]).strip().upper()
+            if cleaned:
+                missing.append(cleaned)
+        return missing
+
+
 def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:
     """Return the latest trade_date with status OK for the ticker/provider."""
 
