@@ -1,16 +1,17 @@
 :root {
     --brand-blue: #1f5fbf;
     --brand-blue-strong: #164a96;
-    --bg: #f6f8fc;
+    --bg: #f6f8fb;
     --surface: #ffffff;
-    --surface-muted: #f0f3fa;
+    --surface-muted: #f1f5f9;
     --text: #0f1c3f;
-    --muted: #5b6680;
-    --border: #d8deeb;
+    --muted: #64748b;
+    --border: #e5e7eb;
     --shadow: 0 10px 30px rgba(15, 28, 63, 0.08);
     --shadow-soft: 0 14px 34px rgba(15, 28, 63, 0.1);
     --radius: 14px;
     --content-max: 1100px;
+    --card: #ffffff;
 }
 
 * {
@@ -22,7 +23,7 @@ body {
     font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
-    line-height: 1.65;
+    line-height: 1.7;
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
 }
@@ -49,8 +50,10 @@ a:hover {
 }
 
 .page__container {
-    display: contents;
     max-width: var(--content-max);
+    margin: 0 auto;
+    padding: 0 24px;
+    width: 100%;
 }
 
 h1,
@@ -59,7 +62,7 @@ h3,
 h4,
 h5,
 h6 {
-    margin: 0 0 0.6rem;
+    margin: 0 0 0.65rem;
     line-height: 1.2;
     font-weight: 750;
     letter-spacing: -0.01em;
@@ -219,7 +222,7 @@ h3 {
     align-items: center;
     justify-content: center;
     gap: 0.35rem;
-    padding: 0.75rem 1.15rem;
+    padding: 0.75rem 1.25rem;
     border-radius: 12px;
     border: 1px solid transparent;
     cursor: pointer;
@@ -475,8 +478,12 @@ h3 {
 }
 
 .table-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: auto;
     width: 100%;
-    overflow-x: auto;
+    max-height: 70vh;
 }
 
 .table__row {
@@ -554,10 +561,14 @@ h3 {
 }
 
 .tech100-table thead th {
+    /* UI_POLISH_V2_CANARY */
     background: var(--surface-muted);
     color: var(--text);
     font-weight: 700;
     border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 .tech100-table tbody tr {
@@ -582,6 +593,21 @@ h3 {
 .tech100-table th.text-center {
     text-align: center;
     font-variant-numeric: tabular-nums;
+}
+
+.tech100-table thead th:nth-child(2),
+.tech100-table thead th:nth-child(3),
+.tech100-table thead th:nth-child(5),
+.tech100-table tbody td:nth-child(2),
+.tech100-table tbody td:nth-child(3),
+.tech100-table tbody td:nth-child(5) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tech100-table thead th:nth-child(6),
+.tech100-table tbody td:nth-child(6) {
+    text-align: center;
 }
 
 .tech100-table thead th.text-left > *,
@@ -859,13 +885,38 @@ body.has-modal-open {
     font-size: 0.95rem;
 }
 
-.filters select {
-    padding: 0.5rem 0.75rem;
-    border-radius: 8px;
+select,
+input[type="text"],
+input[type="search"],
+input[type="date"],
+textarea {
+    width: 100%;
+    min-height: 40px;
+    padding: 0.55rem 0.75rem;
+    border-radius: 10px;
     border: 1px solid var(--border);
-    background: var(--surface);
+    background: var(--card);
     color: var(--text);
+    font: inherit;
+    line-height: 1.4;
+}
+
+select {
     min-width: 140px;
+}
+
+select:focus,
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="date"]:focus,
+textarea:focus {
+    outline: 3px solid rgba(31, 95, 191, 0.2);
+    border-color: rgba(31, 95, 191, 0.5);
+}
+
+.filters select,
+.filters input[type="search"] {
+    height: 40px;
 }
 
 .chat {
