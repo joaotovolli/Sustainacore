@@ -14,6 +14,43 @@
     --card: #ffffff;
 }
 
+.tech100-index__chart-card {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.tech100-index__chart {
+    min-height: 280px;
+}
+
+.tech100-index__kpis,
+.tech100-index__risk {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    margin-top: 1.5rem;
+}
+
+.tech100-index__banner {
+    margin-top: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.tech100-index__table-card,
+.tech100-index__imputed-card {
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 800px) {
+    .tech100-index__banner {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
 * {
     box-sizing: border-box;
 }

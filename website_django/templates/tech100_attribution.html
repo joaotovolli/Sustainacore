@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}TECH100 Attribution | SustainaCore{% endblock %}
+
+{% block content %}
+<div class="tech100-index">
+  <section class="section section--with-header">
+    <div class="shell">
+      <div class="section__header">
+        <span class="pill pill--soft">TECH100 Index</span>
+        <h1>Daily Attribution</h1>
+        <p class="muted">Contribution breakdown for the selected trade date.</p>
+      </div>
+
+      <div class="card tech100-index__filters">
+        <label class="form-field">
+          <span>Date</span>
+          <input type="date" id="attribution-date" value="{{ selected_date }}" min="{{ min_date }}" max="{{ max_date }}">
+        </label>
+        <div class="form-field">
+          <span class="muted">Index return</span>
+          <div class="kpi-value" id="attribution-index-return">{{ index_return|default:"—"|floatformat:2 }}{% if index_return %}%{% endif %}</div>
+        </div>
+        <div class="form-field">
+          <span class="muted">Sum contribution</span>
+          <div class="kpi-value" id="attribution-sum">{{ contrib_sum|default:"—"|floatformat:2 }}{% if contrib_sum %}%{% endif %}</div>
+        </div>
+      </div>
+
+      <div class="tech100-index__split">
+        <div class="card">
+          <div class="card__header">
+            <h2 class="h5">Top Contributors</h2>
+          </div>
+          <div class="table-wrapper table-wrap">
+            <table class="table table--wide tech100-table" aria-label="Top contributors">
+              <thead>
+                <tr>
+                  <th class="text-left">Ticker</th>
+                  <th class="text-right">Weight (%)</th>
+                  <th class="text-right">Return (%)</th>
+                  <th class="text-right">Contribution (pp)</th>
+                  <th class="text-center">Quality</th>
+                </tr>
+              </thead>
+              <tbody id="attribution-top"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__header">
+            <h2 class="h5">Top Detractors</h2>
+          </div>
+          <div class="table-wrapper table-wrap">
+            <table class="table table--wide tech100-table" aria-label="Top detractors">
+              <thead>
+                <tr>
+                  <th class="text-left">Ticker</th>
+                  <th class="text-right">Weight (%)</th>
+                  <th class="text-right">Return (%)</th>
+                  <th class="text-right">Contribution (pp)</th>
+                  <th class="text-center">Quality</th>
+                </tr>
+              </thead>
+              <tbody id="attribution-bottom"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+{{ top_rows|json_script:"tech100-attribution-top" }}
+{{ bottom_rows|json_script:"tech100-attribution-bottom" }}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/tech100-index.js' %}"></script>
+{% endblock %}
