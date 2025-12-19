@@ -75,4 +75,5 @@ Artifacts are stored in `docs/screenshots/tech100/{before,after,diff}`.
 - On HTTP 500, the response body is saved to `/tmp/tech100_500_body_<PORT>.html` and the run aborts.
 - The runner fails if the Tech100 page shows the empty-state banner or if the chart/table have no data.
 - Use `TECH100_UI_DATA_MODE=fixture` to force deterministic data for screenshots while keeping Oracle smoke checks.
-- If readiness fails, the probe HTML is saved to `/tmp/tech100_readiness_body_<PORT>.txt`.
+- You can force a specific Tech100 path with `TECH100_SCREENSHOT_PATH=/tech100/` or run only one mode with `TECH100_SCREENSHOT_MODE=before|after`.
+- If readiness fails, the runner saves the probe response to `/tmp/tech100_readiness_body_<PORT>.txt`.

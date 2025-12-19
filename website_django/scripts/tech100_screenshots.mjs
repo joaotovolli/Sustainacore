@@ -34,6 +34,7 @@ const targets = dedupeTargets(
     : [
         { path: "/", name: "home.png" },
         { path: tech100Path, name: "tech100.png" },
+        { path: "/tech100/index/", name: "index_overview.png" },
         { path: "/tech100/constituents/", name: "constituents.png" },
         { path: "/tech100/attribution/", name: "attribution.png" },
         { path: "/tech100/stats/", name: "stats.png" },
