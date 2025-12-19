@@ -35,6 +35,9 @@ Environment:
   `SC_IDX_PIPELINE_SKIP_INGEST=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_pipeline.py`
 - The orchestrator invokes index calc with `--no-preflight-self-heal` to avoid a second ingest/impute pass because the earlier stages already ran in-process.
 - Keep `SC_IDX_PIPELINE_SKIP_INGEST` for manual runs only; systemd timers should run with ingest enabled.
+- Ingest readiness: the pipeline probes TwelveData (SPY) for the target end date and falls back up to two prior trading days. If the provider is not ready, ingest is skipped safely (`sc_idx_ingest_skip: provider_not_ready...`) and exits 0 (no imputation for that date).
+- Debug provider availability:  
+  `PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_twelvedata_availability.py --debug`
 
 ## Oracle preflight
 
