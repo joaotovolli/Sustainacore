@@ -24,6 +24,6 @@ server {
     }
 
     location /static/ {
-        alias /opt/code/Sustainacore/website_django/static/;
+        alias /opt/code/Sustainacore/website_django/staticfiles/;
     }
 }
