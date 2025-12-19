@@ -308,6 +308,12 @@ def fetch_eod_prices(tickers: Iterable[str], start: str, end: str) -> list[dict]
         raise RuntimeError("TWELVEDATA_API_KEY is not set")
 
     rows: List[dict] = []
+    if start == end:
+        target_date = _coerce_date(start)
+        for ticker in sorted(set(tickers_list)):
+            rows.extend(fetch_single_day_bar(ticker, target_date, api_key=api_key))
+        return rows
+
     for ticker in sorted(set(tickers_list)):
         rows.extend(_fetch_ticker(ticker, start, end, api_key))
     return rows
@@ -431,6 +437,57 @@ def fetch_latest_bar(
     return values
 
 
+def fetch_daily_window_desc(
+    ticker: str,
+    *,
+    window: int = 10,
+    api_key: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch a small descending window of daily bars for robustness."""
+
+    key = _get_api_key(api_key)
+    payload = _request_json(
+        "time_series",
+        {
+            "symbol": ticker,
+            "interval": "1day",
+            "outputsize": window,
+            "order": "DESC",
+            "timezone": "Exchange",
+            "adjust": "all",
+            "apikey": key,
+        },
+    )
+
+    message = str(payload.get("message") or "").lower()
+    if payload.get("status") == "error":
+        if "no data is available" in message:
+            return []
+        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+
+    values = payload.get("values") or payload.get("data") or []
+    if not isinstance(values, list):
+        return []
+    return values
+
+
+def fetch_single_day_bar(
+    ticker: str,
+    trade_date: _dt.date,
+    *,
+    api_key: Optional[str] = None,
+    window: int = 10,
+) -> List[Dict[str, Any]]:
+    """Fetch a specific trade_date by scanning a descending window."""
+
+    values = fetch_daily_window_desc(ticker, window=window, api_key=api_key)
+    for entry in values:
+        if _extract_trade_date(entry) == trade_date:
+            payload = {"values": [entry]}
+            return _parse_rows(payload, ticker)
+    return []
+
+
 def fetch_latest_eod_date(ticker: str, *, api_key: Optional[str] = None) -> _dt.date:
     """Return the latest available EOD trade date for the ticker."""
 
@@ -501,6 +558,8 @@ __all__ = [
     "get_throttle_config",
     "fetch_api_usage",
     "fetch_eod_prices",
+    "fetch_daily_window_desc",
+    "fetch_single_day_bar",
     "fetch_latest_eod_date",
     "fetch_latest_bar",
     "fetch_time_series",

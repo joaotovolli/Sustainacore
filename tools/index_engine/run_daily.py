@@ -166,6 +166,40 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _probe_with_fallback(
+    candidate_end: _dt.date,
+    trading_days: list[_dt.date],
+    *,
+    max_attempts: int = 3,
+    probe_fn=None,
+) -> tuple[_dt.date | None, list[_dt.date]]:
+    """
+    Attempt provider readiness probe for candidate_end and up to max_attempts-1 prior trading days.
+
+    probe_fn: callable(date) -> str (OK|NO_DATA|ERROR)
+    Returns: (chosen_end_date_or_None, tried_dates)
+    """
+
+    if probe_fn is None:
+        raise ValueError("probe_fn is required")
+
+    attempts = 0
+    tried: list[_dt.date] = []
+    current = candidate_end
+    trading_set = set(trading_days)
+    while current and attempts < max_attempts and current in trading_set:
+        tried.append(current)
+        result = probe_fn(current)
+        if result == "OK":
+            return current, tried
+        # fallback to previous trading day
+        idx = trading_days.index(current)
+        prev = trading_days[idx - 1] if idx > 0 else None
+        current = prev
+        attempts += 1
+    return None, tried
+
+
 def _compute_daily_budget(daily_limit: int, daily_buffer: int, calls_used_today: int) -> tuple[int, int]:
     remaining_daily = max(0, daily_limit - calls_used_today)
     max_provider_calls = max(0, remaining_daily - daily_buffer)
@@ -435,13 +469,40 @@ def main(argv: list[str] | None = None) -> int:
         _maybe_send_alert(status, summary, run_id, email_on_budget_stop)
         return 1
 
-    end_date = effective_end_date
+    probe_results: list[tuple[_dt.date, str]] = []
+
+    def _probe(date_value: _dt.date) -> str:
+        try:
+            rows = provider.fetch_single_day_bar("SPY", date_value)
+            result = "OK" if rows else "NO_DATA"
+        except Exception:
+            result = "ERROR"
+        probe_results.append((date_value, result))
+        print(f"sc_idx_ingest_probe: symbol=SPY date={date_value.isoformat()} result={result}")
+        return result
+
+    chosen_end, tried_dates = _probe_with_fallback(effective_end_date, trading_days, probe_fn=_probe)
+    fallback_steps = max(0, len(tried_dates) - 1)
+    print(
+        f"sc_idx_ingest_plan: provider_latest={provider_latest.isoformat()} "
+        f"candidate_end={effective_end_date.isoformat()} chosen_end={chosen_end.isoformat() if chosen_end else 'NONE'} "
+        f"fallback_steps={fallback_steps}"
+    )
+
+    if chosen_end is None:
+        tried_str = ",".join(d.isoformat() for d in tried_dates) if tried_dates else ""
+        print(
+            f"sc_idx_ingest_skip: provider_not_ready candidate_end={effective_end_date.isoformat()} tried=[{tried_str}]"
+        )
+        return 0
+
+    end_date = chosen_end
     impacted_cache: dict[_dt.date, list[str]] = {}
     impacted_end = fetch_impacted_tickers_for_trade_date(end_date, cache=impacted_cache)
     missing_real_end = fetch_missing_real_for_trade_date(end_date, impacted_end)
     print(
         f"sc_idx_ingest_plan: now_utc={today_utc.isoformat()} provider_latest={provider_latest.isoformat()} "
-        f"eligible_end={end_date.isoformat()} impacted_count={len(impacted_end)}"
+        f"eligible_end={effective_end_date.isoformat()} impacted_count={len(impacted_end)}"
     )
     summary["end_date"] = end_date
     summary["end_date"] = end_date
@@ -562,9 +623,10 @@ def main(argv: list[str] | None = None) -> int:
         if trade_date in impacted_by_date and ticker in impacted_by_date.get(trade_date, [])
     ]
 
+    will_ingest = fetch_needed
     print(
-        f"sc_idx_ingest_actions: fetch_needed_end_date={len(missing_real_end)} "
-        f"replace_imputed_candidates={len(replacement_candidates)} "
+        f"sc_idx_ingest_actions: will_ingest={'1' if will_ingest else '0'} "
+        f"tickers={len(missing_real_end)} replace_imputed_candidates={len(replacement_candidates)} "
         f"max_provider_calls={max_provider_calls}"
     )
 
