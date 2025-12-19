@@ -48,6 +48,11 @@ a:hover {
     width: 100%;
 }
 
+.page__container {
+    display: contents;
+    max-width: var(--content-max);
+}
+
 h1,
 h2,
 h3,
@@ -465,6 +470,11 @@ h3 {
 }
 
 .table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.table-wrap {
     width: 100%;
     overflow-x: auto;
 }
