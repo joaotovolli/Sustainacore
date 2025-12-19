@@ -1200,6 +1200,59 @@ textarea:focus {
     border: 0;
 }
 
+/* UI_POLISH_V3_CANARY */
+.tech100-page .table-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: auto;
+    max-height: 70vh;
+}
+
+.tech100-page .tech100-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.tech100-page .tech100-table th,
+.tech100-page .tech100-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.tech100-page .tech100-table thead th {
+    background: #f1f5f9;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.tech100-page .tech100-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.tech100-page .tech100-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.tech100-page .tech100-table th:nth-child(2),
+.tech100-page .tech100-table th:nth-child(3),
+.tech100-page .tech100-table th:nth-child(5),
+.tech100-page .tech100-table td:nth-child(2),
+.tech100-page .tech100-table td:nth-child(3),
+.tech100-page .tech100-table td:nth-child(5) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tech100-page .tech100-table th:nth-child(6),
+.tech100-page .tech100-table td:nth-child(6) {
+    text-align: center;
+}
+
 @media (max-width: 900px) {
     .table__row {
         grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
