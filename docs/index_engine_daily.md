@@ -39,6 +39,28 @@ Environment:
 - Debug provider availability:  
   `PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_twelvedata_availability.py --debug`
 
+## Twelve Data readiness probe (SPY)
+
+- Provider latest EOD is detected via Twelve Data for SPY. The candidate ingest end date is the latest trading day on/before that provider date (and before today).
+- Readiness probe: fetch a small descending window for SPY on the candidate date. If Twelve Data says “No data is available…”, fall back to the previous trading day, up to two fallbacks total (3 attempts).
+- If none of the attempts return data, ingest exits 0 with `sc_idx_ingest_skip: provider_not_ready candidate_end=... tried=[...]` to avoid hammering the provider or creating future-date rows.
+- No future-date rule: the pipeline never writes CANON/IMPUTED rows for dates after the provider’s latest EOD.
+
+## Why result=OK but will_ingest=0?
+
+- `sc_idx_ingest_probe: result=OK` means the provider is ready for the chosen end date.
+- `sc_idx_ingest_actions: will_ingest=0` means there was nothing to fetch:
+  - impacted universe already has REAL (or acceptable) canonical rows for that date, and
+  - there are no eligible IMPUTED rows to replace within the bounded replacement window.
+- This is expected; it saves credits and still runs completeness/impute/index calc afterwards.
+
+## Debug quick check
+
+- Provider availability probe:  
+  `PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_twelvedata_availability.py --debug`
+- Recent pipeline logs:  
+  `sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager`
+
 ## Oracle preflight
 
 - `tools/index_engine/run_daily.py` (Twelve Data) runs an Oracle preflight (`SELECT USER FROM dual`) before doing any provider/API work.
