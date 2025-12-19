@@ -78,4 +78,17 @@ sudo nginx -t
 echo "[VM2] Reloading nginx..."
 sudo systemctl reload nginx
 
+echo "[VM2] Verifying static asset serving..."
+STATIC_CHECK_OUTPUT=$(curl -k -I --fail https://127.0.0.1/static/css/main.css -H "Host: sustainacore.org")
+echo "$STATIC_CHECK_OUTPUT"
+if ! grep -qi "^HTTP/.* 200" <<< "$STATIC_CHECK_OUTPUT"; then
+  echo "[VM2] Expected HTTP 200 for static asset check." >&2
+  exit 1
+fi
+
+if ! grep -qi "Content-Type: text/css" <<< "$STATIC_CHECK_OUTPUT"; then
+  echo "[VM2] Expected Content-Type text/css for static asset check." >&2
+  exit 1
+fi
+
 echo "[VM2] Deploy completed successfully."
