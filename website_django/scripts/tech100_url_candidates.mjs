@@ -21,10 +21,10 @@ const buildTech100Candidates = ({ override, discovered = [] } = {}) => {
   const normalizedDiscovered = discovered.map(normalizePath).filter(Boolean);
   return dedupe([
     normalizedOverride,
-    ...normalizedDiscovered,
     "/tech100/index/",
     "/tech100/",
     "/tech100",
+    ...normalizedDiscovered,
   ]);
 };
 

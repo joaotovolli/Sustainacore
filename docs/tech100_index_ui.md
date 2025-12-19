@@ -58,6 +58,8 @@ cd /opt/code/Sustainacore/website_django
 npm install
 npx playwright install --with-deps
 node scripts/run_tech100_screenshots_ci.mjs
+TECH100_SCREENSHOT_MODE=before node scripts/run_tech100_screenshots_ci.mjs
+TECH100_SCREENSHOT_MODE=after TECH100_UI_DATA_MODE=fixture node scripts/run_tech100_screenshots_ci.mjs
 node scripts/tech100_screenshots.mjs --base-url http://127.0.0.1:8001 --mode before
 node scripts/tech100_screenshots.mjs --base-url http://127.0.0.1:8001 --mode after
 node scripts/tech100_screenshot_diff.mjs
@@ -71,5 +73,7 @@ Artifacts are stored in `docs/screenshots/tech100/{before,after,diff}`.
 - If a selector is missing, the runner prints a short HTML snippet for debugging.
 - An Oracle smoke test runs before screenshots; output goes to `/tmp/tech100_oracle_smoke_<PORT>.log`.
 - On HTTP 500, the response body is saved to `/tmp/tech100_500_body_<PORT>.html` and the run aborts.
+- The runner fails if the Tech100 page shows the empty-state banner or if the chart/table have no data.
+- Use `TECH100_UI_DATA_MODE=fixture` to force deterministic data for screenshots while keeping Oracle smoke checks.
 - You can force a specific Tech100 path with `TECH100_SCREENSHOT_PATH=/tech100/` or run only one mode with `TECH100_SCREENSHOT_MODE=before|after`.
 - If readiness fails, the runner saves the probe response to `/tmp/tech100_readiness_body_<PORT>.txt`.

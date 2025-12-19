@@ -45,6 +45,10 @@ const run = async () => {
   const logPath = `/tmp/tech100_runserver_${port}.log`;
   const unitName = `vm2-tech100-runserver-${port}`;
   const overrideEnvPath = `/tmp/tech100_env_override_${port}.env`;
+  const requestedMode = process.env.TECH100_SCREENSHOT_MODE;
+  const dataMode = process.env.TECH100_UI_DATA_MODE
+    || (requestedMode === "after" ? "fixture" : "");
+
   fs.writeFileSync(logPath, "");
   fs.writeFileSync(
     overrideEnvPath,
@@ -52,8 +56,10 @@ const run = async () => {
       "DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost,sustainacore.org",
       "DJANGO_DEBUG=1",
       "PYTHONUNBUFFERED=1",
+      ...(dataMode ? [`TECH100_UI_DATA_MODE=${dataMode}`] : []),
     ].join("\n") + "\n"
   );
+
   spawn("sudo", ["systemctl", "stop", unitName]);
   spawn("sudo", ["systemctl", "reset-failed", unitName]);
   const journalProc = spawn("sudo", ["journalctl", "-u", unitName, "-f", "--no-pager"]);
@@ -61,7 +67,7 @@ const run = async () => {
   journalProc.stdout.pipe(logStream);
   journalProc.stderr.pipe(logStream);
 
-  const serverProc = spawn("sudo", [
+  spawn("sudo", [
     "systemd-run",
     "--unit",
     unitName,
@@ -94,7 +100,6 @@ const run = async () => {
 
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
-
 
   const waitFor = async (url, selector, timeoutMs = 30000) => {
     const start = Date.now();
@@ -218,7 +223,7 @@ const run = async () => {
       const bodyPath = `/tmp/tech100_readiness_body_${port}.txt`;
       fs.writeFileSync(bodyPath, lastBody);
     }
-    throw new Error(`Tech100 readiness failed (no candidate path returned 200)`);
+    throw new Error("Tech100 readiness failed (no candidate path returned 200)");
   };
 
   let tech100Path = "/tech100/";
@@ -240,9 +245,7 @@ const run = async () => {
       const proc = spawn(
         "node",
         [screenshotScript, "--mode", mode, "--base-url", baseUrl, "--tech100-path", tech100Path],
-        {
-        stdio: "inherit",
-        }
+        { stdio: "inherit" }
       );
       proc.on("close", (code) => {
         if (code === 0) resolve();
@@ -251,7 +254,6 @@ const run = async () => {
     });
 
   try {
-    const requestedMode = process.env.TECH100_SCREENSHOT_MODE;
     const modes = requestedMode ? [requestedMode] : ["before", "after"];
     for (const mode of modes) {
       await runScreenshots(mode);
@@ -259,9 +261,11 @@ const run = async () => {
   } catch (err) {
     await cleanup();
     console.error(err.message);
-    const html = await fetch(`${baseUrl}/tech100/index/`).then((res) => res.text());
+    const html = await fetch(`${baseUrl}${tech100Path}`).then((res) => res.text());
+    const failurePath = `/tmp/tech100_failure_body_${port}.html`;
+    fs.writeFileSync(failurePath, html);
     const snippet = html.split("\n").slice(0, 120).join("\n");
-    console.error(`HTML snippet for tech100/index:\n${snippet}`);
+    console.error(`HTML snippet for ${tech100Path} (saved to ${failurePath}):\n${snippet}`);
     dumpDiagnostics(smokeLogPath);
     process.exit(1);
   }

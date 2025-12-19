@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}TECH100 Constituents | SustainaCore{% endblock %}
+
+{% block content %}
+<div class="tech100-index">
+  <section class="section section--with-header">
+    <div class="shell">
+      <div class="section__header">
+        <span class="pill pill--soft">TECH100 Index</span>
+        <h1>Constituents &amp; Weights</h1>
+        <p class="muted">Daily holdings, weights, and quality flags from Oracle.</p>
+      </div>
+
+      <div class="card tech100-index__filters">
+        <label class="form-field">
+          <span>Date</span>
+          <input type="date" id="constituents-date" value="{{ selected_date }}" min="{{ min_date }}" max="{{ max_date }}">
+        </label>
+        <label class="form-field">
+          <span>Search</span>
+          <input type="search" id="constituents-search" placeholder="Search ticker or name">
+        </label>
+        <label class="form-field form-field--toggle">
+          <input type="checkbox" id="constituents-imputed" {% if show_imputed_only %}checked{% endif %}>
+          <span>Show only IMPUTED</span>
+        </label>
+      </div>
+
+      <div class="card">
+        <div class="table-wrapper table-wrap">
+          <table class="table table--wide tech100-table" aria-label="TECH100 constituents">
+            <thead>
+              <tr>
+                <th class="text-left"><button class="table-sort" data-key="ticker">Ticker</button></th>
+                <th class="text-left"><button class="table-sort" data-key="name">Name</button></th>
+                <th class="text-right"><button class="table-sort" data-key="weight">Weight (%)</button></th>
+                <th class="text-right"><button class="table-sort" data-key="price">Price</button></th>
+                <th class="text-right"><button class="table-sort" data-key="ret_1d">1D Return (%)</button></th>
+                <th class="text-center"><button class="table-sort" data-key="quality">Quality</button></th>
+              </tr>
+            </thead>
+            <tbody id="constituents-body"></tbody>
+          </table>
+        </div>
+        <div class="tech100-index__table-footer">
+          <span class="muted">Weight sum</span>
+          <strong id="constituents-weight-sum">{{ weight_sum|floatformat:2 }}%</strong>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+{{ rows|json_script:"tech100-constituents-data" }}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/tech100-index.js' %}"></script>
+{% endblock %}

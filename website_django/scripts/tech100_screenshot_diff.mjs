@@ -36,6 +36,10 @@ const diffPair = (beforeName, afterName, diffName) => {
   }
   const before = readPng(beforePath);
   const after = readPng(afterPath);
+  if (before.width !== after.width || before.height !== after.height) {
+    console.warn(`Skipping diff for ${beforeName} (size mismatch)`);
+    return;
+  }
   const { width, height } = before;
   const diff = new PNG({ width, height });
   const mismatch = pixelmatch(before.data, after.data, diff.data, width, height, {
@@ -45,12 +49,7 @@ const diffPair = (beforeName, afterName, diffName) => {
   process.stdout.write(`diff ${diffPath} (mismatch: ${mismatch})\n`);
 };
 
-const requiredAfter = [
-  "index_overview.png",
-  "constituents.png",
-  "attribution.png",
-  "stats.png",
-];
+const requiredAfter = ["tech100.png", "constituents.png", "attribution.png", "stats.png"];
 
 for (const name of requiredAfter) {
   const filePath = path.join(afterDir, name);
