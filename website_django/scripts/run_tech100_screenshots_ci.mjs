@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { buildTech100Candidates } from "./tech100_url_candidates.mjs";
 
 const rootDir = process.cwd();
 const envFiles = ["/etc/sustainacore.env", "/etc/sustainacore/db.env"];
@@ -185,9 +186,47 @@ const run = async () => {
     process.exit(1);
   }
 
+  const resolveTech100Path = async () => {
+    const overridePath = process.env.TECH100_SCREENSHOT_PATH;
+    const candidates = buildTech100Candidates({
+      override: overridePath,
+      discovered: ["/tech100/"],
+    });
+    let lastBody = null;
+    const overrideCandidate = overridePath ? candidates[0] : null;
+    for (const candidate of candidates) {
+      const url = `${baseUrl}${candidate}`;
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const resolved = new URL(resp.url);
+        return resolved.pathname.endsWith("/") ? resolved.pathname : `${resolved.pathname}`;
+      }
+      const body = await resp.text();
+      if (resp.status >= 500) {
+        const bodyPath = `/tmp/tech100_readiness_body_${port}.txt`;
+        fs.writeFileSync(bodyPath, body);
+        throw new Error(`Tech100 readiness failed with ${resp.status} for ${candidate} (body saved to ${bodyPath})`);
+      }
+      if (resp.status === 404) {
+        lastBody = body;
+        if (overrideCandidate && candidate === overrideCandidate) {
+          continue;
+        }
+      }
+    }
+    if (lastBody !== null) {
+      const bodyPath = `/tmp/tech100_readiness_body_${port}.txt`;
+      fs.writeFileSync(bodyPath, lastBody);
+    }
+    throw new Error(`Tech100 readiness failed (no candidate path returned 200)`);
+  };
+
+  let tech100Path = "/tech100/";
   try {
     await waitFor(`${baseUrl}/`, null, 30000);
-    await waitFor(`${baseUrl}/tech100/index/`, "tech100-level-chart", 30000);
+    tech100Path = await resolveTech100Path();
+    process.stdout.write(`Using Tech100 path ${tech100Path}\n`);
+    await waitFor(`${baseUrl}${tech100Path}`, null, 30000);
   } catch (err) {
     await cleanup();
     console.error(`Readiness failed: ${err.message}`);
@@ -200,7 +239,7 @@ const run = async () => {
     new Promise((resolve, reject) => {
       const proc = spawn(
         "node",
-        [screenshotScript, "--mode", mode, "--base-url", baseUrl],
+        [screenshotScript, "--mode", mode, "--base-url", baseUrl, "--tech100-path", tech100Path],
         {
         stdio: "inherit",
         }
@@ -212,8 +251,11 @@ const run = async () => {
     });
 
   try {
-    await runScreenshots("before");
-    await runScreenshots("after");
+    const requestedMode = process.env.TECH100_SCREENSHOT_MODE;
+    const modes = requestedMode ? [requestedMode] : ["before", "after"];
+    for (const mode of modes) {
+      await runScreenshots(mode);
+    }
   } catch (err) {
     await cleanup();
     console.error(err.message);
