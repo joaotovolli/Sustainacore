@@ -16,7 +16,7 @@ Units live under `infra/systemd/`:
 - Environment files loaded on VM1: `/etc/sustainacore/db.env`, `/etc/sustainacore-ai/secrets.env`.
 - Timer schedule:
   - Ingest: **00:00, 05:00 UTC** with `Persistent=true` so missed runs catch up on restart.
-  - Pipeline orchestrator (ingest + completeness + impute + index calc): **00:30, 05:30 UTC** (~30 minutes after ingest to include the latest effective end date).
+  - Pipeline orchestrator (ingest + completeness + impute + index calc): **00:30, 05:30 UTC** (~30 minutes after ingest to include the latest effective end date and avoid “no data” loops).
 
 ### Install / enable
 ```bash
