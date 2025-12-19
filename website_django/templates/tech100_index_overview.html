@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}TECH100 Index | Performance & Risk{% endblock %}
+
+{% block extra_head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="tech100-index">
+  <section class="section section--with-header">
+    <div class="shell">
+      <div class="section__header">
+        <span class="pill pill--soft">TECH100 AI Index</span>
+        <h1>Performance &amp; Risk</h1>
+        <p class="muted">
+          Direct Oracle-powered index analytics with daily performance, risk, and data quality signals.
+        </p>
+      </div>
+
+      {% if data_error %}
+        <div class="alert alert--warning" data-tech100-empty-state="1">
+          Live TECH100 data is temporarily unavailable; please try again later.
+        </div>
+      {% else %}
+        <div id="tech100-data-status"
+             data-mode="{{ data_mode }}"
+             data-level-count="{{ levels_count }}"
+             data-constituent-count="{{ constituents_count }}"></div>
+        <div class="card card--split tech100-index__chart-card">
+          <div>
+            <h2 class="h4">Index level</h2>
+            <p class="muted">Latest data through {{ latest_date }}</p>
+          </div>
+          <div class="tech100-index__range">
+            <button class="btn btn--ghost tech100-range-btn {% if range_key == '1m' %}is-active{% endif %}" data-range="1m">1M</button>
+            <button class="btn btn--ghost tech100-range-btn {% if range_key == '3m' %}is-active{% endif %}" data-range="3m">3M</button>
+            <button class="btn btn--ghost tech100-range-btn {% if range_key == '6m' %}is-active{% endif %}" data-range="6m">6M</button>
+            <button class="btn btn--ghost tech100-range-btn {% if range_key == 'ytd' %}is-active{% endif %}" data-range="ytd">YTD</button>
+            <button class="btn btn--ghost tech100-range-btn {% if range_key == '1y' %}is-active{% endif %}" data-range="1y">1Y</button>
+            <button class="btn btn--ghost tech100-range-btn {% if range_key == 'max' %}is-active{% endif %}" data-range="max">Max</button>
+          </div>
+          <div class="tech100-index__chart">
+            <canvas id="tech100-level-chart" aria-label="TECH100 index level chart" role="img"></canvas>
+          </div>
+        </div>
+
+        <div class="tech100-index__kpis">
+          <div class="card kpi-card">
+            <p class="kpi-label">Latest Level</p>
+            <p class="kpi-value">{{ kpis.level|default:"—"|floatformat:2 }}</p>
+          </div>
+          <div class="card kpi-card">
+            <p class="kpi-label">1D Return</p>
+            <p class="kpi-value">{{ kpis.ret_1d|default:"—"|floatformat:2 }}{% if kpis.ret_1d %}%{% endif %}</p>
+          </div>
+          <div class="card kpi-card">
+            <p class="kpi-label">1W Return</p>
+            <p class="kpi-value">{{ kpis.ret_1w|default:"—"|floatformat:2 }}{% if kpis.ret_1w %}%{% endif %}</p>
+          </div>
+          <div class="card kpi-card">
+            <p class="kpi-label">1M Return</p>
+            <p class="kpi-value">{{ kpis.ret_1m|default:"—"|floatformat:2 }}{% if kpis.ret_1m %}%{% endif %}</p>
+          </div>
+          <div class="card kpi-card">
+            <p class="kpi-label">YTD Return</p>
+            <p class="kpi-value">{{ kpis.ret_ytd|default:"—"|floatformat:2 }}{% if kpis.ret_ytd %}%{% endif %}</p>
+          </div>
+          <div class="card kpi-card">
+            <p class="kpi-label">Since Inception</p>
+            <p class="kpi-value">{{ kpis.ret_since_inception|default:"—"|floatformat:2 }}{% if kpis.ret_since_inception %}%{% endif %}</p>
+          </div>
+        </div>
+
+        <div class="tech100-index__risk">
+          <div class="card kpi-card">
+            <p class="kpi-label">20D Volatility (ann.)</p>
+            <p class="kpi-value">{{ risk.vol_20d|default:"—"|floatformat:2 }}{% if risk.vol_20d %}%{% endif %}</p>
+          </div>
+          <div class="card kpi-card">
+            <p class="kpi-label">Max Drawdown (range)</p>
+            <p class="kpi-value" id="risk-drawdown">{{ risk.max_drawdown|default:"—"|floatformat:2 }}{% if risk.max_drawdown %}%{% endif %}</p>
+            {% if risk.max_drawdown_peak %}
+              <small class="muted">Peak {{ risk.max_drawdown_peak }} → {{ risk.max_drawdown_trough }}</small>
+            {% endif %}
+          </div>
+          <div class="card kpi-card">
+            <p class="kpi-label">Best Day</p>
+            <p class="kpi-value"><span id="risk-best-return">{{ risk.best_day_return|default:"—"|floatformat:2 }}</span>{% if risk.best_day_return %}%{% endif %}</p>
+            <small class="muted" id="risk-best-day">{{ risk.best_day|default:"—" }}</small>
+          </div>
+          <div class="card kpi-card">
+            <p class="kpi-label">Worst Day</p>
+            <p class="kpi-value"><span id="risk-worst-return">{{ risk.worst_day_return|default:"—"|floatformat:2 }}</span>{% if risk.worst_day_return %}%{% endif %}</p>
+            <small class="muted" id="risk-worst-day">{{ risk.worst_day|default:"—" }}</small>
+          </div>
+        </div>
+
+        <div class="alert alert--info tech100-index__banner">
+          <div>
+            <strong>Data quality</strong>
+            <span class="muted">
+              {{ imputed_count|default:0 }} tickers flagged as IMPUTED on the latest trade date.
+            </span>
+          </div>
+          <a class="text-link" href="{{ imputed_url }}">View imputed constituents →</a>
+        </div>
+
+        <div class="card tech100-index__table-card">
+          <div class="card__header card__header--split">
+            <div>
+              <h2 class="h4">Top constituents</h2>
+              <p class="muted">Top 25 by weight for {{ latest_date }}</p>
+            </div>
+          </div>
+          <div class="table-wrapper table-wrap">
+            <table id="tech100-constituents-table" class="table table--wide tech100-table" aria-label="Top constituents">
+              <thead>
+                <tr>
+                  <th class="text-left">Ticker</th>
+                  <th class="text-left">Name</th>
+                  <th class="text-right">Weight (%)</th>
+                  <th class="text-right">Price</th>
+                  <th class="text-right">1D Return (%)</th>
+                  <th class="text-right">Contribution (bp)</th>
+                  <th class="text-center">Quality</th>
+                </tr>
+              </thead>
+              <tbody id="tech100-constituents-body">
+                {% for row in top_constituents %}
+                  <tr>
+                    <td class="text-left">{{ row.ticker|default:"—" }}</td>
+                    <td class="text-left">{{ row.name|default:"—" }}</td>
+                    <td class="text-right">{% if row.weight_pct or row.weight_pct == 0 %}{{ row.weight_pct|floatformat:2 }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{{ row.price|default:"—"|floatformat:2 }}</td>
+                    <td class="text-right">{% if row.ret_1d_pct or row.ret_1d_pct == 0 %}{{ row.ret_1d_pct|floatformat:2 }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if row.contribution_bp or row.contribution_bp == 0 %}{{ row.contribution_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                    <td class="text-center">
+                      <span class="pill pill--soft {% if row.quality == 'IMPUTED' %}pill--warning{% else %}pill--success{% endif %}">
+                        {{ row.quality|default:"—" }}
+                      </span>
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="7" class="text-center muted">No constituents available.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card tech100-index__imputed-card">
+          <div class="card__header">
+            <h2 class="h4">Imputed overview (last 30 trading days)</h2>
+            <p class="muted">Tickers with the most IMPUTED price flags.</p>
+          </div>
+          <div class="table-wrapper table-wrap">
+            <table class="table table--compact" aria-label="Imputed overview">
+              <thead>
+                <tr>
+                  <th class="text-left">Ticker</th>
+                  <th class="text-right">Imputed days</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in imputed_overview %}
+                  <tr>
+                    <td class="text-left">{{ row.ticker }}</td>
+                    <td class="text-right">{{ row.imputed_days }}</td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="2" class="text-center muted">No imputed observations.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+{{ levels_payload|json_script:"tech100-levels-data" }}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/tech100-index.js' %}"></script>
+{% endblock %}

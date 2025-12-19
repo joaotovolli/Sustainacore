@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}TECH100 Daily Stats | SustainaCore{% endblock %}
+
+{% block content %}
+<div class="tech100-index">
+  <section class="section section--with-header">
+    <div class="shell">
+      <div class="section__header">
+        <span class="pill pill--soft">TECH100 Index</span>
+        <h1>Daily Statistics</h1>
+        <p class="muted">Index-level metrics from SC_IDX_STATS_DAILY.</p>
+      </div>
+
+      <div class="card tech100-index__filters">
+        <label class="form-field">
+          <span>Date</span>
+          <input type="date" id="stats-date" value="{{ selected_date }}" min="{{ min_date }}" max="{{ max_date }}">
+        </label>
+      </div>
+
+      <div class="card">
+        <div class="tech100-index__stats-grid" id="stats-grid">
+          {% if stats %}
+            <div class="stat-tile">
+              <span class="muted">Level TR</span>
+              <strong>{{ stats.level_tr|floatformat:2 }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">1D Return</span>
+              <strong>{{ stats.ret_1d|floatformat:4 }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">5D Return</span>
+              <strong>{{ stats.ret_5d|floatformat:4 }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">20D Return</span>
+              <strong>{{ stats.ret_20d|floatformat:4 }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">20D Volatility</span>
+              <strong>{{ stats.vol_20d|floatformat:4 }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">Max Drawdown (252D)</span>
+              <strong>{{ stats.max_drawdown_252d|floatformat:4 }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">Constituents</span>
+              <strong>{{ stats.n_constituents }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">Imputed</span>
+              <strong>{{ stats.n_imputed }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">Top 5 Weight</span>
+              <strong>{{ stats.top5_weight|floatformat:4 }}</strong>
+            </div>
+            <div class="stat-tile">
+              <span class="muted">Herfindahl</span>
+              <strong>{{ stats.herfindahl|floatformat:4 }}</strong>
+            </div>
+          {% else %}
+            <p class="muted">No stats available for the selected date.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+{{ stats|json_script:"tech100-stats-data" }}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/tech100-index.js' %}"></script>
+{% endblock %}

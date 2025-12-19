@@ -41,6 +41,29 @@ const targets = dedupeTargets(
       ]
 );
 
+const validateTech100Data = async (page) => {
+  const emptyState = await page.$("[data-tech100-empty-state]");
+  if (emptyState) {
+    throw new Error("TECH100 empty-state banner detected");
+  }
+  const status = await page.$("#tech100-data-status");
+  if (!status) {
+    throw new Error("TECH100 data status element not found");
+  }
+  const levelCount = Number(await status.getAttribute("data-level-count") || 0);
+  const constituentCount = Number(await status.getAttribute("data-constituent-count") || 0);
+  if (levelCount < 10) {
+    throw new Error(`TECH100 chart has too few points (${levelCount})`);
+  }
+  if (constituentCount < 5) {
+    throw new Error(`TECH100 constituents count too low (${constituentCount})`);
+  }
+  const rows = await page.$$("#tech100-constituents-body tr");
+  if (rows.length < 5) {
+    throw new Error(`TECH100 table rows missing (${rows.length})`);
+  }
+};
+
 const run = async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage({
@@ -64,7 +87,12 @@ const run = async () => {
         continue;
       }
     }
-    if (target.path === "/tech100/index/") {
+    if (mode === "after" && target.path === tech100Path) {
+      await page.waitForSelector("#tech100-data-status", { timeout: 15000, state: "attached" });
+      await page.waitForSelector("#tech100-level-chart", { timeout: 15000 });
+      await validateTech100Data(page);
+    }
+    if (target.path === tech100Path) {
       const chart = await page.$("#tech100-level-chart");
       if (chart) {
         await page.waitForTimeout(500);
