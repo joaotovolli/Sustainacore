@@ -63,7 +63,7 @@ node scripts/tech100_screenshots.mjs --base-url http://127.0.0.1:8001 --mode aft
 node scripts/tech100_screenshot_diff.mjs
 ```
 
-Artifacts are stored in `docs/screenshots/`.
+Artifacts are stored in `docs/screenshots/tech100/{before,after,diff}`.
 
 ### Screenshot runner notes
 - The runner picks a free port in the `8001..8050` range and starts `manage.py runserver --noreload`.
@@ -71,3 +71,5 @@ Artifacts are stored in `docs/screenshots/`.
 - If a selector is missing, the runner prints a short HTML snippet for debugging.
 - An Oracle smoke test runs before screenshots; output goes to `/tmp/tech100_oracle_smoke_<PORT>.log`.
 - On HTTP 500, the response body is saved to `/tmp/tech100_500_body_<PORT>.html` and the run aborts.
+- You can force a specific Tech100 path with `TECH100_SCREENSHOT_PATH=/tech100/` or run only one mode with `TECH100_SCREENSHOT_MODE=before|after`.
+- If readiness fails, the runner saves the probe response to `/tmp/tech100_readiness_body_<PORT>.txt`.
