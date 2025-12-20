@@ -12,8 +12,12 @@ const getArg = (name, fallback) => {
 const mode = getArg("--mode", process.env.TECH100_SCREENSHOT_MODE || "after");
 const baseUrl = getArg("--base-url", "http://127.0.0.1:8001");
 const tech100Path = getArg("--tech100-path", process.env.TECH100_SCREENSHOT_PATH || "/tech100/");
+const screenshotDir = process.env.TECH100_SCREENSHOT_DIR || "tech100";
+const authUser = process.env.TECH100_BASIC_AUTH_USER || "";
+const authPass = process.env.TECH100_BASIC_AUTH_PASS || "";
+const hostHeader = process.env.TECH100_SCREENSHOT_HOST_HEADER || "";
 
-const outDir = path.resolve(process.cwd(), "..", "docs", "screenshots", "tech100", mode);
+const outDir = path.resolve(process.cwd(), "..", "docs", "screenshots", screenshotDir, mode);
 fs.mkdirSync(outDir, { recursive: true });
 
 const dedupeTargets = (items) => {
@@ -114,9 +118,12 @@ const validatePerformanceData = async (page) => {
 
 const run = async () => {
   const browser = await chromium.launch();
-  const page = await browser.newPage({
+  const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
+    httpCredentials: authUser && authPass ? { username: authUser, password: authPass } : undefined,
+    extraHTTPHeaders: hostHeader ? { Host: hostHeader } : undefined,
   });
+  const page = await context.newPage();
 
   await page.addStyleTag({
     content: "* { transition: none !important; animation: none !important; }",
@@ -179,6 +186,7 @@ const run = async () => {
     process.stdout.write(`saved ${outPath}\n`);
   }
 
+  await context.close();
   await browser.close();
 };
 

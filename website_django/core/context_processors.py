@@ -29,3 +29,12 @@ def seo_defaults(request):
         "org_json_ld": json.dumps(org_payload, ensure_ascii=True),
         "site_json_ld": json.dumps(site_payload, ensure_ascii=True),
     }
+
+
+def preview_context(request):
+    host = request.get_host().split(":")[0].lower()
+    is_preview = settings.PREVIEW_MODE or host in {h.lower() for h in settings.PREVIEW_HOSTS}
+    return {
+        "is_preview": is_preview,
+        "preview_host": host,
+    }

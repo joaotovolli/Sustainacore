@@ -31,3 +31,9 @@ tickers
 drawdown
 drawdowns
 imputed
+noindex
+nofollow
+nosnippet
+noarchive
+certbot
+htpasswd

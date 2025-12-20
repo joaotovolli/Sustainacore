@@ -18,33 +18,55 @@ const resolvePython = () => {
 };
 
 const run = async () => {
-  const portScript = path.join(rootDir, "scripts", "find_free_port.mjs");
-  const portProc = spawn("node", [portScript], { stdio: ["ignore", "pipe", "pipe"] });
-  const port = await new Promise((resolve, reject) => {
-    let out = "";
-    let err = "";
-    portProc.stdout.on("data", (data) => {
-      out += data.toString();
-    });
-    portProc.stderr.on("data", (data) => {
-      err += data.toString();
-    });
-    portProc.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(err || `port script exited ${code}`));
-      } else {
-        resolve(out.trim());
-      }
-    });
-  });
+  const externalBaseUrl = process.env.TECH100_BASE_URL || "";
+  const authUser = process.env.TECH100_BASIC_AUTH_USER || "";
+  const authPass = process.env.TECH100_BASIC_AUTH_PASS || "";
+  const hostHeader = process.env.TECH100_SCREENSHOT_HOST_HEADER || "";
+  const authHeader =
+    authUser && authPass
+      ? `Basic ${Buffer.from(`${authUser}:${authPass}`).toString("base64")}`
+      : "";
 
-  const baseUrl = `http://127.0.0.1:${port}`;
-  process.stdout.write(`Using port ${port}\n`);
+  const fetchWithHeaders = (url) =>
+    fetch(url, {
+      headers: {
+        ...(hostHeader ? { Host: hostHeader } : {}),
+        ...(authHeader ? { Authorization: authHeader } : {}),
+      },
+    });
+
+  let port = "";
+  let baseUrl = externalBaseUrl;
+  if (!baseUrl) {
+    const portScript = path.join(rootDir, "scripts", "find_free_port.mjs");
+    const portProc = spawn("node", [portScript], { stdio: ["ignore", "pipe", "pipe"] });
+    port = await new Promise((resolve, reject) => {
+      let out = "";
+      let err = "";
+      portProc.stdout.on("data", (data) => {
+        out += data.toString();
+      });
+      portProc.stderr.on("data", (data) => {
+        err += data.toString();
+      });
+      portProc.on("close", (code) => {
+        if (code !== 0) {
+          reject(new Error(err || `port script exited ${code}`));
+        } else {
+          resolve(out.trim());
+        }
+      });
+    });
+    baseUrl = `http://127.0.0.1:${port}`;
+    process.stdout.write(`Using port ${port}\n`);
+  } else {
+    process.stdout.write(`Using base URL ${baseUrl}\n`);
+  }
 
   const pythonBin = resolvePython();
-  const logPath = `/tmp/tech100_runserver_${port}.log`;
-  const unitName = `vm2-tech100-runserver-${port}`;
-  const overrideEnvPath = `/tmp/tech100_env_override_${port}.env`;
+  const logPath = port ? `/tmp/tech100_runserver_${port}.log` : "/tmp/tech100_runserver_preview.log";
+  const unitName = port ? `vm2-tech100-runserver-${port}` : "";
+  const overrideEnvPath = port ? `/tmp/tech100_env_override_${port}.env` : "/tmp/tech100_env_override_preview.env";
   const requestedMode = process.env.TECH100_SCREENSHOT_MODE;
   const dataMode = process.env.TECH100_UI_DATA_MODE
     || (requestedMode === "after" ? "fixture" : "");
@@ -53,46 +75,54 @@ const run = async () => {
   fs.writeFileSync(
     overrideEnvPath,
     [
-      "DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost,sustainacore.org",
+      "DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost,sustainacore.org,preview.sustainacore.org",
       "DJANGO_DEBUG=1",
       "PYTHONUNBUFFERED=1",
       ...(dataMode ? [`TECH100_UI_DATA_MODE=${dataMode}`] : []),
     ].join("\n") + "\n"
   );
 
-  spawn("sudo", ["systemctl", "stop", unitName]);
-  spawn("sudo", ["systemctl", "reset-failed", unitName]);
-  const journalProc = spawn("sudo", ["journalctl", "-u", unitName, "-f", "--no-pager"]);
-  const logStream = fs.createWriteStream(logPath, { flags: "a" });
-  journalProc.stdout.pipe(logStream);
-  journalProc.stderr.pipe(logStream);
-
-  spawn("sudo", [
-    "systemd-run",
-    "--unit",
-    unitName,
-    "--property",
-    `EnvironmentFile=${envFiles[0]}`,
-    "--property",
-    `EnvironmentFile=${envFiles[1]}`,
-    "--property",
-    `EnvironmentFile=${overrideEnvPath}`,
-    "--property",
-    `WorkingDirectory=${rootDir}`,
-    pythonBin,
-    "manage.py",
-    "runserver",
-    `127.0.0.1:${port}`,
-    "--noreload",
-  ]);
-
-  const cleanup = async () => {
+  let journalProc = null;
+  let logStream = null;
+  if (port) {
     spawn("sudo", ["systemctl", "stop", unitName]);
     spawn("sudo", ["systemctl", "reset-failed", unitName]);
-    if (!journalProc.killed) {
+    journalProc = spawn("sudo", ["journalctl", "-u", unitName, "-f", "--no-pager"]);
+    logStream = fs.createWriteStream(logPath, { flags: "a" });
+    journalProc.stdout.pipe(logStream);
+    journalProc.stderr.pipe(logStream);
+
+    spawn("sudo", [
+      "systemd-run",
+      "--unit",
+      unitName,
+      "--property",
+      `EnvironmentFile=${envFiles[0]}`,
+      "--property",
+      `EnvironmentFile=${envFiles[1]}`,
+      "--property",
+      `EnvironmentFile=${overrideEnvPath}`,
+      "--property",
+      `WorkingDirectory=${rootDir}`,
+      pythonBin,
+      "manage.py",
+      "runserver",
+      `127.0.0.1:${port}`,
+      "--noreload",
+    ]);
+  }
+
+  const cleanup = async () => {
+    if (unitName) {
+      spawn("sudo", ["systemctl", "stop", unitName]);
+      spawn("sudo", ["systemctl", "reset-failed", unitName]);
+    }
+    if (journalProc && !journalProc.killed) {
       journalProc.kill("SIGTERM");
     }
-    logStream.end();
+    if (logStream) {
+      logStream.end();
+    }
     if (fs.existsSync(overrideEnvPath)) {
       fs.unlinkSync(overrideEnvPath);
     }
@@ -105,12 +135,19 @@ const run = async () => {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       try {
-        const resp = await fetch(url);
+        const resp = await fetchWithHeaders(url);
         if (resp.ok) {
           const text = await resp.text();
           if (!selector || text.includes(selector)) {
             return text;
           }
+        } else if (resp.status === 401 || resp.status === 403) {
+          const body = await resp.text();
+          const bodyPath = `/tmp/tech100_401_body_${port || "preview"}.html`;
+          fs.writeFileSync(bodyPath, body);
+          const err = new Error(`Server returned ${resp.status} (body saved to ${bodyPath})`);
+          err.fatal = true;
+          throw err;
         } else if (resp.status >= 500) {
           const body = await resp.text();
           const bodyPath = `/tmp/tech100_500_body_${port}.html`;
@@ -143,52 +180,54 @@ const run = async () => {
     }
   };
 
-  const smokeLogPath = `/tmp/tech100_oracle_smoke_${port}.log`;
-  const smokeUnit = `vm2-tech100-smoke-${port}`;
-  spawn("sudo", ["systemctl", "stop", smokeUnit]);
-  spawn("sudo", ["systemctl", "reset-failed", smokeUnit]);
-  const smokeProc = spawn("sudo", [
-    "systemd-run",
-    "--wait",
-    "--pipe",
-    "--unit",
-    smokeUnit,
-    "--property",
-    `EnvironmentFile=${envFiles[0]}`,
-    "--property",
-    `EnvironmentFile=${envFiles[1]}`,
-    "--property",
-    `EnvironmentFile=${overrideEnvPath}`,
-    "--property",
-    `WorkingDirectory=${rootDir}`,
-    pythonBin,
-    "manage.py",
-    "shell",
-    "-c",
-    [
-      "from core.oracle_db import get_connection",
-      "import traceback",
-      "try:",
-      "    conn = get_connection()",
-      "    cur = conn.cursor()",
-      "    cur.execute('select user from dual')",
-      "    print('ORACLE_SMOKE_OK', cur.fetchone())",
-      "    conn.close()",
-      "except Exception:",
-      "    traceback.print_exc()",
-      "    raise",
-    ].join("\n"),
-  ]);
-  const smokeOut = [];
-  smokeProc.stdout.on("data", (data) => smokeOut.push(data.toString()));
-  smokeProc.stderr.on("data", (data) => smokeOut.push(data.toString()));
-  const smokeExit = await new Promise((resolve) => smokeProc.on("close", resolve));
-  fs.writeFileSync(smokeLogPath, smokeOut.join(""));
-  if (smokeExit !== 0) {
-    await cleanup();
-    console.error("Oracle smoke test failed.");
-    dumpDiagnostics(smokeLogPath);
-    process.exit(1);
+  const smokeLogPath = `/tmp/tech100_oracle_smoke_${port || "preview"}.log`;
+  if (!process.env.TECH100_SKIP_SMOKE) {
+    const smokeUnit = `vm2-tech100-smoke-${port || "preview"}`;
+    spawn("sudo", ["systemctl", "stop", smokeUnit]);
+    spawn("sudo", ["systemctl", "reset-failed", smokeUnit]);
+    const smokeProc = spawn("sudo", [
+      "systemd-run",
+      "--wait",
+      "--pipe",
+      "--unit",
+      smokeUnit,
+      "--property",
+      `EnvironmentFile=${envFiles[0]}`,
+      "--property",
+      `EnvironmentFile=${envFiles[1]}`,
+      "--property",
+      `EnvironmentFile=${overrideEnvPath}`,
+      "--property",
+      `WorkingDirectory=${rootDir}`,
+      pythonBin,
+      "manage.py",
+      "shell",
+      "-c",
+      [
+        "from core.oracle_db import get_connection",
+        "import traceback",
+        "try:",
+        "    conn = get_connection()",
+        "    cur = conn.cursor()",
+        "    cur.execute('select user from dual')",
+        "    print('ORACLE_SMOKE_OK', cur.fetchone())",
+        "    conn.close()",
+        "except Exception:",
+        "    traceback.print_exc()",
+        "    raise",
+      ].join("\n"),
+    ]);
+    const smokeOut = [];
+    smokeProc.stdout.on("data", (data) => smokeOut.push(data.toString()));
+    smokeProc.stderr.on("data", (data) => smokeOut.push(data.toString()));
+    const smokeExit = await new Promise((resolve) => smokeProc.on("close", resolve));
+    fs.writeFileSync(smokeLogPath, smokeOut.join(""));
+    if (smokeExit !== 0) {
+      await cleanup();
+      console.error("Oracle smoke test failed.");
+      dumpDiagnostics(smokeLogPath);
+      process.exit(1);
+    }
   }
 
   const resolveTech100Path = async () => {
@@ -201,10 +240,16 @@ const run = async () => {
     const overrideCandidate = overridePath ? candidates[0] : null;
     for (const candidate of candidates) {
       const url = `${baseUrl}${candidate}`;
-      const resp = await fetch(url);
+      const resp = await fetchWithHeaders(url);
       if (resp.ok) {
         const resolved = new URL(resp.url);
         return resolved.pathname.endsWith("/") ? resolved.pathname : `${resolved.pathname}`;
+      }
+      if (resp.status === 401 || resp.status === 403) {
+        const body = await resp.text();
+        const bodyPath = `/tmp/tech100_readiness_body_${port || "preview"}.txt`;
+        fs.writeFileSync(bodyPath, body);
+        throw new Error(`Tech100 readiness failed with ${resp.status} for ${candidate} (body saved to ${bodyPath})`);
       }
       const body = await resp.text();
       if (resp.status >= 500) {
@@ -261,7 +306,7 @@ const run = async () => {
   } catch (err) {
     await cleanup();
     console.error(err.message);
-    const html = await fetch(`${baseUrl}${tech100Path}`).then((res) => res.text());
+    const html = await fetchWithHeaders(`${baseUrl}${tech100Path}`).then((res) => res.text());
     const failurePath = `/tmp/tech100_failure_body_${port}.html`;
     fs.writeFileSync(failurePath, html);
     const snippet = html.split("\n").slice(0, 120).join("\n");
@@ -270,12 +315,16 @@ const run = async () => {
     process.exit(1);
   }
 
-  const diffScript = path.join(rootDir, "scripts", "tech100_screenshot_diff.mjs");
-  const diffProc = spawn("node", [diffScript], { stdio: "inherit" });
-  const diffExit = await new Promise((resolve) => diffProc.on("close", resolve));
-  await cleanup();
-  if (diffExit !== 0) {
-    process.exit(diffExit);
+  if (!requestedMode || requestedMode === "after") {
+    const diffScript = path.join(rootDir, "scripts", "tech100_screenshot_diff.mjs");
+    const diffProc = spawn("node", [diffScript], { stdio: "inherit" });
+    const diffExit = await new Promise((resolve) => diffProc.on("close", resolve));
+    await cleanup();
+    if (diffExit !== 0) {
+      process.exit(diffExit);
+    }
+  } else {
+    await cleanup();
   }
 
   process.stdout.write(`Screenshots complete. Log: ${logPath}\n`);

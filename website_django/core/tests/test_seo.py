@@ -70,3 +70,16 @@ class SeoFoundationsTests(SimpleTestCase):
         content = news_response.content.decode("utf-8")
         self.assertIn('application/ld+json', content)
         self.assertIn('"@type": "NewsArticle"', content)
+
+    @mock.patch("core.context_processors.settings")
+    def test_preview_mode_includes_noindex_meta(self, settings_mock):
+        settings_mock.PREVIEW_MODE = True
+        settings_mock.PREVIEW_HOSTS = ["preview.sustainacore.org"]
+        settings_mock.DEFAULT_META_DESCRIPTION = "Preview description"
+        settings_mock.SITE_URL = "https://preview.sustainacore.org"
+
+        response = self.client.get(reverse("home"), HTTP_HOST="preview.sustainacore.org")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn('name="robots"', content)
+        self.assertIn("noindex", content)
