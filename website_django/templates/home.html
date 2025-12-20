@@ -55,7 +55,24 @@
                 <h2>Performance at a glance</h2>
                 <p class="muted">A compact view of index performance and data quality signals.</p>
             </div>
-            <a class="btn btn--secondary" href="/tech100/performance/">View TECH100 performance</a>
+        </div>
+
+        <div class="card tech100-entry">
+            <span class="pill pill--soft">TECH100 AI Index Snapshot</span>
+            <h3 class="h4">Explore TECH100 AI Governance &amp; Ethics</h3>
+            <p class="muted">Navigate the full TECH100 experience with performance, constituents, and governance scores.</p>
+            <div class="actions">
+                <a class="btn btn--primary" href="/tech100/index/">View dashboard</a>
+            </div>
+            <div class="tech100-entry__links">
+                <span class="muted">Quick links:</span>
+                <a class="text-link" href="/tech100/performance/">Performance</a>
+                <a class="text-link" href="/tech100/constituents/">Constituents</a>
+                <a class="text-link" href="/tech100/">Governance</a>
+            </div>
+            <div class="tech100-entry__tools muted">
+                Tools: <a class="text-link" href="/tech100/performance/export/?kind=holdings">Download holdings CSV</a>
+            </div>
         </div>
 
         {% if tech100_snapshot.data_error %}

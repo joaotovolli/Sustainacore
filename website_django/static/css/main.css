@@ -1325,7 +1325,7 @@ textarea:focus {
 .tech100-nav {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 1rem;
     padding: 0.75rem 1rem;
     margin: 1rem 0 1.5rem;
@@ -1379,6 +1379,23 @@ textarea:focus {
     border-color: rgba(31, 95, 191, 0.25);
     box-shadow: 0 6px 18px rgba(31, 95, 191, 0.12);
     color: var(--brand-blue);
+}
+
+.tech100-entry {
+    margin-bottom: 1.5rem;
+}
+
+.tech100-entry__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.95rem;
+}
+
+.tech100-entry__tools {
+    margin-top: 0.5rem;
+    font-size: 0.95rem;
 }
 
 .tech100-context {
