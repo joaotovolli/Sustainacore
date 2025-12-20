@@ -21,6 +21,13 @@ CACHE_TTLS = {
     "contribution": 300,
     "latest_date": 300,
     "date_bounds": 600,
+    "quality_counts": 300,
+    "imputed_overview": 300,
+    "imputation_history": 300,
+    "performance_attribution": 300,
+    "attribution_table": 300,
+    "holdings": 300,
+    "rebalance_date": 600,
 }
 
 FIXTURE_LATEST_DATE = dt.date(2025, 1, 31)
@@ -118,6 +125,20 @@ def _fixture_contribution() -> list[dict]:
     ]
 
 
+def _fixture_quality_counts() -> dict:
+    return {"REAL": 21, "IMPUTED": 4}
+
+
+def _fixture_sector_breakdown() -> list[dict]:
+    return [
+        {"sector": "Software", "weight": 0.34},
+        {"sector": "Semiconductors", "weight": 0.22},
+        {"sector": "Internet", "weight": 0.18},
+        {"sector": "Hardware", "weight": 0.16},
+        {"sector": "Services", "weight": 0.10},
+    ]
+
+
 def _fixture_imputed_overview() -> list[dict]:
     return [
         {"ticker": "TCH01", "imputed_days": 9},
@@ -126,6 +147,20 @@ def _fixture_imputed_overview() -> list[dict]:
         {"ticker": "TCH19", "imputed_days": 5},
         {"ticker": "TCH25", "imputed_days": 4},
     ]
+
+
+def get_latest_rebalance_date() -> Optional[dt.date]:
+    if _data_mode() == "fixture":
+        return FIXTURE_LATEST_DATE - dt.timedelta(days=30)
+    key = _cache_key("rebalance_date")
+
+    def _load() -> Optional[dt.date]:
+        rows = _execute_rows("SELECT MAX(port_date) FROM TECH11_AI_GOV_ETH_INDEX", {})
+        if not rows:
+            return None
+        return _to_date(rows[0][0])
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["rebalance_date"])
 
 
 def get_latest_trade_date() -> Optional[dt.date]:
@@ -244,6 +279,9 @@ def _return_from_levels(level_end: Optional[float], level_start: Optional[float]
 
 
 def _level_at_or_before(target_date: dt.date) -> Optional[tuple[dt.date, float]]:
+    if _data_mode() == "fixture":
+        levels = [row for row in _fixture_levels() if row[0] <= target_date]
+        return levels[-1] if levels else None
     rows = _execute_rows(
         "SELECT trade_date, level_tr "
         "FROM SC_IDX_LEVELS "
@@ -261,6 +299,14 @@ def _level_at_or_before(target_date: dt.date) -> Optional[tuple[dt.date, float]]
     except (TypeError, ValueError):
         return None
     return trade_date, level
+
+
+def get_return_between(as_of_date: dt.date, start_date: dt.date) -> Optional[float]:
+    latest = _level_at_or_before(as_of_date)
+    start = _level_at_or_before(start_date)
+    if not latest or not start:
+        return None
+    return _return_from_levels(latest[1], start[1])
 
 
 def get_index_returns(
@@ -421,6 +467,37 @@ def get_rolling_vol(as_of_date: dt.date, window: int = 20) -> Optional[float]:
     return statistics.pstdev(recent) * math.sqrt(252.0)
 
 
+def get_rolling_vol_series(
+    start_date: dt.date, end_date: dt.date, window: int = 30
+) -> list[tuple[dt.date, float]]:
+    levels = get_index_levels(start_date, end_date)
+    if len(levels) < window + 1:
+        return []
+    vols: list[tuple[dt.date, float]] = []
+    returns = _returns_from_levels(levels)
+    for idx in range(window - 1, len(returns)):
+        window_returns = [r[1] for r in returns[idx - window + 1 : idx + 1]]
+        if len(window_returns) < 2:
+            continue
+        vol = statistics.pstdev(window_returns) * math.sqrt(252.0)
+        vols.append((returns[idx][0], vol))
+    return vols
+
+
+def get_drawdown_series(start_date: dt.date, end_date: dt.date) -> list[tuple[dt.date, float]]:
+    levels = get_index_levels(start_date, end_date)
+    if not levels:
+        return []
+    peak = levels[0][1]
+    drawdowns: list[tuple[dt.date, float]] = []
+    for trade_date, level in levels:
+        if level > peak:
+            peak = level
+        dd = (level / peak) - 1.0 if peak else 0.0
+        drawdowns.append((trade_date, dd))
+    return drawdowns
+
+
 def get_max_drawdown(start_date: dt.date, end_date: dt.date) -> DrawdownResult:
     if _data_mode() == "fixture":
         return DrawdownResult(-0.12, start_date, end_date)
@@ -492,7 +569,23 @@ def get_constituents(as_of_date: dt.date) -> list[dict]:
             )
         return results
 
-    return cache.get_or_set(key, _load, CACHE_TTLS["constituents"])
+    return cache.get_or_set(key, _load, CACHE_TTLS["imputed_overview"])
+
+
+def get_quality_counts(as_of_date: dt.date) -> dict:
+    if _data_mode() == "fixture":
+        return _fixture_quality_counts()
+    key = _cache_key("quality_counts", as_of_date.isoformat())
+
+    def _load() -> dict:
+        rows = _execute_rows(
+            "SELECT price_quality, COUNT(*) FROM SC_IDX_CONSTITUENT_DAILY "
+            "WHERE trade_date = :trade_date GROUP BY price_quality",
+            {"trade_date": as_of_date},
+        )
+        return {row[0] or "UNKNOWN": row[1] for row in rows}
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["quality_counts"])
 
 
 def get_contribution(as_of_date: dt.date) -> list[dict]:
@@ -528,6 +621,44 @@ def get_contribution(as_of_date: dt.date) -> list[dict]:
     return cache.get_or_set(key, _load, CACHE_TTLS["contribution"])
 
 
+def get_contribution_summary(
+    as_of_date: dt.date, start_date: dt.date, limit: int = 10, direction: str = "desc"
+) -> list[dict]:
+    if _data_mode() == "fixture":
+        rows = _fixture_contribution()
+        reverse = direction.lower() != "asc"
+        rows.sort(key=lambda item: item.get("contribution") or 0.0, reverse=reverse)
+        return rows[:limit]
+    key = _cache_key(
+        "performance_attribution",
+        as_of_date.isoformat(),
+        start_date.isoformat(),
+        str(limit),
+        direction,
+    )
+
+    def _load() -> list[dict]:
+        order = "ASC" if direction.lower() == "asc" else "DESC"
+        rows = _execute_rows(
+            "SELECT d.ticker, SUM(d.contribution) AS contrib_sum, "
+            "(SELECT t.company_name "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = d.ticker AND t.port_date <= :as_of_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name "
+            "FROM SC_IDX_CONTRIBUTION_DAILY d "
+            "WHERE d.trade_date BETWEEN :start_date AND :as_of_date "
+            "GROUP BY d.ticker "
+            f"ORDER BY contrib_sum {order} FETCH FIRST :limit ROWS ONLY",
+            {"start_date": start_date, "as_of_date": as_of_date, "limit": limit},
+        )
+        return [
+            {"ticker": row[0], "contribution": row[1], "name": row[2]}
+            for row in rows
+        ]
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["performance_attribution"])
+
+
 def get_imputed_overview(as_of_date: dt.date, window_days: int = 30) -> list[dict]:
     if _data_mode() == "fixture":
         return _fixture_imputed_overview()
@@ -554,3 +685,189 @@ def get_imputed_overview(as_of_date: dt.date, window_days: int = 30) -> list[dic
         return [{"ticker": row[0], "imputed_days": row[1]} for row in rows]
 
     return cache.get_or_set(key, _load, CACHE_TTLS["constituents"])
+
+
+def get_imputation_history(as_of_date: dt.date, window_days: int = 30) -> list[dict]:
+    if _data_mode() == "fixture":
+        return _fixture_imputed_overview()
+    key = _cache_key("imputation_history", as_of_date.isoformat(), str(window_days))
+
+    def _load() -> list[dict]:
+        rows = _execute_rows(
+            "WITH recent_dates AS ("
+            "SELECT trade_date FROM ("
+            "SELECT DISTINCT trade_date FROM SC_IDX_CONSTITUENT_DAILY "
+            "WHERE trade_date <= :as_of_date "
+            "ORDER BY trade_date DESC"
+            ") WHERE ROWNUM <= :window_days"
+            ") "
+            "SELECT c.ticker, COUNT(*) AS imputed_days, MAX(c.trade_date) "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "JOIN recent_dates d ON d.trade_date = c.trade_date "
+            "WHERE c.price_quality = 'IMPUTED' "
+            "GROUP BY c.ticker "
+            "ORDER BY COUNT(*) DESC FETCH FIRST 10 ROWS ONLY",
+            {"as_of_date": as_of_date, "window_days": window_days},
+        )
+        return [
+            {"ticker": row[0], "imputed_days": row[1], "last_imputed": _to_date(row[2])}
+            for row in rows
+        ]
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["imputation_history"])
+
+
+def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
+    if _data_mode() == "fixture":
+        rows = _fixture_constituents()
+        for row in rows:
+            row["sector"] = "Software"
+        return rows
+    key = _cache_key("holdings", as_of_date.isoformat())
+
+    def _load() -> list[dict]:
+        sql_with_sector = (
+            "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
+            "d.ret_1d, d.contribution, "
+            "(SELECT t.company_name "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name, "
+            "(SELECT t.sector "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS sector "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
+            "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
+            "WHERE c.trade_date = :trade_date "
+            "ORDER BY c.weight DESC NULLS LAST",
+        )
+        sql_without_sector = (
+            "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
+            "d.ret_1d, d.contribution, "
+            "(SELECT t.company_name "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
+            "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
+            "WHERE c.trade_date = :trade_date "
+            "ORDER BY c.weight DESC NULLS LAST"
+        )
+        try:
+            rows = _execute_rows(sql_with_sector, {"trade_date": as_of_date})
+            has_sector = True
+        except Exception:
+            rows = _execute_rows(sql_without_sector, {"trade_date": as_of_date})
+            has_sector = False
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "ticker": row[0],
+                    "weight": row[1],
+                    "price": row[2],
+                    "quality": row[3],
+                    "ret_1d": row[4],
+                    "contribution": row[5],
+                    "name": row[6],
+                    "sector": row[7] if has_sector and len(row) > 7 else None,
+                }
+            )
+        return results
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["holdings"])
+
+
+def get_sector_breakdown(holdings: list[dict]) -> list[dict]:
+    if _data_mode() == "fixture":
+        return _fixture_sector_breakdown()
+    totals: dict[str, float] = {}
+    for row in holdings:
+        sector = row.get("sector") or "Unclassified"
+        weight = float(row.get("weight") or 0.0)
+        totals[sector] = totals.get(sector, 0.0) + weight
+    return [
+        {"sector": sector, "weight": weight}
+        for sector, weight in sorted(totals.items(), key=lambda item: item[1], reverse=True)
+    ]
+
+
+def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt.date) -> list[dict]:
+    if _data_mode() == "fixture":
+        rows = _fixture_constituents()
+        for row in rows:
+            row["contrib_mtd"] = row.get("contribution")
+            row["contrib_ytd"] = row.get("contribution")
+            row["sector"] = "Software"
+        return rows
+    key = _cache_key("attribution_table", as_of_date.isoformat())
+
+    def _load() -> list[dict]:
+        sql_with_sector = (
+            "SELECT c.ticker, c.weight, c.price_quality, "
+            "d.ret_1d, d.contribution, "
+            "(SELECT SUM(x.contribution) FROM SC_IDX_CONTRIBUTION_DAILY x "
+            " WHERE x.ticker = c.ticker AND x.trade_date BETWEEN :mtd_start AND :as_of_date) AS contrib_mtd, "
+            "(SELECT SUM(x.contribution) FROM SC_IDX_CONTRIBUTION_DAILY x "
+            " WHERE x.ticker = c.ticker AND x.trade_date BETWEEN :ytd_start AND :as_of_date) AS contrib_ytd, "
+            "(SELECT t.company_name FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :as_of_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name, "
+            "(SELECT t.sector FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :as_of_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS sector "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
+            "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
+            "WHERE c.trade_date = :as_of_date "
+            "ORDER BY c.weight DESC NULLS LAST",
+        )
+        sql_without_sector = (
+            "SELECT c.ticker, c.weight, c.price_quality, "
+            "d.ret_1d, d.contribution, "
+            "(SELECT SUM(x.contribution) FROM SC_IDX_CONTRIBUTION_DAILY x "
+            " WHERE x.ticker = c.ticker AND x.trade_date BETWEEN :mtd_start AND :as_of_date) AS contrib_mtd, "
+            "(SELECT SUM(x.contribution) FROM SC_IDX_CONTRIBUTION_DAILY x "
+            " WHERE x.ticker = c.ticker AND x.trade_date BETWEEN :ytd_start AND :as_of_date) AS contrib_ytd, "
+            "(SELECT t.company_name FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :as_of_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
+            "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
+            "WHERE c.trade_date = :as_of_date "
+            "ORDER BY c.weight DESC NULLS LAST"
+        )
+        try:
+            rows = _execute_rows(
+                sql_with_sector,
+                {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+            )
+            has_sector = True
+        except Exception:
+            rows = _execute_rows(
+                sql_without_sector,
+                {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+            )
+            has_sector = False
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "ticker": row[0],
+                    "weight": row[1],
+                    "quality": row[2],
+                    "ret_1d": row[3],
+                    "contribution": row[4],
+                    "contrib_mtd": row[5],
+                    "contrib_ytd": row[6],
+                    "name": row[7],
+                    "sector": row[8] if has_sector and len(row) > 8 else None,
+                }
+            )
+        return results
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["attribution_table"])

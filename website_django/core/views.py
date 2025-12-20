@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import csv
 import json
 from typing import Dict, Iterable, List
@@ -12,6 +12,16 @@ from django.http import HttpResponse
 from django.shortcuts import render
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+from core.tech100_index_data import (
+    get_data_mode,
+    get_drawdown_series,
+    get_index_levels,
+    get_kpis,
+    get_latest_trade_date,
+    get_quality_counts,
+    get_return_between,
+    get_rolling_vol,
+)
 from core import sitemaps
 
 
@@ -313,10 +323,54 @@ def home(request):
     ]
     news_items = news_response.get("items", [])
 
+    tech100_snapshot = {
+        "has_data": False,
+        "data_error": False,
+    }
+    try:
+        latest_date = get_latest_trade_date()
+        if latest_date:
+            start_date = latest_date - timedelta(days=90)
+            levels = get_index_levels(start_date, latest_date)
+            kpis = get_kpis(latest_date)
+            stats = get_quality_counts(latest_date)
+            month_start = date(latest_date.year, latest_date.month, 1)
+            ytd_start = date(2025, 1, 2)
+            drawdown_series = get_drawdown_series(ytd_start, latest_date)
+            tech100_snapshot = {
+                "has_data": True,
+                "data_error": False,
+                "as_of": latest_date.isoformat(),
+                "levels": [
+                    {"date": trade_date.isoformat(), "level": level}
+                    for trade_date, level in levels
+                ],
+                "latest_level": kpis.get("level"),
+                "ret_1d": kpis.get("ret_1d"),
+                "ret_mtd": get_return_between(latest_date, month_start),
+                "ret_ytd": get_return_between(latest_date, ytd_start),
+                "vol_30d": get_rolling_vol(latest_date, window=30),
+                "drawdown_ytd": drawdown_series[-1][1] if drawdown_series else None,
+                "quality_counts": stats,
+                "data_mode": get_data_mode(),
+                "levels_count": len(levels),
+            }
+    except Exception:
+        logger.exception("TECH100 snapshot unavailable for home.")
+        tech100_snapshot = {
+            "has_data": False,
+            "data_error": True,
+            "data_mode": get_data_mode(),
+            "levels": [],
+            "levels_count": 0,
+            "quality_counts": {},
+        }
+
     context = {
         "year": datetime.now().year,
         "tech100_preview": tech100_preview,
         "news_preview": news_items[:3],
+        "tech100_snapshot": tech100_snapshot,
     }
     return render(request, "home.html", context)
 
