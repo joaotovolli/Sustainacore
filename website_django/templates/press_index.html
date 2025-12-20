@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Press | SustainaCore{% endblock %}
+{% block meta_description %}Press resources for SustainaCore, including background, contact details, and TECH100 index materials.{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header">
+            <p class="eyebrow">Press</p>
+            <h1>Resources for journalists and partners.</h1>
+            <p class="muted">Contact our team, access TECH100 background, and request data or interviews.</p>
+        </div>
+
+        <div class="cards cards--three">
+            <div class="card">
+                <p class="pill pill--soft">Contact</p>
+                <h3>Media inquiries</h3>
+                <p class="muted">Reach the SustainaCore team for questions, interviews, or data requests.</p>
+                <a class="btn btn--secondary" href="mailto:info@sustainacore.org">info@sustainacore.org</a>
+            </div>
+            <div class="card">
+                <p class="pill pill--soft">TECH100</p>
+                <h3>Index background</h3>
+                <p class="muted">Learn how the TECH100 index benchmarks governance and ethics across AI leaders.</p>
+                <a class="btn btn--secondary" href="{% url 'press_tech100' %}">TECH100 press kit</a>
+            </div>
+            <div class="card">
+                <p class="pill pill--soft">Data</p>
+                <h3>Research access</h3>
+                <p class="muted">Request supporting data, methodology notes, or analyst briefings.</p>
+                <a class="btn btn--secondary" href="{% url 'tech100' %}">Explore TECH100</a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

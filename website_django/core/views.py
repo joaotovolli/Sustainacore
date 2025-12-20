@@ -6,10 +6,12 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.contrib.sitemaps.views import sitemap as django_sitemap
 from django.http import HttpResponse
 from django.shortcuts import render
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+from core import sitemaps
 
 
 logger = logging.getLogger(__name__)
@@ -655,3 +657,23 @@ def robots_txt(request):
         "",
     ]
     return HttpResponse("\n".join(lines), content_type="text/plain")
+
+
+def sitemap_xml(request):
+    response = django_sitemap(request, sitemaps=sitemaps.SITEMAPS)
+    response.headers.pop("X-Robots-Tag", None)
+    return response
+
+
+def press_index(request):
+    context = {
+        "year": datetime.now().year,
+    }
+    return render(request, "press_index.html", context)
+
+
+def press_tech100(request):
+    context = {
+        "year": datetime.now().year,
+    }
+    return render(request, "press_tech100.html", context)
