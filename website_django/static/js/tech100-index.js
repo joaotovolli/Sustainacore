@@ -146,7 +146,7 @@
           el.classList.toggle("is-active", el === btn)
         );
         try {
-          const resp = await fetch(`/api/tech100/index-levels?range=${range}`);
+          const resp = await fetch(`/tech100/index-levels/?range=${range}`);
           const payload = await resp.json();
           if (!payload.levels) return;
           chart.data = buildDataset(payload.levels);
@@ -207,7 +207,7 @@
           el.classList.toggle("is-active", el === btn)
         );
         try {
-          const resp = await fetch(`/api/tech100/index-levels?range=${range}`);
+          const resp = await fetch(`/tech100/index-levels/?range=${range}`);
           const payload = await resp.json();
           if (!payload.levels) return;
           chart.data.labels = payload.levels.map((point) => point.date);
@@ -290,7 +290,7 @@
           .querySelectorAll(".tech100-performance__overview .tech100-range-btn")
           .forEach((el) => el.classList.toggle("is-active", el === btn));
         try {
-          const resp = await fetch(`/api/tech100/index-levels?range=${range}`);
+          const resp = await fetch(`/tech100/index-levels/?range=${range}`);
           const payload = await resp.json();
           if (!payload.levels) return;
           levels = payload.levels;
@@ -454,7 +454,7 @@
           el.classList.toggle("is-active", el === btn)
         );
         try {
-          const resp = await fetch(`/api/tech100/index/attribution?range=${range}`);
+          const resp = await fetch(`/tech100/performance/attribution/?range=${range}`);
           const payload = await resp.json();
           const top = payload.top || [];
           const worst = payload.worst || [];
@@ -551,7 +551,7 @@
     dateInput?.addEventListener("change", async () => {
       if (!dateInput.value) return;
       try {
-        const resp = await fetch(`/api/tech100/constituents?date=${dateInput.value}`);
+        const resp = await fetch(`/tech100/constituents/data/?date=${dateInput.value}`);
         const payload = await resp.json();
         rows = payload.rows || [];
         render();
@@ -598,7 +598,7 @@
     dateInput?.addEventListener("change", async () => {
       if (!dateInput.value) return;
       try {
-        const resp = await fetch(`/api/tech100/attribution?date=${dateInput.value}`);
+        const resp = await fetch(`/tech100/attribution/data/?date=${dateInput.value}`);
         const payload = await resp.json();
         rows = payload.rows || [];
         renderTables(rows);
@@ -640,7 +640,7 @@
     dateInput.addEventListener("change", async () => {
       if (!dateInput.value) return;
       try {
-        const resp = await fetch(`/api/tech100/stats?date=${dateInput.value}`);
+        const resp = await fetch(`/tech100/stats/data/?date=${dateInput.value}`);
         const payload = await resp.json();
         renderStats(payload.stats);
       } catch (err) {
