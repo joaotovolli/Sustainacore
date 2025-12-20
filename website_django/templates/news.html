@@ -2,6 +2,12 @@
 {% load static %}
 
 {% block title %}News | SustainaCore ESG & AI Governance{% endblock %}
+{% block meta_description %}Curated headlines on ESG transparency and AI governance, highlighting regulatory moves and accountability signals across the TECH100 cohort.{% endblock %}
+{% block structured_data %}
+    {% if news_json_ld %}
+    <script type="application/ld+json">{{ news_json_ld|safe }}</script>
+    {% endif %}
+{% endblock %}
 
 {% block content %}
 <section class="section section--with-header">

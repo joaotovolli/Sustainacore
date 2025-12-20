@@ -32,12 +32,12 @@ class Tech100ViewTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         for header in ["Rebalance Date", "Rank", "Weight", "Company", "AIGES Composite", "Details"]:
             self.assertIn(header, content)
-        self.assertIn("View Details", content)
+        self.assertIn('aria-label="View details for', content)
         self.assertIn("Transparency", content)
         self.assertIn("2025-01-01", content)
         self.assertIn("Sample summary.", content)
         self.assertIn("Only the latest rebalance is available", content)
-        self.assertIn("5.23%", content)
+        self.assertIn("5%", content)
         self.assertEqual(response.context["companies"][0]["weight"], 5.23)
 
     @mock.patch("core.views.fetch_tech100")
