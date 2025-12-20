@@ -72,3 +72,21 @@ class Tech100IndexViewTests(SimpleTestCase):
         payload = response.json()
         self.assertIn("levels", payload)
         self.assertEqual(payload["levels"][0]["level"], 1234.5)
+
+    @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
+    def test_performance_view_has_markers(self):
+        response = self.client.get(reverse("tech100_performance"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-tech100-performance-has-data")
+        self.assertContains(response, "data-tech100-attribution-has-data")
+        self.assertContains(response, "data-tech100-holdings-has-data")
+
+    @mock.patch("core.tech100_index_views.get_latest_trade_date")
+    @mock.patch("core.tech100_index_views.get_contribution_summary")
+    def test_api_performance_attribution(self, contrib_mock, latest_mock):
+        latest_mock.return_value = dt.date(2025, 3, 5)
+        contrib_mock.return_value = [{"ticker": "AAA", "contribution": 0.01}]
+        response = self.client.get("/api/tech100/index/attribution?range=1d")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("top", payload)

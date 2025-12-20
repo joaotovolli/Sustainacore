@@ -1,4 +1,5 @@
 from datetime import datetime
+import os
 from unittest import mock
 
 from django.test import SimpleTestCase
@@ -320,6 +321,7 @@ class Tech100ViewTests(SimpleTestCase):
 
 
 class HomeViewTests(SimpleTestCase):
+    @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     @mock.patch("core.views.fetch_news")
     @mock.patch("core.views.fetch_tech100")
     def test_home_renders_with_canonical_tech100_data(self, tech100_mock, news_mock):
@@ -357,6 +359,16 @@ class HomeViewTests(SimpleTestCase):
         self.assertIn("Technology", content)
         self.assertIn("90", content)
         self.assertIn("Gov headline", content)
+
+    @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
+    @mock.patch("core.views.fetch_news")
+    @mock.patch("core.views.fetch_tech100")
+    def test_home_snapshot_markers_present(self, tech100_mock, news_mock):
+        tech100_mock.return_value = {"items": [], "error": None, "meta": {}}
+        news_mock.return_value = {"items": [], "error": None, "meta": {}}
+        response = self.client.get("/", HTTP_HOST="sustainacore.org")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-tech100-home-has-data")
 
 
 class Tech100ExportTests(SimpleTestCase):

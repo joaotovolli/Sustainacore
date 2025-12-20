@@ -17,3 +17,17 @@ reconstitution
 backfill
 idempotent
 timeseries
+PYTHONPATH
+PYTHONUNBUFFERED
+journalctl
+sqlnet
+cwallet
+SYSTIMESTAMP
+upsert
+upserts
+pathlib
+tokenbucket
+tickers
+drawdown
+drawdowns
+imputed

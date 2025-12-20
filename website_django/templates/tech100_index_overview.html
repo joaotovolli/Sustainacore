@@ -12,12 +12,15 @@
 <div class="tech100-index">
   <section class="section section--with-header">
     <div class="shell">
-      <div class="section__header">
-        <span class="pill pill--soft">TECH100 AI Index</span>
-        <h1>Performance &amp; Risk</h1>
-        <p class="muted">
-          Direct Oracle-powered index analytics with daily performance, risk, and data quality signals.
-        </p>
+      <div class="section__header section__header--split">
+        <div>
+          <span class="pill pill--soft">TECH100 AI Index</span>
+          <h1>Performance &amp; Risk</h1>
+          <p class="muted">
+            Direct Oracle-powered index analytics with daily performance, risk, and data quality signals.
+          </p>
+        </div>
+        <a class="btn btn--secondary" href="/tech100/performance/">View TECH100 performance</a>
       </div>
 
       {% if data_error %}
@@ -190,5 +193,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="{% static 'js/tech100-index.js' %}"></script>
+  <script src="{% static 'js/tech100-index.js' %}" defer></script>
 {% endblock %}

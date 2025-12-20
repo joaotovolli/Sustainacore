@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}SustainaCore | Open ESG & AI governance{% endblock %}
 {% block meta_description %}Open ESG and AI governance data with TECH100 scores, curated news, and the Ask2 assistant from SustainaCore.{% endblock %}
+
+{% block extra_head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+{% endblock %}
 
 {% block content %}
 <section class="hero">
@@ -39,6 +44,88 @@
             </div>
             <a class="text-link" href="{% url 'tech100' %}">View the TECH100 index →</a>
         </div>
+    </div>
+</section>
+
+<section class="section tech100-home">
+    <div class="shell">
+        <div class="section__header section__header--split">
+            <div>
+                <span class="pill pill--soft">TECH100 Index Snapshot</span>
+                <h2>Performance at a glance</h2>
+                <p class="muted">A compact view of index performance and data quality signals.</p>
+            </div>
+            <a class="btn btn--secondary" href="/tech100/performance/">View TECH100 performance</a>
+        </div>
+
+        {% if tech100_snapshot.data_error %}
+            <div class="alert alert--warning" data-tech100-home-empty="1">
+                Live TECH100 data is temporarily unavailable; please try again later.
+            </div>
+        {% elif tech100_snapshot.has_data %}
+            <div class="tech100-home__grid"
+                 data-tech100-home-has-data="1"
+                 data-level-count="{{ tech100_snapshot.levels_count }}"
+                 data-real-count="{{ tech100_snapshot.quality_counts.REAL|default:0 }}"
+                 data-imputed-count="{{ tech100_snapshot.quality_counts.IMPUTED|default:0 }}">
+                <div class="card tech100-home__chart">
+                    <div class="tech100-home__chart-header">
+                        <div>
+                            <h3 class="h4">Index level (3M)</h3>
+                            <p class="muted">As of {{ tech100_snapshot.as_of }} (UTC)</p>
+                        </div>
+                        <div class="tech100-index__range tech100-home__range">
+                            <button class="btn btn--ghost tech100-home-range is-active" data-range="3m">3M</button>
+                            <button class="btn btn--ghost tech100-home-range" data-range="1m">1M</button>
+                            <button class="btn btn--ghost tech100-home-range" data-range="6m">6M</button>
+                            <button class="btn btn--ghost tech100-home-range" data-range="ytd">YTD</button>
+                            <button class="btn btn--ghost tech100-home-range" data-range="1y">1Y</button>
+                            <button class="btn btn--ghost tech100-home-range" data-range="max">Max</button>
+                        </div>
+                    </div>
+                    <div class="tech100-home__canvas">
+                        <canvas id="tech100-home-level-chart" role="img" aria-label="TECH100 index level chart"></canvas>
+                    </div>
+                </div>
+                <div class="card tech100-home__stats">
+                    <div class="tech100-home__stats-grid">
+                        <div>
+                            <p class="kpi-label">Latest level</p>
+                            <p class="kpi-value">{{ tech100_snapshot.latest_level|default:"—"|floatformat:2 }}</p>
+                        </div>
+                        <div>
+                            <p class="kpi-label">1D return</p>
+                            <p class="kpi-value">{{ tech100_snapshot.ret_1d|default:"—"|floatformat:2 }}{% if tech100_snapshot.ret_1d %}%{% endif %}</p>
+                        </div>
+                        <div>
+                            <p class="kpi-label">MTD return</p>
+                            <p class="kpi-value">{{ tech100_snapshot.ret_mtd|default:"—"|floatformat:2 }}{% if tech100_snapshot.ret_mtd %}%{% endif %}</p>
+                        </div>
+                        <div>
+                            <p class="kpi-label">YTD return</p>
+                            <p class="kpi-value">{{ tech100_snapshot.ret_ytd|default:"—"|floatformat:2 }}{% if tech100_snapshot.ret_ytd %}%{% endif %}</p>
+                        </div>
+                        <div>
+                            <p class="kpi-label">30D vol (ann.)</p>
+                            <p class="kpi-value">{{ tech100_snapshot.vol_30d|default:"—"|floatformat:2 }}{% if tech100_snapshot.vol_30d %}%{% endif %}</p>
+                        </div>
+                        <div>
+                            <p class="kpi-label">Max drawdown YTD</p>
+                            <p class="kpi-value">{{ tech100_snapshot.drawdown_ytd|default:"—"|floatformat:2 }}{% if tech100_snapshot.drawdown_ytd %}%{% endif %}</p>
+                        </div>
+                    </div>
+                    <div class="tech100-home__quality">
+                        <span class="muted">Data quality</span>
+                        <span class="pill pill--soft">REAL {{ tech100_snapshot.quality_counts.REAL|default:0 }}</span>
+                        <span class="pill pill--soft pill--warning">IMPUTED {{ tech100_snapshot.quality_counts.IMPUTED|default:0 }}</span>
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            <div class="alert alert--warning" data-tech100-home-empty="1">
+                No TECH100 index data found.
+            </div>
+        {% endif %}
     </div>
 </section>
 
@@ -149,4 +236,9 @@
         </div>
     </div>
 </section>
+{{ tech100_snapshot.levels|default:"[]"|json_script:"tech100-home-levels" }}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/tech100-index.js' %}" defer></script>
 {% endblock %}
