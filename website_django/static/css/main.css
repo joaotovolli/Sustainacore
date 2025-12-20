@@ -1282,6 +1282,23 @@ textarea:focus {
     gap: 1.5rem;
 }
 
+.tech100-entry {
+    margin-bottom: 1.5rem;
+}
+
+.tech100-entry__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.95rem;
+}
+
+.tech100-entry__tools {
+    margin-top: 0.5rem;
+    font-size: 0.95rem;
+}
+
 .tech100-home__chart {
     min-height: 320px;
 }

@@ -26,6 +26,7 @@ const run = async () => {
     authUser && authPass
       ? `Basic ${Buffer.from(`${authUser}:${authPass}`).toString("base64")}`
       : "";
+  const requestedPreview = externalBaseUrl.includes("preview.sustainacore.org");
 
   const fetchWithHeaders = (url) =>
     fetch(url, {
@@ -37,6 +38,10 @@ const run = async () => {
 
   let port = "";
   let baseUrl = externalBaseUrl;
+  if (requestedPreview && !authHeader) {
+    process.stdout.write("Preview base requested but Basic Auth missing; using local runserver.\n");
+    baseUrl = "";
+  }
   if (!baseUrl) {
     const portScript = path.join(rootDir, "scripts", "find_free_port.mjs");
     const portProc = spawn("node", [portScript], { stdio: ["ignore", "pipe", "pipe"] });
@@ -64,8 +69,9 @@ const run = async () => {
   }
 
   const pythonBin = resolvePython();
+  const runId = Date.now();
   const logPath = port ? `/tmp/tech100_runserver_${port}.log` : "/tmp/tech100_runserver_preview.log";
-  const unitName = port ? `vm2-tech100-runserver-${port}` : "";
+  const unitName = port ? `vm2-tech100-runserver-${port}-${runId}` : "";
   const overrideEnvPath = port ? `/tmp/tech100_env_override_${port}.env` : "/tmp/tech100_env_override_preview.env";
   const requestedMode = process.env.TECH100_SCREENSHOT_MODE;
   const dataMode = process.env.TECH100_UI_DATA_MODE
@@ -94,6 +100,7 @@ const run = async () => {
 
     spawn("sudo", [
       "systemd-run",
+      "--collect",
       "--unit",
       unitName,
       "--property",
