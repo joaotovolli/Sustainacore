@@ -1,8 +1,10 @@
 from datetime import datetime, date
 import csv
+import json
 from typing import Dict, Iterable, List
 import logging
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import render
@@ -537,11 +539,33 @@ def news(request):
     sources = sorted({item.get("source") for item in news_items if item.get("source")})
     tags = sorted({tag for item in news_items for tag in item.get("tags", [])})
 
+    news_structured = []
+    for item in news_items:
+        headline = (item.get("title") or "").strip()
+        url = (item.get("url") or "").strip()
+        if not headline or not url:
+            continue
+        article = {
+            "@context": "https://schema.org",
+            "@type": "NewsArticle",
+            "headline": headline,
+            "url": url,
+            "publisher": {
+                "@type": "Organization",
+                "name": (item.get("source") or "SustainaCore").strip(),
+            },
+            "datePublished": item.get("published_at") or None,
+            "description": (item.get("summary") or "").strip() or None,
+        }
+        cleaned = {key: value for key, value in article.items() if value is not None}
+        news_structured.append(cleaned)
+
     context = {
         "year": datetime.now().year,
         "articles": news_items,
         "news_error": news_response.get("error"),
         "news_meta": news_response.get("meta", {}),
+        "news_json_ld": json.dumps(news_structured, ensure_ascii=True) if news_structured else "",
         "filters": filters,
         "source_options": sources,
         "tag_options": tags,
@@ -617,3 +641,17 @@ def news_admin(request):
             context["form_values"] = default_form_values
 
     return render(request, "news_admin.html", context)
+
+
+def robots_txt(request):
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /admin/",
+        "Disallow: /news/admin/",
+        "Disallow: /api/",
+        "Disallow: /ask2/api/",
+        f"Sitemap: {settings.SITE_URL}/sitemap.xml",
+        "",
+    ]
+    return HttpResponse("\n".join(lines), content_type="text/plain")
