@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}TECH100 Press | SustainaCore{% endblock %}
+{% block meta_description %}Press overview for the TECH100 index, including scope, methodology highlights, and usage guidance.{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header">
+            <p class="eyebrow">TECH100 Press Kit</p>
+            <h1>About the TECH100 index.</h1>
+            <p class="muted">A benchmark for transparency, accountability, and governance across leading AI companies.</p>
+        </div>
+
+        <div class="card">
+            <h2 class="h4">Summary</h2>
+            <p class="muted">
+                TECH100 tracks governance and ethics indicators for leading technology firms,
+                with data sourced from public disclosures and reproducible workflows.
+            </p>
+            <div style="margin-top: 1.5rem;">
+                <a class="btn btn--primary" href="{% url 'tech100' %}">View TECH100 index</a>
+                <a class="btn btn--secondary" href="{% url 'news' %}" style="margin-left: 0.75rem;">Read latest headlines</a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

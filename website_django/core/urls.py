@@ -28,8 +28,11 @@ sitemaps_config = {
 
 urlpatterns = [
     path("robots.txt", views.robots_txt, name="robots_txt"),
+    path("sitemap.xml", views.sitemap_xml, name="sitemap"),
     path("sitemap.xml", sitemap, {"sitemaps": sitemaps_config}, name="sitemap"),
     path("", views.home, name="home"),
+    path("press/", views.press_index, name="press_index"),
+    path("press/tech100/", views.press_tech100, name="press_tech100"),
     path("tech100/", views.tech100, name="tech100"),
     path("tech100/index/", tech100_index_views.tech100_index_overview, name="tech100_index"),
     path("tech100/constituents/", tech100_index_views.tech100_constituents, name="tech100_constituents"),
