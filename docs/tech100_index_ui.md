@@ -3,6 +3,8 @@
 ## Overview
 This UI surfaces TECH100 index performance and risk analytics directly from Oracle SC_IDX tables on VM2.
 
+See `docs/frontend_workflow_vm2.md` for the VM2 frontend workflow, UI quality gate, and screenshot requirements.
+
 ## URLs
 - `/` — Home page with TECH100 snapshot (chart + KPIs)
 - `/tech100/index/` — Performance & risk overview

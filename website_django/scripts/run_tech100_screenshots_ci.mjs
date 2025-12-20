@@ -19,6 +19,8 @@ const resolvePython = () => {
 
 const run = async () => {
   const externalBaseUrl = process.env.TECH100_BASE_URL || "";
+  const requestedMode = process.env.TECH100_SCREENSHOT_MODE;
+  const useExistingServer = process.env.TECH100_USE_EXISTING_SERVER === "1";
   const authUser = process.env.TECH100_BASIC_AUTH_USER || "";
   const authPass = process.env.TECH100_BASIC_AUTH_PASS || "";
   const hostHeader = process.env.TECH100_SCREENSHOT_HOST_HEADER || "";
@@ -37,6 +39,15 @@ const run = async () => {
 
   let port = "";
   let baseUrl = externalBaseUrl;
+  let existingServer = useExistingServer;
+  if (!baseUrl && requestedMode === "before") {
+    baseUrl = "http://127.0.0.1";
+    existingServer = true;
+  }
+  if (baseUrl === "http://127.0.0.1" || baseUrl === "http://localhost") {
+    existingServer = true;
+  }
+
   if (!baseUrl) {
     const portScript = path.join(rootDir, "scripts", "find_free_port.mjs");
     const portProc = spawn("node", [portScript], { stdio: ["ignore", "pipe", "pipe"] });
@@ -61,13 +72,15 @@ const run = async () => {
     process.stdout.write(`Using port ${port}\n`);
   } else {
     process.stdout.write(`Using base URL ${baseUrl}\n`);
+    if (existingServer) {
+      process.stdout.write("Using existing server (no runserver spawn)\n");
+    }
   }
 
   const pythonBin = resolvePython();
   const logPath = port ? `/tmp/tech100_runserver_${port}.log` : "/tmp/tech100_runserver_preview.log";
   const unitName = port ? `vm2-tech100-runserver-${port}` : "";
   const overrideEnvPath = port ? `/tmp/tech100_env_override_${port}.env` : "/tmp/tech100_env_override_preview.env";
-  const requestedMode = process.env.TECH100_SCREENSHOT_MODE;
   const dataMode = process.env.TECH100_UI_DATA_MODE
     || (requestedMode === "after" ? "fixture" : "");
 
@@ -84,7 +97,7 @@ const run = async () => {
 
   let journalProc = null;
   let logStream = null;
-  if (port) {
+  if (port && !existingServer) {
     spawn("sudo", ["systemctl", "stop", unitName]);
     spawn("sudo", ["systemctl", "reset-failed", unitName]);
     journalProc = spawn("sudo", ["journalctl", "-u", unitName, "-f", "--no-pager"]);
@@ -113,7 +126,7 @@ const run = async () => {
   }
 
   const cleanup = async () => {
-    if (unitName) {
+    if (unitName && !existingServer) {
       spawn("sudo", ["systemctl", "stop", unitName]);
       spawn("sudo", ["systemctl", "reset-failed", unitName]);
     }
@@ -146,6 +159,13 @@ const run = async () => {
           const bodyPath = `/tmp/tech100_401_body_${port || "preview"}.html`;
           fs.writeFileSync(bodyPath, body);
           const err = new Error(`Server returned ${resp.status} (body saved to ${bodyPath})`);
+          err.fatal = true;
+          throw err;
+        } else if (resp.status === 404) {
+          const body = await resp.text();
+          const bodyPath = `/tmp/tech100_readiness_body_${port || "preview"}.html`;
+          fs.writeFileSync(bodyPath, body);
+          const err = new Error(`Server returned 404 (body saved to ${bodyPath})`);
           err.fatal = true;
           throw err;
         } else if (resp.status >= 500) {
