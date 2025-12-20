@@ -37,3 +37,6 @@ nosnippet
 noarchive
 certbot
 htpasswd
+Playwright
+runserver
+Gunicorn
