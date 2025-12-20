@@ -7,6 +7,9 @@
 - Canonical host redirects enforced in Nginx (HTTP → HTTPS, www → non-www).
 - Canonical URLs in the base template (absolute URL, no query string) with per-page overrides available.
 - Unique page titles and meta descriptions for key public pages, including `/press/` resources.
+- `sitemap.xml` served via Django sitemap framework with core public pages and lastmod timestamps.
+- Canonical URLs in the base template (absolute URL, no query string) with per-page overrides available.
+- Unique page titles and meta descriptions for key public pages.
 - Site-wide Organization and WebSite JSON-LD; NewsArticle JSON-LD for the news listing.
 - Django tests covering robots, sitemap, canonical tags, and JSON-LD presence.
 
