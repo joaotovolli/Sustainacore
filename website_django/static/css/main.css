@@ -1282,6 +1282,42 @@ textarea:focus {
     gap: 1.5rem;
 }
 
+.tech100-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    margin: 1rem 0 1.5rem;
+    padding: 0.6rem;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+
+.tech100-nav__link {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    background: #fff;
+    color: var(--text);
+    border: 1px solid transparent;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tech100-nav__link:hover {
+    border-color: rgba(31, 95, 191, 0.35);
+}
+
+.tech100-nav__link.is-active,
+.tech100-nav__link[aria-current="page"] {
+    border-color: rgba(31, 95, 191, 0.35);
+    box-shadow: 0 6px 16px rgba(31, 95, 191, 0.12);
+    color: var(--brand-blue);
+}
+
 .tech100-entry {
     margin-bottom: 1.5rem;
 }

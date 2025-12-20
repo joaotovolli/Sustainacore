@@ -1,0 +1,23 @@
+<nav class="tech100-nav" aria-label="TECH100 navigation">
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/index/' %}is-active{% endif %}"
+    href="/tech100/index/"
+    {% if request.path == '/tech100/index/' %}aria-current="page"{% endif %}
+  >
+    Overview
+  </a>
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"
+    href="/tech100/performance/"
+    {% if request.path == '/tech100/performance/' %}aria-current="page"{% endif %}
+  >
+    Performance
+  </a>
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/constituents/' %}is-active{% endif %}"
+    href="/tech100/constituents/"
+    {% if request.path == '/tech100/constituents/' %}aria-current="page"{% endif %}
+  >
+    Constituents
+  </a>
+</nav>
