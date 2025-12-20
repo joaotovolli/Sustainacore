@@ -1255,9 +1255,131 @@ textarea:focus {
     text-align: center;
 }
 
+.tech100-home__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 1.5rem;
+}
+
+.tech100-home__chart {
+    min-height: 320px;
+}
+
+.tech100-home__chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.tech100-home__canvas {
+    height: 240px;
+}
+
+.tech100-home__stats {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.tech100-home__stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 1.5rem;
+}
+
+.tech100-home__quality {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.tech100-performance__overview {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.tech100-performance__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.tech100-performance__charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.25rem;
+}
+
+.chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    min-height: 220px;
+}
+
+.chart-card__canvas {
+    height: 200px;
+}
+
+.tech100-performance__summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+}
+
+.tech100-performance__quality {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.tech100-performance__bars {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+}
+
+.tech100-performance__filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin: 1rem 0;
+}
+
+.tech100-performance__holdings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.meta-stack {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.meta-pill {
+    background: #eef2f6;
+    border-radius: 999px;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.85rem;
+}
+
 @media (max-width: 900px) {
     .table__row {
         grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    }
+
+    .tech100-home__grid {
+        grid-template-columns: 1fr;
     }
 }
 

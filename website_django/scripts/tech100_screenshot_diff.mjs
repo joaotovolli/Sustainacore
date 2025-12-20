@@ -8,6 +8,7 @@ const screenshotDir = path.resolve(rootDir, "..", "docs", "screenshots", "tech10
 const beforeDir = path.join(screenshotDir, "before");
 const afterDir = path.join(screenshotDir, "after");
 const diffDir = path.join(screenshotDir, "diff");
+const MAX_DIFF_HEIGHT = 1200;
 
 fs.mkdirSync(diffDir, { recursive: true });
 
@@ -26,6 +27,17 @@ const assertNotBlank = (filePath) => {
   }
 };
 
+const cropPng = (image, width, height) => {
+  const cropped = new PNG({ width, height });
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * image.width * 4;
+    const rowEnd = rowStart + width * 4;
+    const targetStart = y * width * 4;
+    image.data.copy(cropped.data, targetStart, rowStart, rowEnd);
+  }
+  return cropped;
+};
+
 const diffPair = (beforeName, afterName, diffName) => {
   const beforePath = path.join(beforeDir, beforeName);
   const afterPath = path.join(afterDir, afterName);
@@ -36,20 +48,31 @@ const diffPair = (beforeName, afterName, diffName) => {
   }
   const before = readPng(beforePath);
   const after = readPng(afterPath);
-  if (before.width !== after.width || before.height !== after.height) {
-    console.warn(`Skipping diff for ${beforeName} (size mismatch)`);
+  const width = Math.min(before.width, after.width);
+  const height = Math.min(before.height, after.height, MAX_DIFF_HEIGHT);
+  if (width <= 0 || height <= 0) {
+    console.warn(`Skipping diff for ${beforeName} (invalid dimensions)`);
     return;
   }
-  const { width, height } = before;
+  const beforeCrop = cropPng(before, width, height);
+  const afterCrop = cropPng(after, width, height);
   const diff = new PNG({ width, height });
-  const mismatch = pixelmatch(before.data, after.data, diff.data, width, height, {
+  const mismatch = pixelmatch(beforeCrop.data, afterCrop.data, diff.data, width, height, {
     threshold: 0.1,
   });
   fs.writeFileSync(diffPath, PNG.sync.write(diff));
   process.stdout.write(`diff ${diffPath} (mismatch: ${mismatch})\n`);
 };
 
-const requiredAfter = ["tech100.png", "constituents.png", "attribution.png", "stats.png"];
+const requiredAfter = [
+  "home.png",
+  "tech100.png",
+  "index_overview.png",
+  "performance.png",
+  "constituents.png",
+  "attribution.png",
+  "stats.png",
+];
 
 for (const name of requiredAfter) {
   const filePath = path.join(afterDir, name);
@@ -62,3 +85,8 @@ for (const name of requiredAfter) {
 
 diffPair("home.png", "home.png", "diff_home.png");
 diffPair("tech100.png", "tech100.png", "diff_tech100.png");
+diffPair("performance.png", "performance.png", "diff_performance.png");
+diffPair("index_overview.png", "index_overview.png", "diff_index_overview.png");
+diffPair("constituents.png", "constituents.png", "diff_constituents.png");
+diffPair("attribution.png", "attribution.png", "diff_attribution.png");
+diffPair("stats.png", "stats.png", "diff_stats.png");

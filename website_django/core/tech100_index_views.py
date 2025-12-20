@@ -12,16 +12,26 @@ from core.tech100_index_data import (
     DrawdownResult,
     get_data_mode,
     get_contribution,
+    get_contribution_summary,
     get_constituents,
+    get_drawdown_series,
     get_index_levels,
     get_index_returns,
     get_imputed_overview,
+    get_imputation_history,
     get_kpis,
+    get_latest_rebalance_date,
     get_latest_trade_date,
     get_max_drawdown,
+    get_quality_counts,
+    get_return_between,
     get_rolling_vol,
+    get_rolling_vol_series,
+    get_holdings_with_meta,
+    get_sector_breakdown,
     get_stats,
     get_trade_date_bounds,
+    get_attribution_table,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,6 +175,102 @@ def tech100_index_overview(request):
 
 
 @require_GET
+def tech100_performance(request):
+    data_mode = get_data_mode()
+    try:
+        latest = get_latest_trade_date()
+        if latest is None:
+            raise ValueError("No TECH100 trade dates available.")
+
+        range_key = (request.GET.get("range") or "1y").lower()
+        if range_key not in {"1m", "3m", "6m", "ytd", "1y", "max"}:
+            range_key = "1y"
+        start_date = _range_start(latest, range_key)
+        mtd_start = dt.date(latest.year, latest.month, 1)
+        ytd_start = dt.date(2025, 1, 2)
+
+        levels = get_index_levels(start_date, latest)
+        drawdowns = get_drawdown_series(start_date, latest)
+        vols = get_rolling_vol_series(start_date, latest, window=30)
+        kpis = get_kpis(latest)
+        vol_30d = get_rolling_vol(latest, window=30)
+        drawdown_ytd = get_max_drawdown(ytd_start, latest)
+        quality_counts = get_quality_counts(latest)
+        rebalance_date = get_latest_rebalance_date()
+
+        holdings = get_holdings_with_meta(latest)
+        sector_breakdown = get_sector_breakdown(holdings)
+        imputation_history = get_imputation_history(latest)
+        attribution_rows = get_attribution_table(latest, mtd_start, ytd_start)
+
+        top_1d = get_contribution_summary(latest, latest, limit=8, direction="desc")
+        worst_1d = get_contribution_summary(latest, latest, limit=8, direction="asc")
+        top_mtd = get_contribution_summary(latest, mtd_start, limit=8, direction="desc")
+        worst_mtd = get_contribution_summary(latest, mtd_start, limit=8, direction="asc")
+        top_ytd = get_contribution_summary(latest, ytd_start, limit=8, direction="desc")
+        worst_ytd = get_contribution_summary(latest, ytd_start, limit=8, direction="asc")
+
+        levels_payload = [
+            {"date": trade_date.isoformat(), "level": level} for trade_date, level in levels
+        ]
+        drawdown_payload = [
+            {"date": trade_date.isoformat(), "drawdown": value}
+            for trade_date, value in drawdowns
+        ]
+        vol_payload = [
+            {"date": trade_date.isoformat(), "vol": value} for trade_date, value in vols
+        ]
+
+        context = {
+            "data_mode": data_mode,
+            "data_error": False,
+            "range_key": range_key,
+            "latest_date": latest.isoformat(),
+            "levels_payload": levels_payload,
+            "drawdown_payload": drawdown_payload,
+            "vol_payload": vol_payload,
+            "levels_count": len(levels_payload),
+            "holdings_count": len(holdings),
+            "attribution_count": len(attribution_rows),
+            "kpis": {
+                "level": kpis.get("level"),
+                "ret_1d": _format_pct(kpis.get("ret_1d")),
+                "ret_mtd": _format_pct(get_return_between(latest, mtd_start)),
+                "ret_ytd": _format_pct(get_return_between(latest, ytd_start)),
+                "vol_30d": _format_pct(vol_30d),
+                "drawdown_ytd": _format_pct(drawdown_ytd.drawdown),
+            },
+            "quality_counts": quality_counts,
+            "rebalance_date": rebalance_date.isoformat() if rebalance_date else None,
+            "universe_date": latest.isoformat(),
+            "holdings": holdings,
+            "sector_breakdown": sector_breakdown,
+            "imputation_history": imputation_history,
+            "attribution_rows": attribution_rows,
+            "top_1d": top_1d,
+            "worst_1d": worst_1d,
+            "top_mtd": top_mtd,
+            "worst_mtd": worst_mtd,
+            "top_ytd": top_ytd,
+            "worst_ytd": worst_ytd,
+        }
+    except Exception:
+        logger.exception("TECH100 performance page failed.")
+        context = {
+            "data_mode": data_mode,
+            "data_error": True,
+            "levels_payload": [],
+            "drawdown_payload": [],
+            "vol_payload": [],
+            "levels_count": 0,
+            "holdings_count": 0,
+            "attribution_count": 0,
+        }
+
+    return render(request, "tech100_performance.html", context)
+
+
+@require_GET
 def tech100_constituents(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -248,6 +354,42 @@ def api_tech100_index_levels(request):
     return JsonResponse(
         {"range": range_key, "start_date": start_date.isoformat(), "end_date": latest.isoformat(), "levels": payload}
     )
+
+
+@require_GET
+def api_tech100_performance_attribution(request):
+    latest = get_latest_trade_date()
+    if latest is None:
+        return JsonResponse({"error": "no_data"}, status=503)
+    range_key = (request.GET.get("range") or "1d").lower()
+    if range_key == "mtd":
+        start_date = dt.date(latest.year, latest.month, 1)
+    elif range_key == "ytd":
+        start_date = dt.date(2025, 1, 2)
+    else:
+        start_date = latest
+
+    top = get_contribution_summary(latest, start_date, limit=8, direction="desc")
+    worst = get_contribution_summary(latest, start_date, limit=8, direction="asc")
+    return JsonResponse(
+        {
+            "range": range_key,
+            "as_of": latest.isoformat(),
+            "top": top,
+            "worst": worst,
+        }
+    )
+
+
+@require_GET
+def api_tech100_holdings(request):
+    latest = get_latest_trade_date()
+    selected_date = _parse_date(request.GET.get("date"), latest)
+    if selected_date is None:
+        return JsonResponse({"error": "no_data"}, status=503)
+
+    holdings = get_holdings_with_meta(selected_date)
+    return JsonResponse({"as_of": selected_date.isoformat(), "rows": holdings})
 
 
 @require_GET

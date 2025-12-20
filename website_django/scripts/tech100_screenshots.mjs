@@ -19,8 +19,9 @@ fs.mkdirSync(outDir, { recursive: true });
 const dedupeTargets = (items) => {
   const seen = new Set();
   return items.filter((item) => {
-    if (seen.has(item.path)) return false;
-    seen.add(item.path);
+    const key = `${item.path}:${item.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 };
@@ -33,8 +34,9 @@ const targets = dedupeTargets(
       ]
     : [
         { path: "/", name: "home.png" },
-        { path: tech100Path, name: "tech100.png" },
+        { path: "/tech100/", name: "tech100.png" },
         { path: "/tech100/index/", name: "index_overview.png" },
+        { path: "/tech100/performance/", name: "performance.png" },
         { path: "/tech100/constituents/", name: "constituents.png" },
         { path: "/tech100/attribution/", name: "attribution.png" },
         { path: "/tech100/stats/", name: "stats.png" },
@@ -64,6 +66,52 @@ const validateTech100Data = async (page) => {
   }
 };
 
+const validateHomeSnapshot = async (page) => {
+  const emptyState = await page.$("[data-tech100-home-empty]");
+  if (emptyState) {
+    throw new Error("TECH100 home snapshot empty-state detected");
+  }
+  const status = await page.$("[data-tech100-home-has-data]");
+  if (!status) {
+    throw new Error("TECH100 home snapshot marker missing");
+  }
+  const levelCount = Number((await status.getAttribute("data-level-count")) || 0);
+  if (levelCount < 10) {
+    throw new Error(`TECH100 home chart has too few points (${levelCount})`);
+  }
+};
+
+const validatePerformanceData = async (page) => {
+  const emptyState = await page.$("[data-tech100-empty-state]");
+  if (emptyState) {
+    throw new Error("TECH100 performance empty-state detected");
+  }
+  const status = await page.$("#tech100-performance-status");
+  if (!status) {
+    throw new Error("TECH100 performance status marker missing");
+  }
+  const levelCount = Number((await status.getAttribute("data-level-count")) || 0);
+  const holdingsCount = Number((await status.getAttribute("data-holdings-count")) || 0);
+  const attributionCount = Number((await status.getAttribute("data-attribution-count")) || 0);
+  if (levelCount < 10) {
+    throw new Error(`TECH100 performance chart has too few points (${levelCount})`);
+  }
+  if (holdingsCount < 5) {
+    throw new Error(`TECH100 holdings count too low (${holdingsCount})`);
+  }
+  if (attributionCount < 5) {
+    throw new Error(`TECH100 attribution count too low (${attributionCount})`);
+  }
+  const holdingsRows = await page.$$("#tech100-holdings-body tr");
+  if (holdingsRows.length < 5) {
+    throw new Error(`TECH100 holdings rows missing (${holdingsRows.length})`);
+  }
+  const attrRows = await page.$$("#tech100-attr-body tr");
+  if (attrRows.length < 5) {
+    throw new Error(`TECH100 attribution rows missing (${attrRows.length})`);
+  }
+};
+
 const run = async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage({
@@ -83,16 +131,36 @@ const run = async () => {
         throw new Error(`Screenshot target failed with ${status}: ${target.path}`);
       }
       if (status === 404) {
+        if (mode === "after") {
+          throw new Error(`Required target missing (404): ${target.path}`);
+        }
         process.stdout.write(`skipping ${target.path} (404)\n`);
         continue;
       }
     }
-    if (mode === "after" && target.path === tech100Path) {
+    if (mode === "after" && target.path === "/") {
+      await page.waitForSelector("[data-tech100-home-has-data]", { timeout: 15000, state: "attached" });
+      await validateHomeSnapshot(page);
+    }
+    if (mode === "after" && target.path === "/tech100/index/") {
       await page.waitForSelector("#tech100-data-status", { timeout: 15000, state: "attached" });
       await page.waitForSelector("#tech100-level-chart", { timeout: 15000 });
       await validateTech100Data(page);
     }
-    if (target.path === tech100Path) {
+    if (mode === "after" && target.path === "/tech100/performance/") {
+      await page.waitForSelector("#tech100-performance-status", { timeout: 15000, state: "attached" });
+      await page.waitForSelector("#tech100-performance-level-chart", { timeout: 15000 });
+      await page.waitForFunction(
+        () => document.querySelectorAll("#tech100-holdings-body tr").length > 0,
+        { timeout: 15000 }
+      );
+      await page.waitForFunction(
+        () => document.querySelectorAll("#tech100-attr-body tr").length > 0,
+        { timeout: 15000 }
+      );
+      await validatePerformanceData(page);
+    }
+    if (target.path === "/tech100/index/") {
       const chart = await page.$("#tech100-level-chart");
       if (chart) {
         await page.waitForTimeout(500);
