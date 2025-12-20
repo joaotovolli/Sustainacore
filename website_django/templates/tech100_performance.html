@@ -23,7 +23,9 @@
         </div>
       </div>
 
-      {% include "partials/tech100_nav.html" %}
+      {% with tech100_current="Performance" %}
+        {% include "partials/tech100_nav.html" %}
+      {% endwith %}
 
       {% if data_error %}
         <div class="alert alert--warning" data-tech100-empty-state="1">
@@ -36,7 +38,80 @@
              data-holdings-count="{{ holdings_count }}"
              data-attribution-count="{{ attribution_count }}"></div>
 
-        <div class="card tech100-performance__overview">
+        <div class="card tech100-tools">
+          <div>
+            <h2 class="h5">Tools</h2>
+            <p class="muted">Export the latest holdings and attribution tables.</p>
+          </div>
+          <div class="tech100-tools__actions">
+            <a class="btn btn--secondary" href="/tech100/performance/export/?kind=holdings">Download holdings CSV</a>
+            <a class="btn btn--secondary" href="/tech100/performance/export/?kind=attribution">Download attribution CSV</a>
+            <button class="btn btn--ghost" type="button" data-copy-link="1">Copy link</button>
+          </div>
+        </div>
+
+        <div class="tech100-context">
+          <div class="tech100-context__item">
+            <span class="muted">Latest trade date</span>
+            <strong>{{ latest_date }}</strong>
+          </div>
+          <div class="tech100-context__item">
+            <span class="muted">Levels</span>
+            <strong>{{ levels_count }}</strong>
+          </div>
+          <div class="tech100-context__item">
+            <span class="muted">Holdings</span>
+            <strong>{{ holdings_count }}</strong>
+          </div>
+          <div class="tech100-context__item">
+            <span class="muted">Attribution rows</span>
+            <strong>{{ attribution_count }}</strong>
+          </div>
+        </div>
+
+        <div class="tech100-module-grid">
+          <a class="tech100-module-card" href="/tech100/index/">
+            <span class="tech100-module-card__title">Index overview</span>
+            <span class="muted">Performance, risk, and data quality signals.</span>
+          </a>
+          <a class="tech100-module-card is-active" href="/tech100/performance/">
+            <span class="tech100-module-card__title">Performance</span>
+            <span class="muted">Levels, drawdowns, volatility, and attribution.</span>
+          </a>
+          <a class="tech100-module-card" href="/tech100/constituents/">
+            <span class="tech100-module-card__title">Constituents</span>
+            <span class="muted">Daily holdings, weights, and quality flags.</span>
+          </a>
+          <a class="tech100-module-card" href="/tech100/attribution/">
+            <span class="tech100-module-card__title">Attribution</span>
+            <span class="muted">Top contributors and detractors by date.</span>
+          </a>
+          <a class="tech100-module-card" href="/tech100/stats/">
+            <span class="tech100-module-card__title">Stats</span>
+            <span class="muted">Volatility, drawdown, and concentration metrics.</span>
+          </a>
+          <a class="tech100-module-card" href="/tech100/">
+            <span class="tech100-module-card__title">Governance scores</span>
+            <span class="muted">TECH100 ranking and filters.</span>
+          </a>
+        </div>
+
+        <div class="tech100-section-nav">
+          <a class="tech100-section-nav__link" href="#overview">
+            <span>Overview</span>
+            <span class="tech100-section-nav__meta">{{ levels_count }} levels</span>
+          </a>
+          <a class="tech100-section-nav__link" href="#attribution">
+            <span>Attribution</span>
+            <span class="tech100-section-nav__meta">{{ attribution_count }} rows</span>
+          </a>
+          <a class="tech100-section-nav__link" href="#holdings">
+            <span>Holdings</span>
+            <span class="tech100-section-nav__meta">{{ holdings_count }} names</span>
+          </a>
+        </div>
+
+        <div class="card tech100-performance__overview" id="overview">
           <div class="tech100-performance__header">
             <div>
               <h2 class="h4">Overview</h2>
@@ -106,16 +181,19 @@
           </div>
         </div>
 
-        <div class="card tech100-performance__attribution">
+        <div class="card tech100-performance__attribution" id="attribution">
           <div class="card__header card__header--split">
             <div>
               <h2 class="h4">Attribution</h2>
               <p class="muted">Top and bottom contributors by range.</p>
             </div>
-            <div class="tech100-performance__range">
-              <button class="btn btn--ghost tech100-attr-range is-active" data-range="1d">1D</button>
-              <button class="btn btn--ghost tech100-attr-range" data-range="mtd">MTD</button>
-              <button class="btn btn--ghost tech100-attr-range" data-range="ytd">YTD</button>
+            <div class="card__actions">
+              <div class="tech100-performance__range">
+                <button class="btn btn--ghost tech100-attr-range is-active" data-range="1d">1D</button>
+                <button class="btn btn--ghost tech100-attr-range" data-range="mtd">MTD</button>
+                <button class="btn btn--ghost tech100-attr-range" data-range="ytd">YTD</button>
+              </div>
+              <a class="btn btn--ghost btn--sm" href="/tech100/performance/export/?kind=attribution">Download CSV</a>
             </div>
           </div>
           <div id="tech100-attribution-status" data-tech100-attribution-has-data="1"></div>
@@ -158,11 +236,14 @@
           </div>
         </div>
 
-        <div class="card tech100-performance__holdings">
+        <div class="card tech100-performance__holdings" id="holdings">
           <div class="card__header card__header--split">
             <div>
               <h2 class="h4">Constituents &amp; Holdings</h2>
               <p class="muted">Latest holdings from the index universe.</p>
+            </div>
+            <div class="card__actions">
+              <a class="btn btn--ghost btn--sm" href="/tech100/performance/export/?kind=holdings">Download CSV</a>
             </div>
           </div>
           <div id="tech100-holdings-status" data-tech100-holdings-has-data="1"></div>
