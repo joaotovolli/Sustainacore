@@ -1202,6 +1202,27 @@ textarea:focus {
     border: 0;
 }
 
+.preview-banner {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    align-items: center;
+    background: #b45309;
+    color: #fff7ed;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    padding: 0.45rem 1rem;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+}
+
+.preview-banner small {
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0.9;
+}
+
 /* UI_POLISH_V3_CANARY */
 .tech100-page .table-wrap {
     background: var(--card);

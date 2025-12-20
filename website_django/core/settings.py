@@ -42,8 +42,18 @@ if not SECRET_KEY:
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 
-DEFAULT_ALLOWED_HOSTS = "sustainacore.org,www.sustainacore.org,141.147.76.55,localhost"
+DEFAULT_ALLOWED_HOSTS = "sustainacore.org,www.sustainacore.org,preview.sustainacore.org,141.147.76.55,localhost,127.0.0.1"
 ALLOWED_HOSTS = get_env_list("DJANGO_ALLOWED_HOSTS", DEFAULT_ALLOWED_HOSTS)
+
+DEFAULT_CSRF_TRUSTED_ORIGINS = (
+    "https://sustainacore.org,https://www.sustainacore.org,https://preview.sustainacore.org"
+)
+CSRF_TRUSTED_ORIGINS = get_env_list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS", DEFAULT_CSRF_TRUSTED_ORIGINS
+)
+
+PREVIEW_HOSTS = get_env_list("PREVIEW_HOSTS", "preview.sustainacore.org")
+PREVIEW_MODE = env_bool("PREVIEW_MODE", default=False)
 
 SITE_URL = os.environ.get("SITE_URL", "https://sustainacore.org")
 DEFAULT_META_DESCRIPTION = (
@@ -88,6 +98,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.seo_defaults',
+                'core.context_processors.preview_context',
             ],
         },
     },
