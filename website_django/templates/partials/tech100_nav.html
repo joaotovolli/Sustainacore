@@ -1,17 +1,23 @@
 <nav class="tech100-nav" aria-label="TECH100 navigation">
-  <div class="tech100-nav__breadcrumb">
-    <a href="/">Home</a>
-    <span class="tech100-nav__separator">/</span>
-    <a href="/tech100/">TECH100</a>
-    <span class="tech100-nav__separator">/</span>
-    <span class="tech100-nav__current">{{ tech100_current|default:"Overview" }}</span>
-  </div>
-  <div class="tech100-nav__links">
-    <a class="tech100-nav__link {% if request.path == '/tech100/index/' %}is-active{% endif %}" href="/tech100/index/">Index overview</a>
-    <a class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}" href="/tech100/performance/">Performance</a>
-    <a class="tech100-nav__link {% if request.path == '/tech100/constituents/' %}is-active{% endif %}" href="/tech100/constituents/">Constituents</a>
-    <a class="tech100-nav__link {% if request.path == '/tech100/attribution/' %}is-active{% endif %}" href="/tech100/attribution/">Attribution</a>
-    <a class="tech100-nav__link {% if request.path == '/tech100/stats/' %}is-active{% endif %}" href="/tech100/stats/">Stats</a>
-    <a class="tech100-nav__link {% if request.path == '/tech100/' %}is-active{% endif %}" href="/tech100/">Governance scores</a>
-  </div>
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/index/' %}is-active{% endif %}"
+    href="/tech100/index/"
+    {% if request.path == '/tech100/index/' %}aria-current="page"{% endif %}
+  >
+    Overview
+  </a>
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"
+    href="/tech100/performance/"
+    {% if request.path == '/tech100/performance/' %}aria-current="page"{% endif %}
+  >
+    Performance
+  </a>
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/constituents/' %}is-active{% endif %}"
+    href="/tech100/constituents/"
+    {% if request.path == '/tech100/constituents/' %}aria-current="page"{% endif %}
+  >
+    Constituents
+  </a>
 </nav>

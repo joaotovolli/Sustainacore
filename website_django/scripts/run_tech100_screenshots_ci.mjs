@@ -186,7 +186,7 @@ const run = async () => {
       "--property",
       `EnvironmentFile=${envFiles[1]}`,
       "--property",
-      "EnvironmentFile=/etc/sysconfig/sustainacore-django.env",
+      "EnvironmentFile=-/etc/sysconfig/sustainacore-django.env",
       "--property",
       `EnvironmentFile=${overrideEnvPath}`,
       "--property",
