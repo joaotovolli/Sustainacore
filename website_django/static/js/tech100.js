@@ -5,7 +5,33 @@
   const title = modal ? modal.querySelector("#tech100-modal-title") : null;
   const closeButton = modal ? modal.querySelector(".modal__close") : null;
   const detailsButtons = document.querySelectorAll(".tech100-details-button");
+  const copyButtons = document.querySelectorAll("[data-copy-link]");
   let activeTrigger = null;
+
+  copyButtons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      const url = window.location.href;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          const temp = document.createElement("input");
+          temp.value = url;
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand("copy");
+          temp.remove();
+        }
+        const original = button.textContent;
+        button.textContent = "Copied";
+        setTimeout(() => {
+          button.textContent = original;
+        }, 1500);
+      } catch (err) {
+        console.warn("Unable to copy link", err);
+      }
+    });
+  });
 
   if (!modal || !dialog || !content || !detailsButtons.length) {
     return;
@@ -60,6 +86,7 @@
       closeModal();
     }
   });
+
 })();
 
 (async function () {

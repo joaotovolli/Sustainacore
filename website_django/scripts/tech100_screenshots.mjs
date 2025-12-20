@@ -35,6 +35,11 @@ const targets = dedupeTargets(
     ? [
         { path: "/", name: "home.png" },
         { path: tech100Path, name: "tech100.png" },
+        { path: "/tech100/index/", name: "index_overview.png" },
+        { path: "/tech100/performance/", name: "performance.png" },
+        { path: "/tech100/constituents/", name: "constituents.png" },
+        { path: "/tech100/attribution/", name: "attribution.png" },
+        { path: "/tech100/stats/", name: "stats.png" },
       ]
     : [
         { path: "/", name: "home.png" },
@@ -182,7 +187,7 @@ const run = async () => {
       await page.waitForTimeout(300);
     }
     const outPath = path.join(outDir, target.name);
-    await page.screenshot({ path: outPath, fullPage: true });
+    await page.screenshot({ path: outPath, fullPage: true, timeout: 60000 });
     process.stdout.write(`saved ${outPath}\n`);
   }
 
