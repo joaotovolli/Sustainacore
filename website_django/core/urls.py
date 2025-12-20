@@ -47,6 +47,23 @@ urlpatterns = [
     path("api/tech100/constituents", tech100_index_views.api_tech100_constituents),
     path("api/tech100/attribution", tech100_index_views.api_tech100_attribution),
     path("api/tech100/stats", tech100_index_views.api_tech100_stats),
+    path("tech100/index-levels/", tech100_index_views.api_tech100_index_levels, name="tech100_index_levels_api"),
+    path(
+        "tech100/performance/attribution/",
+        tech100_index_views.api_tech100_performance_attribution,
+        name="tech100_performance_attribution_api",
+    ),
+    path(
+        "tech100/constituents/data/",
+        tech100_index_views.api_tech100_constituents,
+        name="tech100_constituents_api",
+    ),
+    path(
+        "tech100/attribution/data/",
+        tech100_index_views.api_tech100_attribution,
+        name="tech100_attribution_api",
+    ),
+    path("tech100/stats/data/", tech100_index_views.api_tech100_stats, name="tech100_stats_api"),
     path("news/", views.news, name="news"),
     path("news/admin/", views.news_admin, name="news_admin"),
     path("admin/", admin.site.urls),
