@@ -28,6 +28,8 @@ class StaticViewSitemap(Sitemap):
         "tech100_stats": "tech100_stats.html",
         "news": "news.html",
         "ask2:ask2_page": "ask2.html",
+        "press_index": "press_index.html",
+        "press_tech100": "press_tech100.html",
     }
 
     def items(self):
@@ -41,3 +43,8 @@ class StaticViewSitemap(Sitemap):
         if not template_name:
             return None
         return _template_lastmod(template_name)
+
+
+SITEMAPS = {
+    "static": StaticViewSitemap,
+}

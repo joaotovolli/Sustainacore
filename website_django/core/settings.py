@@ -50,6 +50,7 @@ DEFAULT_META_DESCRIPTION = (
     "SustainaCore provides open ESG and AI governance data, including TECH100 index insights, "
     "curated news, and evidence-backed indicators for responsible technology teams."
 )
+SITEMAP_CACHE_SECONDS = int(os.environ.get("SITEMAP_CACHE_SECONDS", "3600"))
 
 # Application definition
 

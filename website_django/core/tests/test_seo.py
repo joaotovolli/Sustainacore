@@ -20,10 +20,12 @@ class SeoFoundationsTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue("xml" in response["Content-Type"])
+        self.assertNotIn("X-Robots-Tag", response.headers)
         content = response.content.decode("utf-8")
         self.assertIn("http://testserver/", content)
         self.assertIn("http://testserver/tech100/", content)
         self.assertIn("http://testserver/news/", content)
+        self.assertIn("http://testserver/press/", content)
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")

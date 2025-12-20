@@ -6,10 +6,13 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.contrib.sitemaps.views import sitemap as django_sitemap
+from django.core.cache import cache
 from django.http import HttpResponse
 from django.shortcuts import render
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+from core import sitemaps
 
 
 logger = logging.getLogger(__name__)
@@ -655,3 +658,41 @@ def robots_txt(request):
         "",
     ]
     return HttpResponse("\n".join(lines), content_type="text/plain")
+
+
+def sitemap_xml(request):
+    cache_key = "sitemap_xml"
+    cached = cache.get(cache_key)
+    if cached:
+        response = HttpResponse(cached["content"], content_type=cached["content_type"])
+        if cached.get("last_modified"):
+            response.headers["Last-Modified"] = cached["last_modified"]
+        return response
+
+    response = django_sitemap(request, sitemaps=sitemaps.SITEMAPS)
+    response.headers.pop("X-Robots-Tag", None)
+    response.render()
+    cache.set(
+        cache_key,
+        {
+            "content": response.content,
+            "content_type": response.get("Content-Type", "application/xml"),
+            "last_modified": response.headers.get("Last-Modified"),
+        },
+        timeout=settings.SITEMAP_CACHE_SECONDS,
+    )
+    return response
+
+
+def press_index(request):
+    context = {
+        "year": datetime.now().year,
+    }
+    return render(request, "press_index.html", context)
+
+
+def press_tech100(request):
+    context = {
+        "year": datetime.now().year,
+    }
+    return render(request, "press_tech100.html", context)
