@@ -45,6 +45,12 @@ DEBUG = env_bool("DJANGO_DEBUG", default=False)
 DEFAULT_ALLOWED_HOSTS = "sustainacore.org,www.sustainacore.org,141.147.76.55,localhost"
 ALLOWED_HOSTS = get_env_list("DJANGO_ALLOWED_HOSTS", DEFAULT_ALLOWED_HOSTS)
 
+SITE_URL = os.environ.get("SITE_URL", "https://sustainacore.org")
+DEFAULT_META_DESCRIPTION = (
+    "SustainaCore provides open ESG and AI governance data, including TECH100 index insights, "
+    "curated news, and evidence-backed indicators for responsible technology teams."
+)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -54,6 +60,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sitemaps',
     'ask2',
 ]
 
@@ -79,6 +86,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'core.context_processors.seo_defaults',
             ],
         },
     },

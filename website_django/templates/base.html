@@ -5,6 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SustainaCore{% endblock %}</title>
+    <meta name="description" content="{% block meta_description %}{{ default_meta_description }}{% endblock %}">
+    {% block canonical %}<link rel="canonical" href="{{ canonical_url }}">{% endblock %}
+    <script type="application/ld+json">{{ org_json_ld|safe }}</script>
+    <script type="application/ld+json">{{ site_json_ld|safe }}</script>
+    {% block structured_data %}{% endblock %}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
