@@ -4,7 +4,13 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
 const rootDir = process.cwd();
-const screenshotDir = path.resolve(rootDir, "..", "docs", "screenshots", "tech100");
+const screenshotDir = path.resolve(
+  rootDir,
+  "..",
+  "docs",
+  "screenshots",
+  process.env.TECH100_SCREENSHOT_DIR || "tech100"
+);
 const beforeDir = path.join(screenshotDir, "before");
 const afterDir = path.join(screenshotDir, "after");
 const diffDir = path.join(screenshotDir, "diff");

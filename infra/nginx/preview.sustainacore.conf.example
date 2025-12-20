@@ -1,0 +1,56 @@
+# Example Nginx configuration for preview.sustainacore.org (VM2)
+#
+# Preview uses Basic Auth and noindex headers; it proxies to Gunicorn on 127.0.0.1:8000.
+
+server {
+    listen 80;
+    server_name preview.sustainacore.org 127.0.0.1 localhost;
+
+    auth_basic "Preview";
+    auth_basic_user_file /etc/nginx/.htpasswd_preview_sustainacore;
+
+    add_header X-Robots-Tag "noindex, nofollow, noarchive, nosnippet" always;
+
+    location = /robots.txt {
+        add_header Content-Type text/plain;
+        return 200 "User-agent: *\nDisallow: /\n";
+    }
+
+    location / {
+        include proxy_params;
+        proxy_pass http://127.0.0.1:8000;
+    }
+
+    location /static/ {
+        alias /opt/code/Sustainacore/website_django/static/;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name preview.sustainacore.org 127.0.0.1 localhost;
+
+    ssl_certificate /etc/letsencrypt/live/sustainacore.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/sustainacore.org/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    auth_basic "Preview";
+    auth_basic_user_file /etc/nginx/.htpasswd_preview_sustainacore;
+
+    add_header X-Robots-Tag "noindex, nofollow, noarchive, nosnippet" always;
+
+    location = /robots.txt {
+        add_header Content-Type text/plain;
+        return 200 "User-agent: *\nDisallow: /\n";
+    }
+
+    location / {
+        include proxy_params;
+        proxy_pass http://127.0.0.1:8000;
+    }
+
+    location /static/ {
+        alias /opt/code/Sustainacore/website_django/static/;
+    }
+}
