@@ -34,28 +34,15 @@ fi
 # 4) Move into Django project
 cd "$REPO_ROOT/website_django"
 
-# 5) Choose Python interpreter
-PYTHON_BIN="python"
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-  PYTHON_BIN="python3"
-fi
-
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-  echo "[VM2] No suitable Python interpreter found (tried python and python3)." >&2
-  exit 1
-fi
-
-echo "[VM2] Using Python interpreter: $PYTHON_BIN"
-
-# 6) Run Django commands
+# 5) Run Django commands in the service environment
 echo "[VM2] Running Django checks..."
-"$PYTHON_BIN" manage.py check
+"$REPO_ROOT/scripts/vm2_manage.sh" check
 
 echo "[VM2] Applying migrations..."
-"$PYTHON_BIN" manage.py migrate --noinput
+"$REPO_ROOT/scripts/vm2_manage.sh" migrate --noinput
 
 echo "[VM2] Collecting static files..."
-"$PYTHON_BIN" manage.py collectstatic --noinput
+"$REPO_ROOT/scripts/vm2_manage.sh" collectstatic --noinput
 
 # 7) Return to repo root and restart services
 cd "$REPO_ROOT"
@@ -92,7 +79,7 @@ if ! grep -qi "Content-Type: text/css" <<< "$STATIC_CHECK_OUTPUT"; then
 fi
 
 echo "[VM2] Pinging Google for sitemap..."
-if ! (cd "$REPO_ROOT/website_django" && "$PYTHON_BIN" manage.py ping_google --sitemap=https://www.sustainacore.org/sitemap.xml); then
+if ! "$REPO_ROOT/scripts/vm2_manage.sh" ping_google --sitemap=https://www.sustainacore.org/sitemap.xml; then
   echo "[VM2] Warning: Google sitemap ping failed (non-fatal)." >&2
 fi
 
