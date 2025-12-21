@@ -13,6 +13,8 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertTrue(response["Content-Type"].startswith("text/plain"))
         content = response.content.decode("utf-8")
         self.assertIn("Sitemap:", content)
+        self.assertIn("Sitemap: https://www.sustainacore.org/sitemap.xml", content)
+        self.assertEqual(content.count("Sitemap:"), 1)
         self.assertIn("Disallow: /admin/", content)
 
     def test_sitemap_xml(self):
