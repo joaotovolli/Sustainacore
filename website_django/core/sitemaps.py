@@ -23,6 +23,7 @@ class StaticViewSitemap(Sitemap):
         "home": "home.html",
         "tech100": "tech100.html",
         "tech100_index": "tech100_index_overview.html",
+        "tech100_performance": "tech100_performance.html",
         "tech100_constituents": "tech100_constituents.html",
         "tech100_attribution": "tech100_attribution.html",
         "tech100_stats": "tech100_stats.html",
