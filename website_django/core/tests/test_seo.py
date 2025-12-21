@@ -7,37 +7,52 @@ from django.urls import reverse
 
 class SeoFoundationsTests(SimpleTestCase):
     def test_robots_txt(self):
-        response = self.client.get("/robots.txt")
+        for host in ("sustainacore.org", "www.sustainacore.org"):
+            with self.subTest(host=host):
+                response = self.client.get("/robots.txt", HTTP_HOST=host, follow=True)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response["Content-Type"].startswith("text/plain"))
-        content = response.content.decode("utf-8")
-        self.assertIn("Sitemap:", content)
-        self.assertIn("Sitemap: https://www.sustainacore.org/sitemap.xml", content)
-        self.assertEqual(content.count("Sitemap:"), 1)
-        self.assertIn("Disallow: /admin/", content)
+                if response.redirect_chain:
+                    self.assertTrue(all(code == 301 for _, code in response.redirect_chain))
+
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response["Content-Type"].startswith("text/plain"))
+                content = response.content.decode("utf-8")
+                self.assertIn("Sitemap:", content)
+                self.assertIn("Sitemap: https://www.sustainacore.org/sitemap.xml", content)
+                self.assertEqual(content.count("Sitemap:"), 1)
+                self.assertIn("Disallow: /admin/", content)
 
     def test_sitemap_xml(self):
-        response = self.client.get("/sitemap.xml")
+        canonical_base = "http://sustainacore.org/"
+        for host in ("sustainacore.org", "www.sustainacore.org"):
+            with self.subTest(host=host):
+                response = self.client.get("/sitemap.xml", HTTP_HOST=host, follow=True)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue("xml" in response["Content-Type"])
-        self.assertNotIn("X-Robots-Tag", response.headers)
-        content = response.content.decode("utf-8")
-        self.assertIn("http://testserver/", content)
-        self.assertIn("http://testserver/tech100/index/", content)
-        self.assertIn("http://testserver/tech100/performance/", content)
-        self.assertIn("http://testserver/tech100/constituents/", content)
-        self.assertIn("http://testserver/tech100/", content)
-        self.assertIn("http://testserver/news/", content)
-        self.assertIn("http://testserver/press/", content)
-        self.assertGreater(content.count("<loc>"), 10)
+                if response.redirect_chain:
+                    self.assertTrue(all(code == 301 for _, code in response.redirect_chain))
+
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue("xml" in response["Content-Type"])
+                self.assertNotIn("X-Robots-Tag", response.headers)
+                content = response.content.decode("utf-8")
+                self.assertIn(canonical_base, content)
+                self.assertIn(f"{canonical_base}tech100/index/", content)
+                self.assertIn(f"{canonical_base}tech100/performance/", content)
+                self.assertIn(f"{canonical_base}tech100/constituents/", content)
+                self.assertIn(f"{canonical_base}tech100/attribution/", content)
+                self.assertIn(f"{canonical_base}tech100/stats/", content)
+                self.assertIn(f"{canonical_base}tech100/", content)
+                self.assertIn(f"{canonical_base}news/", content)
+                self.assertIn(f"{canonical_base}press/", content)
+                self.assertGreater(content.count("<loc>"), 10)
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")
-    def test_canonical_tag_ignores_querystring(self, fetch_news, fetch_tech100):
+    @mock.patch("core.views.get_latest_trade_date")
+    def test_canonical_tag_ignores_querystring(self, get_latest_trade_date, fetch_news, fetch_tech100):
         fetch_news.return_value = {"items": [], "error": None, "meta": {}}
         fetch_tech100.return_value = {"items": [], "error": None, "meta": {}}
+        get_latest_trade_date.return_value = None
 
         response = self.client.get(reverse("tech100") + "?q=ai&sector=Software")
 
@@ -51,7 +66,9 @@ class SeoFoundationsTests(SimpleTestCase):
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")
-    def test_json_ld_present_on_home_and_news(self, fetch_news, fetch_tech100):
+    @mock.patch("core.views.get_latest_trade_date")
+    def test_json_ld_present_on_home_and_news(self, get_latest_trade_date, fetch_news, fetch_tech100):
+        get_latest_trade_date.return_value = None
         fetch_tech100.return_value = {"items": [], "error": None, "meta": {}}
         fetch_news.return_value = {
             "items": [
@@ -77,12 +94,24 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertIn('application/ld+json', content)
         self.assertIn('"@type": "NewsArticle"', content)
 
+    @mock.patch("core.views.fetch_tech100")
+    @mock.patch("core.views.fetch_news")
+    @mock.patch("core.views.get_latest_trade_date")
     @mock.patch("core.context_processors.settings")
-    def test_preview_mode_includes_noindex_meta(self, settings_mock):
+    def test_preview_mode_includes_noindex_meta(
+        self,
+        settings_mock,
+        get_latest_trade_date,
+        fetch_news,
+        fetch_tech100,
+    ):
         settings_mock.PREVIEW_MODE = True
         settings_mock.PREVIEW_HOSTS = ["preview.sustainacore.org"]
         settings_mock.DEFAULT_META_DESCRIPTION = "Preview description"
         settings_mock.SITE_URL = "https://preview.sustainacore.org"
+        get_latest_trade_date.return_value = None
+        fetch_tech100.return_value = {"items": [], "error": None, "meta": {}}
+        fetch_news.return_value = {"items": [], "error": None, "meta": {}}
 
         response = self.client.get(reverse("home"), HTTP_HOST="preview.sustainacore.org")
         self.assertEqual(response.status_code, 200)
