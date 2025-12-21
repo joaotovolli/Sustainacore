@@ -90,6 +90,7 @@
 })();
 
 (async function () {
+  const dateFormat = window.SCDateFormat || {};
   const rebalanceSelect = document.querySelector('select[name="port_date"]');
   const filterForm = rebalanceSelect?.closest("form");
 
@@ -97,29 +98,10 @@
     return;
   }
 
-  const monthLabels = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-
-  function formatMMMYYYY(dateString) {
-    const [year, month] = dateString.split("-");
-    const monthIndex = Number.parseInt(month, 10) - 1;
-    if (!monthLabels[monthIndex] || !year) {
-      return dateString;
-    }
-    return `${monthLabels[monthIndex]}-${year}`;
-  }
+  const formatMonthYear = (value) =>
+    typeof dateFormat.formatMonthYear === "function"
+      ? dateFormat.formatMonthYear(value)
+      : value;
 
   function requestFilterSubmit() {
     if (!filterForm) return;
@@ -182,7 +164,7 @@
     sortedValues.forEach((value) => {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = formatMMMYYYY(value);
+      option.textContent = formatMonthYear(value);
       fragment.appendChild(option);
     });
 
@@ -201,5 +183,6 @@
     }
   }
 
+  dateFormat.applyDateFormatting?.();
   setupRebalanceSelect();
 })();

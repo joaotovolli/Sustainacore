@@ -103,7 +103,7 @@
                 {% for c in companies %}
                   <tr class="tech100-row">
                     <td class="text-left" data-order="{{ c.port_date_str|default:'' }}">
-                      {{ c.port_date_display|default:"—" }}
+                      <span data-date-format="as-of" data-date-value="{{ c.port_date_str }}">{{ c.port_date_str|default:"—" }}</span>
                     </td>
                     <td class="text-center tech100-col--rank" data-order="{{ c.rank_index|default_if_none:'' }}">
                       {% if c.rank_index or c.rank_index == 0 %}
@@ -185,7 +185,7 @@
                               <tbody>
                                 {% for h in c.history %}
                                   <tr>
-                                    <td>{{ h.port_date_str|default:"—" }}</td>
+                                    <td><span data-date-format="as-of" data-date-value="{{ h.port_date_str }}">{{ h.port_date_str|default:"—" }}</span></td>
                                     <td class="text-right">
                                       {% if h.transparency or h.transparency == 0 %}
                                         {{ h.transparency|floatformat:1 }}
@@ -275,5 +275,6 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="{% static 'js/tech100.js' %}"></script>
+  <script src="{% static 'js/date-format.js' %}?v=20251221"></script>
+  <script src="{% static 'js/tech100.js' %}?v=20251221"></script>
 {% endblock %}

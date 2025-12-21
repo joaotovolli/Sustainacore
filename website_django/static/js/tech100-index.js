@@ -1,4 +1,6 @@
 (() => {
+  const dateFormat = window.SCDateFormat || {};
+
   const parseJson = (id) => {
     const el = document.getElementById(id);
     if (!el) return null;
@@ -20,9 +22,35 @@
     return `${Number(value).toFixed(decimals)}%`;
   };
 
-  const formatDate = (value) => {
-    if (!value) return "—";
-    return value;
+  const formatAsOfDate = (value) =>
+    typeof dateFormat.formatAsOfDate === "function"
+      ? dateFormat.formatAsOfDate(value)
+      : value || "—";
+
+  const resolveAxisFormatter = (rangeKey, data) => {
+    if (typeof dateFormat.chooseAxisFormatter === "function") {
+      return dateFormat.chooseAxisFormatter(rangeKey, data);
+    }
+    return (value) => value;
+  };
+
+  const setAxisFormatter = (chart, rangeKey, data) => {
+    if (!chart?.options?.scales?.x) return;
+    const formatter = resolveAxisFormatter(rangeKey, data);
+    const labels = chart.data?.labels || [];
+    chart.options.scales.x.ticks = {
+      ...(chart.options.scales.x.ticks || {}),
+      autoSkip: true,
+      callback: (value, index) => {
+        const label = typeof value === "number" ? labels[value] : labels[index] ?? value;
+        return formatter(label ?? value);
+      },
+    };
+  };
+
+  const getActiveRange = (selector, fallback) => {
+    const active = document.querySelector(`${selector}.is-active`);
+    return active?.dataset.range || fallback;
   };
 
   const calcDrawdown = (levels) => {
@@ -60,11 +88,14 @@
     Chart.defaults.transitions.active.animation = false;
   };
 
+  dateFormat.applyDateFormatting?.();
+
   const initOverview = () => {
     const chartEl = document.getElementById("tech100-level-chart");
     if (!chartEl || typeof Chart === "undefined") return;
 
     const levelsData = parseJson("tech100-levels-data") || [];
+    let currentRange = getActiveRange(".tech100-range-btn", "1y");
     ensureChartDefaults();
 
     const buildDataset = (data) => ({
@@ -89,7 +120,7 @@
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          x: { ticks: { maxTicksLimit: 8 } },
+          x: { ticks: { maxTicksLimit: 8, autoSkip: true } },
           y: { beginAtZero: false },
         },
         plugins: {
@@ -102,6 +133,8 @@
         },
       },
     });
+    setAxisFormatter(chart, currentRange, levelsData);
+    chart.update();
 
     const updateRisk = (data) => {
       if (!data.length) return;
@@ -130,9 +163,9 @@
       const worstDayEl = document.getElementById("risk-worst-day");
       const worstReturnEl = document.getElementById("risk-worst-return");
       if (drawdownEl) drawdownEl.textContent = formatPct(maxDrawdown * 100, 2);
-      if (bestDayEl) bestDayEl.textContent = formatDate(best.date);
+      if (bestDayEl) bestDayEl.textContent = formatAsOfDate(best.date);
       if (bestReturnEl) bestReturnEl.textContent = formatNumber(best.ret * 100, 2);
-      if (worstDayEl) worstDayEl.textContent = formatDate(worst.date);
+      if (worstDayEl) worstDayEl.textContent = formatAsOfDate(worst.date);
       if (worstReturnEl) worstReturnEl.textContent = formatNumber(worst.ret * 100, 2);
     };
 
@@ -149,7 +182,9 @@
           const resp = await fetch(`/tech100/index-levels/?range=${range}`);
           const payload = await resp.json();
           if (!payload.levels) return;
+          currentRange = range;
           chart.data = buildDataset(payload.levels);
+          setAxisFormatter(chart, currentRange, payload.levels);
           chart.update();
           updateRisk(payload.levels);
         } catch (err) {
@@ -165,6 +200,7 @@
     ensureChartDefaults();
 
     const levelsData = parseJson("tech100-home-levels") || [];
+    let currentRange = getActiveRange(".tech100-home-range", "3m");
     const chart = new Chart(chartEl.getContext("2d"), {
       type: "line",
       data: {
@@ -185,7 +221,7 @@
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          x: { ticks: { maxTicksLimit: 6 } },
+          x: { ticks: { maxTicksLimit: 6, autoSkip: true } },
           y: { beginAtZero: false },
         },
         plugins: {
@@ -198,6 +234,8 @@
         },
       },
     });
+    setAxisFormatter(chart, currentRange, levelsData);
+    chart.update();
 
     document.querySelectorAll(".tech100-home-range").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -210,8 +248,10 @@
           const resp = await fetch(`/tech100/index-levels/?range=${range}`);
           const payload = await resp.json();
           if (!payload.levels) return;
+          currentRange = range;
           chart.data.labels = payload.levels.map((point) => point.date);
           chart.data.datasets[0].data = payload.levels.map((point) => point.level);
+          setAxisFormatter(chart, currentRange, payload.levels);
           chart.update();
         } catch (err) {
           console.warn("Unable to update home snapshot range", err);
@@ -228,9 +268,10 @@
     let levels = parseJson("tech100-performance-levels") || [];
     let drawdown = parseJson("tech100-performance-drawdown") || calcDrawdown(levels);
     let volSeries = parseJson("tech100-performance-vol") || calcRollingVol(levels, 30);
+    let currentRange = getActiveRange(".tech100-performance__overview .tech100-range-btn", "1y");
 
-    const buildLineChart = (canvas, label, data, color) =>
-      new Chart(canvas.getContext("2d"), {
+    const buildLineChart = (canvas, label, data, color) => {
+      const chart = new Chart(canvas.getContext("2d"), {
         type: "line",
         data: {
           labels: data.map((point) => point.date),
@@ -250,12 +291,16 @@
           responsive: true,
           maintainAspectRatio: false,
           scales: {
-            x: { ticks: { maxTicksLimit: 6 } },
+            x: { ticks: { maxTicksLimit: 6, autoSkip: true } },
             y: { beginAtZero: false },
           },
           plugins: { legend: { display: false } },
         },
       });
+      setAxisFormatter(chart, currentRange, data);
+      chart.update();
+      return chart;
+    };
 
     const levelChart = buildLineChart(
       levelCanvas,
@@ -296,19 +341,23 @@
           levels = payload.levels;
           drawdown = calcDrawdown(levels);
           volSeries = calcRollingVol(levels, 30);
+          currentRange = range;
 
           levelChart.data.labels = levels.map((point) => point.date);
           levelChart.data.datasets[0].data = levels.map((point) => point.level);
+          setAxisFormatter(levelChart, currentRange, levels);
           levelChart.update();
 
           if (drawdownChart) {
             drawdownChart.data.labels = drawdown.map((point) => point.date);
             drawdownChart.data.datasets[0].data = drawdown.map((point) => point.drawdown * 100);
+            setAxisFormatter(drawdownChart, currentRange, drawdown);
             drawdownChart.update();
           }
           if (volChart) {
             volChart.data.labels = volSeries.map((point) => point.date);
             volChart.data.datasets[0].data = volSeries.map((point) => point.vol * 100);
+            setAxisFormatter(volChart, currentRange, volSeries);
             volChart.update();
           }
         } catch (err) {
