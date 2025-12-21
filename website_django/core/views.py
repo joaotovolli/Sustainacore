@@ -712,7 +712,7 @@ def robots_txt(request):
         "Disallow: /news/admin/",
         "Disallow: /api/",
         "Disallow: /ask2/api/",
-        f"Sitemap: {settings.SITE_URL}/sitemap.xml",
+        "Sitemap: https://www.sustainacore.org/sitemap.xml",
         "",
     ]
     return HttpResponse("\n".join(lines), content_type="text/plain")
