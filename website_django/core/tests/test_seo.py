@@ -23,9 +23,13 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertNotIn("X-Robots-Tag", response.headers)
         content = response.content.decode("utf-8")
         self.assertIn("http://testserver/", content)
+        self.assertIn("http://testserver/tech100/index/", content)
+        self.assertIn("http://testserver/tech100/performance/", content)
+        self.assertIn("http://testserver/tech100/constituents/", content)
         self.assertIn("http://testserver/tech100/", content)
         self.assertIn("http://testserver/news/", content)
         self.assertIn("http://testserver/press/", content)
+        self.assertGreater(content.count("<loc>"), 10)
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")

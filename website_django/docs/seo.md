@@ -20,12 +20,13 @@
 
 ## Local validation
 1. Run checks/tests:
-   - `DJANGO_SECRET_KEY=devkey python manage.py check`
-   - `DJANGO_SECRET_KEY=devkey python manage.py test`
+   - `scripts/vm2_manage.sh check`
+   - `scripts/vm2_manage.sh test core.tests.test_seo`
 2. Start the server and verify endpoints:
-   - `DJANGO_SECRET_KEY=devkey python manage.py runserver`
-   - `curl -i http://127.0.0.1:8000/robots.txt`
-   - `curl -i http://127.0.0.1:8000/sitemap.xml`
+   - Use the VM2 service stack (Nginx/Gunicorn) for validation instead of ad-hoc `runserver`.
+   - `curl -k -I https://127.0.0.1/sitemap.xml -H "Host: sustainacore.org"` (TLS cert is for sustainacore.org, so `-k` skips the host mismatch)
+   - `curl -I http://127.0.0.1/sitemap.xml` (if HTTP is enabled)
+   - `curl -k -I https://127.0.0.1/robots.txt -H "Host: sustainacore.org"`
 3. Verify redirects in production:
    - `curl -I http://sustainacore.org/`
    - `curl -I https://www.sustainacore.org/`
