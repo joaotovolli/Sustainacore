@@ -6,6 +6,7 @@ from typing import Optional
 
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_GET
 
 from core.tech100_index_data import (
@@ -35,6 +36,8 @@ from core.tech100_index_data import (
 )
 
 logger = logging.getLogger(__name__)
+
+PAGE_CACHE_SECONDS = 60
 
 RANGE_WINDOWS = {
     "1m": 30,
@@ -90,6 +93,7 @@ def _best_worst(returns: list[tuple[dt.date, float]]) -> tuple[Optional[tuple], 
 
 
 @require_GET
+@cache_page(PAGE_CACHE_SECONDS)
 def tech100_index_overview(request):
     data_mode = get_data_mode()
     try:
@@ -175,6 +179,7 @@ def tech100_index_overview(request):
 
 
 @require_GET
+@cache_page(PAGE_CACHE_SECONDS)
 def tech100_performance(request):
     data_mode = get_data_mode()
     try:

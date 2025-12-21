@@ -10,6 +10,7 @@ from django.contrib.sitemaps.views import sitemap as django_sitemap
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.views.decorators.cache import cache_page
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
 from core.tech100_index_data import (
@@ -26,6 +27,8 @@ from core import sitemaps
 
 
 logger = logging.getLogger(__name__)
+
+PAGE_CACHE_SECONDS = 60
 
 
 def _format_port_weight(value) -> str:
@@ -306,6 +309,7 @@ def _normalize_row(raw: Dict) -> Dict:
     return row
 
 
+@cache_page(PAGE_CACHE_SECONDS)
 def home(request):
     tech100_response = fetch_tech100()
     news_response = fetch_news()
