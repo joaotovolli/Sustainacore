@@ -56,7 +56,7 @@
           </div>
           <div class="tech100-context__item">
             <span class="muted">Latest trade date</span>
-            <strong>{{ latest_date }}</strong>
+            <strong data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</strong>
           </div>
           <div class="tech100-context__item">
             <span class="muted">Levels</span>
@@ -99,7 +99,7 @@
           <div class="card__header card__header--split">
             <div>
               <h2 class="h4">Index level</h2>
-              <p class="muted">Latest data through {{ latest_date }}</p>
+              <p class="muted">Latest data through <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
             </div>
             <div class="card__actions">
               <a class="btn btn--ghost btn--sm" href="/tech100/index/export/?kind=levels">Download levels CSV</a>
@@ -154,18 +154,18 @@
             <p class="kpi-label">Max Drawdown (range)</p>
             <p class="kpi-value" id="risk-drawdown">{{ risk.max_drawdown|default:"—"|floatformat:2 }}{% if risk.max_drawdown %}%{% endif %}</p>
             {% if risk.max_drawdown_peak %}
-              <small class="muted">Peak {{ risk.max_drawdown_peak }} → {{ risk.max_drawdown_trough }}</small>
+              <small class="muted">Peak <span data-date-format="as-of" data-date-value="{{ risk.max_drawdown_peak }}">{{ risk.max_drawdown_peak }}</span> → <span data-date-format="as-of" data-date-value="{{ risk.max_drawdown_trough }}">{{ risk.max_drawdown_trough }}</span></small>
             {% endif %}
           </div>
           <div class="card kpi-card">
             <p class="kpi-label">Best Day</p>
             <p class="kpi-value"><span id="risk-best-return">{{ risk.best_day_return|default:"—"|floatformat:2 }}</span>{% if risk.best_day_return %}%{% endif %}</p>
-            <small class="muted" id="risk-best-day">{{ risk.best_day|default:"—" }}</small>
+            <small class="muted" id="risk-best-day" data-date-format="as-of" data-date-value="{{ risk.best_day }}">{{ risk.best_day|default:"—" }}</small>
           </div>
           <div class="card kpi-card">
             <p class="kpi-label">Worst Day</p>
             <p class="kpi-value"><span id="risk-worst-return">{{ risk.worst_day_return|default:"—"|floatformat:2 }}</span>{% if risk.worst_day_return %}%{% endif %}</p>
-            <small class="muted" id="risk-worst-day">{{ risk.worst_day|default:"—" }}</small>
+            <small class="muted" id="risk-worst-day" data-date-format="as-of" data-date-value="{{ risk.worst_day }}">{{ risk.worst_day|default:"—" }}</small>
           </div>
         </div>
 
@@ -183,7 +183,7 @@
           <div class="card__header card__header--split">
             <div>
               <h2 class="h4">Top constituents</h2>
-              <p class="muted">Top 25 by weight for {{ latest_date }}</p>
+              <p class="muted">Top 25 by weight for <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
             </div>
             <div class="card__actions">
               <a class="btn btn--ghost btn--sm" href="/tech100/index/export/?kind=constituents">Download CSV</a>
@@ -264,5 +264,6 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="{% static 'js/tech100-index.js' %}" defer></script>
+  <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
+  <script src="{% static 'js/tech100-index.js' %}?v=20251221" defer></script>
 {% endblock %}
