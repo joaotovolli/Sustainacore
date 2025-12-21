@@ -14,6 +14,7 @@ LOGGER = logging.getLogger("sustainacore.news")
 _DEFAULT_LIMIT = 20
 _MAX_LIMIT = 100
 _MAX_DAYS = 365
+_SUMMARY_MAX_CHARS = 400
 
 
 def _parse_list(raw: Any) -> List[str]:
@@ -115,6 +116,15 @@ def _parse_list(raw_value: Any) -> List[str]:
             continue
         parsed.append(text)
     return parsed
+
+
+def _build_summary(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    cleaned = " ".join(str(text).split())
+    if len(cleaned) <= _SUMMARY_MAX_CHARS:
+        return cleaned
+    return cleaned[: _SUMMARY_MAX_CHARS - 1].rstrip() + "…"
 
 
 def _build_news_sql(
@@ -228,23 +238,122 @@ def fetch_news_items(
             elif item_table:
                 item_id_value = str(item_table)
 
+            has_full_body = bool(item_table == "ESG_NEWS" and body)
+            summary = _build_summary(body)
+
             items.append(
                 {
                     "id": item_id_value,
                     "title": title,
                     "source": source_name,
                     "url": url,
-                    "summary": body,
+                    "summary": summary,
                     "tags": parsed_tags,
                     "categories": parsed_categories,
                     "pillar_tags": parsed_pillar_tags,
                     "ticker": ticker_value or None,
                     "published_at": _format_timestamp(dt_pub),
+                    "has_full_body": has_full_body,
                 }
             )
     return items, has_more, effective_limit
 
-__all__ = ["_build_news_sql", "fetch_news_items"]
+
+def _parse_item_key(item_key: str) -> Tuple[Optional[str], Optional[Any]]:
+    if not item_key:
+        return None, None
+    if ":" in item_key:
+        table, raw_id = item_key.split(":", 1)
+        table = table.strip().upper() or None
+    else:
+        table = None
+        raw_id = item_key
+    raw_id = (raw_id or "").strip()
+    if not raw_id:
+        return table, None
+    try:
+        item_id: Any = int(raw_id)
+    except ValueError:
+        item_id = raw_id
+    return table, item_id
+
+
+def fetch_news_item_detail(item_key: str) -> Optional[Dict[str, Any]]:
+    table, item_id = _parse_item_key(item_key)
+    if item_id is None:
+        return None
+
+    sql = (
+        "SELECT e.item_table, e.item_id, e.dt_pub, e.ticker, e.title, e.url, "
+        "e.source_name, e.body, a.full_text, e.pillar_tags, e.categories, e.tags, e.tickers "
+        "FROM v_news_enriched e "
+        "JOIN v_news_all a ON a.item_table = e.item_table AND a.item_id = e.item_id "
+        "WHERE e.item_id = :item_id "
+    )
+    binds: Dict[str, Any] = {"item_id": item_id}
+    if table:
+        sql += "AND e.item_table = :item_table "
+        binds["item_table"] = table
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        (
+            item_table,
+            item_id_value,
+            dt_pub,
+            ticker_single,
+            title,
+            url,
+            source_name,
+            body,
+            full_text,
+            pillar_tags,
+            categories,
+            tags_raw,
+            tickers_raw,
+        ) = [_to_plain(val) for val in row]
+
+    parsed_tags = _parse_list(tags_raw)
+    parsed_categories = _parse_list(categories)
+    parsed_pillar_tags = _parse_list(pillar_tags)
+    parsed_tickers = _parse_list(tickers_raw)
+
+    ticker_value = ", ".join(parsed_tickers) if parsed_tickers else (
+        ticker_single or tickers_raw or ""
+    )
+
+    full_body = full_text or None
+    has_full_body = bool(full_body)
+    summary = _build_summary(body)
+
+    item_id_str = None
+    if item_table and item_id_value:
+        item_id_str = f"{item_table}:{item_id_value}"
+    elif item_id_value is not None:
+        item_id_str = str(item_id_value)
+
+    return {
+        "id": item_id_str,
+        "title": title,
+        "source": source_name,
+        "url": url,
+        "summary": summary,
+        "body": full_body,
+        "tags": parsed_tags,
+        "categories": parsed_categories,
+        "pillar_tags": parsed_pillar_tags,
+        "ticker": ticker_value or None,
+        "published_at": _format_timestamp(dt_pub),
+        "has_full_body": has_full_body,
+    }
+
+
+__all__ = ["_build_news_sql", "fetch_news_items", "fetch_news_item_detail"]
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:

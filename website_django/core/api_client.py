@@ -18,6 +18,8 @@ CACHE_TTLS = {
     "tech100_error": 15,
     "news": 60,
     "news_error": 15,
+    "news_detail": 60,
+    "news_detail_error": 15,
 }
 
 
@@ -186,6 +188,37 @@ def fetch_news(
         "error": None,
     }
     cache.set(cache_key, result, CACHE_TTLS["news"])
+    return result
+
+
+def fetch_news_detail(*, news_id: str, timeout: float = 8.0) -> Dict[str, Any]:
+    """Fetch a single news item with full body text from VM1."""
+
+    if not news_id:
+        return {"item": None, "error": "Invalid news identifier."}
+
+    cache_key = _cache_key("news_detail", {"news_id": news_id})
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    safe_id = requests.utils.quote(str(news_id))
+    payload = _get_json(f"/api/news/{safe_id}", timeout=timeout)
+
+    if not isinstance(payload, dict):
+        logger.warning("Unexpected news detail payload shape: %s", payload)
+        result = {"item": None, "error": "Unable to load news data."}
+        cache.set(cache_key, result, CACHE_TTLS["news_detail_error"])
+        return result
+
+    if "error" in payload:
+        result = {"item": None, "error": payload.get("message", "Unable to load news data.")}
+        cache.set(cache_key, result, CACHE_TTLS["news_detail_error"])
+        return result
+
+    item = payload.get("item") if isinstance(payload.get("item"), dict) else None
+    result = {"item": item, "error": None}
+    cache.set(cache_key, result, CACHE_TTLS["news_detail"])
     return result
 
 
