@@ -4,6 +4,23 @@ import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { buildTech100Candidates } from "./tech100_url_candidates.mjs";
 
+const redactSecrets = (value) => {
+  if (value === undefined || value === null) return value;
+  let output = String(value);
+  const secrets = [
+    process.env.TECH100_BASIC_AUTH_USER,
+    process.env.TECH100_BASIC_AUTH_PASS,
+  ].filter(Boolean);
+  for (const secret of secrets) {
+    output = output.split(secret).join("[REDACTED]");
+  }
+  return output.replace(/Basic\s+[A-Za-z0-9+/=]+/g, "Basic [REDACTED]");
+};
+
+const logError = (...args) => {
+  console.error(...args.map(redactSecrets));
+};
+
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(scriptDir, "..");
 const envFiles = ["/etc/sustainacore.env", "/etc/sustainacore/db.env"];
@@ -32,19 +49,19 @@ const ensureNodeDeps = (rootDir) => {
   );
   const npmCheck = spawnSync("npm", ["--version"], { stdio: "ignore" });
   if (npmCheck.status !== 0) {
-    console.error("npm is required. Run: cd website_django && npm ci");
+    logError("npm is required. Run: cd website_django && npm ci");
     process.exit(1);
   }
   const npmArgs = hasLockfile ? ["ci"] : ["install", "--no-fund", "--no-audit"];
   const npmInstall = spawnSync("npm", npmArgs, { cwd: rootDir, stdio: "inherit" });
   if (npmInstall.status !== 0) {
-    console.error("Dependency install failed. Run: cd website_django && npm install");
+    logError("Dependency install failed. Run: cd website_django && npm install");
     process.exit(1);
   }
   process.stdout.write("Ensuring Playwright browsers...\n");
   const versionCheck = spawnSync("npx", ["playwright", "--version"], { cwd: rootDir, stdio: "inherit" });
   if (versionCheck.status !== 0) {
-    console.error("Playwright CLI not available. Run: cd website_django && npm install");
+    logError("Playwright CLI not available. Run: cd website_django && npm install");
     process.exit(1);
   }
   const browserCheck = spawnSync(
@@ -58,7 +75,7 @@ const ensureNodeDeps = (rootDir) => {
       stdio: "inherit",
     });
     if (install.status !== 0) {
-      console.error("Playwright chromium install failed. Run: cd website_django && npx playwright install chromium");
+      logError("Playwright chromium install failed. Run: cd website_django && npx playwright install chromium");
       process.exit(1);
     }
   }
@@ -317,10 +334,10 @@ const run = async () => {
     fs.writeFileSync(smokeLogPath, smokeOut.join(""));
     if (smokeExit !== 0) {
       await cleanup();
-      console.error("Oracle smoke test failed.");
-      dumpDiagnostics(smokeLogPath);
-      process.exit(1);
-    }
+    logError("Oracle smoke test failed.");
+    dumpDiagnostics(smokeLogPath);
+    process.exit(1);
+  }
   }
 
   const resolveTech100Path = async (hostHeader, authHeader) => {
@@ -375,11 +392,11 @@ const run = async () => {
     await waitFor(`${baseUrl}${tech100Path}`, null, 60000, baseHostHeader, baseAuthHeader);
   } catch (err) {
     await cleanup();
-    console.error(`Readiness failed: ${err.message}`);
-    console.error(`Readiness URL: ${baseUrl}/`);
+    logError(`Readiness failed: ${err.message}`);
+    logError(`Readiness URL: ${baseUrl}/`);
     if (fs.existsSync(logPath)) {
       const logTail = fs.readFileSync(logPath, "utf8").split("\n").slice(-60).join("\n");
-      console.error(`Runserver log tail (${logPath}):\n${logTail}`);
+      logError(`Runserver log tail (${logPath}):\n${logTail}`);
     }
     dumpDiagnostics(smokeLogPath);
     process.exit(1);
@@ -406,13 +423,13 @@ const run = async () => {
     }
   } catch (err) {
     await cleanup();
-    console.error(err.message);
+    logError(err.message);
     const html = await fetchWithHeaders(`${baseUrl}${tech100Path}`, baseHostHeader, baseAuthHeader)
       .then((res) => res.text());
     const failurePath = `/tmp/tech100_failure_body_${targetLabel}.html`;
     fs.writeFileSync(failurePath, html);
     const snippet = html.split("\n").slice(0, 120).join("\n");
-    console.error(`HTML snippet for ${tech100Path} (saved to ${failurePath}):\n${snippet}`);
+    logError(`HTML snippet for ${tech100Path} (saved to ${failurePath}):\n${snippet}`);
     dumpDiagnostics(smokeLogPath);
     process.exit(1);
   }
@@ -440,7 +457,7 @@ const run = async () => {
         await waitFor(`${previewBaseUrl}/`, null, 30000, "", previewAuthHeader);
         process.stdout.write("Preview validation ok\n");
       } catch (err) {
-        console.error(`Preview validation failed: ${err.message}`);
+        logError(`Preview validation failed: ${err.message}`);
         process.exit(1);
       }
     }
@@ -448,6 +465,6 @@ const run = async () => {
 };
 
 run().catch((err) => {
-  console.error(err);
+  logError(err);
   process.exit(1);
 });
