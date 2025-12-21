@@ -1,8 +1,14 @@
 from datetime import datetime, date, timedelta
 import csv
 import json
-from typing import Dict, Iterable, List
+import re
+from html import escape
+from html.parser import HTMLParser
+from typing import Dict, Iterable, List, Optional
 import logging
+from urllib.parse import unquote, urlparse
+from pathlib import Path
+import sys
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -12,7 +18,7 @@ from django.http import HttpResponse
 from django.shortcuts import render
 from django.views.decorators.cache import cache_page
 
-from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+from core.api_client import create_news_item_admin, fetch_news, fetch_news_detail, fetch_tech100
 from core.tech100_index_data import (
     get_data_mode,
     get_drawdown_series,
@@ -114,6 +120,210 @@ def _filter_companies(companies: Iterable[Dict], filters: Dict[str, str]) -> Lis
         filtered.append(company)
 
     return filtered
+
+
+def _parse_news_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _parse_news_list(value: object) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        candidates = value
+    else:
+        candidates = str(value).replace(";", ",").split(",")
+    parsed: List[str] = []
+    for candidate in candidates:
+        text = str(candidate).strip()
+        if text:
+            parsed.append(text)
+    return parsed
+
+
+def _split_news_paragraphs(text: str) -> List[str]:
+    cleaned = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not cleaned:
+        return []
+    chunks = [chunk.strip() for chunk in re.split(r"\n{2,}", cleaned) if chunk.strip()]
+    if len(chunks) == 1:
+        chunks = [chunk.strip() for chunk in cleaned.split("\n") if chunk.strip()]
+    return chunks
+
+
+class _NewsHTMLSanitizer(HTMLParser):
+    allowed_tags = {"p", "br", "ul", "ol", "li", "strong", "em", "b", "i", "a", "blockquote"}
+    allowed_attrs = {"a": {"href", "title"}}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: List[str] = []
+        self.open_tags: List[str] = []
+
+    def handle_starttag(self, tag: str, attrs: List[tuple[str, Optional[str]]]) -> None:
+        if tag not in self.allowed_tags:
+            return
+        clean_attrs: List[tuple[str, str]] = []
+        for key, value in attrs:
+            if key not in self.allowed_attrs.get(tag, set()):
+                continue
+            if value is None:
+                continue
+            if key == "href":
+                parsed = urlparse(value)
+                if parsed.scheme and parsed.scheme not in {"http", "https", "mailto"}:
+                    continue
+            clean_attrs.append((key, value))
+        attrs_join = "".join(f' {k}="{escape(v, quote=True)}"' for k, v in clean_attrs)
+        if tag == "br":
+            self.parts.append(f"<{tag}{attrs_join}>")
+        else:
+            self.parts.append(f"<{tag}{attrs_join}>")
+            self.open_tags.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag not in self.allowed_tags:
+            return
+        if tag in self.open_tags:
+            self.parts.append(f"</{tag}>")
+            for idx in range(len(self.open_tags) - 1, -1, -1):
+                if self.open_tags[idx] == tag:
+                    self.open_tags.pop(idx)
+                    break
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(escape(data))
+
+    def handle_entityref(self, name: str) -> None:
+        self.parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self.parts.append(f"&#{name};")
+
+    def sanitized(self) -> str:
+        while self.open_tags:
+            tag = self.open_tags.pop()
+            self.parts.append(f"</{tag}>")
+        return "".join(self.parts)
+
+
+def _sanitize_news_html(raw_html: str) -> str:
+    parser = _NewsHTMLSanitizer()
+    parser.feed(raw_html)
+    parser.close()
+    return parser.sanitized()
+
+
+def _fetch_news_detail_from_oracle(item_key: str) -> Optional[Dict[str, object]]:
+    if not item_key:
+        return None
+    table = None
+    raw_id = item_key
+    if ":" in item_key:
+        table, raw_id = item_key.split(":", 1)
+        table = table.strip().upper() or None
+    raw_id = (raw_id or "").strip()
+    if not raw_id:
+        return None
+    try:
+        item_id: object = int(raw_id)
+    except ValueError:
+        item_id = raw_id
+
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.append(str(repo_root))
+
+    try:
+        import db_helper
+    except Exception as exc:
+        logger.warning("Oracle helper import failed: %s", exc)
+        return None
+
+    sql = (
+        "SELECT e.item_table, e.item_id, e.dt_pub, e.ticker, e.title, e.url, "
+        "e.source_name, e.body, a.full_text, e.pillar_tags, e.categories, e.tags, e.tickers "
+        "FROM v_news_enriched e "
+        "JOIN v_news_all a ON a.item_table = e.item_table AND a.item_id = e.item_id "
+        "WHERE e.item_id = :item_id "
+    )
+    binds: Dict[str, object] = {"item_id": item_id}
+    if table:
+        sql += "AND e.item_table = :item_table "
+        binds["item_table"] = table
+
+    try:
+        with db_helper.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            row = cur.fetchone()
+            if not row:
+                return None
+            (
+                item_table,
+                item_id_value,
+                dt_pub,
+                ticker_single,
+                title,
+                url,
+                source_name,
+                body,
+                full_text,
+                pillar_tags,
+                categories,
+                tags_raw,
+                tickers_raw,
+            ) = [db_helper._to_plain(val) for val in row]
+    except Exception as exc:
+        logger.warning("Oracle news detail fetch failed: %s", exc)
+        return None
+
+    def _parse_oracle_list(value: object) -> List[str]:
+        return _parse_news_list(value)
+
+    parsed_tags = _parse_oracle_list(tags_raw)
+    parsed_categories = _parse_oracle_list(categories)
+    parsed_pillar_tags = _parse_oracle_list(pillar_tags)
+    parsed_tickers = _parse_oracle_list(tickers_raw)
+
+    ticker_value = ", ".join(parsed_tickers) if parsed_tickers else (
+        ticker_single or tickers_raw or ""
+    )
+
+    item_id_str = None
+    if item_table and item_id_value:
+        item_id_str = f"{item_table}:{item_id_value}"
+    elif item_id_value is not None:
+        item_id_str = str(item_id_value)
+
+    return {
+        "id": item_id_str,
+        "title": title,
+        "source": source_name,
+        "url": url,
+        "summary": body,
+        "body": full_text or None,
+        "tags": parsed_tags,
+        "categories": parsed_categories,
+        "pillar_tags": parsed_pillar_tags,
+        "ticker": ticker_value or None,
+        "published_at": dt_pub,
+        "has_full_body": bool(full_text),
+    }
 
 
 def _parse_port_date(value):
@@ -583,6 +793,7 @@ def news(request):
     filters = {
         "source": (request.GET.get("source") or "").strip(),
         "tag": (request.GET.get("tag") or "").strip(),
+        "ticker": (request.GET.get("ticker") or "").strip(),
         "date_range": date_range,
     }
 
@@ -592,11 +803,16 @@ def news(request):
     news_response = fetch_news(
         source=filters["source"] or None,
         tag=filters["tag"] or None,
+        ticker=filters["ticker"] or None,
         days=days,
         limit=20,
     )
 
     news_items = news_response.get("items", [])
+    for item in news_items:
+        if "has_full_body" not in item:
+            item_id = str(item.get("id") or "")
+            item["has_full_body"] = item_id.startswith("ESG_NEWS:")
     sources = sorted({item.get("source") for item in news_items if item.get("source")})
     tags = sorted({tag for item in news_items for tag in item.get("tags", [])})
 
@@ -638,6 +854,59 @@ def news(request):
         ],
     }
     return render(request, "news.html", context)
+
+
+def news_detail(request, news_id: str):
+    resolved_id = (news_id or "").strip()
+    decoded_id = unquote(resolved_id) if resolved_id else resolved_id
+
+    detail_response = fetch_news_detail(news_id=decoded_id or resolved_id)
+    selected_item = detail_response.get("item")
+    if not selected_item or not selected_item.get("body"):
+        oracle_item = _fetch_news_detail_from_oracle(decoded_id or resolved_id)
+        if oracle_item:
+            selected_item = oracle_item
+            detail_response = {"item": oracle_item, "error": None}
+
+    published_at = _parse_news_datetime(selected_item.get("published_at")) if selected_item else None
+    body_text = ""
+    if selected_item:
+        body_text = selected_item.get("body") or ""
+    body_text = str(body_text) if body_text is not None else ""
+
+    body_html = ""
+    body_paragraphs: List[str] = []
+    if body_text and re.search(r"<[a-zA-Z][^>]*>", body_text):
+        body_html = _sanitize_news_html(body_text)
+    else:
+        body_paragraphs = _split_news_paragraphs(body_text)
+
+    tags = _parse_news_list(selected_item.get("tags") if selected_item else None)
+    categories = _parse_news_list(selected_item.get("categories") if selected_item else None)
+    pillar_tags = _parse_news_list(selected_item.get("pillar_tags") if selected_item else None)
+    tickers = _parse_news_list(selected_item.get("tickers") if selected_item else None)
+    ticker_single = selected_item.get("ticker") if selected_item else None
+    if ticker_single:
+        tickers.extend(_parse_news_list(ticker_single))
+    tickers = list(dict.fromkeys([ticker for ticker in tickers if ticker]))
+
+    context = {
+        "year": datetime.now().year,
+        "news_error": detail_response.get("error"),
+        "article": selected_item,
+        "published_at": published_at,
+        "body_html": body_html,
+        "body_paragraphs": body_paragraphs,
+        "tags": tags,
+        "categories": categories,
+        "pillar_tags": pillar_tags,
+        "tickers": tickers,
+    }
+
+    status = 200 if selected_item else 404
+    if detail_response.get("error"):
+        status = 503 if not selected_item else 200
+    return render(request, "news_detail.html", context, status=status)
 
 
 @login_required
