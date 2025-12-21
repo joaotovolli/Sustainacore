@@ -18,8 +18,8 @@
           <p class="muted">Live Oracle-backed index performance, attribution, and holdings intelligence.</p>
         </div>
         <div class="meta-stack">
-          <div class="meta-pill">Rebalance: {{ rebalance_date|default:"—" }}</div>
-          <div class="meta-pill">Universe date: {{ universe_date|default:"—" }}</div>
+          <div class="meta-pill">Rebalance: <span data-date-format="as-of" data-date-value="{{ rebalance_date }}">{{ rebalance_date|default:"—" }}</span></div>
+          <div class="meta-pill">Universe date: <span data-date-format="as-of" data-date-value="{{ universe_date }}">{{ universe_date|default:"—" }}</span></div>
         </div>
       </div>
 
@@ -53,7 +53,7 @@
         <div class="tech100-context">
           <div class="tech100-context__item">
             <span class="muted">Latest trade date</span>
-            <strong>{{ latest_date }}</strong>
+            <strong data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</strong>
           </div>
           <div class="tech100-context__item">
             <span class="muted">Levels</span>
@@ -115,7 +115,7 @@
           <div class="tech100-performance__header">
             <div>
               <h2 class="h4">Overview</h2>
-              <p class="muted">As of {{ latest_date }} (UTC)</p>
+              <p class="muted">As of <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span> (UTC)</p>
             </div>
             <div class="tech100-index__range">
               <button class="btn btn--ghost tech100-range-btn {% if range_key == '1m' %}is-active{% endif %}" data-range="1m">1M</button>
@@ -267,7 +267,7 @@
                     <tr>
                       <td class="text-left">{{ row.ticker }}</td>
                       <td class="text-right">{{ row.imputed_days }}</td>
-                      <td class="text-right">{{ row.last_imputed|default:"—" }}</td>
+                      <td class="text-right"><span data-date-format="as-of" data-date-value="{{ row.last_imputed }}">{{ row.last_imputed|default:"—" }}</span></td>
                     </tr>
                   {% empty %}
                     <tr>
@@ -315,5 +315,6 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="{% static 'js/tech100-index.js' %}" defer></script>
+  <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
+  <script src="{% static 'js/tech100-index.js' %}?v=20251221" defer></script>
 {% endblock %}

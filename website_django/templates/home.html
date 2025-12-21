@@ -89,7 +89,7 @@
                     <div class="tech100-home__chart-header">
                         <div>
                             <h3 class="h4">Index level (3M)</h3>
-                            <p class="muted">As of {{ tech100_snapshot.as_of }} (UTC)</p>
+                            <p class="muted">As of <span data-date-format="as-of" data-date-value="{{ tech100_snapshot.as_of }}">{{ tech100_snapshot.as_of }}</span> (UTC)</p>
                         </div>
                         <div class="tech100-index__range tech100-home__range">
                             <button class="btn btn--ghost tech100-home-range is-active" data-range="3m">3M</button>
@@ -257,5 +257,6 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="{% static 'js/tech100-index.js' %}" defer></script>
+  <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
+  <script src="{% static 'js/tech100-index.js' %}?v=20251221" defer></script>
 {% endblock %}
