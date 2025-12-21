@@ -252,24 +252,32 @@ def get_index_levels(
 
 
 def _get_recent_levels(as_of_date: dt.date, limit: int) -> list[tuple[dt.date, float]]:
-    rows = _execute_rows(
-        "SELECT trade_date, level_tr "
-        "FROM SC_IDX_LEVELS "
-        "WHERE index_code = :index_code AND trade_date <= :as_of_date "
-        "ORDER BY trade_date DESC FETCH FIRST :limit ROWS ONLY",
-        {"index_code": INDEX_CODE, "as_of_date": as_of_date, "limit": limit},
-    )
-    levels: list[tuple[dt.date, float]] = []
-    for row in rows:
-        trade_date = _to_date(row[0])
-        if not trade_date:
-            continue
-        try:
-            level = float(row[1])
-        except (TypeError, ValueError):
-            continue
-        levels.append((trade_date, level))
-    return list(reversed(levels))
+    if _data_mode() == "fixture":
+        levels = [row for row in _fixture_levels() if row[0] <= as_of_date]
+        return levels[-limit:] if limit else []
+    key = _cache_key("recent_levels", as_of_date.isoformat(), str(limit))
+
+    def _load() -> list[tuple[dt.date, float]]:
+        rows = _execute_rows(
+            "SELECT trade_date, level_tr "
+            "FROM SC_IDX_LEVELS "
+            "WHERE index_code = :index_code AND trade_date <= :as_of_date "
+            "ORDER BY trade_date DESC FETCH FIRST :limit ROWS ONLY",
+            {"index_code": INDEX_CODE, "as_of_date": as_of_date, "limit": limit},
+        )
+        levels: list[tuple[dt.date, float]] = []
+        for row in rows:
+            trade_date = _to_date(row[0])
+            if not trade_date:
+                continue
+            try:
+                level = float(row[1])
+            except (TypeError, ValueError):
+                continue
+            levels.append((trade_date, level))
+        return list(reversed(levels))
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["levels"])
 
 
 def _return_from_levels(level_end: Optional[float], level_start: Optional[float]) -> Optional[float]:
@@ -282,31 +290,48 @@ def _level_at_or_before(target_date: dt.date) -> Optional[tuple[dt.date, float]]
     if _data_mode() == "fixture":
         levels = [row for row in _fixture_levels() if row[0] <= target_date]
         return levels[-1] if levels else None
-    rows = _execute_rows(
-        "SELECT trade_date, level_tr "
-        "FROM SC_IDX_LEVELS "
-        "WHERE index_code = :index_code AND trade_date <= :target_date "
-        "ORDER BY trade_date DESC FETCH FIRST 1 ROWS ONLY",
-        {"index_code": INDEX_CODE, "target_date": target_date},
-    )
-    if not rows:
-        return None
-    trade_date = _to_date(rows[0][0])
-    if not trade_date:
-        return None
-    try:
-        level = float(rows[0][1])
-    except (TypeError, ValueError):
-        return None
-    return trade_date, level
+    key = _cache_key("level_at_or_before", target_date.isoformat())
+
+    def _load() -> Optional[tuple[dt.date, float]]:
+        rows = _execute_rows(
+            "SELECT trade_date, level_tr "
+            "FROM SC_IDX_LEVELS "
+            "WHERE index_code = :index_code AND trade_date <= :target_date "
+            "ORDER BY trade_date DESC FETCH FIRST 1 ROWS ONLY",
+            {"index_code": INDEX_CODE, "target_date": target_date},
+        )
+        if not rows:
+            return None
+        trade_date = _to_date(rows[0][0])
+        if not trade_date:
+            return None
+        try:
+            level = float(rows[0][1])
+        except (TypeError, ValueError):
+            return None
+        return trade_date, level
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["levels"])
 
 
 def get_return_between(as_of_date: dt.date, start_date: dt.date) -> Optional[float]:
-    latest = _level_at_or_before(as_of_date)
-    start = _level_at_or_before(start_date)
-    if not latest or not start:
-        return None
-    return _return_from_levels(latest[1], start[1])
+    if _data_mode() == "fixture":
+        latest = _level_at_or_before(as_of_date)
+        start = _level_at_or_before(start_date)
+        if not latest or not start:
+            return None
+        return _return_from_levels(latest[1], start[1])
+
+    key = _cache_key("return_between", as_of_date.isoformat(), start_date.isoformat())
+
+    def _load() -> Optional[float]:
+        latest = _level_at_or_before(as_of_date)
+        start = _level_at_or_before(start_date)
+        if not latest or not start:
+            return None
+        return _return_from_levels(latest[1], start[1])
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["returns"])
 
 
 def get_index_returns(
@@ -419,32 +444,37 @@ def get_kpis(as_of_date: dt.date) -> dict:
             "ret_ytd": _return_from_levels(latest[1], inception[1]) if inception and latest else None,
             "ret_since_inception": _return_from_levels(latest[1], inception[1]) if inception and latest else None,
         }
-    latest = _level_at_or_before(as_of_date)
-    stats = get_stats(as_of_date)
-    latest_level = latest[1] if latest else None
+    key = _cache_key("kpis", as_of_date.isoformat())
 
-    def _return_for_delta(days: int) -> Optional[float]:
-        target = as_of_date - dt.timedelta(days=days)
-        prev = _level_at_or_before(target)
-        if not prev or latest_level is None:
-            return None
-        return _return_from_levels(latest_level, prev[1])
+    def _load() -> dict:
+        latest = _level_at_or_before(as_of_date)
+        stats = get_stats(as_of_date)
+        latest_level = latest[1] if latest else None
 
-    ytd_start = dt.date(as_of_date.year, 1, 1)
-    ytd_level = _level_at_or_before(ytd_start)
-    inception_min, _ = get_trade_date_bounds()
-    inception_level = _level_at_or_before(inception_min) if inception_min else None
+        def _return_for_delta(days: int) -> Optional[float]:
+            target = as_of_date - dt.timedelta(days=days)
+            prev = _level_at_or_before(target)
+            if not prev or latest_level is None:
+                return None
+            return _return_from_levels(latest_level, prev[1])
 
-    return {
-        "level": latest_level,
-        "ret_1d": stats.get("ret_1d") if stats else _return_for_delta(1),
-        "ret_1w": stats.get("ret_5d") if stats else _return_for_delta(7),
-        "ret_1m": stats.get("ret_20d") if stats else _return_for_delta(30),
-        "ret_ytd": _return_from_levels(latest_level, ytd_level[1] if ytd_level else None),
-        "ret_since_inception": _return_from_levels(
-            latest_level, inception_level[1] if inception_level else None
-        ),
-    }
+        ytd_start = dt.date(as_of_date.year, 1, 1)
+        ytd_level = _level_at_or_before(ytd_start)
+        inception_min, _ = get_trade_date_bounds()
+        inception_level = _level_at_or_before(inception_min) if inception_min else None
+
+        return {
+            "level": latest_level,
+            "ret_1d": stats.get("ret_1d") if stats else _return_for_delta(1),
+            "ret_1w": stats.get("ret_5d") if stats else _return_for_delta(7),
+            "ret_1m": stats.get("ret_20d") if stats else _return_for_delta(30),
+            "ret_ytd": _return_from_levels(latest_level, ytd_level[1] if ytd_level else None),
+            "ret_since_inception": _return_from_levels(
+                latest_level, inception_level[1] if inception_level else None
+            ),
+        }
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["stats"])
 
 
 def get_rolling_vol(as_of_date: dt.date, window: int = 20) -> Optional[float]:

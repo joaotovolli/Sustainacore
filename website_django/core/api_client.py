@@ -2,14 +2,29 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, Dict, List, Optional
 import logging
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
+
+CACHE_TTLS = {
+    "tech100": 60,
+    "tech100_error": 15,
+    "news": 60,
+    "news_error": 15,
+}
+
+
+def _cache_key(prefix: str, params: Dict[str, Any]) -> str:
+    encoded = json.dumps(params, sort_keys=True, default=str)
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
+    return f"backend:{prefix}:{digest}"
 
 
 def _build_headers() -> Dict[str, str]:
@@ -93,15 +108,24 @@ def fetch_tech100(
     if search:
         params["search"] = search
 
+    cache_key = _cache_key("tech100", params)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     payload = _get_json("/api/tech100", timeout=timeout, params=params or None)
     if isinstance(payload, dict) and "error" in payload:
-        return {
+        result = {
             "items": [],
             "meta": {},
             "error": payload.get("message", "Unable to load TECH100 data."),
         }
+        cache.set(cache_key, result, CACHE_TTLS["tech100_error"])
+        return result
 
-    return {"items": _extract_items(payload), "meta": _extract_meta(payload), "error": None}
+    result = {"items": _extract_items(payload), "meta": _extract_meta(payload), "error": None}
+    cache.set(cache_key, result, CACHE_TTLS["tech100"])
+    return result
 
 
 def fetch_news(
@@ -131,27 +155,38 @@ def fetch_news(
     if days is not None:
         params["days"] = days
 
+    cache_key = _cache_key("news", params)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     payload = _get_json("/api/news", timeout=timeout, params=params)
 
     if not isinstance(payload, dict):
         logger.warning("Unexpected news payload shape: %s", payload)
-        return {"items": [], "meta": {}, "error": "Unable to load news data."}
+        result = {"items": [], "meta": {}, "error": "Unable to load news data."}
+        cache.set(cache_key, result, CACHE_TTLS["news_error"])
+        return result
 
     if "error" in payload:
-        return {
+        result = {
             "items": [],
             "meta": {},
             "error": payload.get("message", "Unable to load news data."),
         }
+        cache.set(cache_key, result, CACHE_TTLS["news_error"])
+        return result
 
     items = payload.get("items") if isinstance(payload.get("items"), list) else []
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
 
-    return {
+    result = {
         "items": items,
         "meta": meta,
         "error": None,
     }
+    cache.set(cache_key, result, CACHE_TTLS["news"])
+    return result
 
 
 def _post_json(path: str, *, timeout: float, json_body: Dict[str, Any]) -> Dict[str, Any]:

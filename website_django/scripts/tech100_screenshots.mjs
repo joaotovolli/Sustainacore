@@ -16,6 +16,7 @@ const screenshotDir = process.env.TECH100_SCREENSHOT_DIR || "tech100";
 const authUser = process.env.TECH100_BASIC_AUTH_USER || "";
 const authPass = process.env.TECH100_BASIC_AUTH_PASS || "";
 const hostHeader = process.env.TECH100_SCREENSHOT_HOST_HEADER || "";
+const ignoreHttpsErrors = process.env.TECH100_IGNORE_HTTPS_ERRORS === "1";
 
 const outDir = path.resolve(process.cwd(), "..", "docs", "screenshots", screenshotDir, mode);
 fs.mkdirSync(outDir, { recursive: true });
@@ -125,6 +126,7 @@ const run = async () => {
   const browser = await chromium.launch();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
+    ignoreHTTPSErrors: ignoreHttpsErrors,
     httpCredentials: authUser && authPass ? { username: authUser, password: authPass } : undefined,
     extraHTTPHeaders: hostHeader ? { Host: hostHeader } : undefined,
   });
