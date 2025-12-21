@@ -19,7 +19,7 @@
                 <p class="muted">Curated stories that surface transparency updates, regulatory moves, and accountability signals across the TECH100 cohort.</p>
             </div>
             <div class="filters">
-                <form class="filters" method="get">
+                <form class="filters filters--news" method="get">
                     <label>
                         Source
                         <select name="source">
@@ -37,6 +37,10 @@
                             <option value="{{ tag }}" {% if filters.tag == tag %}selected{% endif %}>{{ tag }}</option>
                             {% endfor %}
                         </select>
+                    </label>
+                    <label>
+                        Ticker
+                        <input type="search" name="ticker" placeholder="e.g., MSFT" value="{{ filters.ticker }}">
                     </label>
                     <label>
                         Date range
@@ -57,45 +61,60 @@
             News is temporarily unavailable. Please try again in a moment.
         </div>
         {% endif %}
-        <div class="cards cards--list" data-news-list>
+        <div class="news-grid" data-news-list>
             {% if news_error %}
-            <article class="news-card">
-                <p class="muted">News is temporarily unavailable. Please try again in a moment.</p>
-            </article>
+                <article class="news-card news-card--empty" data-news-empty-state>
+                    <p class="muted">News is temporarily unavailable. Please try again in a moment.</p>
+                </article>
             {% elif articles %}
                 {% for article in articles %}
                 <article class="news-card">
-                    <div class="news-card__meta">
-                        {{ article.source }}{% if article.published_at %} · {{ article.published_at|date:"M j, Y" }}{% endif %}
-                    </div>
-                    <h3 class="news-card__title">
-                        <a href="{{ article.url }}" target="_blank" rel="noreferrer">{{ article.title }}</a>
-                    </h3>
-                    <p class="muted">{{ article.summary|default_if_none:""|truncatechars:320 }}</p>
-                    {% if article.tags or article.categories or article.pillar_tags %}
-                    <div class="news-card__tags">
-                        {% if article.tags %}
-                            {% for tag in article.tags %}
-                            <span class="tag">{{ tag }}</span>
-                            {% endfor %}
+                    {% if article.has_full_body and article.id %}
+                    <a class="news-card__link" href="{% url 'news_detail' article.id %}" data-news-link>
+                    {% elif article.url %}
+                    <a class="news-card__link" href="{{ article.url }}" target="_blank" rel="noopener noreferrer" data-news-link data-news-external>
+                    {% else %}
+                    <div class="news-card__link">
+                    {% endif %}
+                        <div class="news-card__meta">
+                            {{ article.source }}{% if article.published_at %} · {{ article.published_at|date:"M j, Y" }}{% endif %}
+                        </div>
+                        <h3 class="news-card__title">{{ article.title }}</h3>
+                        <p class="muted">{{ article.summary|default_if_none:""|truncatechars:240 }}</p>
+                        {% if article.tags or article.categories or article.pillar_tags or article.ticker %}
+                        <div class="news-card__tags">
+                            {% if article.ticker %}
+                            <span class="tag tag--brand">{{ article.ticker }}</span>
+                            {% endif %}
+                            {% if article.tags %}
+                                {% for tag in article.tags %}
+                                <span class="tag">{{ tag }}</span>
+                                {% endfor %}
+                            {% endif %}
+                            {% if article.categories %}
+                                {% for category in article.categories %}
+                                <span class="tag tag--muted">{{ category }}</span>
+                                {% endfor %}
+                            {% endif %}
+                            {% if article.pillar_tags %}
+                                {% for pillar_tag in article.pillar_tags %}
+                                <span class="tag tag--muted">{{ pillar_tag }}</span>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
                         {% endif %}
-                        {% if article.categories %}
-                            {% for category in article.categories %}
-                            <span class="tag tag--muted">{{ category }}</span>
-                            {% endfor %}
-                        {% endif %}
-                        {% if article.pillar_tags %}
-                            {% for pillar_tag in article.pillar_tags %}
-                            <span class="tag tag--muted">{{ pillar_tag }}</span>
-                            {% endfor %}
-                        {% endif %}
+                        <span class="news-card__cta">
+                            {% if article.has_full_body and article.id %}Read full article →{% else %}Open source →{% endif %}
+                        </span>
+                    {% if article.has_full_body or article.url %}
+                    </a>
+                    {% else %}
                     </div>
                     {% endif %}
-                    <a class="text-link" href="{{ article.url }}" target="_blank" rel="noreferrer">View source →</a>
                 </article>
                 {% endfor %}
             {% else %}
-                <article class="news-card">
+                <article class="news-card news-card--empty" data-news-empty-state>
                     <p class="muted">No results for this filter or date range.</p>
                 </article>
             {% endif %}

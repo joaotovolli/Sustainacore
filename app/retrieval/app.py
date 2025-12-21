@@ -12,7 +12,7 @@ from anyio import to_thread
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.news_service import create_curated_news_item, fetch_news_items
+from app.news_service import create_curated_news_item, fetch_news_items, fetch_news_item_detail
 from app.persona import apply_persona
 from app.request_normalizer import BAD_INPUT_ERROR, normalize_request
 
@@ -609,6 +609,32 @@ async def api_news(
         },
     }
     return JSONResponse(response, media_type="application/json")
+
+
+@app.get("/api/news/{news_id}")
+async def api_news_detail(request: Request, news_id: str) -> JSONResponse:
+    header = request.headers.get("authorization", "")
+    if header:
+        auth = _api_auth_guard(request)
+        if auth is not None:
+            return auth
+
+    try:
+        item = fetch_news_item_detail(news_id)
+    except Exception as exc:
+        LOGGER.exception("api_news_detail query failed", exc_info=exc)
+        return JSONResponse(
+            {"error": "news_unavailable", "message": "News is temporarily unavailable."},
+            status_code=500,
+        )
+
+    if not item:
+        return JSONResponse(
+            {"error": "not_found", "message": "News item not found."},
+            status_code=404,
+        )
+
+    return JSONResponse({"item": item}, media_type="application/json")
 
 
 @app.post("/api/news/admin/items")
