@@ -8,6 +8,9 @@
     "pngjs": "7.0.0"
   },
   "scripts": {
+    "screenshots:news:before": "node scripts/news_screenshots.mjs --mode before",
+    "screenshots:news:after": "node scripts/news_screenshots.mjs --mode after",
+    "screenshots:news:diff": "node scripts/news_screenshot_diff.mjs",
     "screenshots:tech100:before": "node scripts/tech100_screenshots.mjs --mode before",
     "screenshots:tech100:after": "node scripts/tech100_screenshots.mjs --mode after",
     "screenshots:tech100:diff": "node scripts/tech100_screenshot_diff.mjs",

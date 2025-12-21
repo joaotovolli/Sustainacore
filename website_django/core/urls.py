@@ -66,6 +66,7 @@ urlpatterns = [
     path("tech100/stats/data/", tech100_index_views.api_tech100_stats, name="tech100_stats_api"),
     path("news/", views.news, name="news"),
     path("news/admin/", views.news_admin, name="news_admin"),
+    path("news/<str:news_id>/", views.news_detail, name="news_detail"),
     path("admin/", admin.site.urls),
     path("", include("ask2.urls")),
 ]
