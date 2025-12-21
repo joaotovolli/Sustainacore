@@ -91,4 +91,9 @@ if ! grep -qi "Content-Type: text/css" <<< "$STATIC_CHECK_OUTPUT"; then
   exit 1
 fi
 
+echo "[VM2] Pinging Google for sitemap..."
+if ! (cd "$REPO_ROOT/website_django" && "$PYTHON_BIN" manage.py ping_google --sitemap=https://www.sustainacore.org/sitemap.xml); then
+  echo "[VM2] Warning: Google sitemap ping failed (non-fatal)." >&2
+fi
+
 echo "[VM2] Deploy completed successfully."
