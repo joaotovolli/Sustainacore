@@ -1,6 +1,6 @@
 import datetime as dt
 
-import app.providers.twelvedata as twelvedata
+import app.providers.market_data_provider as market_data_provider
 from tools.index_engine.run_daily import _probe_with_fallback
 
 
@@ -25,8 +25,9 @@ def test_fetch_single_day_bar_selects_descending(monkeypatch):
         {"datetime": "2025-01-02", "close": "2"},
         {"datetime": "2025-01-01", "close": "1"},
     ]
-    monkeypatch.setattr(twelvedata, "fetch_daily_window_desc", lambda *a, **k: rows)
-    result = twelvedata.fetch_single_day_bar("SPY", dt.date(2025, 1, 2))
+    monkeypatch.setattr(market_data_provider, "_get_api_key", lambda explicit=None: "demo")
+    monkeypatch.setattr(market_data_provider, "fetch_daily_window_desc", lambda *a, **k: rows)
+    result = market_data_provider.fetch_single_day_bar("SPY", dt.date(2025, 1, 2))
     assert len(result) == 1
     assert result[0]["trade_date"] == "2025-01-02"
 
@@ -44,10 +45,11 @@ def test_fetch_eod_prices_single_day_uses_desc(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("should not call _fetch_ticker for single-day")
 
-    monkeypatch.setattr(twelvedata, "fetch_daily_window_desc", fake_desc)
-    monkeypatch.setattr(twelvedata, "_fetch_ticker", boom)
+    monkeypatch.setattr(market_data_provider, "_get_api_key", lambda explicit=None: "demo")
+    monkeypatch.setattr(market_data_provider, "fetch_daily_window_desc", fake_desc)
+    monkeypatch.setattr(market_data_provider, "_fetch_ticker", boom)
 
-    result = twelvedata.fetch_eod_prices(["SPY"], "2025-01-02", "2025-01-02")
+    result = market_data_provider.fetch_eod_prices(["SPY"], "2025-01-02", "2025-01-02")
     assert called_desc["count"] == 1
     assert len(result) == 1
     assert result[0]["trade_date"] == "2025-01-02"

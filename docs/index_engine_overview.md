@@ -8,7 +8,7 @@
 - **SC_IDX_LEVELS**: Final index levels calculated from canon prices, holdings, and divisors (planned).
 
 ## Implemented components (prices only)
-- **Provider**: Twelve Data `/time_series` with throttling at 8 credits/min to respect the free tier.
+- **Provider**: Primary market data provider `/time_series` with throttling at 8 credits/min to respect the plan limits.
 - **Ingest script**: `tools/index_engine/ingest_prices.py` handles incremental fetch + MERGE into RAW and CANON.
 - **Daily runner**: `tools/index_engine/run_daily.py` computes `(UTC today - 1)` as the end date and runs chunked ingest.
 - **Systemd timer**: `infra/systemd/sc-idx-price-ingest.service` + `.timer` execute the daily runner at 23:30 UTC with env files `/etc/sustainacore/db.env` and `/etc/sustainacore-ai/secrets.env`.

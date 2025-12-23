@@ -4,9 +4,9 @@ The index engine uses an explicit trading-day calendar to remove weekend and hol
 
 ### Source of truth
 
-- Trading days are derived from SPY daily bars via Twelve Data.
+- Trading days are derived from SPY daily bars via the market data provider.
 - `tools/index_engine/update_trading_days.py` backfills and upserts the calendar.
-- Source label is `TWELVEDATA_SPY`.
+- Source label is `MARKET_DATA_SPY`.
 
 ### Why this matters
 

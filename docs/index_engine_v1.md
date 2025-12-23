@@ -6,7 +6,7 @@ This document outlines the first iteration of the TECH100 index engine to be run
 
 All objects are prefixed with `SC_IDX_` to avoid collisions with other Sustainacore data. The Oracle DDL lives in `oracle_scripts/sc_idx_index_engine_v1.sql` (creation) and `oracle_scripts/sc_idx_index_engine_v1_drop.sql` (idempotent teardown).
 
-- **SC_IDX_PRICES_RAW**: Raw price rows per provider (e.g., TwelveData, AlphaVantage) including close/adjusted close, volume, currency, and ingest status/error metadata.
+- **SC_IDX_PRICES_RAW**: Raw price rows per provider (e.g., primary market data provider, SecondaryProvider) including close/adjusted close, volume, currency, and ingest status/error metadata.
 - **SC_IDX_PRICES_CANON**: Canonical per-ticker prices after reconciliation, capturing the chosen provider, divergence metrics, and quality flags.
 - **SC_IDX_HOLDINGS**: Target weights and share counts for each ticker at a given rebalance date for TECH100.
 - **SC_IDX_DIVISOR**: Effective divisors with reasons (corporate actions/rebalances) ensuring index continuity.
@@ -15,7 +15,7 @@ All objects are prefixed with `SC_IDX_` to avoid collisions with other Sustainac
 ## Daily flow (planned)
 
 1. **Ingest raw prices**: Pull adjusted closes and closes from configured providers into `SC_IDX_PRICES_RAW` with an ingest timestamp and status.
-2. **Reconcile canonical prices**: For each ticker/date, evaluate provider-adjusted closes. If providers agree within a small divergence threshold, store the median adjusted close (and median close when available) in `SC_IDX_PRICES_CANON` with quality `HIGH`; otherwise, choose the best provider (prefer TwelveData, then AlphaVantage) and mark quality `CONFLICT`.
+2. **Reconcile canonical prices**: For each ticker/date, evaluate provider-adjusted closes. If providers agree within a small divergence threshold, store the median adjusted close (and median close when available) in `SC_IDX_PRICES_CANON` with quality `HIGH`; otherwise, choose the best provider (prefer the primary market data provider, then SecondaryProvider) and mark quality `CONFLICT`.
 3. **Compute index levels**:
    - Use TECH100 holdings from `SC_IDX_HOLDINGS`.
    - Ensure divisor continuity via `SC_IDX_DIVISOR` when rebalances or actions occur.

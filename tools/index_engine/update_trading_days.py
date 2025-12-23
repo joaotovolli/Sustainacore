@@ -6,26 +6,28 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import http.client  # preload stdlib http to avoid app.http shadowing
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = REPO_ROOT / "app"
 for path in (REPO_ROOT, APP_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from tools.index_engine.env_loader import load_default_env
-
+from tools.oracle.env_bootstrap import load_env_files
 from index_engine.db import fetch_latest_trading_day, upsert_trading_days
-from db_helper import get_connection
 
 BASE_DATE = _dt.date(2025, 1, 2)
-SOURCE = "TWELVEDATA_SPY"
+SOURCE = "MARKET_DATA_SPY"
+DEFAULT_WINDOW = 30
+MAX_WINDOW = 365
 
 
 def _load_provider_module():
-    module_path = Path(__file__).resolve().parents[2] / "app" / "providers" / "twelvedata.py"
-    spec = importlib.util.spec_from_file_location("twelvedata_provider", module_path)
+    module_path = Path(__file__).resolve().parents[2] / "app" / "providers" / "market_data_provider.py"
+    spec = importlib.util.spec_from_file_location("market_data_provider", module_path)
     if spec is None or spec.loader is None:
-        raise ImportError("Unable to load Twelve Data provider module")
+        raise ImportError("Unable to load market data provider module")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[arg-type]
     return module
@@ -43,20 +45,18 @@ def _extract_trade_date(entry: dict) -> _dt.date | None:
     return None
 
 
-def _fetch_total_count() -> int:
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM SC_IDX_TRADING_DAYS")
-        row = cur.fetchone()
-        return int(row[0]) if row and row[0] is not None else 0
-
-
 def update_trading_days(
     start_date: _dt.date | None = None,
     *,
     auto_extend: bool = False,
 ) -> tuple[int, int, _dt.date, _dt.date | None, _dt.date | None]:
-    load_default_env()
+    load_env_files(
+        paths=(
+            "/etc/sustainacore/db.env",
+            "/etc/sustainacore-ai/app.env",
+            "/etc/sustainacore-ai/secrets.env",
+        )
+    )
     provider = _load_provider_module()
     latest = provider.fetch_latest_eod_date("SPY")
     if latest < BASE_DATE:
@@ -73,36 +73,30 @@ def update_trading_days(
     if start < BASE_DATE:
         start = BASE_DATE
     if latest < start:
-        if auto_extend:
-            inserted = 0
-            total = _fetch_total_count()
-            max_after = fetch_latest_trading_day()
-            return inserted, total, latest, max_before, max_after
-        raise RuntimeError("latest_eod_before_start_date")
+        inserted = 0
+        total = max_before or latest
+        return inserted, 0, latest, max_before, total
 
-    values = provider.fetch_time_series("SPY", start, latest)
+    window = max(DEFAULT_WINDOW, (latest - start).days + 5)
+    window = min(window, MAX_WINDOW)
+    values = provider.fetch_daily_window_desc("SPY", window=window)
     dates = sorted(
         {
             trade_date
             for entry in values
             if (trade_date := _extract_trade_date(entry)) is not None
+            and start <= trade_date <= latest
         }
     )
-    if not dates and auto_extend and start == latest:
-        # Provider reported latest EOD but time_series returned empty for that day.
+    if not dates and start == latest:
         dates = [latest]
     if not dates:
-        if auto_extend:
-            inserted = 0
-            total = _fetch_total_count()
-            max_after = fetch_latest_trading_day()
-            return inserted, total, latest, max_before, max_after
-        raise RuntimeError("no_trading_days_returned")
+        inserted = 0
+        return inserted, 0, latest, max_before, max_before
 
     inserted = upsert_trading_days(dates, SOURCE)
-    total = _fetch_total_count()
     max_after = fetch_latest_trading_day()
-    return inserted, total, latest, max_before, max_after
+    return inserted, len(dates), latest, max_before, max_after
 
 
 def main() -> int:

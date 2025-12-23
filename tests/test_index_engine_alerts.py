@@ -85,7 +85,7 @@ def test_format_run_report_truncates_error():
     summary = {
         "status": "ERROR",
         "end_date": "2025-12-10",
-        "provider": "TWELVEDATA",
+        "provider": "MARKET_DATA",
         "max_provider_calls": 10,
         "provider_calls_used": 1,
         "raw_upserts": 2,

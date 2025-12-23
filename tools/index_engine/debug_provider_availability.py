@@ -13,7 +13,7 @@ from tools.index_engine.env_loader import load_default_env
 
 load_default_env()
 
-import app.providers.twelvedata as provider  # noqa: E402
+import app.providers.market_data_provider as provider  # noqa: E402
 from tools.index_engine import run_daily  # noqa: E402
 
 DEFAULT_START = _dt.date(2025, 1, 2)
@@ -28,7 +28,7 @@ def _probe(date_value: _dt.date) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Debug TwelveData availability for SC_IDX ingest")
+    parser = argparse.ArgumentParser(description="Debug provider availability for SC_IDX ingest")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args(argv)
 
