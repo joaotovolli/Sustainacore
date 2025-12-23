@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import datetime as _dt
-from typing import Iterable, Mapping, Optional
+from typing import Iterable, Mapping, Optional, Sequence
 
 from db_helper import get_connection
 
@@ -74,6 +74,108 @@ def fetch_distinct_tech100_tickers() -> list[str]:
         return tickers
 
 
+def fetch_port_date_for_trade_date(trade_date: _dt.date) -> Optional[_dt.date]:
+    """Return the latest port_date <= trade_date."""
+
+    sql = "SELECT MAX(port_date) FROM tech11_ai_gov_eth_index WHERE port_date <= :trade_date"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"trade_date": trade_date})
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
+def fetch_impacted_tickers_for_port_date(port_date: _dt.date) -> list[str]:
+    """Return top 25 TECH100 tickers with PORT_WEIGHT > 0 for a port_date."""
+
+    sql = (
+        "SELECT ticker "
+        "FROM tech11_ai_gov_eth_index "
+        "WHERE port_date = :port_date "
+        "AND port_weight > 0 "
+        "AND ticker IS NOT NULL "
+        "ORDER BY port_weight DESC, rank_index "
+        "FETCH FIRST 25 ROWS ONLY"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"port_date": port_date})
+        rows = cur.fetchall()
+        tickers: list[str] = []
+        for row in rows:
+            if not row or row[0] is None:
+                continue
+            cleaned = str(row[0]).strip().upper()
+            if cleaned:
+                tickers.append(cleaned)
+        return tickers
+
+
+def fetch_impacted_tickers_for_trade_date(
+    trade_date: _dt.date,
+    *,
+    cache: Optional[dict[_dt.date, list[str]]] = None,
+) -> list[str]:
+    """Return impacted tickers for a trade_date (top 25, PORT_WEIGHT > 0)."""
+
+    port_date = fetch_port_date_for_trade_date(trade_date)
+    if port_date is None:
+        return []
+    if cache is not None and port_date in cache:
+        return cache[port_date]
+    tickers = fetch_impacted_tickers_for_port_date(port_date)
+    if cache is not None:
+        cache[port_date] = tickers
+    return tickers
+
+
+def fetch_missing_real_for_trade_date(trade_date: _dt.date, impacted: Optional[list[str]] = None) -> list[str]:
+    """
+    Return impacted tickers lacking REAL canonical price (quality <> 'IMPUTED') on the given trade_date.
+    """
+
+    if impacted is None:
+        impacted = fetch_impacted_tickers_for_trade_date(trade_date)
+    if not impacted:
+        return []
+
+    values_clause = " UNION ALL ".join([f"SELECT :t{i} AS ticker FROM dual" for i in range(len(impacted))])
+    sql = (
+        f"WITH impacted AS ({values_clause}) "
+        "SELECT i.ticker "
+        "FROM impacted i "
+        "WHERE NOT EXISTS ("
+        "  SELECT 1 FROM sc_idx_prices_canon c "
+        "  WHERE c.trade_date = :trade_date "
+        "    AND c.ticker = i.ticker "
+        "    AND NVL(c.canon_adj_close_px, c.canon_close_px) IS NOT NULL "
+        "    AND c.quality <> 'IMPUTED'"
+        ") "
+        "ORDER BY i.ticker"
+    )
+    binds: dict[str, object] = {"trade_date": trade_date}
+    for idx, ticker in enumerate(impacted):
+        binds[f"t{idx}"] = ticker
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        rows = cur.fetchall()
+        missing: list[str] = []
+        for row in rows:
+            if not row or row[0] is None:
+                continue
+            cleaned = str(row[0]).strip().upper()
+            if cleaned:
+                missing.append(cleaned)
+        return missing
+
+
 def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:
     """Return the latest trade_date with status OK for the ticker/provider."""
 
@@ -92,6 +194,90 @@ def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:
         if isinstance(value, _dt.datetime):
             return value.date()
         return value
+
+
+def fetch_trading_days(start: _dt.date, end: _dt.date) -> list[_dt.date]:
+    """Return trading days between start and end (inclusive)."""
+
+    sql = (
+        "SELECT trade_date "
+        "FROM SC_IDX_TRADING_DAYS "
+        "WHERE trade_date BETWEEN :start_date AND :end_date "
+        "ORDER BY trade_date"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"start_date": start, "end_date": end})
+        rows = cur.fetchall()
+        trading_days: list[_dt.date] = []
+        for (trade_date,) in rows:
+            if isinstance(trade_date, _dt.datetime):
+                trade_date = trade_date.date()
+            if isinstance(trade_date, _dt.date):
+                trading_days.append(trade_date)
+        return trading_days
+
+
+def fetch_latest_trading_day() -> Optional[_dt.date]:
+    """Return the latest trading day in the calendar."""
+
+    sql = "SELECT MAX(trade_date) FROM SC_IDX_TRADING_DAYS"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql)
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
+def fetch_latest_trading_day_on_or_before(target_date: _dt.date) -> Optional[_dt.date]:
+    """Return the latest trading day on or before target_date."""
+
+    sql = "SELECT MAX(trade_date) FROM SC_IDX_TRADING_DAYS WHERE trade_date <= :target_date"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"target_date": target_date})
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
+def upsert_trading_days(trading_days: Sequence[_dt.date], source: str) -> int:
+    """Upsert trading days into SC_IDX_TRADING_DAYS. Returns affected count."""
+
+    if not trading_days:
+        return 0
+
+    sql = (
+        "MERGE INTO SC_IDX_TRADING_DAYS dst "
+        "USING (SELECT :trade_date AS trade_date FROM dual) src "
+        "ON (dst.trade_date = src.trade_date) "
+        "WHEN MATCHED THEN UPDATE SET "
+        "  source = :source, "
+        "  created_at = SYSTIMESTAMP "
+        "WHEN NOT MATCHED THEN INSERT "
+        "  (trade_date, source) "
+        "VALUES (:trade_date, :source)"
+    )
+
+    binds = [{"trade_date": day, "source": source} for day in trading_days]
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("ALTER SESSION DISABLE PARALLEL DML")
+        except Exception:
+            pass
+        cur.executemany(sql, binds)
+        conn.commit()
+        return len(binds)
 
 
 def upsert_prices_raw(rows: Iterable[Mapping]) -> int:
