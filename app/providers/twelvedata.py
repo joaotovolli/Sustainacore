@@ -6,6 +6,7 @@ import fcntl
 import json
 import logging
 import os
+import random
 import time
 import http.client  # preload stdlib http to avoid app.http shadowing
 import urllib.error
@@ -190,6 +191,12 @@ def _sleep_until_window_reset() -> None:
     time.sleep(sleep_for or 0.1)
 
 
+def _sleep_backoff(attempt: int, *, base: float = 1.0, cap: float = 30.0) -> None:
+    delay = min(cap, base * (2 ** max(0, attempt - 1)))
+    jitter = random.random() * 0.5
+    time.sleep(delay + jitter)
+
+
 def _should_retry_rate_limit(payload: dict) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -216,18 +223,24 @@ def _throttled_json_request(
                     body = resp.read()
             except urllib.error.HTTPError as exc:  # pragma: no cover - network specific
                 body = exc.read()
-                if exc.code == 429 and attempt < max_retries:
-                    _sleep_until_window_reset()
+                if attempt < max_retries and exc.code in (429, 500, 502, 503, 504):
+                    if exc.code == 429:
+                        _sleep_until_window_reset()
+                    else:
+                        _sleep_backoff(attempt)
                     continue
                 raise error_cls(f"twelvedata_http_error:{exc.code}") from exc
             except urllib.error.URLError as exc:  # pragma: no cover - network specific
+                if attempt < max_retries:
+                    _sleep_backoff(attempt)
+                    continue
                 raise error_cls(f"twelvedata_url_error:{exc.reason}") from exc
 
         try:
             payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError as exc:
             if attempt < max_retries:
-                _sleep_until_window_reset()
+                _sleep_backoff(attempt)
                 continue
             raise error_cls("twelvedata_invalid_json") from exc
 
@@ -397,6 +410,90 @@ def fetch_latest_bar(
     return values
 
 
+def fetch_daily_window_desc(
+    ticker: str,
+    *,
+    window: int = 10,
+    api_key: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch a small descending window of daily bars for robustness."""
+
+    key = _get_api_key(api_key)
+    payload = _request_json(
+        "time_series",
+        {
+            "symbol": ticker,
+            "interval": "1day",
+            "outputsize": window,
+            "order": "DESC",
+            "timezone": "Exchange",
+            "adjust": "all",
+            "apikey": key,
+        },
+    )
+
+    message = str(payload.get("message") or "").lower()
+    if payload.get("status") == "error":
+        if "no data is available" in message:
+            return []
+        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+
+    values = payload.get("values") or payload.get("data") or []
+    if not isinstance(values, list):
+        return []
+    return values
+
+
+def fetch_single_day_bar(
+    ticker: str,
+    trade_date: _dt.date,
+    *,
+    api_key: Optional[str] = None,
+    window: int = 10,
+) -> List[Dict[str, Any]]:
+    """Fetch a specific trade_date by scanning a descending window."""
+
+    values = fetch_daily_window_desc(ticker, window=window, api_key=api_key)
+    for entry in values:
+        if _extract_trade_date(entry) == trade_date:
+            payload = {"values": [entry]}
+            return _parse_rows(payload, ticker)
+    return []
+
+
+def fetch_latest_eod_date(ticker: str, *, api_key: Optional[str] = None) -> _dt.date:
+    """Return the latest available EOD trade date for the ticker."""
+
+    key = _get_api_key(api_key)
+    payload = _request_json(
+        "time_series",
+        {
+            "symbol": ticker,
+            "interval": "1day",
+            "outputsize": 1,
+            "order": "DESC",
+            "timezone": "Exchange",
+            "adjust": "all",
+            "apikey": key,
+        },
+    )
+
+    message = str(payload.get("message") or "").lower()
+    if payload.get("status") == "error":
+        if "no data is available" in message:
+            raise TwelveDataError(f"Twelve Data time_series empty for {ticker}")
+        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+
+    values = payload.get("values") or payload.get("data") or []
+    if not isinstance(values, list) or not values:
+        raise TwelveDataError(f"Twelve Data time_series empty for {ticker}")
+
+    trade_date = _extract_trade_date(values[0])
+    if trade_date is None:
+        raise TwelveDataError(f"Twelve Data time_series missing date for {ticker}")
+    return trade_date
+
+
 def has_eod_for_date(ticker: str, date: _dt.date, *, api_key: Optional[str] = None) -> bool:
     """Return True if Twelve Data already exposes an end-of-day bar for the date."""
 
@@ -435,6 +532,9 @@ __all__ = [
     "fetch_api_usage",
     "fetch_eod_prices",
     "fetch_latest_bar",
+    "fetch_daily_window_desc",
+    "fetch_single_day_bar",
+    "fetch_latest_eod_date",
     "fetch_time_series",
     "has_eod_for_date",
     "remaining_credits",
