@@ -173,7 +173,58 @@ def fetch_missing_real_for_trade_date(trade_date: _dt.date, impacted: Optional[l
             cleaned = str(row[0]).strip().upper()
             if cleaned:
                 missing.append(cleaned)
-        return missing
+    return missing
+
+
+def fetch_missing_canon_pairs(
+    start_date: _dt.date,
+    end_date: _dt.date,
+    tickers: Sequence[str],
+    *,
+    allow_imputed: bool = False,
+) -> list[tuple[str, _dt.date]]:
+    """Return (ticker, trade_date) pairs missing canonical prices in the window."""
+
+    if not tickers:
+        return []
+
+    values_clause = " UNION ALL ".join([f"SELECT :t{i} AS ticker FROM dual" for i in range(len(tickers))])
+    quality_clause = "" if allow_imputed else " OR c.quality = 'IMPUTED'"
+    sql = (
+        f"WITH tickers AS ({values_clause}) "
+        "SELECT t.ticker, d.trade_date "
+        "FROM tickers t "
+        "CROSS JOIN ("
+        "  SELECT trade_date FROM SC_IDX_TRADING_DAYS "
+        "  WHERE trade_date BETWEEN :start_date AND :end_date"
+        ") d "
+        "LEFT JOIN SC_IDX_PRICES_CANON c "
+        "  ON c.ticker = t.ticker AND c.trade_date = d.trade_date "
+        "WHERE c.ticker IS NULL "
+        "   OR NVL(c.canon_adj_close_px, c.canon_close_px) IS NULL "
+        "   OR NVL(c.canon_adj_close_px, c.canon_close_px) <= 0"
+        f"{quality_clause} "
+        "ORDER BY t.ticker, d.trade_date"
+    )
+    binds: dict[str, object] = {"start_date": start_date, "end_date": end_date}
+    for idx, ticker in enumerate(tickers):
+        binds[f"t{idx}"] = str(ticker).strip().upper()
+
+    missing: list[tuple[str, _dt.date]] = []
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        rows = cur.fetchall()
+        for row in rows:
+            if not row:
+                continue
+            ticker = str(row[0]).strip().upper() if row[0] else None
+            trade_date = row[1]
+            if isinstance(trade_date, _dt.datetime):
+                trade_date = trade_date.date()
+            if ticker and isinstance(trade_date, _dt.date):
+                missing.append((ticker, trade_date))
+    return missing
 
 
 def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:

@@ -37,5 +37,8 @@ def test_build_raw_rows_skips_null_close():
         {"ticker": "BBB", "trade_date": "2025-01-02", "close": 12.34},
     ]
     raw_rows = _build_raw_rows_from_provider(rows)
-    assert len(raw_rows) == 1
-    assert raw_rows[0]["ticker"] == "BBB"
+    assert len(raw_rows) == 2
+    error_row = [row for row in raw_rows if row["ticker"] == "AAA"][0]
+    ok_row = [row for row in raw_rows if row["ticker"] == "BBB"][0]
+    assert error_row["status"] == "ERROR"
+    assert ok_row["status"] == "OK"

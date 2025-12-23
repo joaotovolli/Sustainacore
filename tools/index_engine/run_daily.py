@@ -301,7 +301,9 @@ def main(argv: list[str] | None = None) -> int:
     force_fail = os.getenv("SC_IDX_FORCE_FAIL") == "1"
     today_utc = _dt.datetime.now(_dt.timezone.utc).date()
 
-    oracle_user = _oracle_preflight_or_exit(run_id=run_id, today_utc=today_utc, email_on_budget_stop=email_on_budget_stop)
+    oracle_user = _oracle_preflight_or_exit(
+        run_id=run_id, today_utc=today_utc, email_on_budget_stop=email_on_budget_stop
+    )
     if oracle_user is None:
         return 2
 

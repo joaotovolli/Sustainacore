@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 import sysconfig
+import random
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -224,6 +225,18 @@ def _sleep_until_window_reset() -> None:
     time.sleep(sleep_for or 0.1)
 
 
+def _seconds_until_window_reset() -> float:
+    now = time.monotonic()
+    _refresh_tokens(now)
+    return max(0.0, _RESET_AT - now)
+
+
+def _sleep_with_backoff(attempt: int, *, base: float = 1.0, cap: float = 30.0, extra: float = 0.0) -> None:
+    backoff = min(cap, base * (2 ** max(0, attempt - 1)))
+    jitter = random.uniform(0.0, backoff * 0.25)
+    time.sleep(backoff + jitter + extra)
+
+
 def _should_retry_rate_limit(payload: dict) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -250,23 +263,29 @@ def _throttled_json_request(
                     body = resp.read()
             except urllib.error.HTTPError as exc:  # pragma: no cover - network specific
                 body = exc.read()
-                if exc.code == 429 and attempt < max_retries:
-                    _sleep_until_window_reset()
+                retryable = exc.code == 429 or 500 <= exc.code < 600
+                if retryable and attempt < max_retries:
+                    extra = _seconds_until_window_reset() if exc.code == 429 else 0.0
+                    _sleep_with_backoff(attempt, extra=extra)
                     continue
                 raise error_cls(f"twelvedata_http_error:{exc.code}") from exc
             except urllib.error.URLError as exc:  # pragma: no cover - network specific
+                if attempt < max_retries:
+                    _sleep_with_backoff(attempt)
+                    continue
                 raise error_cls(f"twelvedata_url_error:{exc.reason}") from exc
 
         try:
             payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError as exc:
             if attempt < max_retries:
-                _sleep_until_window_reset()
+                _sleep_with_backoff(attempt)
                 continue
             raise error_cls("twelvedata_invalid_json") from exc
 
         if _should_retry_rate_limit(payload) and attempt < max_retries:
-            _sleep_until_window_reset()
+            extra = _seconds_until_window_reset()
+            _sleep_with_backoff(attempt, extra=extra)
             continue
 
         return payload
