@@ -1,7 +1,7 @@
 """Data provider integrations."""
 
-from .twelvedata import (  # noqa: F401
-    TwelveDataError,
+from .market_data_provider import (  # noqa: F401
+    MarketDataProviderError,
     fetch_api_usage,
     fetch_eod_prices,
     fetch_latest_eod_date,

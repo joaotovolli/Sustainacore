@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import os
 import pathlib
 import sys
 from typing import Any, Dict, List
@@ -12,12 +13,40 @@ for path in (ROOT_PATH, APP_PATH):
     if str(path) not in sys.path:
         sys.path.append(str(path))
 
-from tools.index_engine.env_loader import load_default_env
-
-load_default_env()
-
 from db_helper import get_connection
-from providers.twelvedata import TwelveDataError, fetch_api_usage, fetch_latest_bar
+from providers.market_data_provider import (
+    MarketDataProviderError,
+    fetch_api_usage,
+    fetch_latest_bar,
+)
+
+ENV_FILES = ("/etc/sustainacore-ai/secrets.env", "/etc/sustainacore/db.env")
+
+
+def _load_env_files() -> None:
+    """Load key=value pairs from known env files without printing secrets."""
+
+    for path in ENV_FILES:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    text = line.strip()
+                    if not text or text.startswith("#"):
+                        continue
+                    if text.startswith("export "):
+                        text = text[len("export ") :].strip()
+                    name, sep, value = text.partition("=")
+                    if sep != "=":
+                        continue
+                    key = name.strip()
+                    if not key or key in os.environ:
+                        continue
+                    os.environ[key] = value.strip().strip("\"'")
+        except (FileNotFoundError, PermissionError):
+            continue
+        except Exception:
+            continue
+
 
 def _fetch_latest_bar_for_symbol(symbol: str) -> tuple[list[dict], str | None, str | None]:
     try:
@@ -41,14 +70,14 @@ def _query_oracle() -> Dict[str, Any]:
         oracle_user = str(user_row[0]).strip() if user_row and user_row[0] is not None else None
 
         cur.execute(
-            "SELECT MAX(ingested_at) FROM SC_IDX_PRICES_RAW WHERE provider = 'TWELVEDATA'"
+            "SELECT MAX(ingested_at) FROM SC_IDX_PRICES_RAW WHERE provider = 'MARKET_DATA'"
         )
         ingested_row = cur.fetchone()
         max_ingested = ingested_row[0] if ingested_row else None
 
         cur.execute(
             "SELECT MAX(trade_date) FROM SC_IDX_PRICES_RAW "
-            "WHERE status = 'OK' AND provider = 'TWELVEDATA'"
+            "WHERE status = 'OK' AND provider = 'MARKET_DATA'"
         )
         max_ok_row = cur.fetchone()
         max_ok_trade_date = max_ok_row[0] if max_ok_row else None
@@ -57,7 +86,7 @@ def _query_oracle() -> Dict[str, Any]:
             "SELECT trade_date, status, COUNT(*) "
             "FROM SC_IDX_PRICES_RAW "
             "WHERE trade_date >= TRUNC(SYSDATE) - 3 "
-            "AND provider = 'TWELVEDATA' "
+            "AND provider = 'MARKET_DATA' "
             "GROUP BY trade_date, status "
             "ORDER BY trade_date DESC, status"
         )
@@ -66,7 +95,7 @@ def _query_oracle() -> Dict[str, Any]:
             for row in cur.fetchall()
         ]
 
-        cur.execute("SELECT COUNT(*) FROM SC_IDX_PRICES_RAW WHERE provider = 'TWELVEDATA'")
+        cur.execute("SELECT COUNT(*) FROM SC_IDX_PRICES_RAW WHERE provider = 'MARKET_DATA'")
         raw_count = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM SC_IDX_PRICES_CANON")
@@ -101,11 +130,13 @@ def _print_usage(label: str, usage: Dict[str, Any]) -> None:
 
 
 def main() -> int:
-    print("== Twelve Data usage check ==")
+    _load_env_files()
+
+    print("== Market data provider usage check ==")
     try:
         usage_before = fetch_api_usage()
-    except TwelveDataError as exc:
-        print(f"FAIL unable to fetch Twelve Data usage before probe: {exc}")
+    except MarketDataProviderError as exc:
+        print(f"FAIL unable to fetch provider usage before probe: {exc}")
         return 1
     _print_usage("usage_before", usage_before)
 
@@ -113,8 +144,8 @@ def main() -> int:
 
     try:
         usage_after = fetch_api_usage()
-    except TwelveDataError as exc:
-        print(f"FAIL unable to fetch Twelve Data usage after probe: {exc}")
+    except MarketDataProviderError as exc:
+        print(f"FAIL unable to fetch provider usage after probe: {exc}")
         return 1
     _print_usage("usage_after", usage_after)
 

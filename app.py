@@ -30,7 +30,8 @@ from app.http.compat import (
     SC_RAG_MIN_SCORE,
     normalize_response,
 )
-from app.news_service import create_curated_news_item, fetch_news_items, fetch_news_item_detail
+from app import news_service
+from app.news_service import create_curated_news_item, fetch_news_items
 from app.retrieval.adapter import ask2_pipeline_first
 
 from embedder_settings import (
@@ -1667,24 +1668,6 @@ def api_news():
     }
 
     return jsonify(payload), 200
-
-
-@app.route("/api/news/<news_id>", methods=["GET"])
-def api_news_detail(news_id: str):
-    auth = _api_auth_optional()
-    if auth is not None:
-        return auth
-
-    try:
-        item = fetch_news_item_detail(news_id)
-    except Exception as exc:
-        _LOGGER.exception("api_news_detail query failed", exc_info=exc)
-        return jsonify({"error": "backend_failure", "message": "Unable to load news data."}), 500
-
-    if not item:
-        return jsonify({"error": "not_found", "message": "News item not found."}), 404
-
-    return jsonify({"item": item}), 200
     auth = _api_auth_optional_or_unauthorized()
     if auth is not None:
         return auth
@@ -2272,12 +2255,15 @@ def ask2():
 
     debug_block = meta_val.setdefault('debug', {})
     if 'capability' not in debug_block:
-        try:
-            from app.retrieval import oracle_retriever as _oracle_module
-
-            debug_block['capability'] = _oracle_module.capability_snapshot()
-        except Exception:  # pragma: no cover - defensive
+        if os.getenv("ASK2_SKIP_CAPABILITY_SNAPSHOT", "0") == "1":
             debug_block['capability'] = {}
+        else:
+            try:
+                from app.retrieval import oracle_retriever as _oracle_module
+
+                debug_block['capability'] = _oracle_module.capability_snapshot()
+            except Exception:  # pragma: no cover - defensive
+                debug_block['capability'] = {}
 
     if deduped_contexts:
         floor_triggered = _below_similarity_floor(top_similarity)

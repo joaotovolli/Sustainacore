@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Mapping
 
-from db_helper import _build_filter_clause, get_connection, top_k_by_vector
+from db_helper import _build_filter_clause, get_connection
 
 from .db_capability import Capability, capability_snapshot as _capability_snapshot, get_capability
 from .embedding_client import embed_text
@@ -188,12 +188,36 @@ class OracleRetriever:
             self._warned_dim_mismatch = True
 
         limit = max(1, min(int(k or settings.oracle_knn_k), 64))
-        # Reuse the hardened helper used by /ask2_direct to avoid driver quirks.
-        rows = top_k_by_vector(
-            embedding,
-            k=limit,
-            filters=filters or {},
+        vec_col = (capability.vec_col or settings.oracle_embedding_column).strip().upper()
+        filter_clause, filter_binds = _prepare_filter_clause(filters)
+        where_sql = f" WHERE {filter_clause}" if filter_clause else ""
+        sql = (
+            "SELECT "
+            f"{self.doc_id_column} AS DOC_ID, "
+            f"{self.chunk_ix_column} AS CHUNK_IX, "
+            f"{settings.oracle_source_id_column} AS SOURCE_ID, "
+            f"{self.source_column} AS SOURCE_NAME, "
+            f"{self.title_column} AS TITLE, "
+            f"{self.url_column} AS SOURCE_URL, "
+            f"{self.text_column} AS CHUNK_TEXT, "
+            f"VECTOR_DISTANCE(:vec, {vec_col}) AS dist "
+            f"FROM {self.table}{where_sql} "
+            f"ORDER BY dist FETCH FIRST {limit} ROWS ONLY"
         )
+
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            vector_type = getattr(oracledb, "DB_TYPE_VECTOR", None)
+            if vector_type is not None:
+                try:
+                    cursor.setinputsizes(vec=vector_type)
+                except Exception:
+                    pass
+            params = {"vec": embedding}
+            params.update(filter_binds)
+            cursor.execute(sql, params)
+            columns = [col[0].lower() for col in cursor.description]
+            rows = [dict(zip(columns, map(_to_plain, rec))) for rec in cursor.fetchall()]
 
         return self._shape_contexts(rows, score_key="dist", invert_distance=True, max_scale=1.0)
 

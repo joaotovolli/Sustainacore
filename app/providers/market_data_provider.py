@@ -1,72 +1,39 @@
-"""Twelve Data EOD price fetcher (throttled for free tier limits)."""
+"""Market data EOD price fetcher (throttled for tier limits)."""
 from __future__ import annotations
 
 import datetime as _dt
 import fcntl
-import importlib.util
 import json
 import logging
 import os
-import sys
-import sysconfig
+import random
 import time
+import http.client  # preload stdlib http to avoid app.http shadowing
+import urllib.error
+import urllib.parse
+import urllib.request
 from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-API_URL = "https://api.twelvedata.com/time_series"
-_API_BASE = "https://api.twelvedata.com"
-_API_KEY_ENV_VARS = ("SC_TWELVEDATA_API_KEY", "TWELVEDATA_API_KEY")
+_API_TIME_SERIES_PATH = "time_series"
+_API_KEY_ENV_VARS = ("SC_MARKET_DATA_API_KEY", "MARKET_DATA_API_KEY")
+_API_BASE_ENV = "MARKET_DATA_API_BASE_URL"
 DEFAULT_CALLS_PER_WINDOW = 6
 DEFAULT_WINDOW_SECONDS = 120
 MAX_RETRIES = 5
-_LOCK_PATH = "/tmp/sc_idx_twelvedata.lock"
+_LOCK_PATH = "/tmp/sc_idx_market_data.lock"
 _CALLS_PER_WINDOW: int
 _WINDOW_SECONDS: int
 _TOKENS: int
 _RESET_AT: float
-_CALLS_PER_WINDOW_ENV = "SC_IDX_TWELVEDATA_CALLS_PER_WINDOW"
-_WINDOW_SECONDS_ENV = "SC_IDX_TWELVEDATA_WINDOW_SECONDS"
-
-
-def _ensure_stdlib_http_client() -> None:
-    """Load stdlib http.client even if app.http shadows the stdlib package."""
-
-    if "http.client" in sys.modules:
-        return
-    stdlib = sysconfig.get_paths().get("stdlib")
-    if not stdlib:
-        return
-    http_init = os.path.join(stdlib, "http", "__init__.py")
-    http_client = os.path.join(stdlib, "http", "client.py")
-    if os.path.isfile(http_init) and "http" not in sys.modules:
-        spec = importlib.util.spec_from_file_location("http", http_init)
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            sys.modules["http"] = module
-            spec.loader.exec_module(module)
-    if os.path.isfile(http_client):
-        spec = importlib.util.spec_from_file_location("http.client", http_client)
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            sys.modules["http.client"] = module
-            spec.loader.exec_module(module)
-            parent = sys.modules.get("http")
-            if parent is not None and not hasattr(parent, "client"):
-                setattr(parent, "client", module)
-
-
-_ensure_stdlib_http_client()
-import http.client  # noqa: E402  # preload stdlib http to avoid app.http shadowing
-import urllib.error  # noqa: E402
-import urllib.parse  # noqa: E402
-import urllib.request  # noqa: E402
-
 _LOGGER = logging.getLogger(__name__)
 _urlopen = urllib.request.urlopen
+_CALLS_PER_WINDOW_ENV = "SC_IDX_MARKET_DATA_CALLS_PER_WINDOW"
+_WINDOW_SECONDS_ENV = "SC_IDX_MARKET_DATA_WINDOW_SECONDS"
 
 
-class TwelveDataError(RuntimeError):
-    """Raised when Twelve Data returns an unexpected error."""
+class MarketDataProviderError(RuntimeError):
+    """Raised when the market data provider returns an unexpected error."""
 
 
 def _to_float(value):
@@ -143,7 +110,7 @@ def get_throttle_config(*, refresh: bool = False) -> Dict[str, int]:
 
 @contextmanager
 def _provider_lock():
-    """Cross-process lock to serialize Twelve Data calls."""
+    """Cross-process lock to serialize provider calls."""
 
     handle = open(_LOCK_PATH, "a+")
     try:
@@ -154,6 +121,15 @@ def _provider_lock():
             fcntl.flock(handle, fcntl.LOCK_UN)
         finally:
             handle.close()
+
+
+def _get_api_base(explicit: Optional[str] = None) -> str:
+    if explicit:
+        return explicit.strip().rstrip("/")
+    raw = os.getenv(_API_BASE_ENV)
+    if raw:
+        return raw.strip().rstrip("/")
+    raise MarketDataProviderError(f"{_API_BASE_ENV} is not configured")
 
 
 def _build_time_series_url(ticker: str, start: str, end: str, api_key: str) -> str:
@@ -168,7 +144,8 @@ def _build_time_series_url(ticker: str, start: str, end: str, api_key: str) -> s
         "timezone": "Exchange",
         "adjust": "all",
     }
-    return f"{API_URL}?{urllib.parse.urlencode(params)}"
+    base = _get_api_base()
+    return f"{base}/{_API_TIME_SERIES_PATH}?{urllib.parse.urlencode(params)}"
 
 
 def _parse_rows(payload: dict, ticker: str | None) -> list[dict]:
@@ -224,6 +201,12 @@ def _sleep_until_window_reset() -> None:
     time.sleep(sleep_for or 0.1)
 
 
+def _sleep_backoff(attempt: int, *, base: float = 1.0, cap: float = 30.0) -> None:
+    delay = min(cap, base * (2 ** max(0, attempt - 1)))
+    jitter = random.random() * 0.5
+    time.sleep(delay + jitter)
+
+
 def _should_retry_rate_limit(payload: dict) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -240,7 +223,7 @@ def _throttled_json_request(
     max_retries: int = MAX_RETRIES,
     error_cls=RuntimeError,
 ) -> Dict[str, Any]:
-    """Perform a Twelve Data HTTP request with shared throttling + locking."""
+    """Perform a provider HTTP request with shared throttling + locking."""
 
     for attempt in range(1, max_retries + 1):
         with _provider_lock():
@@ -250,20 +233,26 @@ def _throttled_json_request(
                     body = resp.read()
             except urllib.error.HTTPError as exc:  # pragma: no cover - network specific
                 body = exc.read()
-                if exc.code == 429 and attempt < max_retries:
-                    _sleep_until_window_reset()
+                if attempt < max_retries and exc.code in (429, 500, 502, 503, 504):
+                    if exc.code == 429:
+                        _sleep_until_window_reset()
+                    else:
+                        _sleep_backoff(attempt)
                     continue
-                raise error_cls(f"twelvedata_http_error:{exc.code}") from exc
+                raise error_cls(f"market_data_http_error:{exc.code}") from exc
             except urllib.error.URLError as exc:  # pragma: no cover - network specific
-                raise error_cls(f"twelvedata_url_error:{exc.reason}") from exc
+                if attempt < max_retries:
+                    _sleep_backoff(attempt)
+                    continue
+                raise error_cls(f"market_data_url_error:{exc.reason}") from exc
 
         try:
             payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError as exc:
             if attempt < max_retries:
-                _sleep_until_window_reset()
+                _sleep_backoff(attempt)
                 continue
-            raise error_cls("twelvedata_invalid_json") from exc
+            raise error_cls("market_data_invalid_json") from exc
 
         if _should_retry_rate_limit(payload) and attempt < max_retries:
             _sleep_until_window_reset()
@@ -271,7 +260,7 @@ def _throttled_json_request(
 
         return payload
 
-    raise error_cls("twelvedata_max_retries_exceeded")
+    raise error_cls("market_data_max_retries_exceeded")
 
 
 def _fetch_ticker(
@@ -287,7 +276,7 @@ def _fetch_ticker(
     payload = _throttled_json_request(request, max_retries=max_retries, error_cls=RuntimeError)
 
     if isinstance(payload, dict) and payload.get("status") == "error":
-        message = payload.get("message") or "twelvedata_error"
+        message = payload.get("message") or "market_data_error"
         raise RuntimeError(message)
 
     return _parse_rows(payload, ticker)
@@ -303,17 +292,11 @@ def fetch_eod_prices(tickers: Iterable[str], start: str, end: str) -> list[dict]
     if not tickers_list:
         return []
 
-    api_key = os.getenv("TWELVEDATA_API_KEY") or os.getenv("SC_TWELVEDATA_API_KEY")
+    api_key = _get_api_key()
     if not api_key:
-        raise RuntimeError("TWELVEDATA_API_KEY is not set")
+        raise RuntimeError("MARKET_DATA_API_KEY is not set")
 
     rows: List[dict] = []
-    if start == end:
-        target_date = _coerce_date(start)
-        for ticker in sorted(set(tickers_list)):
-            rows.extend(fetch_single_day_bar(ticker, target_date, api_key=api_key))
-        return rows
-
     for ticker in sorted(set(tickers_list)):
         rows.extend(_fetch_ticker(ticker, start, end, api_key))
     return rows
@@ -321,7 +304,8 @@ def fetch_eod_prices(tickers: Iterable[str], start: str, end: str) -> list[dict]
 
 def _build_api_url(path: str, params: Dict[str, Any]) -> str:
     safe_params = {k: v for k, v in params.items() if v is not None}
-    return f"{_API_BASE}/{path}?{urllib.parse.urlencode(safe_params)}"
+    base = _get_api_base()
+    return f"{base}/{path}?{urllib.parse.urlencode(safe_params)}"
 
 
 def _get_api_key(explicit: Optional[str] = None) -> str:
@@ -331,13 +315,13 @@ def _get_api_key(explicit: Optional[str] = None) -> str:
         raw = os.getenv(env_var)
         if raw:
             return raw.strip()
-    raise TwelveDataError("TWELVEDATA_API_KEY is not configured")
+    raise MarketDataProviderError("MARKET_DATA_API_KEY is not configured")
 
 
 def _request_json(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     url = _build_api_url(path, params)
     req = urllib.request.Request(url)
-    return _throttled_json_request(req, error_cls=TwelveDataError)
+    return _throttled_json_request(req, error_cls=MarketDataProviderError)
 
 
 def fetch_api_usage(api_key: Optional[str] = None) -> Dict[str, Any]:
@@ -348,7 +332,7 @@ def fetch_api_usage(api_key: Optional[str] = None) -> Dict[str, Any]:
 
     if isinstance(payload, dict) and payload.get("status") == "error":
         message = payload.get("message") or "unknown error"
-        raise TwelveDataError(f"Twelve Data api_usage error: {message}")
+        raise MarketDataProviderError(f"Market data api_usage error: {message}")
 
     return {
         "timestamp": payload.get("timestamp") or payload.get("datetime"),
@@ -397,7 +381,7 @@ def fetch_time_series(
         message = payload.get("message") or "unknown error"
         if "no data is available" in message.lower():
             return []
-        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {message}")
+        raise MarketDataProviderError(f"Market data time_series error for {ticker}: {message}")
 
     values = payload.get("values") or payload.get("data") or []
     if not isinstance(values, list):
@@ -429,10 +413,12 @@ def fetch_latest_bar(
     if payload.get("status") == "error":
         if "no data is available" in message:
             return []
-        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+        raise MarketDataProviderError(
+            f"Market data time_series error for {ticker}: {payload.get('message')}"
+        )
 
     values = payload.get("values") or payload.get("data") or []
-    if not isinstance(values, list) or not values:
+    if not isinstance(values, list):
         return []
     return values
 
@@ -463,7 +449,9 @@ def fetch_daily_window_desc(
     if payload.get("status") == "error":
         if "no data is available" in message:
             return []
-        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+        raise MarketDataProviderError(
+            f"Market data time_series error for {ticker}: {payload.get('message')}"
+        )
 
     values = payload.get("values") or payload.get("data") or []
     if not isinstance(values, list):
@@ -508,21 +496,23 @@ def fetch_latest_eod_date(ticker: str, *, api_key: Optional[str] = None) -> _dt.
     message = str(payload.get("message") or "").lower()
     if payload.get("status") == "error":
         if "no data is available" in message:
-            raise TwelveDataError(f"Twelve Data time_series empty for {ticker}")
-        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+            raise MarketDataProviderError(f"Market data time_series empty for {ticker}")
+        raise MarketDataProviderError(
+            f"Market data time_series error for {ticker}: {payload.get('message')}"
+        )
 
     values = payload.get("values") or payload.get("data") or []
     if not isinstance(values, list) or not values:
-        raise TwelveDataError(f"Twelve Data time_series empty for {ticker}")
+        raise MarketDataProviderError(f"Market data time_series empty for {ticker}")
 
     trade_date = _extract_trade_date(values[0])
     if trade_date is None:
-        raise TwelveDataError(f"Twelve Data time_series missing date for {ticker}")
+        raise MarketDataProviderError(f"Market data time_series missing date for {ticker}")
     return trade_date
 
 
 def has_eod_for_date(ticker: str, date: _dt.date, *, api_key: Optional[str] = None) -> bool:
-    """Return True if Twelve Data already exposes an end-of-day bar for the date."""
+    """Return True if provider already exposes an end-of-day bar for the date."""
 
     key = _get_api_key(api_key)
     payload = _request_json(
@@ -541,7 +531,9 @@ def has_eod_for_date(ticker: str, date: _dt.date, *, api_key: Optional[str] = No
     if payload.get("status") == "error":
         if "no data is available" in message:
             return False
-        raise TwelveDataError(f"Twelve Data time_series error for {ticker}: {payload.get('message')}")
+        raise MarketDataProviderError(
+            f"Market data time_series error for {ticker}: {payload.get('message')}"
+        )
 
     values: Iterable[Dict[str, Any]] = payload.get("values") or payload.get("data") or []
     for entry in values:
@@ -558,12 +550,12 @@ __all__ = [
     "get_throttle_config",
     "fetch_api_usage",
     "fetch_eod_prices",
+    "fetch_latest_bar",
     "fetch_daily_window_desc",
     "fetch_single_day_bar",
     "fetch_latest_eod_date",
-    "fetch_latest_bar",
     "fetch_time_series",
     "has_eod_for_date",
     "remaining_credits",
-    "TwelveDataError",
+    "MarketDataProviderError",
 ]

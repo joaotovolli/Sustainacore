@@ -10,20 +10,17 @@ from collections import defaultdict
 from typing import Iterable, List, Optional
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+APP_PATH = REPO_ROOT / "app"
+for path in (REPO_ROOT, APP_PATH):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from tools.index_engine.env_loader import load_default_env
-
-load_default_env()
-
-APP_PATH = pathlib.Path(__file__).resolve().parents[2] / "app"
-if str(APP_PATH) not in sys.path:
-    sys.path.insert(0, str(APP_PATH))
+from tools.oracle.env_bootstrap import load_env_files
 
 from index_engine.db import (
     fetch_constituent_tickers,
     fetch_distinct_tech100_tickers,
+    fetch_impacted_tickers_for_trade_date,
     fetch_max_ok_trade_date,
     fetch_trading_days,
     get_current_user,
@@ -31,9 +28,9 @@ from index_engine.db import (
     upsert_prices_raw,
 )
 from index_engine.reconcile import reconcile_canonical
-from providers.twelvedata import fetch_eod_prices
+from providers.market_data_provider import fetch_eod_prices, fetch_single_day_bar
 
-PROVIDER = "TWELVEDATA"
+PROVIDER = "MARKET_DATA"
 
 
 def _parse_date(value: str) -> _dt.date:
@@ -82,19 +79,26 @@ def _build_raw_rows_from_provider(provider_rows: list[dict]) -> list[dict]:
         if not ticker:
             continue
         close_px = row.get("close")
-        if close_px is None:
-            continue
+        adj_close = row.get("adj_close") if row.get("adj_close") is not None else row.get("close")
+        status = "OK"
+        error_msg = None
+        if close_px is None or close_px <= 0 or adj_close is None or adj_close <= 0:
+            status = "ERROR"
+            error_msg = "invalid_close_px"
+            close_px = None
+            adj_close = None
+
         raw_rows.append(
             {
                 "ticker": ticker,
                 "trade_date": trade_date,
                 "provider": PROVIDER,
                 "close_px": close_px,
-                "adj_close_px": row.get("adj_close") if row.get("adj_close") is not None else close_px,
+                "adj_close_px": adj_close,
                 "volume": row.get("volume"),
                 "currency": row.get("currency"),
-                "status": "OK",
-                "error_msg": None,
+                "status": status,
+                "error_msg": error_msg,
             }
         )
     return raw_rows
@@ -119,23 +123,26 @@ def compute_canonical_rows(raw_rows: list[dict]) -> list[dict]:
             if not provider:
                 continue
             adj_value = entry.get("adj_close_px")
-            close_value = entry.get("close_px")
             if adj_value is None:
-                adj_value = close_value
-            if adj_value is None or close_value is None:
-                continue
+                adj_value = entry.get("close_px")
             provider_adj_closes[provider] = adj_value
-            provider_closes[provider] = close_value
+            provider_closes[provider] = entry.get("close_px")
 
         recon = reconcile_canonical(provider_adj_closes, provider_closes)
         if recon.get("providers_ok", 0) == 0:
+            continue
+        canon_close = recon.get("canon_close")
+        canon_adj_close = recon.get("canon_adj_close")
+        if canon_close is None or canon_adj_close is None:
+            continue
+        if canon_close <= 0 or canon_adj_close <= 0:
             continue
         canon_rows.append(
             {
                 "ticker": ticker,
                 "trade_date": trade_date,
-                "canon_close_px": recon.get("canon_close"),
-                "canon_adj_close_px": recon.get("canon_adj_close"),
+                "canon_close_px": canon_close,
+                "canon_adj_close_px": canon_adj_close,
                 "chosen_provider": recon.get("chosen_provider") or PROVIDER,
                 "providers_ok": recon.get("providers_ok", 0),
                 "divergence_pct": recon.get("divergence_pct"),
@@ -209,21 +216,59 @@ def _print_debug(
     )
 
 
-def _run_single(args: argparse.Namespace) -> tuple[int, dict]:
-    summary: dict[str, int | _dt.date | None] = {
-        "provider_calls_used": 0,
-        "raw_upserts": 0,
-        "canon_upserts": 0,
-        "raw_ok": 0,
-        "raw_missing": 0,
-        "raw_error": 0,
-        "max_ok_trade_date": None,
-    }
+def _next_trading_day(trading_days: list[_dt.date], start: _dt.date) -> _dt.date | None:
+    for day in trading_days:
+        if day >= start:
+            return day
+    return None
+
+
+def _build_missing_rows(
+    *,
+    ticker: str,
+    trading_days: list[_dt.date],
+    start_date: _dt.date,
+    end_date: _dt.date,
+    reason: str,
+) -> list[dict]:
+    missing_rows: list[dict] = []
+    for trade_date in trading_days:
+        if trade_date < start_date or trade_date > end_date:
+            continue
+        missing_rows.append(
+            {
+                "ticker": ticker,
+                "trade_date": trade_date,
+                "provider": PROVIDER,
+                "close_px": None,
+                "adj_close_px": None,
+                "volume": None,
+                "currency": None,
+                "status": "MISSING",
+                "error_msg": reason,
+            }
+        )
+    return missing_rows
+
+
+def _fetch_provider_rows(ticker: str, start_date: _dt.date, end_date: _dt.date) -> list[dict]:
+    try:
+        return fetch_eod_prices([ticker], start_date.isoformat(), end_date.isoformat())
+    except Exception as exc:
+        if start_date == end_date:
+            try:
+                return fetch_single_day_bar(ticker, start_date)
+            except Exception:
+                raise exc
+        raise
+
+
+def _run_single(args: argparse.Namespace) -> int:
     try:
         dates = _parse_dates(args)
     except Exception as exc:
         print(f"Invalid date arguments: {exc}")
-        return 1, summary
+        return 1
 
     tickers_by_date: dict[_dt.date, list[str]] = {}
     manual_tickers = _split_tickers(args.tickers)
@@ -231,7 +276,7 @@ def _run_single(args: argparse.Namespace) -> tuple[int, dict]:
         tickers_by_date = _collect_constituents(dates, manual_tickers)
     except Exception as exc:
         print(f"Failed to load constituents: {exc}")
-        return 1, summary
+        return 1
 
     oracle_user = None
     oracle_user_error = None
@@ -258,22 +303,17 @@ def _run_single(args: argparse.Namespace) -> tuple[int, dict]:
             provider_error = str(exc)
             print(f"Provider fetch failed: {exc}")
 
-    raw_rows = _build_raw_rows_from_provider(provider_rows)
-    status_counts = {"OK": 0, "MISSING": 0, "ERROR": 0}
-    for row in raw_rows:
-        status = row.get("status")
-        if status in status_counts:
-            status_counts[status] += 1
+    if provider_called and not provider_rows and provider_error is None:
+        print("Provider returned empty payload; aborting ingest.")
+        provider_error = "empty_payload"
 
-    raw_written = upsert_prices_raw(raw_rows) if raw_rows else 0
+    raw_rows = _build_raw_rows_from_provider(provider_rows)
+    if raw_rows:
+        upsert_prices_raw(raw_rows)
 
     canon_rows = compute_canonical_rows(raw_rows)
-    canon_written = upsert_prices_canon(canon_rows) if canon_rows else 0
-
-    max_ok = None
-    ok_dates = [row.get("trade_date") for row in raw_rows if row.get("status") == "OK" and row.get("trade_date")]
-    if ok_dates:
-        max_ok = max(ok_dates)
+    if canon_rows:
+        upsert_prices_canon(canon_rows)
 
     if args.debug:
         _print_debug(
@@ -289,46 +329,25 @@ def _run_single(args: argparse.Namespace) -> tuple[int, dict]:
             oracle_user_error=oracle_user_error,
         )
 
-    _print_summary(raw_rows, canon_rows, provider_calls_used=1 if provider_called else 0)
-
-    summary.update(
-        {
-            "provider_calls_used": 1 if provider_called else 0,
-            "raw_upserts": raw_written,
-            "canon_upserts": canon_written,
-            "raw_ok": status_counts["OK"],
-            "raw_missing": status_counts["MISSING"],
-            "raw_error": status_counts["ERROR"],
-            "max_ok_trade_date": max_ok,
-        }
-    )
-    return 0, summary
+    _print_summary(raw_rows, canon_rows)
+    return 1 if provider_error else 0
 
 
 def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
-    empty_summary = {
-        "provider_calls_used": 0,
-        "raw_upserts": 0,
-        "canon_upserts": 0,
-        "raw_ok": 0,
-        "raw_missing": 0,
-        "raw_error": 0,
-        "max_ok_trade_date": None,
-    }
     if not args.start or not args.end:
         print("Backfill mode requires --start and --end")
-        return 1, empty_summary
+        return 1, {}
 
     start_date = _parse_date(args.start)
     end_date = _parse_date(args.end)
     if end_date < start_date:
         print("Invalid date range: end must be on or after start")
-        return 1, empty_summary
+        return 1, {}
 
     trading_days = fetch_trading_days(start_date, end_date)
     if not trading_days:
         print("No trading days found for requested range")
-        return 1, empty_summary
+        return 1, {}
     last_trading_day = trading_days[-1]
 
     max_provider_calls = args.max_provider_calls
@@ -344,17 +363,22 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
 
     tickers = _split_tickers(args.tickers)
     if not tickers:
-        try:
-            tickers = fetch_distinct_tech100_tickers()
-        except Exception as exc:
-            print(f"Failed to load tickers: {exc}")
-            return 1, empty_summary
+        impacted: set[str] = set()
+        for day in trading_days:
+            impacted.update(fetch_impacted_tickers_for_trade_date(day))
+        tickers = sorted(impacted)
+        if not tickers:
+            try:
+                tickers = fetch_distinct_tech100_tickers()
+            except Exception as exc:
+                print(f"Failed to load tickers: {exc}")
+                return 1, {}
 
     total_raw = 0
     total_canon = 0
     total_status = {"OK": 0, "MISSING": 0, "ERROR": 0}
     provider_error: str | None = None
-    max_ok_trade_date = None
+    max_ok_trade_date: _dt.date | None = None
 
     for ticker in tickers:
         if max_provider_calls is not None and provider_calls_used >= max_provider_calls:
@@ -376,19 +400,40 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
             if max_ok >= last_trading_day:
                 continue
             ticker_start = max(max_ok + _dt.timedelta(days=1), start_date)
+        ticker_start = _next_trading_day(trading_days, ticker_start) or ticker_start
         if ticker_start > last_trading_day:
             continue
 
         provider_calls_used += 1
         try:
-            provider_rows = fetch_eod_prices(
-                [ticker],
-                ticker_start.isoformat(),
-                last_trading_day.isoformat(),
-            )
+            provider_rows = _fetch_provider_rows(ticker, ticker_start, last_trading_day)
         except Exception as exc:
             provider_error = str(exc)
             print(f"Provider fetch failed for {ticker}: {exc}")
+            missing_rows = _build_missing_rows(
+                ticker=ticker,
+                trading_days=trading_days,
+                start_date=ticker_start,
+                end_date=last_trading_day,
+                reason="provider_error",
+            )
+            if missing_rows:
+                total_raw += upsert_prices_raw(missing_rows)
+                total_status["MISSING"] += len(missing_rows)
+            continue
+
+        if not provider_rows:
+            print(f"Provider returned empty payload for {ticker}")
+            missing_rows = _build_missing_rows(
+                ticker=ticker,
+                trading_days=trading_days,
+                start_date=ticker_start,
+                end_date=last_trading_day,
+                reason="empty_payload",
+            )
+            if missing_rows:
+                total_raw += upsert_prices_raw(missing_rows)
+                total_status["MISSING"] += len(missing_rows)
             continue
 
         raw_rows = _build_raw_rows_from_provider(provider_rows)
@@ -439,31 +484,226 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
     return 0, summary
 
 
-def run_ingest(argv: list[str] | None = None) -> tuple[int, dict]:
+def _ranges_from_missing(trading_days: list[_dt.date], missing: set[_dt.date]) -> list[tuple[_dt.date, _dt.date]]:
+    ranges: list[tuple[_dt.date, _dt.date]] = []
+    start: _dt.date | None = None
+    last: _dt.date | None = None
+    for day in trading_days:
+        if day in missing:
+            if start is None:
+                start = day
+            last = day
+            continue
+        if start is not None and last is not None:
+            ranges.append((start, last))
+        start = None
+        last = None
+    if start is not None and last is not None:
+        ranges.append((start, last))
+    return ranges
+
+
+def _fetch_existing_ok(
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    tickers: list[str],
+) -> set[tuple[str, _dt.date]]:
+    if not tickers:
+        return set()
+    placeholders = ",".join(f":t{i}" for i in range(len(tickers)))
+    sql = (
+        "SELECT ticker, trade_date "
+        "FROM sc_idx_prices_raw "
+        f"WHERE provider = '{PROVIDER}' AND status = 'OK' "
+        "AND trade_date BETWEEN :start_date AND :end_date "
+        f"AND ticker IN ({placeholders})"
+    )
+    binds = {"start_date": start_date, "end_date": end_date}
+    binds.update({f"t{i}": t for i, t in enumerate(tickers)})
+    existing: set[tuple[str, _dt.date]] = set()
+    from db_helper import get_connection
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        for ticker, trade_date in cur.fetchall():
+            if not ticker or trade_date is None:
+                continue
+            if isinstance(trade_date, _dt.datetime):
+                trade_date = trade_date.date()
+            existing.add((str(ticker).strip().upper(), trade_date))
+    return existing
+
+
+def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
+    if not args.start or not args.end:
+        print("Backfill-missing mode requires --start and --end")
+        return 1, {}
+
+    start_date = _parse_date(args.start)
+    end_date = _parse_date(args.end)
+    if end_date < start_date:
+        print("Invalid date range: end must be on or after start")
+        return 1, {}
+
+    trading_days = fetch_trading_days(start_date, end_date)
+    if not trading_days:
+        print("No trading days found for requested range")
+        return 1, {}
+
+    tickers = _split_tickers(args.tickers)
+    impacted_by_date: dict[_dt.date, list[str]] = {}
+    if not tickers:
+        impacted: set[str] = set()
+        for day in trading_days:
+            impacted_list = fetch_impacted_tickers_for_trade_date(day)
+            impacted_by_date[day] = impacted_list
+            impacted.update(impacted_list)
+        tickers = sorted(impacted)
+        if not tickers:
+            try:
+                tickers = fetch_distinct_tech100_tickers()
+            except Exception as exc:
+                print(f"Failed to load tickers: {exc}")
+                return 1, {}
+    else:
+        for day in trading_days:
+            impacted_by_date[day] = tickers
+
+    existing_ok = _fetch_existing_ok(
+        start_date=start_date,
+        end_date=end_date,
+        tickers=tickers,
+    )
+
+    max_provider_calls = args.max_provider_calls
+    provider_calls_used = 0
+    total_raw = 0
+    total_canon = 0
+    total_status = {"OK": 0, "MISSING": 0, "ERROR": 0}
+    max_ok_trade_date: _dt.date | None = None
+
+    missing_by_ticker: dict[str, set[_dt.date]] = {}
+    for trade_date, impacted in impacted_by_date.items():
+        for ticker in impacted:
+            if (ticker, trade_date) in existing_ok:
+                continue
+            missing_by_ticker.setdefault(ticker, set()).add(trade_date)
+
+    for ticker, missing_dates in missing_by_ticker.items():
+        if not missing_dates:
+            continue
+        for start, end in _ranges_from_missing(trading_days, missing_dates):
+            if max_provider_calls is not None and provider_calls_used >= max_provider_calls:
+                print(
+                    f"budget_stop: provider_calls_used={provider_calls_used} "
+                    f"max_provider_calls={max_provider_calls}"
+                )
+                return 0, {
+                    "provider_calls_used": provider_calls_used,
+                    "raw_upserts": total_raw,
+                    "canon_upserts": total_canon,
+                    "raw_ok": total_status["OK"],
+                    "raw_missing": total_status["MISSING"],
+                    "raw_error": total_status["ERROR"],
+                    "max_ok_trade_date": max_ok_trade_date,
+                }
+
+            provider_calls_used += 1
+            try:
+                provider_rows = _fetch_provider_rows(ticker, start, end)
+            except Exception as exc:
+                print(f"Provider fetch failed for {ticker}: {exc}")
+                missing_rows = _build_missing_rows(
+                    ticker=ticker,
+                    trading_days=trading_days,
+                    start_date=start,
+                    end_date=end,
+                    reason="provider_error",
+                )
+                if missing_rows:
+                    total_raw += upsert_prices_raw(missing_rows)
+                    total_status["MISSING"] += len(missing_rows)
+                continue
+
+            if not provider_rows:
+                print(f"Provider returned empty payload for {ticker}")
+                missing_rows = _build_missing_rows(
+                    ticker=ticker,
+                    trading_days=trading_days,
+                    start_date=start,
+                    end_date=end,
+                    reason="empty_payload",
+                )
+                if missing_rows:
+                    total_raw += upsert_prices_raw(missing_rows)
+                    total_status["MISSING"] += len(missing_rows)
+                continue
+
+            raw_rows = _build_raw_rows_from_provider(provider_rows)
+            if raw_rows:
+                total_raw += upsert_prices_raw(raw_rows)
+            for row in raw_rows:
+                status = row.get("status")
+                if status in total_status:
+                    total_status[status] += 1
+                if status == "OK" and row.get("trade_date"):
+                    date_value = row.get("trade_date")
+                    if max_ok_trade_date is None or date_value > max_ok_trade_date:
+                        max_ok_trade_date = date_value
+            canon_rows = compute_canonical_rows(raw_rows)
+            if canon_rows:
+                total_canon += upsert_prices_canon(canon_rows)
+
+    print(
+        "backfill_missing_summary: raw_upserts={raw} canon_upserts={canon} provider_calls_used={calls}".format(
+            raw=total_raw, canon=total_canon, calls=provider_calls_used
+        )
+    )
+    summary = {
+        "provider_calls_used": provider_calls_used,
+        "raw_upserts": total_raw,
+        "canon_upserts": total_canon,
+        "raw_ok": total_status["OK"],
+        "raw_missing": total_status["MISSING"],
+        "raw_error": total_status["ERROR"],
+        "max_ok_trade_date": max_ok_trade_date,
+    }
+    return 0, summary
+
+
+def main(argv: list[str] | None = None) -> int:
+    load_env_files(
+        paths=(
+            "/etc/sustainacore/db.env",
+            "/etc/sustainacore-ai/app.env",
+            "/etc/sustainacore-ai/secrets.env",
+        )
+    )
     parser = argparse.ArgumentParser(description="Ingest TECH100 EOD prices")
     parser.add_argument("--date", help="single trade date (YYYY-MM-DD)")
     parser.add_argument("--start", help="start date inclusive (YYYY-MM-DD)")
     parser.add_argument("--end", help="end date inclusive (YYYY-MM-DD)")
     parser.add_argument("--backfill", action="store_true", help="run in backfill mode")
+    parser.add_argument("--backfill-missing", action="store_true", help="backfill only missing ticker/dates")
     parser.add_argument("--tickers", help="comma-separated ticker list override")
     parser.add_argument("--debug", action="store_true", help="print ingest diagnostics")
     parser.add_argument(
         "--max-provider-calls",
         type=int,
         default=None,
-        help="Maximum Twelve Data requests to issue in backfill mode.",
+        help="Maximum provider requests to issue in backfill mode.",
     )
 
     args = parser.parse_args(argv)
 
     if args.backfill:
-        return _run_backfill(args)
+        code, _summary = _run_backfill(args)
+        return code
+    if args.backfill_missing:
+        code, _summary = _run_backfill_missing(args)
+        return code
     return _run_single(args)
-
-
-def main(argv: list[str] | None = None) -> int:
-    exit_code, _summary = run_ingest(argv)
-    return exit_code
 
 
 if __name__ == "__main__":

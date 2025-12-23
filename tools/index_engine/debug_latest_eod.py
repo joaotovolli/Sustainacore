@@ -17,10 +17,10 @@ from db_helper import get_connection
 
 
 def _load_provider_module():
-    module_path = REPO_ROOT / "app" / "providers" / "twelvedata.py"
-    spec = importlib.util.spec_from_file_location("twelvedata_provider", module_path)
+    module_path = REPO_ROOT / "app" / "providers" / "market_data_provider.py"
+    spec = importlib.util.spec_from_file_location("market_data_provider", module_path)
     if spec is None or spec.loader is None:
-        raise ImportError("Unable to load Twelve Data provider module")
+        raise ImportError("Unable to load market data provider provider module")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[arg-type]
     return module

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from typing import Iterable
 
+PREFERRED_PROVIDER = "MARKET_DATA"
+SECONDARY_PROVIDER = "ALPHAVANTAGE"
+
 
 def _median(values: Iterable[float]) -> float:
     sorted_vals = sorted(values)
@@ -44,7 +47,7 @@ def reconcile_canonical(
       {
         "canon_adj_close": float|None,
         "canon_close": float|None,
-        "chosen_provider": "MEDIAN"|"TWELVEDATA"|"ALPHAVANTAGE"|<provider>,
+        "chosen_provider": "MEDIAN"|<preferred>|<secondary>|<provider>,
         "providers_ok": int,
         "divergence_pct": float|None,
         "quality": "HIGH"|"LOW"|"CONFLICT"
@@ -54,7 +57,7 @@ def reconcile_canonical(
       - If providers_ok >= 2:
           divergence = max_pairwise_percent_difference(adjs)
           if divergence <= threshold: canon = median (2 vals => average), quality=HIGH, chosen=MEDIAN
-          else: choose TWELVEDATA if present else ALPHAVANTAGE else first provider; quality=CONFLICT
+          else: choose preferred if present else secondary else first provider; quality=CONFLICT
       - If providers_ok == 1: choose that provider, quality=LOW
       - If providers_ok == 0: all None + quality=LOW
     """
@@ -92,10 +95,10 @@ def reconcile_canonical(
                 if closes:
                     result["canon_close"] = _median(closes)
         else:
-            if "TWELVEDATA" in adjs:
-                chosen = "TWELVEDATA"
-            elif "ALPHAVANTAGE" in adjs:
-                chosen = "ALPHAVANTAGE"
+            if PREFERRED_PROVIDER in adjs:
+                chosen = PREFERRED_PROVIDER
+            elif SECONDARY_PROVIDER in adjs:
+                chosen = SECONDARY_PROVIDER
             else:
                 chosen = next(iter(adjs.keys()))
             result["chosen_provider"] = chosen

@@ -1,9 +1,6 @@
 SustainaCore
 TECH100
 SC_IDX
-twelvedata
-TWELVEDATA
-TwelveData
 AlphaVantage
 ALPHAVANTAGE
 rebalance
