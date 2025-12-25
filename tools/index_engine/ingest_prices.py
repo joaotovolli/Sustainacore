@@ -80,13 +80,8 @@ def _build_raw_rows_from_provider(provider_rows: list[dict]) -> list[dict]:
             continue
         close_px = row.get("close")
         adj_close = row.get("adj_close") if row.get("adj_close") is not None else row.get("close")
-        status = "OK"
-        error_msg = None
         if close_px is None or close_px <= 0 or adj_close is None or adj_close <= 0:
-            status = "ERROR"
-            error_msg = "invalid_close_px"
-            close_px = None
-            adj_close = None
+            continue
 
         raw_rows.append(
             {
@@ -97,8 +92,8 @@ def _build_raw_rows_from_provider(provider_rows: list[dict]) -> list[dict]:
                 "adj_close_px": adj_close,
                 "volume": row.get("volume"),
                 "currency": row.get("currency"),
-                "status": status,
-                "error_msg": error_msg,
+                "status": "OK",
+                "error_msg": None,
             }
         )
     return raw_rows

@@ -79,10 +79,51 @@ def evaluate_completeness(
     return {"status": status, "bad_days": bad_days}
 
 
+def find_previous_available(
+    trading_days: Sequence[_dt.date],
+    trade_date: _dt.date,
+    available_dates: set[_dt.date],
+) -> _dt.date | None:
+    """Return the most recent trading day with available data prior to trade_date."""
+    for day in reversed(trading_days):
+        if day < trade_date and day in available_dates:
+            return day
+    return None
+
+
+def format_imputation_alert(
+    *,
+    date_range: tuple[_dt.date, _dt.date],
+    total_imputed: int,
+    total_missing_without_prior: int,
+    per_date_counts: Sequence[tuple[_dt.date, int]],
+    top_tickers: Sequence[tuple[str, int]],
+) -> str:
+    start_date, end_date = date_range
+    lines = [
+        "SC_IDX imputations summary",
+        f"date_range: {start_date.isoformat()}..{end_date.isoformat()}",
+        f"total_imputed: {total_imputed}",
+        f"missing_without_prior: {total_missing_without_prior}",
+    ]
+
+    if per_date_counts:
+        lines.append("top_dates:")
+        lines.extend([f"- {trade_date.isoformat()}: {count}" for trade_date, count in per_date_counts])
+
+    if top_tickers:
+        lines.append("top_tickers:")
+        lines.extend([f"- {ticker}: {count}" for ticker, count in top_tickers])
+
+    return "\n".join(lines)
+
+
 __all__ = [
     "CoverageRecord",
     "evaluate_completeness",
+    "find_previous_available",
     "find_bad_days",
+    "format_imputation_alert",
     "generate_weekdays",
     "infer_holidays",
 ]
