@@ -11,7 +11,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 os.environ.setdefault("DJANGO_SECRET_KEY", "test-secret")
 os.environ.setdefault(
     "DJANGO_ALLOWED_HOSTS",
-    "testserver,localhost,sustainacore.org,www.sustainacore.org",
+    "testserver,localhost,sustainacore.org,www.sustainacore.org,preview.sustainacore.org",
 )
 os.environ.setdefault("GEMINI_FIRST_ENABLED", "0")
 os.environ.setdefault("ASK2_SKIP_CAPABILITY_SNAPSHOT", "1")

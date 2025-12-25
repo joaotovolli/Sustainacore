@@ -297,6 +297,12 @@ def fetch_eod_prices(tickers: Iterable[str], start: str, end: str) -> list[dict]
         raise RuntimeError("MARKET_DATA_API_KEY is not set")
 
     rows: List[dict] = []
+    if start == end:
+        trade_date = _dt.date.fromisoformat(start)
+        for ticker in sorted(set(tickers_list)):
+            rows.extend(fetch_single_day_bar(ticker, trade_date, api_key=api_key))
+        return rows
+
     for ticker in sorted(set(tickers_list)):
         rows.extend(_fetch_ticker(ticker, start, end, api_key))
     return rows

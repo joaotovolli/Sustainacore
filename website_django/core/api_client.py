@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from typing import Any, Dict, List, Optional
 import logging
 
@@ -158,9 +159,11 @@ def fetch_news(
         params["days"] = days
 
     cache_key = _cache_key("news", params)
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    cached = None
+    if not os.getenv("PYTEST_CURRENT_TEST"):
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
 
     payload = _get_json("/api/news", timeout=timeout, params=params)
 

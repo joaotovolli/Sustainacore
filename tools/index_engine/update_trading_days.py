@@ -16,6 +16,7 @@ for path in (REPO_ROOT, APP_ROOT):
 
 from tools.oracle.env_bootstrap import load_env_files
 from index_engine.db import fetch_latest_trading_day, upsert_trading_days
+from db_helper import get_connection
 
 BASE_DATE = _dt.date(2025, 1, 2)
 SOURCE = "MARKET_DATA_SPY"
@@ -43,6 +44,17 @@ def _extract_trade_date(entry: dict) -> _dt.date | None:
             except ValueError:
                 continue
     return None
+
+
+def _fetch_total_count() -> int:
+    sql = "SELECT COUNT(1) FROM SC_IDX_TRADING_DAYS"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql)
+        row = cur.fetchone()
+        if row and row[0] is not None:
+            return int(row[0])
+    return 0
 
 
 def update_trading_days(
@@ -77,9 +89,13 @@ def update_trading_days(
         total = max_before or latest
         return inserted, 0, latest, max_before, total
 
-    window = max(DEFAULT_WINDOW, (latest - start).days + 5)
-    window = min(window, MAX_WINDOW)
-    values = provider.fetch_daily_window_desc("SPY", window=window)
+    values = []
+    if hasattr(provider, "fetch_time_series"):
+        values = provider.fetch_time_series("SPY", start, latest)
+    else:
+        window = max(DEFAULT_WINDOW, (latest - start).days + 5)
+        window = min(window, MAX_WINDOW)
+        values = provider.fetch_daily_window_desc("SPY", window=window)
     dates = sorted(
         {
             trade_date
@@ -96,7 +112,8 @@ def update_trading_days(
 
     inserted = upsert_trading_days(dates, SOURCE)
     max_after = fetch_latest_trading_day()
-    return inserted, len(dates), latest, max_before, max_after
+    total_count = _fetch_total_count()
+    return inserted, total_count, latest, max_before, max_after
 
 
 def main() -> int:
