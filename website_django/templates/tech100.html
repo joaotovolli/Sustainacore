@@ -115,6 +115,8 @@
                     <td class="text-center" data-order="{{ c.weight|default_if_none:c.port_weight }}">
                       {% if c.weight_display_whole %}
                         {{ c.weight_display_whole }}
+                      {% elif c.weight_display %}
+                        {{ c.weight_display }}
                       {% elif c.weight or c.weight == 0 %}
                         {{ c.weight|floatformat:0 }}%
                       {% elif c.port_weight or c.port_weight == 0 %}
@@ -147,6 +149,7 @@
                         aria-label="View details for {{ c.company_name|default:'Company' }}"
                       >
                         <span class="icon-button__icon" aria-hidden="true">↗</span>
+                        <span class="sr-only">View Details</span>
                       </button>
                     </td>
                   </tr>

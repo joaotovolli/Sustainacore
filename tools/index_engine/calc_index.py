@@ -227,16 +227,11 @@ def main() -> int:
 
     load_default_env()
 
-    preflight_self_heal = args.preflight_self_heal and not args.dry_run
+    preflight_self_heal = args.preflight_self_heal and not args.dry_run and not args.diagnose_only
     if preflight_self_heal:
         from tools.index_engine import update_trading_days
 
         update_trading_days.update_trading_days(auto_extend=True)
-
-    end_date = _parse_date(args.end) if args.end else db.fetch_max_trading_day()
-    if end_date is None:
-        print("no_trading_days")
-        return 1
 
     if args.since_base:
         start_date = BASE_DATE
@@ -244,6 +239,30 @@ def main() -> int:
         start_date = _parse_date(args.start)
     else:
         start_date = BASE_DATE
+
+    if args.end:
+        end_date = _parse_date(args.end)
+    elif args.diagnose_only:
+        end_date = start_date
+    else:
+        end_date = db.fetch_max_trading_day()
+    if end_date is None:
+        print("no_trading_days")
+        return 1
+
+    if args.diagnose_only:
+        if args.diagnose_missing and args.diagnose_missing_sql:
+            output = _print_missing_diagnostics(
+                start_date=start_date,
+                end_date=end_date,
+                max_dates=args.max_dates,
+                max_tickers=args.max_tickers,
+                max_samples=args.max_samples,
+            )
+            if "missing=0" in output or "missing_days=0" in output:
+                return 0
+            return 2
+        return 0
 
     trading_days = db.fetch_trading_days(start_date, end_date)
     if not trading_days:
@@ -259,11 +278,6 @@ def main() -> int:
             max_tickers=args.max_tickers,
             max_samples=args.max_samples,
         )
-        if args.diagnose_only:
-            if "missing=0" in pre_diag_output or "missing_days=0" in pre_diag_output:
-                return 0
-            return 2
-
     if args.dry_run:
         if args.diagnose_missing:
             _print_missing_diagnostics(

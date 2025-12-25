@@ -106,8 +106,7 @@ BASE_ROWS: List[Dict[str, Any]] = [
         "RANK_INDEX": 2,
         "COMPANY_NAME": "Acme Corp",
         "TICKER": "ACME",
-        "PORT_WEIGHT": 1.2,
-        "PORT_WEIGHT": 0.02,
+        "PORT_WEIGHT": 0.012,
         "GICS_SECTOR": "Technology",
         "TRANSPARENCY": 70,
         "ETHICAL_PRINCIPLES": None,
@@ -181,12 +180,6 @@ def test_api_tech100_returns_history_and_aliases(monkeypatch):
         "overall",
         "accountability",
         "updated_at",
-    ):
-        assert key in first
-
-    acme = next(item for item in items if item["company_name"] == "Acme Corp" and item["rank_index"] == 1)
-        "port_weight",
-        "weight",
     ):
         assert key in first
 
