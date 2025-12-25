@@ -32,17 +32,6 @@ def generate_weekdays(start: _dt.date, end: _dt.date) -> list[_dt.date]:
     return weekdays
 
 
-def select_trading_days(
-    trading_days: Sequence[_dt.date],
-    start: _dt.date,
-    end: _dt.date,
-) -> list[_dt.date]:
-    """Filter trading days to the requested date range (inclusive)."""
-    if end < start:
-        raise ValueError("end must be on or after start")
-    return [day for day in trading_days if start <= day <= end]
-
-
 def infer_holidays(
     coverage_by_date: Mapping[_dt.date, float],
     *,
@@ -92,14 +81,12 @@ def evaluate_completeness(
 
 def find_previous_available(
     trading_days: Sequence[_dt.date],
-    target_date: _dt.date,
+    trade_date: _dt.date,
     available_dates: set[_dt.date],
 ) -> _dt.date | None:
-    """Return the most recent trading day before target_date with available data."""
+    """Return the most recent trading day with available data prior to trade_date."""
     for day in reversed(trading_days):
-        if day >= target_date:
-            continue
-        if day in available_dates:
+        if day < trade_date and day in available_dates:
             return day
     return None
 
@@ -112,31 +99,31 @@ def format_imputation_alert(
     per_date_counts: Sequence[tuple[_dt.date, int]],
     top_tickers: Sequence[tuple[str, int]],
 ) -> str:
-    """Build an imputation alert body."""
-    start, end = date_range
+    start_date, end_date = date_range
     lines = [
-        f"date_range={start.isoformat()}..{end.isoformat()}",
-        f"total_imputed={total_imputed}",
-        f"missing_without_prior={total_missing_without_prior}",
-        "",
-        "imputations_by_date:",
+        "SC_IDX imputations summary",
+        f"date_range: {start_date.isoformat()}..{end_date.isoformat()}",
+        f"total_imputed: {total_imputed}",
+        f"missing_without_prior: {total_missing_without_prior}",
     ]
-    for trade_date, count in per_date_counts:
-        lines.append(f"- {trade_date.isoformat()} count={count}")
-    lines.append("")
-    lines.append("top_tickers:")
-    for ticker, count in top_tickers:
-        lines.append(f"- {ticker} count={count}")
+
+    if per_date_counts:
+        lines.append("top_dates:")
+        lines.extend([f"- {trade_date.isoformat()}: {count}" for trade_date, count in per_date_counts])
+
+    if top_tickers:
+        lines.append("top_tickers:")
+        lines.extend([f"- {ticker}: {count}" for ticker, count in top_tickers])
+
     return "\n".join(lines)
 
 
 __all__ = [
     "CoverageRecord",
     "evaluate_completeness",
-    "find_bad_days",
     "find_previous_available",
+    "find_bad_days",
     "format_imputation_alert",
     "generate_weekdays",
     "infer_holidays",
-    "select_trading_days",
 ]

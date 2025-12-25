@@ -110,6 +110,9 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
             shaped = payload if isinstance(payload, dict) else {}
             shaped.setdefault("meta", {})
             shaped["meta"].setdefault("routing", "gemini_first")
+            contexts = shaped.get("contexts")
+            if not isinstance(contexts, list) or not contexts:
+                shaped["meta"].setdefault("note", "no_contexts")
             return shaped, 200
         except _ServiceRateLimitError as exc:  # type: ignore[arg-type]
             meta = {

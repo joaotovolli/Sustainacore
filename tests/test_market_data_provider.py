@@ -4,7 +4,7 @@ import json
 import urllib.error
 from contextlib import contextmanager
 
-import app.providers.twelvedata as tw
+import app.providers.market_data_provider as tw
 from tools.index_engine.ingest_prices import compute_canonical_rows
 
 
@@ -61,7 +61,8 @@ def test_fetch_eod_prices_retries_on_rate_limit(monkeypatch):
 
         return Dummy()
 
-    monkeypatch.setenv("TWELVEDATA_API_KEY", "test-key")
+    monkeypatch.setenv("MARKET_DATA_API_KEY", "test-key")
+    monkeypatch.setenv("MARKET_DATA_API_BASE_URL", "https://example.test")
     monkeypatch.setattr(tw, "_urlopen", fake_urlopen)
     monkeypatch.setattr(tw, "_acquire_token_blocking", lambda: None)
     monkeypatch.setattr(tw, "_sleep_until_window_reset", lambda: None)
@@ -85,7 +86,7 @@ def test_compute_canonical_skips_non_ok_rows():
         {
             "ticker": "ABC",
             "trade_date": _dt.date.fromisoformat("2025-01-02"),
-            "provider": "TWELVEDATA",
+            "provider": "MARKET_DATA",
             "close_px": 10.0,
             "adj_close_px": 10.0,
             "status": "ERROR",
@@ -98,15 +99,16 @@ def test_compute_canonical_skips_non_ok_rows():
 
 
 def test_throttle_env_overrides(monkeypatch):
-    monkeypatch.setenv("SC_IDX_TWELVEDATA_CALLS_PER_WINDOW", "5")
-    monkeypatch.setenv("SC_IDX_TWELVEDATA_WINDOW_SECONDS", "90")
+    monkeypatch.setenv("SC_IDX_MARKET_DATA_CALLS_PER_WINDOW", "5")
+    monkeypatch.setenv("SC_IDX_MARKET_DATA_WINDOW_SECONDS", "90")
     cfg = tw.get_throttle_config(refresh=True)
     assert cfg["calls_per_window"] == 5
     assert cfg["window_seconds"] == 90
 
 
 def test_fetch_api_usage_and_latest_bar_use_throttle(monkeypatch):
-    monkeypatch.setenv("TWELVEDATA_API_KEY", "test-key")
+    monkeypatch.setenv("MARKET_DATA_API_KEY", "test-key")
+    monkeypatch.setenv("MARKET_DATA_API_BASE_URL", "https://example.test")
     calls = {"count": 0}
 
     def fake_throttled(request, **kwargs):

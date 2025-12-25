@@ -2,11 +2,11 @@
 
 ## How the daily run works
 - `tools/index_engine/run_daily.py` uses `(UTC today - 1 day)` as the end date and performs an incremental backfill so gaps from earlier days are filled in the same pass.
-- Tickers are split into batches via `--tickers` to stay under the TwelveData free-tier throttle of **8 credits/min**; the ingest script sleeps after 429/credit errors.
+- Tickers are split into batches via `--tickers` to stay under the provider throttle of **8 credits/min**; the ingest script sleeps after 429/credit errors.
 - Default window: start at `2025-01-02`, end at `(UTC today - 1)`, chunked ticker batches.
 
 ## Running ingest/backfill
-Ensure the environment has `TWELVEDATA_API_KEY` and `DB_*` loaded (for VM1 use `/etc/sustainacore/db.env` and `/etc/sustainacore-ai/secrets.env`). Example invocations:
+Ensure the environment has `MARKET_DATA_API_KEY`, `MARKET_DATA_API_BASE_URL`, and `DB_*` loaded (for VM1 use `/etc/sustainacore/db.env` and `/etc/sustainacore-ai/secrets.env`). Example invocations:
 
 ```bash
 python tools/index_engine/run_daily.py
@@ -22,7 +22,7 @@ Notes:
 ## Verification queries (Oracle)
 ```sql
 -- Provider status counts
-SELECT status, COUNT(*) FROM SC_IDX_PRICES_RAW WHERE provider='TWELVEDATA' GROUP BY status;
+SELECT status, COUNT(*) FROM SC_IDX_PRICES_RAW WHERE provider='MARKET_DATA' GROUP BY status;
 
 -- Null checks on canonized rows
 SELECT COUNT(*) FROM SC_IDX_PRICES_CANON WHERE close IS NULL OR volume IS NULL;

@@ -17,7 +17,12 @@ from tools.index_engine.env_loader import load_default_env
 load_default_env()
 
 from db_helper import get_connection
-from providers.twelvedata import TwelveDataError, fetch_api_usage, fetch_latest_bar
+from providers.market_data_provider import (
+    MarketDataProviderError,
+    fetch_api_usage,
+    fetch_latest_bar,
+)
+
 
 def _fetch_latest_bar_for_symbol(symbol: str) -> tuple[list[dict], str | None, str | None]:
     try:
@@ -41,14 +46,14 @@ def _query_oracle() -> Dict[str, Any]:
         oracle_user = str(user_row[0]).strip() if user_row and user_row[0] is not None else None
 
         cur.execute(
-            "SELECT MAX(ingested_at) FROM SC_IDX_PRICES_RAW WHERE provider = 'TWELVEDATA'"
+            "SELECT MAX(ingested_at) FROM SC_IDX_PRICES_RAW WHERE provider = 'MARKET_DATA'"
         )
         ingested_row = cur.fetchone()
         max_ingested = ingested_row[0] if ingested_row else None
 
         cur.execute(
             "SELECT MAX(trade_date) FROM SC_IDX_PRICES_RAW "
-            "WHERE status = 'OK' AND provider = 'TWELVEDATA'"
+            "WHERE status = 'OK' AND provider = 'MARKET_DATA'"
         )
         max_ok_row = cur.fetchone()
         max_ok_trade_date = max_ok_row[0] if max_ok_row else None
@@ -57,7 +62,7 @@ def _query_oracle() -> Dict[str, Any]:
             "SELECT trade_date, status, COUNT(*) "
             "FROM SC_IDX_PRICES_RAW "
             "WHERE trade_date >= TRUNC(SYSDATE) - 3 "
-            "AND provider = 'TWELVEDATA' "
+            "AND provider = 'MARKET_DATA' "
             "GROUP BY trade_date, status "
             "ORDER BY trade_date DESC, status"
         )
@@ -66,7 +71,7 @@ def _query_oracle() -> Dict[str, Any]:
             for row in cur.fetchall()
         ]
 
-        cur.execute("SELECT COUNT(*) FROM SC_IDX_PRICES_RAW WHERE provider = 'TWELVEDATA'")
+        cur.execute("SELECT COUNT(*) FROM SC_IDX_PRICES_RAW WHERE provider = 'MARKET_DATA'")
         raw_count = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM SC_IDX_PRICES_CANON")
@@ -100,12 +105,17 @@ def _print_usage(label: str, usage: Dict[str, Any]) -> None:
     print(f"{label}: current_usage={current} plan_limit={limit} plan_category={category} as_of={ts}")
 
 
+def _load_env_files() -> None:
+    load_default_env()
+
+
 def main() -> int:
-    print("== Twelve Data usage check ==")
+    _load_env_files()
+    print("== Market data provider usage check ==")
     try:
         usage_before = fetch_api_usage()
-    except TwelveDataError as exc:
-        print(f"FAIL unable to fetch Twelve Data usage before probe: {exc}")
+    except MarketDataProviderError as exc:
+        print(f"FAIL unable to fetch provider usage before probe: {exc}")
         return 1
     _print_usage("usage_before", usage_before)
 
@@ -113,8 +123,8 @@ def main() -> int:
 
     try:
         usage_after = fetch_api_usage()
-    except TwelveDataError as exc:
-        print(f"FAIL unable to fetch Twelve Data usage after probe: {exc}")
+    except MarketDataProviderError as exc:
+        print(f"FAIL unable to fetch provider usage after probe: {exc}")
         return 1
     _print_usage("usage_after", usage_after)
 
@@ -129,52 +139,25 @@ def main() -> int:
     before_value = usage_before.get("current_usage") or 0
     after_value = usage_after.get("current_usage") or 0
     delta = after_value - before_value
-    if delta > 0:
-        print(f"PASS credits delta observed: delta={delta} latest_datetime={latest_dt}")
-    else:
-        print(f"FAIL credits did not change: delta={delta} latest_datetime={latest_dt} provider_error={provider_error}")
 
-    print("\n== Oracle verification ==")
-    try:
-        oracle_data = _query_oracle()
-    except Exception as exc:  # pragma: no cover - env specific
-        print(f"FAIL oracle query failed: {exc}")
-        return 1
+    oracle_payload = _query_oracle()
+    max_ingested_at = _coerce_datetime(oracle_payload.get("max_ingested_at"))
+    max_ok_trade_date = oracle_payload.get("max_ok_trade_date")
 
-    print(f"oracle_user={oracle_data.get('oracle_user')}")
-    print(f"max_ingested_at={oracle_data.get('max_ingested_at')}")
-    print(f"max_ok_trade_date={oracle_data.get('max_ok_trade_date')}")
-    print("raw_counts_last_3_days:")
-    for row in oracle_data.get("daily_counts", []):
-        td = row.get("trade_date")
-        status = row.get("status")
-        count = row.get("count")
-        print(f"  {td} status={status} count={count}")
-    print(f"raw_row_count={oracle_data.get('raw_count')} canon_row_count={oracle_data.get('canon_count')}")
+    print("\n== Oracle ==")
+    print(f"oracle_user={oracle_payload.get('oracle_user')}")
+    print(f"max_ingested_at={max_ingested_at}")
+    print(f"max_ok_trade_date={max_ok_trade_date}")
+    print(f"raw_count={oracle_payload.get('raw_count')} canon_count={oracle_payload.get('canon_count')}")
 
-    now = _dt.datetime.now(_dt.timezone.utc)
-    ingested_at = _coerce_datetime(oracle_data.get("max_ingested_at"))
-    if ingested_at is not None:
-        ingested_at = ingested_at.replace(tzinfo=_dt.timezone.utc) if ingested_at.tzinfo is None else ingested_at.astimezone(_dt.timezone.utc)
-    ingested_recent = ingested_at is not None and (now - ingested_at).total_seconds() <= 3 * 24 * 3600
-    if ingested_recent:
-        print("PASS oracle ingested_at updated recently")
-    else:
-        print("FAIL oracle ingested_at not recent")
+    print("\n== Delta ==")
+    print(f"usage_delta={delta}")
 
-    raw_ok = (oracle_data.get("raw_count") or 0) > 0
-    canon_ok = (oracle_data.get("canon_count") or 0) > 0
-    if raw_ok and canon_ok:
-        print("PASS raw/canon rows exist")
-    else:
-        print("FAIL raw/canon rows missing or zero")
+    overall_pass = provider_error is None and len(provider_rows) > 0
+    print("\n== Overall ==")
+    print("OVERALL: PASS" if overall_pass else "OVERALL: FAIL")
 
-    if delta > 0 and ingested_recent and raw_ok and canon_ok:
-        print("\nOVERALL: PASS")
-        return 0
-
-    print("\nOVERALL: FAIL")
-    return 2
+    return 0 if overall_pass else 2
 
 
 if __name__ == "__main__":

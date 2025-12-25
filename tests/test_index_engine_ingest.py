@@ -13,7 +13,7 @@ def test_compute_canonical_uses_provider_close_when_adj_missing():
         {
             "ticker": "ABC",
             "trade_date": trade_date,
-            "provider": "TWELVEDATA",
+            "provider": "MARKET_DATA",
             "close_px": 12.34,
             "adj_close_px": None,
             "status": "OK",
@@ -26,7 +26,7 @@ def test_compute_canonical_uses_provider_close_when_adj_missing():
     row = canon_rows[0]
     assert row["canon_adj_close_px"] == 12.34
     assert row["canon_close_px"] == 12.34
-    assert row["chosen_provider"] == "TWELVEDATA"
+    assert row["chosen_provider"] == "MARKET_DATA"
     assert row["quality"] == "LOW"
     assert row["providers_ok"] == 1
 

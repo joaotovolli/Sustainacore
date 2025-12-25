@@ -3,26 +3,26 @@
 The pipeline runs every 6 hours (00:30, 06:30, 12:30, 18:30 UTC). The flow now:
 
 - Calls `/api_usage` once (cost: 1 credit) only for per-minute awareness (plan_limit=8 on the Basic tier). Minute-level throttling is enforced by the provider’s shared throttle/lock (default 6 calls per 120 seconds, process-serialized).
-- Computes daily usage from Oracle: `SUM(PROVIDER_CALLS_USED)` in `SC_IDX_JOB_RUNS` for `provider='TWELVEDATA'` and `started_at` in the current UTC day (`TRUNC(SYSTIMESTAMP)` window).
+- Computes daily usage from Oracle: `SUM(PROVIDER_CALLS_USED)` in `SC_IDX_JOB_RUNS` for `provider='MARKET_DATA'` and `started_at` in the current UTC day (`TRUNC(SYSTIMESTAMP)` window).
 - Applies a daily cap: `remaining_daily = daily_limit - calls_used_today`, `max_provider_calls = max(0, remaining_daily - daily_buffer)`. Environment:
-  - `SC_IDX_TWELVEDATA_DAILY_LIMIT` (default 800)
-  - `SC_IDX_TWELVEDATA_DAILY_BUFFER` (default 25; falls back to `SC_IDX_TWELVEDATA_CREDIT_BUFFER` if set)
+  - `SC_IDX_MARKET_DATA_DAILY_LIMIT` (default 800)
+  - `SC_IDX_MARKET_DATA_DAILY_BUFFER` (default 25; falls back to `SC_IDX_MARKET_DATA_CREDIT_BUFFER` if set)
 - Hitting the daily cap prints `daily_budget_stop: ...` and exits 0 so systemd does not treat it as a failure (email only when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`).
-- Fetches the latest available EOD trade date using `SPY` (Twelve Data) and ingests up to the latest trading day <= that provider date.
+- Fetches the latest available EOD trade date using `SPY` and ingests up to the latest trading day <= that provider date.
 - Refreshes the explicit trading-day calendar (`SC_IDX_TRADING_DAYS`) before ingest.
 - Runs `tools/index_engine/ingest_prices.py --backfill --start 2025-01-02 --end <latest_eod> --max-provider-calls <computed>` and passes `SC_IDX_TICKERS` when present for the ticker list.
 - Executes a strict completeness check against `SC_IDX_TRADING_DAYS`. If gaps remain, it runs carry-forward imputation and emails detailed alerts.
-- Note: if Twelve Data has not published today’s bar yet, the job will lag a day and catch up automatically once the bar becomes available.
 - Alerts are suppressed to once per UTC day per alert type (completeness fail, missing-without-prior, daily digest) via `SC_IDX_ALERT_STATE`.
 - Replacement attempts re-fetch real prices for a bounded subset of imputed rows and overwrite canonical imputed rows when real data arrives.
 
 Environment:
 
-- `SC_TWELVEDATA_API_KEY` or `TWELVEDATA_API_KEY` must be set (never logged).
+- `SC_MARKET_DATA_API_KEY` or `MARKET_DATA_API_KEY` must be set (never logged).
+- `MARKET_DATA_API_BASE_URL` must be set (base URL for the provider API).
 - All index-engine CLI tools auto-load environment files (best-effort) on startup via `tools/index_engine/env_loader.py`, reading (in order): `/etc/sustainacore/db.env` then `/etc/sustainacore-ai/secrets.env`. Explicit shell env vars still win.
-- `SC_IDX_TWELVEDATA_DAILY_LIMIT` sets the daily call ceiling (default 800).
-- `SC_IDX_TWELVEDATA_DAILY_BUFFER` reserves extra headroom near the daily cap (default 25; alias `SC_IDX_TWELVEDATA_CREDIT_BUFFER` for back-compat).
-- Twelve Data throttle override (rarely needed): `SC_IDX_TWELVEDATA_CALLS_PER_WINDOW` (default 6) and `SC_IDX_TWELVEDATA_WINDOW_SECONDS` (default 120). All provider calls are serialized via `/tmp/sc_idx_twelvedata.lock` to avoid cross-process spikes.
+- `SC_IDX_MARKET_DATA_DAILY_LIMIT` sets the daily call ceiling (default 800).
+- `SC_IDX_MARKET_DATA_DAILY_BUFFER` reserves extra headroom near the daily cap (default 25; alias `SC_IDX_MARKET_DATA_CREDIT_BUFFER` for back-compat).
+- Provider throttle override (rarely needed): `SC_IDX_MARKET_DATA_CALLS_PER_WINDOW` (default 6) and `SC_IDX_MARKET_DATA_WINDOW_SECONDS` (default 120). All provider calls are serialized via `/tmp/sc_idx_market_data.lock` to avoid cross-process spikes.
 - Optional: `SC_IDX_TICKERS` (comma separated), `SC_IDX_ENABLE_IMPUTATION` (default 1), `SC_IDX_IMPUTED_REPLACEMENT_DAYS` (default 30), `SC_IDX_IMPUTED_REPLACEMENT_LIMIT` (default 10), and `SC_IDX_DAILY_DIGEST_ALWAYS` (default 0).
 - Email alerts on failure use SMTP envs from `/etc/sustainacore-ai/secrets.env`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`. Errors trigger an email with a compact run report; set `SC_IDX_EMAIL_ON_BUDGET_STOP=1` to also email budget stops.
 - Daily usage and statuses are persisted in `SC_IDX_JOB_RUNS` (DDL: `oracle_scripts/sc_idx_job_runs_v1.sql`). Run `oracle_scripts/sc_idx_job_runs_v1_drop.sql` to drop if rollback is needed. Example query: `SELECT run_id, status, error_msg, started_at, ended_at FROM SC_IDX_JOB_RUNS ORDER BY started_at DESC FETCH FIRST 20 ROWS ONLY;`
@@ -35,14 +35,12 @@ Environment:
   `SC_IDX_PIPELINE_SKIP_INGEST=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_pipeline.py`
 - The orchestrator invokes index calc with `--no-preflight-self-heal` to avoid a second ingest/impute pass because the earlier stages already ran in-process.
 - Keep `SC_IDX_PIPELINE_SKIP_INGEST` for manual runs only; systemd timers should run with ingest enabled.
-- Ingest readiness: the pipeline probes TwelveData (SPY) for the target end date and falls back up to two prior trading days. If the provider is not ready, ingest is skipped safely (`sc_idx_ingest_skip: provider_not_ready...`) and exits 0 (no imputation for that date).
-- Debug provider availability:  
-  `PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_twelvedata_availability.py --debug`
+- Ingest readiness: the pipeline probes the provider (SPY) for the target end date and falls back up to two prior trading days. If the provider is not ready, ingest is skipped safely (`sc_idx_ingest_skip: provider_not_ready...`) and exits 0 (no imputation for that date).
 
-## Twelve Data readiness probe (SPY)
+## Provider readiness probe (SPY)
 
-- Provider latest EOD is detected via Twelve Data for SPY. The candidate ingest end date is the latest trading day on/before that provider date (and before today).
-- Readiness probe: fetch a small descending window for SPY on the candidate date. If Twelve Data says “No data is available…”, fall back to the previous trading day, up to two fallbacks total (3 attempts).
+- Provider latest EOD is detected via SPY. The candidate ingest end date is the latest trading day on/before that provider date (and before today).
+- Readiness probe: fetch a small descending window for SPY on the candidate date. If the provider reports “no data”, fall back to the previous trading day, up to two fallbacks total (3 attempts).
 - If none of the attempts return data, ingest exits 0 with `sc_idx_ingest_skip: provider_not_ready candidate_end=... tried=[...]` to avoid hammering the provider or creating future-date rows.
 - No future-date rule: the pipeline never writes CANON/IMPUTED rows for dates after the provider’s latest EOD.
 
@@ -57,13 +55,13 @@ Environment:
 ## Debug quick check
 
 - Provider availability probe:  
-  `PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_twelvedata_availability.py --debug`
+  `PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_provider_availability.py --debug`
 - Recent pipeline logs:  
   `sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager`
 
 ## Oracle preflight
 
-- `tools/index_engine/run_daily.py` (Twelve Data) runs an Oracle preflight (`SELECT USER FROM dual`) before doing any provider/API work.
+- `tools/index_engine/run_daily.py` runs an Oracle preflight (`SELECT USER FROM dual`) before doing any provider/API work.
 - If the wallet/env is broken, the job prints wallet diagnostics (TNS_ADMIN + best-effort `sqlnet.ora`/`cwallet.sso` checks), writes an `ERROR` run log row with error token `oracle_preflight_failed`, sends an email alert (if SMTP is configured), and exits with code `2` so systemd treats it as a failure.
 
 New CLI flag:
@@ -141,34 +139,12 @@ DELETE FROM SC_IDX_PRICES_CANON WHERE ticker=:t AND trade_date=:d;
 COMMIT;
 ```
 ```bash
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/check_price_completeness.py --since-base --strict --email
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/impute_missing_prices.py --since-base --email
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/check_price_completeness.py --since-base --strict
+PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_pipeline.py --start 2025-01-02 --end 2025-01-02 --debug
 ```
 
-Verify imputation rows:
+Check run log:
 ```sql
-SELECT trade_date, COUNT(*) FROM SC_IDX_IMPUTATIONS GROUP BY trade_date ORDER BY trade_date DESC FETCH FIRST 5 ROWS ONLY;
-SELECT COUNT(*) FROM SC_IDX_PRICES_CANON WHERE quality='IMPUTED';
-```
-
-Systemd + logs:
-```bash
-systemctl list-timers --all | grep sc-idx-price-ingest
-sudo journalctl -u sc-idx-price-ingest.service -n 200 --no-pager
-```
-
-Manual run:
-```bash
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_daily.py --debug
-```
-
-Stuck latest date diagnostics:
-```bash
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_latest_eod.py --debug
-```
-
-Trading day calendar auto-extend:
-```bash
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/update_trading_days.py --auto --debug
+SELECT run_id, status, error_msg, provider_calls_used, raw_upserts, canon_upserts, end_date
+FROM SC_IDX_JOB_RUNS
+ORDER BY started_at DESC FETCH FIRST 10 ROWS ONLY;
 ```

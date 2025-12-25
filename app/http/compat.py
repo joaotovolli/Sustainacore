@@ -61,7 +61,7 @@ def _env_int(name: str, default: int) -> int:
 
 SC_RAG_MIN_SCORE = _env_float("SC_RAG_MIN_SCORE", 0.55)
 SC_RAG_MIN_CONTEXTS = max(1, _env_int("SC_RAG_MIN_CONTEXTS", 3))
-SC_RAG_FAIL_OPEN = _env_bool("SC_RAG_FAIL_OPEN", True)
+SC_RAG_FAIL_OPEN = _env_bool("SC_RAG_FAIL_OPEN", False)
 
 
 def _normalize_score(value: Any) -> Optional[float]:
@@ -118,6 +118,18 @@ def _dedupe_snippets(snippets: Iterable[Dict[str, Any]], limit: int = 5) -> Tupl
             break
 
     return results, max_score
+
+
+def _format_sources(snippets: List[Dict[str, Any]]) -> List[str]:
+    formatted: List[str] = []
+    for idx, entry in enumerate(snippets, start=1):
+        title = str(entry.get("title") or "Source").strip() or "Source"
+        url = str(entry.get("url") or entry.get("source_url") or "").strip()
+        if url:
+            formatted.append(f"Source {idx}: {title} ({url})")
+        else:
+            formatted.append(f"Source {idx}: {title}")
+    return formatted
 
 
 def _synthesize_answer(snippets: List[Dict[str, Any]]) -> str:
@@ -186,7 +198,11 @@ def normalize_response(
     computed_confidence = max(0.0, min(1.0, computed_confidence))
 
     contexts_out = [dict(entry) for entry in normalized_snippets]
-    sources_out = [dict(entry) for entry in normalized_snippets]
+    raw_sources = base.get("sources")
+    if isinstance(raw_sources, list) and all(isinstance(item, str) for item in raw_sources):
+        sources_out = [item.strip() for item in raw_sources if isinstance(item, str) and item.strip()]
+    else:
+        sources_out = _format_sources(normalized_snippets)
     citations_out = [dict(entry) for entry in normalized_snippets]
 
     result = dict(base)

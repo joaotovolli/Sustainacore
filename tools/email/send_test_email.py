@@ -1,4 +1,4 @@
-"""Simple Twelve Data SMTP test sender (stdlib-only)."""
+"""Simple SMTP test sender (stdlib-only)."""
 from __future__ import annotations
 
 import datetime as _dt
