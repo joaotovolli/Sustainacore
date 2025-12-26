@@ -239,6 +239,17 @@ h3 {
     color: #fff;
 }
 
+.nav__form {
+    display: inline-flex;
+}
+
+.nav__link--button {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+}
+
 .nav__link.is-active {
     background: rgba(255, 255, 255, 0.18);
     color: #fff;
@@ -525,6 +536,15 @@ h3 {
 
 .card--lined {
     box-shadow: none;
+}
+
+.auth-card {
+    max-width: 420px;
+}
+
+.auth-form {
+    display: grid;
+    gap: 1rem;
 }
 
 .section__header {
