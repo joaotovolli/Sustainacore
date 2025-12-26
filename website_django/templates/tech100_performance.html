@@ -23,10 +23,6 @@
         </div>
       </div>
 
-      {% with tech100_current="Performance" %}
-        {% include "partials/tech100_nav.html" %}
-      {% endwith %}
-
       {% if data_error %}
         <div class="alert alert--warning" data-tech100-empty-state="1">
           Live TECH100 data is temporarily unavailable; please try again later.
@@ -37,37 +33,6 @@
              data-level-count="{{ levels_count }}"
              data-holdings-count="{{ holdings_count }}"
              data-attribution-count="{{ attribution_count }}"></div>
-
-        <div class="card tech100-tools">
-          <div>
-            <h2 class="h5">Tools</h2>
-            <p class="muted">Export the latest holdings and attribution tables.</p>
-          </div>
-          <div class="tech100-tools__actions">
-            <a class="btn btn--secondary" href="/tech100/performance/export/?kind=holdings">Download holdings CSV</a>
-            <a class="btn btn--secondary" href="/tech100/performance/export/?kind=attribution">Download attribution CSV</a>
-            <button class="btn btn--ghost" type="button" data-copy-link="1">Copy link</button>
-          </div>
-        </div>
-
-        <div class="tech100-context">
-          <div class="tech100-context__item">
-            <span class="muted">Latest trade date</span>
-            <strong data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</strong>
-          </div>
-          <div class="tech100-context__item">
-            <span class="muted">Levels</span>
-            <strong>{{ levels_count }}</strong>
-          </div>
-          <div class="tech100-context__item">
-            <span class="muted">Holdings</span>
-            <strong>{{ holdings_count }}</strong>
-          </div>
-          <div class="tech100-context__item">
-            <span class="muted">Attribution rows</span>
-            <strong>{{ attribution_count }}</strong>
-          </div>
-        </div>
 
         <div class="tech100-module-grid">
           <a class="tech100-module-card" href="/tech100/index/">
@@ -93,21 +58,6 @@
           <a class="tech100-module-card" href="/tech100/">
             <span class="tech100-module-card__title">Governance scores</span>
             <span class="muted">TECH100 ranking and filters.</span>
-          </a>
-        </div>
-
-        <div class="tech100-section-nav">
-          <a class="tech100-section-nav__link" href="#overview">
-            <span>Overview</span>
-            <span class="tech100-section-nav__meta">{{ levels_count }} levels</span>
-          </a>
-          <a class="tech100-section-nav__link" href="#attribution">
-            <span>Attribution</span>
-            <span class="tech100-section-nav__meta">{{ attribution_count }} rows</span>
-          </a>
-          <a class="tech100-section-nav__link" href="#holdings">
-            <span>Holdings</span>
-            <span class="tech100-section-nav__meta">{{ holdings_count }} names</span>
           </a>
         </div>
 

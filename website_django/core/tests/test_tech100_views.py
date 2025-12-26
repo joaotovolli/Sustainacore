@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 from unittest import mock
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.urls import reverse
 
@@ -359,6 +360,22 @@ class HomeViewTests(SimpleTestCase):
         self.assertIn("Technology", content)
         self.assertIn("90", content)
         self.assertIn("Gov headline", content)
+
+    @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
+    @mock.patch("core.views.get_return_between")
+    @mock.patch("core.views.fetch_news")
+    @mock.patch("core.views.fetch_tech100")
+    def test_home_ytd_return_has_fallback(self, tech100_mock, news_mock, return_mock):
+        tech100_mock.return_value = {"items": [], "error": None, "meta": {}}
+        news_mock.return_value = {"items": [], "error": None, "meta": {}}
+        return_mock.side_effect = [0.0123, None]
+
+        cache.clear()
+        response = self.client.get("/", HTTP_HOST="sustainacore.org")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("YTD return", content)
+        self.assertIn("0.00%", content)
 
     @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     @mock.patch("core.views.fetch_news")
