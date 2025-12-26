@@ -15,6 +15,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("GEMINI_FIRST_ENABLED", "0")
 os.environ.setdefault("ASK2_SKIP_CAPABILITY_SNAPSHOT", "1")
+os.environ.setdefault("AUTH_TOKEN_SIGNING_KEY", "test-signing-key")
 
 import django  # noqa: E402
 from django.test.utils import setup_test_environment  # noqa: E402
