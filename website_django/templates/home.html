@@ -88,12 +88,12 @@
                 <div class="card tech100-home__chart">
                     <div class="tech100-home__chart-header">
                         <div>
-                            <h3 class="h4">Index level (3M)</h3>
-                            <p class="muted">As of <span data-date-format="as-of" data-date-value="{{ tech100_snapshot.as_of }}">{{ tech100_snapshot.as_of }}</span> (UTC)</p>
+                            <h3 class="h4">Tech100 AI Ethics &amp; Gov Index</h3>
+                            <p class="muted tech100-home__as-of">As of <span data-date-format="as-of" data-date-value="{{ tech100_snapshot.as_of }}">{{ tech100_snapshot.as_of }}</span> (UTC)</p>
                         </div>
                         <div class="tech100-index__range tech100-home__range">
-                            <button class="btn btn--ghost tech100-home-range is-active" data-range="3m">3M</button>
                             <button class="btn btn--ghost tech100-home-range" data-range="1m">1M</button>
+                            <button class="btn btn--ghost tech100-home-range is-active" data-range="3m">3M</button>
                             <button class="btn btn--ghost tech100-home-range" data-range="6m">6M</button>
                             <button class="btn btn--ghost tech100-home-range" data-range="ytd">YTD</button>
                             <button class="btn btn--ghost tech100-home-range" data-range="1y">1Y</button>
@@ -108,33 +108,28 @@
                     <div class="tech100-home__stats-grid">
                         <div>
                             <p class="kpi-label">Latest level</p>
-                            <p class="kpi-value">{{ tech100_snapshot.latest_level|default:"—"|floatformat:2 }}</p>
+                            <p class="kpi-value">{{ tech100_snapshot.latest_level_display|default:"—" }}</p>
                         </div>
                         <div>
                             <p class="kpi-label">1D return</p>
-                            <p class="kpi-value">{{ tech100_snapshot.ret_1d|default:"—"|floatformat:2 }}{% if tech100_snapshot.ret_1d %}%{% endif %}</p>
+                            <p class="kpi-value">{{ tech100_snapshot.ret_1d_display|default:"—" }}</p>
                         </div>
                         <div>
                             <p class="kpi-label">MTD return</p>
-                            <p class="kpi-value">{{ tech100_snapshot.ret_mtd|default:"—"|floatformat:2 }}{% if tech100_snapshot.ret_mtd %}%{% endif %}</p>
+                            <p class="kpi-value">{{ tech100_snapshot.ret_mtd_display|default:"—" }}</p>
                         </div>
                         <div>
                             <p class="kpi-label">YTD return</p>
-                            <p class="kpi-value">{{ tech100_snapshot.ret_ytd|default:"—"|floatformat:2 }}{% if tech100_snapshot.ret_ytd %}%{% endif %}</p>
+                            <p class="kpi-value">{{ tech100_snapshot.ret_ytd_display|default:"—" }}</p>
                         </div>
                         <div>
                             <p class="kpi-label">30D vol (ann.)</p>
-                            <p class="kpi-value">{{ tech100_snapshot.vol_30d|default:"—"|floatformat:2 }}{% if tech100_snapshot.vol_30d %}%{% endif %}</p>
+                            <p class="kpi-value">{{ tech100_snapshot.vol_30d_display|default:"—" }}</p>
                         </div>
                         <div>
                             <p class="kpi-label">Max drawdown YTD</p>
-                            <p class="kpi-value">{{ tech100_snapshot.drawdown_ytd|default:"—"|floatformat:2 }}{% if tech100_snapshot.drawdown_ytd %}%{% endif %}</p>
+                            <p class="kpi-value">{{ tech100_snapshot.drawdown_ytd_display|default:"—" }}</p>
                         </div>
-                    </div>
-                    <div class="tech100-home__quality">
-                        <span class="muted">Data quality</span>
-                        <span class="pill pill--soft">REAL {{ tech100_snapshot.quality_counts.REAL|default:0 }}</span>
-                        <span class="pill pill--soft pill--warning">IMPUTED {{ tech100_snapshot.quality_counts.IMPUTED|default:0 }}</span>
                     </div>
                 </div>
             </div>
