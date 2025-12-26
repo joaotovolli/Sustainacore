@@ -13,16 +13,19 @@ import sys
 
 import requests
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.sitemaps.views import sitemap as django_sitemap
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import cache_page
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_news_detail, fetch_tech100
-from core.auth import apply_auth_cookie, clear_auth_cookie
+from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
+from core.profile_data import get_profile, is_profile_complete, upsert_profile
 from core.tech100_index_data import (
     get_data_mode,
     get_index_levels,
@@ -124,6 +127,8 @@ def login_code(request):
                 token = data.get("token")
                 expires = data.get("expires_in_seconds")
                 if token:
+                    request.session["auth_email"] = email
+                    messages.success(request, "Login successful.")
                     target = "/"
                     if next_url and url_has_allowed_host_and_scheme(
                         next_url,
@@ -131,6 +136,14 @@ def login_code(request):
                         require_https=request.is_secure(),
                     ):
                         target = next_url
+                    else:
+                        try:
+                            profile = get_profile(email)
+                            if not is_profile_complete(profile):
+                                target = reverse("account")
+                        except Exception as exc:
+                            logger.warning("account.profile_lookup_failed", exc_info=exc)
+                            target = reverse("account")
                     response = redirect(target)
                     apply_auth_cookie(response, token, expires)
                     return response
@@ -147,9 +160,50 @@ def login_code(request):
 def logout(request):
     request.session.pop("login_email", None)
     request.session.pop("login_notice", None)
+    request.session.pop("auth_email", None)
     response = redirect("home")
     clear_auth_cookie(response)
     return response
+
+
+def account(request):
+    if not is_logged_in(request):
+        return redirect(f"{reverse('login')}?next={reverse('account')}")
+
+    email = (request.session.get("auth_email") or "").strip()
+    missing_email = not email
+    profile = None
+    error = ""
+    if email:
+        try:
+            profile = get_profile(email)
+        except Exception as exc:
+            logger.warning("account.profile_load_failed", exc_info=exc)
+            error = "We could not load your profile details right now."
+
+    if request.method == "POST":
+        if not email:
+            return redirect(f"{reverse('login')}?next={reverse('account')}")
+        country = (request.POST.get("country") or "").strip()
+        company = (request.POST.get("company") or "").strip()
+        phone = (request.POST.get("phone") or "").strip()
+        try:
+            upsert_profile(email, country, company, phone)
+            messages.success(request, "Profile saved.")
+            profile = {"country": country, "company": company, "phone": phone}
+        except Exception as exc:
+            logger.warning("account.profile_save_failed", exc_info=exc)
+            error = "We could not save your profile right now."
+
+    return render(
+        request,
+        "account.html",
+        {
+            "profile": profile or {"country": "", "company": "", "phone": ""},
+            "missing_email": missing_email,
+            "error": error,
+        },
+    )
 
 
 def _format_port_weight(value) -> str:

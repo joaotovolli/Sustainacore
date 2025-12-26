@@ -36,6 +36,7 @@ urlpatterns = [
     path("login/", views.login_email, name="login"),
     path("login/code/", views.login_code, name="login_code"),
     path("logout/", views.logout, name="logout"),
+    path("account/", views.account, name="account"),
     path("tech100/", views.tech100, name="tech100"),
     path("tech100/index/", tech100_index_views.tech100_index_overview, name="tech100_index"),
     path("tech100/performance/", tech100_index_views.tech100_performance, name="tech100_performance"),

@@ -1,7 +1,7 @@
 import json
 
 from django.conf import settings
-from core.auth import is_logged_in
+from core.auth import is_logged_in, get_masked_email_from_session
 
 
 def seo_defaults(request):
@@ -44,4 +44,5 @@ def preview_context(request):
 def auth_context(request):
     return {
         "is_logged_in": is_logged_in(request),
+        "auth_email_masked": get_masked_email_from_session(request),
     }
