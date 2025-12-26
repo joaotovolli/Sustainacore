@@ -6,6 +6,7 @@ from html import escape
 from html.parser import HTMLParser
 from typing import Dict, Iterable, List, Optional
 import logging
+import time
 from urllib.parse import unquote, urlparse
 from pathlib import Path
 import sys
@@ -48,6 +49,23 @@ def _normalize_email(value: str) -> str:
     return (value or "").strip().lower()
 
 
+def _mask_email(value: str) -> str:
+    if not value or "@" not in value:
+        return "***"
+    name, domain = value.split("@", 1)
+    if len(name) <= 1:
+        masked = "*"
+    else:
+        masked = f"{name[0]}***"
+    return f"{masked}@{domain}"
+
+
+def _backend_host() -> str:
+    base = settings.SUSTAINACORE_BACKEND_URL.rstrip("/")
+    parsed = urlparse(base)
+    return parsed.netloc or parsed.path or base
+
+
 def login_email(request):
     notice = request.session.pop("login_notice", "")
     error = ""
@@ -55,14 +73,30 @@ def login_email(request):
         email = _normalize_email(request.POST.get("email", ""))
         if email:
             payload = {"email": email}
+            start = time.monotonic()
             try:
-                requests.post(
+                response = requests.post(
                     _backend_url("/api/auth/request-code"),
                     json=payload,
                     timeout=settings.SUSTAINACORE_BACKEND_TIMEOUT,
                 )
-            except requests.RequestException:
-                pass
+                duration_ms = int((time.monotonic() - start) * 1000)
+                logger.warning(
+                    "auth.request_code backend=%s email=%s status=%s duration_ms=%s",
+                    _backend_host(),
+                    _mask_email(email),
+                    response.status_code,
+                    duration_ms,
+                )
+            except requests.RequestException as exc:
+                duration_ms = int((time.monotonic() - start) * 1000)
+                logger.warning(
+                    "auth.request_code backend=%s email=%s error=%s duration_ms=%s",
+                    _backend_host(),
+                    _mask_email(email),
+                    type(exc).__name__,
+                    duration_ms,
+                )
         request.session["login_email"] = email
         request.session["login_notice"] = "If that email is eligible, we sent a code."
         return redirect("login_code")
