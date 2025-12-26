@@ -582,6 +582,7 @@ def home(request):
             ret_mtd = get_return_between(latest_date, month_start)
             ret_ytd = get_return_between(latest_date, ytd_start)
             vol_30d = get_rolling_vol(latest_date, window=30)
+            ret_ytd_display = _format_percent(ret_ytd) if ret_ytd is not None else "0.00%"
             tech100_snapshot = {
                 "has_data": True,
                 "data_error": False,
@@ -597,7 +598,7 @@ def home(request):
                 "ret_mtd": ret_mtd,
                 "ret_mtd_display": _format_percent(ret_mtd),
                 "ret_ytd": ret_ytd,
-                "ret_ytd_display": _format_percent(ret_ytd),
+                "ret_ytd_display": ret_ytd_display,
                 "vol_30d": vol_30d,
                 "vol_30d_display": _format_percent(vol_30d),
                 "drawdown_ytd": drawdown_ytd.drawdown if drawdown_ytd else None,
