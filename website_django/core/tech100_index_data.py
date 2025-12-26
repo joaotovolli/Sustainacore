@@ -804,10 +804,21 @@ def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
             "WHERE c.trade_date = :trade_date "
             "ORDER BY c.weight DESC NULLS LAST"
         )
+        rows = None
+        has_sector = False
         try:
             rows = _execute_rows(sql_with_sector, {"trade_date": as_of_date})
             has_sector = True
         except Exception:
+            rows = None
+        if rows is None:
+            try:
+                rows = _execute_rows(sql_with_gics_sector, {"trade_date": as_of_date})
+                has_sector = True
+            except Exception:
+                rows = _execute_rows(sql_without_sector, {"trade_date": as_of_date})
+                has_sector = False
+        elif has_sector and all((len(row) <= 7 or not (row[7] and str(row[7]).strip())) for row in rows):
             try:
                 rows = _execute_rows(sql_with_gics_sector, {"trade_date": as_of_date})
                 has_sector = True
@@ -912,6 +923,8 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             "WHERE c.trade_date = :as_of_date "
             "ORDER BY c.weight DESC NULLS LAST"
         )
+        rows = None
+        has_sector = False
         try:
             rows = _execute_rows(
                 sql_with_sector,
@@ -919,6 +932,21 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             )
             has_sector = True
         except Exception:
+            rows = None
+        if rows is None:
+            try:
+                rows = _execute_rows(
+                    sql_with_gics_sector,
+                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+                )
+                has_sector = True
+            except Exception:
+                rows = _execute_rows(
+                    sql_without_sector,
+                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+                )
+                has_sector = False
+        elif has_sector and all((len(row) <= 8 or not (row[8] and str(row[8]).strip())) for row in rows):
             try:
                 rows = _execute_rows(
                     sql_with_gics_sector,
