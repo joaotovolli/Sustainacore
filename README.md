@@ -32,6 +32,11 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 - **VM1 (API/RAG/Oracle):** Hosts the Flask/Gunicorn API with `/api/health` and `/api/ask2`. Ask2 now runs a Gemini-first pipeline (intent → planner → Oracle retriever → composer) that returns natural-language answers plus sources. Planner JSON stays in the `meta` block for debugging; user-facing fields (`answer`, `reply`, `message`, `content`) are text-only fallbacks when no facts are found.
 - **VM2 (Django website):** Runs the public site in `website_django/` and proxies chat requests to VM1. `/ask2/` serves a minimal HTML page that POSTs to `/ask2/api/`, which in turn forwards `{ "user_message": "..." }` to VM1 with an optional bearer token. Backend connectivity is controlled by `BACKEND_API_BASE` (default `http://10.0.0.120:8080`) and `BACKEND_API_TOKEN` from the environment.
 
+### Email code auth (VM1)
+- `POST /api/auth/request-code` → `{ "email": "user@example.com" }` responds with `{ "ok": true }`.
+- `POST /api/auth/verify-code` → `{ "email": "user@example.com", "code": "123456" }` responds with `{ "token": "...", "expires_in_seconds": 2592000 }`.
+- `AUTH_TOKEN_SIGNING_KEY` must be set in the environment for token signing.
+
 **Public site routing:**
 - `sustainacore.org` DNS is managed in IONOS and points to VM2.
 - VM2 terminates HTTPS with Nginx and proxies to Gunicorn → Django for the main site.
