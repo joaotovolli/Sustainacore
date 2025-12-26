@@ -17,10 +17,8 @@ class Tech100IndexViewTests(SimpleTestCase):
     @mock.patch("core.tech100_index_views.get_rolling_vol")
     @mock.patch("core.tech100_index_views.get_max_drawdown")
     @mock.patch("core.tech100_index_views.get_constituents")
-    @mock.patch("core.tech100_index_views.get_imputed_overview")
     def test_overview_renders(
         self,
-        imputed_mock,
         constituents_mock,
         drawdown_mock,
         vol_mock,
@@ -39,8 +37,6 @@ class Tech100IndexViewTests(SimpleTestCase):
         vol_mock.return_value = 0.15
         drawdown_mock.return_value = DrawdownResult(-0.1, latest, latest)
         constituents_mock.return_value = []
-        imputed_mock.return_value = []
-
         response = self.client.get(reverse("tech100_index"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Performance &amp; Risk")

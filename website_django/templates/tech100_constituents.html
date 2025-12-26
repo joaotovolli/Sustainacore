@@ -11,7 +11,7 @@
       <div class="section__header">
         <span class="pill pill--soft">TECH100 Index</span>
         <h1>Constituents &amp; Weights</h1>
-        <p class="muted">Daily holdings, weights, and quality flags from Oracle.</p>
+        <p class="muted">Daily holdings, weights, and quality flags.</p>
       </div>
 
       {% include "partials/tech100_nav.html" %}
@@ -25,10 +25,6 @@
           <span>Search</span>
           <input type="search" id="constituents-search" placeholder="Search ticker or name">
         </label>
-        <label class="form-field form-field--toggle">
-          <input type="checkbox" id="constituents-imputed" {% if show_imputed_only %}checked{% endif %}>
-          <span>Show only IMPUTED</span>
-        </label>
       </div>
 
       <div class="card">
@@ -39,7 +35,6 @@
                 <th class="text-left"><button class="table-sort" data-key="ticker">Ticker</button></th>
                 <th class="text-left"><button class="table-sort" data-key="name">Name</button></th>
                 <th class="text-right"><button class="table-sort" data-key="weight">Weight (%)</button></th>
-                <th class="text-right"><button class="table-sort" data-key="price">Price</button></th>
                 <th class="text-right"><button class="table-sort" data-key="ret_1d">1D Return (%)</button></th>
                 <th class="text-center"><button class="table-sort" data-key="quality">Quality</button></th>
               </tr>

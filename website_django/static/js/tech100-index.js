@@ -102,7 +102,7 @@
       labels: data.map((point) => point.date),
       datasets: [
         {
-          label: "Index level",
+          label: "Tech100 AI Ethics & Gov Index",
           data: data.map((point) => point.level),
           borderColor: "#1c2b4a",
           borderWidth: 2,
@@ -207,7 +207,7 @@
         labels: levelsData.map((point) => point.date),
         datasets: [
           {
-            label: "Index level",
+            label: "Tech100 AI Ethics & Gov Index",
             data: levelsData.map((point) => point.level),
             borderColor: "#1c2b4a",
             borderWidth: 2,
@@ -304,7 +304,7 @@
 
     const levelChart = buildLineChart(
       levelCanvas,
-      "Index level",
+      "Tech100 AI Ethics & Gov Index",
       levels.map((point) => ({ date: point.date, value: point.level })),
       "#1c2b4a"
     );
@@ -378,7 +378,6 @@
             <td class="text-right">${formatNumber((row.weight || 0) * 100, 2)}</td>
             <td class="text-right">${formatNumber((row.ret_1d || 0) * 100, 2)}</td>
             <td class="text-right">${formatNumber((row.contribution || 0) * 10000, 2)}</td>
-            <td class="text-center">${row.quality || "—"}</td>
           </tr>`
         )
         .join("");
@@ -533,7 +532,6 @@
     if (!tableBody) return;
     const dateInput = document.getElementById("constituents-date");
     const searchInput = document.getElementById("constituents-search");
-    const imputedToggle = document.getElementById("constituents-imputed");
     const weightSumEl = document.getElementById("constituents-weight-sum");
 
     let rows = parseJson("tech100-constituents-data") || [];
@@ -542,13 +540,10 @@
 
     const render = () => {
       const query = (searchInput?.value || "").toLowerCase().trim();
-      const imputedOnly = imputedToggle?.checked;
-
       let filtered = rows.filter((row) => {
         const ticker = (row.ticker || "").toLowerCase();
         const name = (row.name || "").toLowerCase();
         if (query && !ticker.includes(query) && !name.includes(query)) return false;
-        if (imputedOnly && row.quality !== "IMPUTED") return false;
         return true;
       });
 
@@ -569,7 +564,6 @@
             <td class="text-left">${row.ticker || "—"}</td>
             <td class="text-left">${row.name || "—"}</td>
             <td class="text-right">${formatNumber((row.weight || 0) * 100, 2)}</td>
-            <td class="text-right">${formatNumber(row.price, 2)}</td>
             <td class="text-right">${formatNumber((row.ret_1d || 0) * 100, 2)}</td>
             <td class="text-center">${row.quality || "—"}</td>
           </tr>`
@@ -595,7 +589,6 @@
     });
 
     searchInput?.addEventListener("input", render);
-    imputedToggle?.addEventListener("change", render);
 
     dateInput?.addEventListener("change", async () => {
       if (!dateInput.value) return;

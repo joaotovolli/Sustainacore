@@ -15,7 +15,7 @@
         <div>
           <span class="pill pill--soft">TECH100 AI Index</span>
           <h1>TECH100 Performance</h1>
-          <p class="muted">Live Oracle-backed index performance, attribution, and holdings intelligence.</p>
+          <p class="muted">Live index performance, attribution, and holdings intelligence.</p>
         </div>
         <div class="meta-stack">
           <div class="meta-pill">Rebalance: <span data-date-format="as-of" data-date-value="{{ rebalance_date }}">{{ rebalance_date|default:"—" }}</span></div>
@@ -252,31 +252,6 @@
               <h3 class="h5">Sector weights</h3>
               <canvas id="tech100-sector-chart" role="img" aria-label="Sector breakdown"></canvas>
             </div>
-            <div class="chart-card">
-              <h3 class="h5">Imputation history (30D)</h3>
-              <table class="table table--compact" aria-label="Imputation history">
-                <thead>
-                  <tr>
-                    <th class="text-left">Ticker</th>
-                    <th class="text-right">Imputed days</th>
-                    <th class="text-right">Last imputed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in imputation_history %}
-                    <tr>
-                      <td class="text-left">{{ row.ticker }}</td>
-                      <td class="text-right">{{ row.imputed_days }}</td>
-                      <td class="text-right"><span data-date-format="as-of" data-date-value="{{ row.last_imputed }}">{{ row.last_imputed|default:"—" }}</span></td>
-                    </tr>
-                  {% empty %}
-                    <tr>
-                      <td colspan="3" class="text-center muted">No imputed observations.</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
           </div>
           <div class="table-wrapper table-wrap">
             <table class="table table--wide tech100-table" aria-label="TECH100 holdings">
@@ -288,7 +263,6 @@
                   <th class="text-right">Weight (%)</th>
                   <th class="text-right">1D Return (%)</th>
                   <th class="text-right">1D Contrib (bp)</th>
-                  <th class="text-center">Quality</th>
                 </tr>
               </thead>
               <tbody id="tech100-holdings-body"></tbody>
