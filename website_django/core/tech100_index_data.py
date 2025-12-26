@@ -791,6 +791,23 @@ def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
             "WHERE c.trade_date = :trade_date "
             "ORDER BY c.weight DESC NULLS LAST",
         )
+        sql_with_sector_name = (
+            "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
+            "d.ret_1d, d.contribution, "
+            "(SELECT t.company_name "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name, "
+            "(SELECT t.gics_sector_name "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS sector "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
+            "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
+            "WHERE c.trade_date = :trade_date "
+            "ORDER BY c.weight DESC NULLS LAST",
+        )
         sql_without_sector = (
             "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
             "d.ret_1d, d.contribution, "
@@ -806,25 +823,30 @@ def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
         )
         rows = None
         has_sector = False
+
+        def _sector_blank(index: int) -> bool:
+            return all(len(row) <= index or not (row[index] and str(row[index]).strip()) for row in rows or [])
+
         try:
             rows = _execute_rows(sql_with_sector, {"trade_date": as_of_date})
             has_sector = True
         except Exception:
             rows = None
+        if rows is None or _sector_blank(7):
+            try:
+                rows = _execute_rows(sql_with_gics_sector, {"trade_date": as_of_date})
+                has_sector = True
+            except Exception:
+                rows = None
+        if rows is None or _sector_blank(7):
+            try:
+                rows = _execute_rows(sql_with_sector_name, {"trade_date": as_of_date})
+                has_sector = True
+            except Exception:
+                rows = None
         if rows is None:
-            try:
-                rows = _execute_rows(sql_with_gics_sector, {"trade_date": as_of_date})
-                has_sector = True
-            except Exception:
-                rows = _execute_rows(sql_without_sector, {"trade_date": as_of_date})
-                has_sector = False
-        elif has_sector and all((len(row) <= 7 or not (row[7] and str(row[7]).strip())) for row in rows):
-            try:
-                rows = _execute_rows(sql_with_gics_sector, {"trade_date": as_of_date})
-                has_sector = True
-            except Exception:
-                rows = _execute_rows(sql_without_sector, {"trade_date": as_of_date})
-                has_sector = False
+            rows = _execute_rows(sql_without_sector, {"trade_date": as_of_date})
+            has_sector = False
         results = []
         for row in rows:
             results.append(
@@ -907,6 +929,25 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             "WHERE c.trade_date = :as_of_date "
             "ORDER BY c.weight DESC NULLS LAST",
         )
+        sql_with_sector_name = (
+            "SELECT c.ticker, c.weight, c.price_quality, "
+            "d.ret_1d, d.contribution, "
+            "(SELECT SUM(x.contribution) FROM SC_IDX_CONTRIBUTION_DAILY x "
+            " WHERE x.ticker = c.ticker AND x.trade_date BETWEEN :mtd_start AND :as_of_date) AS contrib_mtd, "
+            "(SELECT SUM(x.contribution) FROM SC_IDX_CONTRIBUTION_DAILY x "
+            " WHERE x.ticker = c.ticker AND x.trade_date BETWEEN :ytd_start AND :as_of_date) AS contrib_ytd, "
+            "(SELECT t.company_name FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :as_of_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name, "
+            "(SELECT t.gics_sector_name FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :as_of_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS sector "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
+            "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
+            "WHERE c.trade_date = :as_of_date "
+            "ORDER BY c.weight DESC NULLS LAST",
+        )
         sql_without_sector = (
             "SELECT c.ticker, c.weight, c.price_quality, "
             "d.ret_1d, d.contribution, "
@@ -925,6 +966,10 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
         )
         rows = None
         has_sector = False
+
+        def _attr_sector_blank(index: int) -> bool:
+            return all(len(row) <= index or not (row[index] and str(row[index]).strip()) for row in rows or [])
+
         try:
             rows = _execute_rows(
                 sql_with_sector,
@@ -933,32 +978,30 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             has_sector = True
         except Exception:
             rows = None
+        if rows is None or _attr_sector_blank(8):
+            try:
+                rows = _execute_rows(
+                    sql_with_gics_sector,
+                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+                )
+                has_sector = True
+            except Exception:
+                rows = None
+        if rows is None or _attr_sector_blank(8):
+            try:
+                rows = _execute_rows(
+                    sql_with_sector_name,
+                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+                )
+                has_sector = True
+            except Exception:
+                rows = None
         if rows is None:
-            try:
-                rows = _execute_rows(
-                    sql_with_gics_sector,
-                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
-                )
-                has_sector = True
-            except Exception:
-                rows = _execute_rows(
-                    sql_without_sector,
-                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
-                )
-                has_sector = False
-        elif has_sector and all((len(row) <= 8 or not (row[8] and str(row[8]).strip())) for row in rows):
-            try:
-                rows = _execute_rows(
-                    sql_with_gics_sector,
-                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
-                )
-                has_sector = True
-            except Exception:
-                rows = _execute_rows(
-                    sql_without_sector,
-                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
-                )
-                has_sector = False
+            rows = _execute_rows(
+                sql_without_sector,
+                {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+            )
+            has_sector = False
         results = []
         for row in rows:
             results.append(
