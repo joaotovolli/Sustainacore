@@ -34,6 +34,20 @@ fi
 # 4) Move into Django project
 cd "$REPO_ROOT/website_django"
 
+# 4.1) Ensure Python dependencies are installed
+if [ -f "$REPO_ROOT/website_django/requirements.txt" ]; then
+  echo "[VM2] Installing Django dependencies..."
+  if [ -d "$VENV_PATH" ]; then
+    "$VENV_PATH/bin/python" -m pip install -U pip wheel
+    "$VENV_PATH/bin/pip" install -r "$REPO_ROOT/website_django/requirements.txt"
+  else
+    python3 -m pip install -U pip wheel
+    python3 -m pip install -r "$REPO_ROOT/website_django/requirements.txt"
+  fi
+else
+  echo "[VM2] requirements.txt not found; skipping pip install."
+fi
+
 # 5) Run Django commands in the service environment
 echo "[VM2] Running Django checks..."
 "$REPO_ROOT/scripts/vm2_manage.sh" check
