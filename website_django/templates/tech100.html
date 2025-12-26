@@ -8,7 +8,7 @@
 <div class="tech100-page">
 <section class="section section--with-header">
   <div class="shell">
-    <div class="section__header section__header--split">
+    <div class="section__header">
       <div>
         <p class="eyebrow">TECH100 Index</p>
         <h1>Governance and ethics scores across leading technology firms.</h1>
@@ -18,8 +18,43 @@
         </p>
       </div>
 
-      <div>
-        <form method="get" class="filters filters--stacked">
+    </div>
+
+    {% if tech100_error %}
+      <div class="alert alert--warning">
+        Live TECH100 data is temporarily unavailable; please try again later.
+      </div>
+    {% endif %}
+
+    <div class="tech100-landing-cards" role="navigation" aria-label="TECH100 sections">
+      <a class="tech100-landing-card" href="/tech100/index/">
+        <span class="tech100-landing-card__title">Index overview report</span>
+        <span class="tech100-landing-card__subtitle">What the Tech100 AI Ethics &amp; Gov Index tracks</span>
+        <span class="tech100-landing-card__cta">View overview →</span>
+      </a>
+      <a class="tech100-landing-card" href="/tech100/performance/">
+        <span class="tech100-landing-card__title">Performance &amp; risk</span>
+        <span class="tech100-landing-card__subtitle">Returns, volatility, drawdowns, attribution</span>
+        <span class="tech100-landing-card__cta">Explore performance →</span>
+      </a>
+      <a class="tech100-landing-card" href="/tech100/constituents/">
+        <span class="tech100-landing-card__title">Constituents &amp; holdings</span>
+        <span class="tech100-landing-card__subtitle">Weights, sectors, daily changes</span>
+        <span class="tech100-landing-card__cta">Review holdings →</span>
+      </a>
+    </div>
+
+    <div class="card">
+      <div class="card__header card__header--split">
+        <div>
+          <h2 class="h4">TECH100 constituents</h2>
+          <p class="muted">
+            Showing {{ visible_count }} of {{ total_count }} companies.
+          </p>
+        </div>
+      </div>
+      <div class="tech100-filters-row">
+        <form method="get" class="filters">
           <label>
             Rebalance Date
             <select name="port_date">
@@ -55,7 +90,7 @@
         </form>
 
         {% url "tech100_export" as export_url %}
-        <div class="filter__actions" style="margin-top: 0.75rem;">
+        <div class="filter__actions tech100-filters__download">
           {% with search_val=filters.q|default:filters.search %}
           <a
             class="btn btn--primary"
@@ -64,43 +99,6 @@
             Download CSV
           </a>
           {% endwith %}
-        </div>
-      </div>
-    </div>
-
-    {% include "partials/tech100_nav.html" %}
-
-    {% if tech100_error %}
-      <div class="alert alert--warning">
-        Live TECH100 data is temporarily unavailable; please try again later.
-      </div>
-    {% endif %}
-
-    <div class="tech100-landing-cards" role="navigation" aria-label="TECH100 sections">
-      <a class="tech100-landing-card" href="/tech100/index/">
-        <span class="tech100-landing-card__title">Index overview report</span>
-        <span class="tech100-landing-card__subtitle">What the Tech100 AI Ethics &amp; Gov Index tracks</span>
-        <span class="tech100-landing-card__cta">View overview →</span>
-      </a>
-      <a class="tech100-landing-card" href="/tech100/performance/">
-        <span class="tech100-landing-card__title">Performance &amp; risk</span>
-        <span class="tech100-landing-card__subtitle">Returns, volatility, drawdowns, attribution</span>
-        <span class="tech100-landing-card__cta">Explore performance →</span>
-      </a>
-      <a class="tech100-landing-card" href="/tech100/constituents/">
-        <span class="tech100-landing-card__title">Constituents &amp; holdings</span>
-        <span class="tech100-landing-card__subtitle">Weights, sectors, daily changes</span>
-        <span class="tech100-landing-card__cta">Review holdings →</span>
-      </a>
-    </div>
-
-    <div class="card">
-      <div class="card__header card__header--split">
-        <div>
-          <h2 class="h4">TECH100 constituents</h2>
-          <p class="muted">
-            Showing {{ visible_count }} of {{ total_count }} companies.
-          </p>
         </div>
       </div>
 
