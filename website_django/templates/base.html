@@ -23,9 +23,11 @@
     <header class="topbar">
         <div class="shell topbar__inner">
             <div class="brand">
-                <div class="brand__mark">
-                    <img src="{% static 'img/sustainacore_org_logo.jpg' %}" alt="SustainaCore" class="brand__logo">
-                </div>
+                <a class="brand-mark" href="{% url 'home' %}" aria-label="SustainaCore home">
+                    <span class="brand-mark__icon">
+                        <img src="{% static 'img/sustainacore_org_logo.jpg' %}" alt="" class="brand-mark__img">
+                    </span>
+                </a>
                 <div class="brand__text">
                     <div class="brand__name">SustainaCore.org</div>
                     <div class="brand__tagline">Open ESG &amp; AI governance data</div>

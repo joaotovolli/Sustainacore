@@ -41,6 +41,17 @@ class Tech100IndexDataTests(SimpleTestCase):
         _, params = exec_mock.call_args.args
         self.assertEqual(params["trade_date"], trade_date)
 
+    def test_holdings_falls_back_to_sector_name_when_blank(self):
+        trade_date = dt.date(2025, 4, 1)
+        blank_sector = [("AAA", 0.12, 101.2, "REAL", 0.01, 0.001, "Alpha", "")]
+        sector_name = [("AAA", 0.12, 101.2, "REAL", 0.01, 0.001, "Alpha", "Software")]
+        with mock.patch(
+            "core.tech100_index_data._execute_rows",
+            side_effect=[blank_sector, blank_sector, sector_name],
+        ):
+            holdings = data.get_holdings_with_meta(trade_date)
+        self.assertEqual(holdings[0]["sector"], "Software")
+
     @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     def test_fixture_mode_returns_levels_and_constituents(self):
         levels = data.get_index_levels()
