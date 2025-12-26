@@ -14,6 +14,18 @@ def is_logged_in(request) -> bool:
     return bool(get_auth_token(request))
 
 
+def get_masked_email_from_session(request) -> str | None:
+    email = (request.session.get("auth_email") or "").strip()
+    if not email or "@" not in email:
+        return None
+    name, domain = email.split("@", 1)
+    if len(name) <= 1:
+        masked = "*"
+    else:
+        masked = f"{name[0]}***"
+    return f"{masked}@{domain}"
+
+
 def apply_auth_cookie(response, token: str, expires_in_seconds: int | None) -> None:
     if expires_in_seconds is None:
         max_age = 3600

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Account | SustainaCore{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header">
+            <div>
+                <p class="eyebrow">Account profile</p>
+                <h1>Complete your profile</h1>
+                <p class="muted">Help us tailor access and updates by adding a few details.</p>
+            </div>
+        </div>
+
+        {% if missing_email %}
+        <div class="alert alert--warning">
+            Please re-enter your email to manage your profile.
+            <a class="text-link" href="{% url 'login' %}">Go to login</a>
+        </div>
+        {% endif %}
+
+        {% if error %}
+        <div class="alert alert--error">{{ error }}</div>
+        {% endif %}
+
+        <div class="card auth-card">
+            <form method="post" class="auth-form">
+                {% csrf_token %}
+                <label>
+                    Country
+                    <input type="text" name="country" value="{{ profile.country }}" placeholder="e.g., United States" {% if missing_email %}disabled{% endif %} />
+                </label>
+                <label>
+                    Company
+                    <input type="text" name="company" value="{{ profile.company }}" placeholder="Your organization" {% if missing_email %}disabled{% endif %} />
+                </label>
+                <label>
+                    Phone (optional)
+                    <input type="tel" name="phone" value="{{ profile.phone }}" placeholder="+1 555 123 4567" {% if missing_email %}disabled{% endif %} />
+                </label>
+                <div class="form__actions">
+                    <button class="btn btn--primary" type="submit" {% if missing_email %}disabled{% endif %}>Save profile</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}
