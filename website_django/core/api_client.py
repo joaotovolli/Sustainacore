@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from typing import Any, Dict, List, Optional
 import logging
 
@@ -160,7 +161,7 @@ def fetch_news(
 
     cache_key = _cache_key("news", params)
     cached = None
-    if not os.getenv("PYTEST_CURRENT_TEST"):
+    if not os.getenv("PYTEST_CURRENT_TEST") and "test" not in sys.argv:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached

@@ -18,8 +18,6 @@ from core.tech100_index_data import (
     get_drawdown_series,
     get_index_levels,
     get_index_returns,
-    get_imputed_overview,
-    get_imputation_history,
     get_kpis,
     get_latest_rebalance_date,
     get_latest_trade_date,
@@ -128,7 +126,6 @@ def tech100_index_overview(request):
         if imputed_count is None:
             imputed_count = sum(1 for row in constituents if row.get("quality") == "IMPUTED")
 
-        imputed_overview = get_imputed_overview(latest)
         levels_payload = [
             {"date": trade_date.isoformat(), "level": level} for trade_date, level in levels
         ]
@@ -164,7 +161,6 @@ def tech100_index_overview(request):
             "imputed_count": imputed_count,
             "imputed_url": f"/tech100/constituents/?date={latest.isoformat()}&imputed=1",
             "top_constituents": top_constituents,
-            "imputed_overview": imputed_overview,
         }
     except Exception:
         logger.exception("TECH100 index overview failed.")
@@ -192,7 +188,7 @@ def tech100_performance(request):
             range_key = "1y"
         start_date = _range_start(latest, range_key)
         mtd_start = dt.date(latest.year, latest.month, 1)
-        ytd_start = dt.date(2025, 1, 2)
+        ytd_start = dt.date(latest.year, 1, 1)
 
         levels = get_index_levels(start_date, latest)
         drawdowns = get_drawdown_series(start_date, latest)
@@ -205,7 +201,6 @@ def tech100_performance(request):
 
         holdings = get_holdings_with_meta(latest)
         sector_breakdown = get_sector_breakdown(holdings)
-        imputation_history = get_imputation_history(latest)
         attribution_rows = get_attribution_table(latest, mtd_start, ytd_start)
 
         top_1d = get_contribution_summary(latest, latest, limit=8, direction="desc")
@@ -250,7 +245,6 @@ def tech100_performance(request):
             "universe_date": latest.isoformat(),
             "holdings": holdings,
             "sector_breakdown": sector_breakdown,
-            "imputation_history": imputation_history,
             "attribution_rows": attribution_rows,
             "top_1d": top_1d,
             "worst_1d": worst_1d,
@@ -370,7 +364,7 @@ def api_tech100_performance_attribution(request):
     if range_key == "mtd":
         start_date = dt.date(latest.year, latest.month, 1)
     elif range_key == "ytd":
-        start_date = dt.date(2025, 1, 2)
+        start_date = dt.date(latest.year, 1, 1)
     else:
         start_date = latest
 

@@ -21,10 +21,9 @@ from django.views.decorators.cache import cache_page
 from core.api_client import create_news_item_admin, fetch_news, fetch_news_detail, fetch_tech100
 from core.tech100_index_data import (
     get_data_mode,
-    get_drawdown_series,
     get_index_levels,
-    get_kpis,
     get_latest_trade_date,
+    get_max_drawdown,
     get_quality_counts,
     get_return_between,
     get_rolling_vol,
@@ -521,6 +520,30 @@ def _normalize_row(raw: Dict) -> Dict:
 
 @cache_page(PAGE_CACHE_SECONDS)
 def home(request):
+    def _format_number(value, decimals=2):
+        if value is None:
+            return None
+        try:
+            return f"{float(value):.{decimals}f}"
+        except (TypeError, ValueError):
+            return None
+
+    def _format_percent(value):
+        if value is None:
+            return None
+        try:
+            pct = float(value) * 100.0
+        except (TypeError, ValueError):
+            return None
+        abs_pct = abs(pct)
+        if abs_pct < 0.005:
+            decimals = 4
+        elif abs_pct < 0.05:
+            decimals = 3
+        else:
+            decimals = 2
+        return f"{pct:.{decimals}f}%"
+
     tech100_response = fetch_tech100()
     news_response = fetch_news()
 
@@ -546,11 +569,19 @@ def home(request):
         if latest_date:
             start_date = latest_date - timedelta(days=90)
             levels = get_index_levels(start_date, latest_date)
-            kpis = get_kpis(latest_date)
             stats = get_quality_counts(latest_date)
             month_start = date(latest_date.year, latest_date.month, 1)
-            ytd_start = date(2025, 1, 2)
-            drawdown_series = get_drawdown_series(ytd_start, latest_date)
+            ytd_start = date(latest_date.year, 1, 1)
+            drawdown_ytd = get_max_drawdown(ytd_start, latest_date)
+            latest_level = levels[-1][1] if levels else None
+            ret_1d = None
+            if len(levels) >= 2:
+                prev_level = levels[-2][1]
+                if prev_level not in (None, 0) and latest_level is not None:
+                    ret_1d = (latest_level / prev_level) - 1.0
+            ret_mtd = get_return_between(latest_date, month_start)
+            ret_ytd = get_return_between(latest_date, ytd_start)
+            vol_30d = get_rolling_vol(latest_date, window=30)
             tech100_snapshot = {
                 "has_data": True,
                 "data_error": False,
@@ -559,12 +590,18 @@ def home(request):
                     {"date": trade_date.isoformat(), "level": level}
                     for trade_date, level in levels
                 ],
-                "latest_level": kpis.get("level"),
-                "ret_1d": kpis.get("ret_1d"),
-                "ret_mtd": get_return_between(latest_date, month_start),
-                "ret_ytd": get_return_between(latest_date, ytd_start),
-                "vol_30d": get_rolling_vol(latest_date, window=30),
-                "drawdown_ytd": drawdown_series[-1][1] if drawdown_series else None,
+                "latest_level": latest_level,
+                "latest_level_display": _format_number(latest_level),
+                "ret_1d": ret_1d,
+                "ret_1d_display": _format_percent(ret_1d),
+                "ret_mtd": ret_mtd,
+                "ret_mtd_display": _format_percent(ret_mtd),
+                "ret_ytd": ret_ytd,
+                "ret_ytd_display": _format_percent(ret_ytd),
+                "vol_30d": vol_30d,
+                "vol_30d_display": _format_percent(vol_30d),
+                "drawdown_ytd": drawdown_ytd.drawdown if drawdown_ytd else None,
+                "drawdown_ytd_display": _format_percent(drawdown_ytd.drawdown if drawdown_ytd else None),
                 "quality_counts": stats,
                 "data_mode": get_data_mode(),
                 "levels_count": len(levels),

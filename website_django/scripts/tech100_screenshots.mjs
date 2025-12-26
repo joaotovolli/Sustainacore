@@ -17,6 +17,7 @@ const authUser = process.env.TECH100_BASIC_AUTH_USER || "";
 const authPass = process.env.TECH100_BASIC_AUTH_PASS || "";
 const hostHeader = process.env.TECH100_SCREENSHOT_HOST_HEADER || "";
 const ignoreHttpsErrors = process.env.TECH100_IGNORE_HTTPS_ERRORS === "1";
+const timeoutMs = Number(process.env.TECH100_SCREENSHOT_TIMEOUT_MS || "60000");
 
 const outDir = path.resolve(process.cwd(), "..", "docs", "screenshots", screenshotDir, mode);
 fs.mkdirSync(outDir, { recursive: true });
@@ -138,7 +139,7 @@ const run = async () => {
 
   for (const target of targets) {
     const url = `${baseUrl}${target.path}`;
-    const resp = await page.goto(url, { waitUntil: "networkidle" });
+    const resp = await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
     if (resp) {
       const status = resp.status();
       if (status >= 500) {
@@ -153,24 +154,24 @@ const run = async () => {
       }
     }
     if (mode === "after" && target.path === "/") {
-      await page.waitForSelector("[data-tech100-home-has-data]", { timeout: 15000, state: "attached" });
+      await page.waitForSelector("[data-tech100-home-has-data]", { timeout: timeoutMs, state: "attached" });
       await validateHomeSnapshot(page);
     }
     if (mode === "after" && target.path === "/tech100/index/") {
-      await page.waitForSelector("#tech100-data-status", { timeout: 15000, state: "attached" });
-      await page.waitForSelector("#tech100-level-chart", { timeout: 15000 });
+      await page.waitForSelector("#tech100-data-status", { timeout: timeoutMs, state: "attached" });
+      await page.waitForSelector("#tech100-level-chart", { timeout: timeoutMs });
       await validateTech100Data(page);
     }
     if (mode === "after" && target.path === "/tech100/performance/") {
-      await page.waitForSelector("#tech100-performance-status", { timeout: 15000, state: "attached" });
-      await page.waitForSelector("#tech100-performance-level-chart", { timeout: 15000 });
+      await page.waitForSelector("#tech100-performance-status", { timeout: timeoutMs, state: "attached" });
+      await page.waitForSelector("#tech100-performance-level-chart", { timeout: timeoutMs });
       await page.waitForFunction(
         () => document.querySelectorAll("#tech100-holdings-body tr").length > 0,
-        { timeout: 15000 }
+        { timeout: timeoutMs }
       );
       await page.waitForFunction(
         () => document.querySelectorAll("#tech100-attr-body tr").length > 0,
-        { timeout: 15000 }
+        { timeout: timeoutMs }
       );
       await validatePerformanceData(page);
     }
