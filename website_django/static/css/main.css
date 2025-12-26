@@ -140,6 +140,39 @@ h3 {
     gap: 0.7rem;
 }
 
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+}
+
+.brand-mark__icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.brand-mark__img {
+    height: 20px;
+    width: auto;
+    display: block;
+}
+
+.brand-mark:hover .brand-mark__icon,
+.brand-mark:focus-visible .brand-mark__icon {
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+    border-color: rgba(0, 0, 0, 0.14);
+    transform: translateY(-1px);
+}
+
 .brand__mark {
     width: 42px;
     height: 42px;
