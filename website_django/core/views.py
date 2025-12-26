@@ -10,15 +10,18 @@ from urllib.parse import unquote, urlparse
 from pathlib import Path
 import sys
 
+import requests
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.sitemaps.views import sitemap as django_sitemap
 from django.core.cache import cache
 from django.http import HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import cache_page
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_news_detail, fetch_tech100
+from core.auth import apply_auth_cookie, clear_auth_cookie
 from core.tech100_index_data import (
     get_data_mode,
     get_index_levels,
@@ -34,6 +37,85 @@ from core import sitemaps
 logger = logging.getLogger(__name__)
 
 PAGE_CACHE_SECONDS = 60
+
+
+def _backend_url(path: str) -> str:
+    base = settings.SUSTAINACORE_BACKEND_URL.rstrip("/")
+    return f"{base}{path}"
+
+
+def _normalize_email(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def login_email(request):
+    notice = request.session.pop("login_notice", "")
+    error = ""
+    if request.method == "POST":
+        email = _normalize_email(request.POST.get("email", ""))
+        if email:
+            payload = {"email": email}
+            try:
+                requests.post(
+                    _backend_url("/api/auth/request-code"),
+                    json=payload,
+                    timeout=settings.SUSTAINACORE_BACKEND_TIMEOUT,
+                )
+            except requests.RequestException:
+                pass
+        request.session["login_email"] = email
+        request.session["login_notice"] = "If that email is eligible, we sent a code."
+        return redirect("login_code")
+    return render(request, "login_email.html", {"notice": notice, "error": error})
+
+
+def login_code(request):
+    email = request.session.get("login_email", "")
+    if not email:
+        return redirect("login")
+    notice = request.session.pop("login_notice", "")
+    error = ""
+    next_url = request.GET.get("next") or request.POST.get("next") or ""
+    if request.method == "POST":
+        code = (request.POST.get("code") or "").strip()
+        payload = {"email": email, "code": code}
+        try:
+            resp = requests.post(
+                _backend_url("/api/auth/verify-code"),
+                json=payload,
+                timeout=settings.SUSTAINACORE_BACKEND_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                token = data.get("token")
+                expires = data.get("expires_in_seconds")
+                if token:
+                    target = "/"
+                    if next_url and url_has_allowed_host_and_scheme(
+                        next_url,
+                        allowed_hosts={request.get_host()},
+                        require_https=request.is_secure(),
+                    ):
+                        target = next_url
+                    response = redirect(target)
+                    apply_auth_cookie(response, token, expires)
+                    return response
+            error = "Invalid or expired code. Please try again."
+        except requests.RequestException:
+            error = "We could not verify the code right now. Please try again."
+    return render(
+        request,
+        "login_code.html",
+        {"email": email, "error": error, "notice": notice, "next": next_url},
+    )
+
+
+def logout(request):
+    request.session.pop("login_email", None)
+    request.session.pop("login_notice", None)
+    response = redirect("home")
+    clear_auth_cookie(response)
+    return response
 
 
 def _format_port_weight(value) -> str:

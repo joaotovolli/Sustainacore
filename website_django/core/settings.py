@@ -99,6 +99,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.seo_defaults',
                 'core.context_processors.preview_context',
+                'core.context_processors.auth_context',
             ],
         },
     },
@@ -173,3 +174,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Backend API configuration (VM1)
 BACKEND_API_BASE = os.environ.get("BACKEND_API_BASE", "http://10.0.0.120:8080")
 BACKEND_API_TOKEN = os.environ.get("BACKEND_API_TOKEN", "")
+
+SUSTAINACORE_BACKEND_URL = os.environ.get("SUSTAINACORE_BACKEND_URL", "http://127.0.0.1:8091")
+SUSTAINACORE_BACKEND_TIMEOUT = float(os.environ.get("SUSTAINACORE_BACKEND_TIMEOUT", "5"))
