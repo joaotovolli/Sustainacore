@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Login | SustainaCore{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header">
+            <div>
+                <p class="eyebrow">Account access</p>
+                <h1>Sign in with a one-time code</h1>
+                <p class="muted">Enter your email to receive a 6-digit sign-in code.</p>
+            </div>
+        </div>
+
+        {% if notice %}
+        <div class="alert alert--success">{{ notice }}</div>
+        {% endif %}
+        {% if error %}
+        <div class="alert alert--warning">{{ error }}</div>
+        {% endif %}
+
+        <div class="card auth-card">
+            <form method="post" class="auth-form">
+                {% csrf_token %}
+                <label>
+                    Email address
+                    <input type="email" name="email" placeholder="you@example.com" required />
+                </label>
+                <div class="form__actions">
+                    <button class="btn btn--primary" type="submit">Send code</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}

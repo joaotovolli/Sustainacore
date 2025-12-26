@@ -38,6 +38,14 @@
                 <a href="{% url 'ask2:ask2_page' %}" class="nav__link">Ask2 AI Assistant</a>
                 <a href="{% url 'tech100' %}" class="nav__link">TECH100</a>
                 <a href="{% url 'news' %}" class="nav__link">News</a>
+                {% if is_logged_in %}
+                <form action="{% url 'logout' %}" method="post" class="nav__form">
+                    {% csrf_token %}
+                    <button type="submit" class="nav__link nav__link--button">Logout</button>
+                </form>
+                {% else %}
+                <a href="{% url 'login' %}" class="nav__link">Login</a>
+                {% endif %}
                 <a href="mailto:info@sustainacore.org" class="nav__link">Contact</a>
                 <a href="https://github.com/joaotovolli/Sustainacore" class="nav__link" target="_blank" rel="noreferrer">GitHub</a>
             </nav>
