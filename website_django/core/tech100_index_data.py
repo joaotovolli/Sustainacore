@@ -772,7 +772,7 @@ def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
             "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
             "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
             "WHERE c.trade_date = :trade_date "
-            "ORDER BY c.weight DESC NULLS LAST",
+            "ORDER BY c.weight DESC NULLS LAST"
         )
         sql_with_gics_sector = (
             "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
@@ -789,7 +789,7 @@ def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
             "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
             "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
             "WHERE c.trade_date = :trade_date "
-            "ORDER BY c.weight DESC NULLS LAST",
+            "ORDER BY c.weight DESC NULLS LAST"
         )
         sql_with_sector_name = (
             "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
@@ -806,7 +806,7 @@ def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
             "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
             "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
             "WHERE c.trade_date = :trade_date "
-            "ORDER BY c.weight DESC NULLS LAST",
+            "ORDER BY c.weight DESC NULLS LAST"
         )
         sql_without_sector = (
             "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
@@ -908,7 +908,7 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
             "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
             "WHERE c.trade_date = :as_of_date "
-            "ORDER BY c.weight DESC NULLS LAST",
+            "ORDER BY c.weight DESC NULLS LAST"
         )
         sql_with_gics_sector = (
             "SELECT c.ticker, c.weight, c.price_quality, "
@@ -927,7 +927,7 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
             "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
             "WHERE c.trade_date = :as_of_date "
-            "ORDER BY c.weight DESC NULLS LAST",
+            "ORDER BY c.weight DESC NULLS LAST"
         )
         sql_with_sector_name = (
             "SELECT c.ticker, c.weight, c.price_quality, "
@@ -946,7 +946,7 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
             "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
             "WHERE c.trade_date = :as_of_date "
-            "ORDER BY c.weight DESC NULLS LAST",
+            "ORDER BY c.weight DESC NULLS LAST"
         )
         sql_without_sector = (
             "SELECT c.ticker, c.weight, c.price_quality, "
