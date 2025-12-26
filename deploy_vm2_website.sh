@@ -3,13 +3,14 @@ set -euo pipefail
 
 echo "[VM2] Starting SustainaCore Django deploy..."
 
-REPO_ROOT="/opt/code/Sustainacore"
-VENV_PATH="$REPO_ROOT/website_django/venv"
-NGINX_CONF_SRC="$REPO_ROOT/infra/nginx/sustainacore.conf"
+REPO_DIR="/opt/code/Sustainacore"
+VENV_DIR="${HOME}/.venvs/sustainacore_vm2"
+NGINX_CONF_SRC="$REPO_DIR/infra/nginx/sustainacore.conf"
 NGINX_CONF_DEST="/etc/nginx/sites-available/sustainacore"
 
+
 # 1) Go to repo root
-cd "$REPO_ROOT"
+cd "$REPO_DIR"
 
 # 2) Load optional local environment file
 if [ -f ".env.vm2" ]; then
@@ -22,44 +23,50 @@ else
   echo "[VM2] No .env.vm2 file found, continuing without it."
 fi
 
-# 3) Activate virtualenv if it exists
-if [ -d "$VENV_PATH" ]; then
-  echo "[VM2] Activating virtualenv at $VENV_PATH"
-  # shellcheck disable=SC1091
-  . "$VENV_PATH/bin/activate"
-else
-  echo "[VM2] Virtualenv $VENV_PATH not found, using system Python."
+# 3) Create or repair the user-owned venv
+mkdir -p "${HOME}/.venvs"
+echo "[VM2] Checking venv health..."
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+  echo "[VM2] venv missing; creating..."
+  python3 -m venv "$VENV_DIR"
 fi
 
+if ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+  echo "[VM2] pip is broken; recreating venv..."
+  rm -rf "$VENV_DIR"
+  python3 -m venv "$VENV_DIR"
+fi
+
+echo "[VM2] Bootstrapping pip..."
+"$VENV_DIR/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || true
+"$VENV_DIR/bin/python" -m pip install -U pip setuptools wheel
+
 # 4) Move into Django project
-cd "$REPO_ROOT/website_django"
+cd "$REPO_DIR/website_django"
 
 # 4.1) Ensure Python dependencies are installed
-if [ -f "$REPO_ROOT/website_django/requirements.txt" ]; then
+if [ -f "$REPO_DIR/website_django/requirements.txt" ]; then
   echo "[VM2] Installing Django dependencies..."
-  if [ -d "$VENV_PATH" ]; then
-    "$VENV_PATH/bin/python" -m pip install -U pip wheel
-    "$VENV_PATH/bin/pip" install -r "$REPO_ROOT/website_django/requirements.txt"
-  else
-    python3 -m pip install -U pip wheel
-    python3 -m pip install -r "$REPO_ROOT/website_django/requirements.txt"
-  fi
+  "$VENV_DIR/bin/python" -m pip install -r "$REPO_DIR/website_django/requirements.txt"
 else
   echo "[VM2] requirements.txt not found; skipping pip install."
 fi
 
+# 4.2) Validate Django configuration with the refreshed venv
+DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" check
+
 # 5) Run Django commands in the service environment
 echo "[VM2] Running Django checks..."
-"$REPO_ROOT/scripts/vm2_manage.sh" check
+DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" check
 
 echo "[VM2] Applying migrations..."
-"$REPO_ROOT/scripts/vm2_manage.sh" migrate --noinput
+DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" migrate --noinput
 
 echo "[VM2] Collecting static files..."
-"$REPO_ROOT/scripts/vm2_manage.sh" collectstatic --noinput
+DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" collectstatic --noinput
 
 # 7) Return to repo root and restart services
-cd "$REPO_ROOT"
+cd "$REPO_DIR"
 
 # 7) Ensure Nginx config is up to date and enabled
 if [ -f "$NGINX_CONF_SRC" ]; then
@@ -93,7 +100,7 @@ if ! grep -qi "Content-Type: text/css" <<< "$STATIC_CHECK_OUTPUT"; then
 fi
 
 echo "[VM2] Pinging Google for sitemap..."
-if ! "$REPO_ROOT/scripts/vm2_manage.sh" ping_google --sitemap=https://www.sustainacore.org/sitemap.xml; then
+if ! DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" ping_google --sitemap=https://www.sustainacore.org/sitemap.xml; then
   echo "[VM2] Warning: Google sitemap ping failed (non-fatal)." >&2
 fi
 
