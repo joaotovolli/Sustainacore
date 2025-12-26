@@ -12,6 +12,13 @@ from anyio import to_thread
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
+from app.auth.login_codes import (
+    TOKEN_TTL_SECONDS,
+    is_valid_email,
+    normalize_email,
+    request_login_code,
+    verify_login_code,
+)
 from app.news_service import create_curated_news_item, fetch_news_items, fetch_news_item_detail
 from app.persona import apply_persona
 from app.request_normalizer import BAD_INPUT_ERROR, normalize_request
@@ -56,6 +63,9 @@ _CI_FIXTURE_PATH = Path(__file__).resolve().parents[2] / "eval" / "fixtures" / "
 LOGGER = logging.getLogger("ask2")
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
 _API_AUTH_WARNED = False
+_AUTH_TOKEN_SIGNING_KEY = os.getenv("AUTH_TOKEN_SIGNING_KEY")
+if not _AUTH_TOKEN_SIGNING_KEY:
+    raise RuntimeError("AUTH_TOKEN_SIGNING_KEY is required for auth token signing")
 
 
 def _resolve_git_sha() -> str:
@@ -217,6 +227,13 @@ def _format_timestamp(value: Any) -> Optional[str]:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     return None
+
+
+def _resolve_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip() or "unknown"
+    return request.client.host if request.client and request.client.host else "unknown"
 
 
 def _sanitize_k(value: Any, default: int = 4) -> int:
@@ -512,6 +529,95 @@ def metrics() -> Dict[str, float]:
     if uptime < 0:
         uptime = 0.0
     return {"uptime": float(uptime)}
+
+
+@app.post("/api/auth/request-code")
+async def api_auth_request_code(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"error": "bad_request", "message": "Invalid JSON payload."},
+            status_code=400,
+        )
+
+    if not isinstance(payload, dict):
+        return JSONResponse(
+            {"error": "bad_request", "message": "Payload must be a JSON object."},
+            status_code=400,
+        )
+
+    email_raw = payload.get("email")
+    if not isinstance(email_raw, str):
+        return JSONResponse(
+            {"error": "bad_request", "message": "Email is required."},
+            status_code=400,
+        )
+
+    email = email_raw.strip()
+    if not is_valid_email(email):
+        return JSONResponse(
+            {"error": "bad_request", "message": "Invalid email format."},
+            status_code=400,
+        )
+
+    email_normalized = normalize_email(email)
+    client_ip = _resolve_client_ip(request)
+    request_login_code(email_normalized, client_ip)
+
+    return JSONResponse({"ok": True}, media_type="application/json")
+
+
+@app.post("/api/auth/verify-code")
+async def api_auth_verify_code(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"error": "bad_request", "message": "Invalid JSON payload."},
+            status_code=400,
+        )
+
+    if not isinstance(payload, dict):
+        return JSONResponse(
+            {"error": "bad_request", "message": "Payload must be a JSON object."},
+            status_code=400,
+        )
+
+    email_raw = payload.get("email")
+    code_raw = payload.get("code")
+    if not isinstance(email_raw, str) or code_raw is None:
+        return JSONResponse(
+            {"error": "invalid_code", "message": "Invalid code."},
+            status_code=400,
+        )
+
+    email = email_raw.strip()
+    if not is_valid_email(email):
+        return JSONResponse(
+            {"error": "invalid_code", "message": "Invalid code."},
+            status_code=400,
+        )
+
+    code = str(code_raw).strip()
+    if not code.isdigit() or len(code) != 6:
+        return JSONResponse(
+            {"error": "invalid_code", "message": "Invalid code."},
+            status_code=400,
+        )
+
+    email_normalized = normalize_email(email)
+    token = verify_login_code(email_normalized, code, _AUTH_TOKEN_SIGNING_KEY)
+    if not token:
+        return JSONResponse(
+            {"error": "invalid_code", "message": "Invalid code."},
+            status_code=400,
+        )
+
+    return JSONResponse(
+        {"token": token, "expires_in_seconds": TOKEN_TTL_SECONDS},
+        media_type="application/json",
+    )
 
 
 @app.get("/api/tech100")
