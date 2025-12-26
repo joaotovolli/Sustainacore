@@ -14,9 +14,7 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     return value
 
 
-def send_email(subject: str, body: str) -> None:
-    """Send an email using SMTP STARTTLS. No-op if required env vars are missing."""
-
+def _send_email_message(mail_to: str, subject: str, body: str, mail_from: Optional[str]) -> None:
     host = _env("SMTP_HOST", "smtp.ionos.co.uk")
     port_raw = _env("SMTP_PORT", "587")
     try:
@@ -26,14 +24,13 @@ def send_email(subject: str, body: str) -> None:
 
     user = _env("SMTP_USER")
     password = _env("SMTP_PASS")
-    mail_from = _env("MAIL_FROM", user)
-    mail_to = _env("MAIL_TO")
+    resolved_from = mail_from or _env("MAIL_FROM", user)
 
-    if not host or not user or not password or not mail_to or not mail_from:
+    if not host or not user or not password or not mail_to or not resolved_from:
         return
 
     msg = EmailMessage()
-    msg["From"] = mail_from
+    msg["From"] = resolved_from
     msg["To"] = mail_to
     msg["Subject"] = subject
     msg.set_content(body)
@@ -50,4 +47,21 @@ def send_email(subject: str, body: str) -> None:
         return
 
 
-__all__ = ["send_email"]
+def send_email(subject: str, body: str) -> None:
+    """Send an email using SMTP STARTTLS. No-op if required env vars are missing."""
+
+    mail_to = _env("MAIL_TO")
+    if not mail_to:
+        return
+    _send_email_message(mail_to, subject, body, mail_from=None)
+
+
+def send_email_to(mail_to: str, subject: str, body: str, *, mail_from: Optional[str] = None) -> None:
+    """Send an email to the requested recipient using the configured SMTP settings."""
+
+    if not mail_to:
+        return
+    _send_email_message(mail_to, subject, body, mail_from=mail_from)
+
+
+__all__ = ["send_email", "send_email_to"]
