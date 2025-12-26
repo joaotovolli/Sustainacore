@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}TECH100 Index | Performance & Risk{% endblock %}
-{% block meta_description %}Track TECH100 index performance, risk metrics, and data quality signals from the SustainaCore Oracle-powered analytics feed.{% endblock %}
+{% block meta_description %}Track TECH100 index performance, risk metrics, and data quality signals from the SustainaCore analytics feed.{% endblock %}
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
@@ -17,10 +17,15 @@
           <span class="pill pill--soft">TECH100 AI Index</span>
           <h1>Performance &amp; Risk</h1>
           <p class="muted">
-            Direct Oracle-powered index analytics with daily performance, risk, and data quality signals.
+            Direct index analytics with daily performance, risk, and data quality signals.
           </p>
         </div>
-        <a class="btn btn--secondary" href="/tech100/performance/">View TECH100 performance</a>
+        <div class="tech100-index__actions">
+          <a class="btn btn--secondary" href="/tech100/performance/">View TECH100 performance</a>
+          <a class="btn btn--ghost" href="/tech100/index/export/?kind=levels">Download levels CSV</a>
+          <a class="btn btn--ghost" href="/tech100/index/export/?kind=constituents">Download constituents CSV</a>
+          <button class="btn btn--ghost" type="button" data-copy-link="1">Copy link</button>
+        </div>
       </div>
 
       {% with tech100_current="Index overview" %}
@@ -33,65 +38,33 @@
         </div>
       {% else %}
         <div id="tech100-data-status"
-             data-mode="{{ data_mode }}"
              data-level-count="{{ levels_count }}"
              data-constituent-count="{{ constituents_count }}"></div>
 
-        <div class="card tech100-tools">
-          <div>
-            <h2 class="h5">Tools</h2>
-            <p class="muted">Download the current index dataset or share this view.</p>
-          </div>
-          <div class="tech100-tools__actions">
-            <a class="btn btn--secondary" href="/tech100/index/export/?kind=levels">Download levels CSV</a>
-            <a class="btn btn--secondary" href="/tech100/index/export/?kind=constituents">Download constituents CSV</a>
-            <button class="btn btn--ghost" type="button" data-copy-link="1">Copy link</button>
-          </div>
-        </div>
-
-        <div class="tech100-context">
-          <div class="tech100-context__item">
-            <span class="muted">Data mode</span>
-            <strong>{{ data_mode|default:"oracle"|upper }}</strong>
-          </div>
-          <div class="tech100-context__item">
-            <span class="muted">Latest trade date</span>
-            <strong data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</strong>
-          </div>
-          <div class="tech100-context__item">
-            <span class="muted">Levels</span>
-            <strong>{{ levels_count }}</strong>
-          </div>
-          <div class="tech100-context__item">
-            <span class="muted">Top constituents</span>
-            <strong>{{ constituents_count }}</strong>
-          </div>
-        </div>
-
-        <div class="tech100-module-grid">
-          <a class="tech100-module-card is-active" href="/tech100/index/">
-            <span class="tech100-module-card__title">Index overview</span>
-            <span class="muted">Performance, risk, and data quality signals.</span>
+        <div class="tech100-ribbon">
+          <a class="tech100-ribbon__item is-active" href="/tech100/index/">
+            <span class="tech100-ribbon__title">Overview</span>
+            <span class="tech100-ribbon__meta">Performance and risk signals</span>
           </a>
-          <a class="tech100-module-card" href="/tech100/performance/">
-            <span class="tech100-module-card__title">Performance</span>
-            <span class="muted">Levels, drawdowns, volatility, and attribution.</span>
+          <a class="tech100-ribbon__item" href="/tech100/performance/">
+            <span class="tech100-ribbon__title">Performance</span>
+            <span class="tech100-ribbon__meta">Levels, drawdowns, volatility</span>
           </a>
-          <a class="tech100-module-card" href="/tech100/constituents/">
-            <span class="tech100-module-card__title">Constituents</span>
-            <span class="muted">Daily holdings, weights, and quality flags.</span>
+          <a class="tech100-ribbon__item" href="/tech100/constituents/">
+            <span class="tech100-ribbon__title">Constituents</span>
+            <span class="tech100-ribbon__meta">Holdings, weights, daily returns</span>
           </a>
-          <a class="tech100-module-card" href="/tech100/attribution/">
-            <span class="tech100-module-card__title">Attribution</span>
-            <span class="muted">Top contributors and detractors by date.</span>
+          <a class="tech100-ribbon__item" href="/tech100/attribution/">
+            <span class="tech100-ribbon__title">Attribution</span>
+            <span class="tech100-ribbon__meta">Top contributors and detractors</span>
           </a>
-          <a class="tech100-module-card" href="/tech100/stats/">
-            <span class="tech100-module-card__title">Stats</span>
-            <span class="muted">Volatility, drawdown, and concentration metrics.</span>
+          <a class="tech100-ribbon__item" href="/tech100/stats/">
+            <span class="tech100-ribbon__title">Stats</span>
+            <span class="tech100-ribbon__meta">Volatility and concentration</span>
           </a>
-          <a class="tech100-module-card" href="/tech100/">
-            <span class="tech100-module-card__title">Governance scores</span>
-            <span class="muted">TECH100 ranking and filters.</span>
+          <a class="tech100-ribbon__item" href="/tech100/">
+            <span class="tech100-ribbon__title">Governance scores</span>
+            <span class="tech100-ribbon__meta">Rankings and filters</span>
           </a>
         </div>
 
@@ -227,34 +200,6 @@
           </div>
         </div>
 
-        <div class="card tech100-index__imputed-card">
-          <div class="card__header">
-            <h2 class="h4">Imputed overview (last 30 trading days)</h2>
-            <p class="muted">Tickers with the most IMPUTED price flags.</p>
-          </div>
-          <div class="table-wrapper table-wrap">
-            <table class="table table--compact" aria-label="Imputed overview">
-              <thead>
-                <tr>
-                  <th class="text-left">Ticker</th>
-                  <th class="text-right">Imputed days</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in imputed_overview %}
-                  <tr>
-                    <td class="text-left">{{ row.ticker }}</td>
-                    <td class="text-right">{{ row.imputed_days }}</td>
-                  </tr>
-                {% empty %}
-                  <tr>
-                    <td colspan="2" class="text-center muted">No imputed observations.</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
       {% endif %}
     </div>
   </section>

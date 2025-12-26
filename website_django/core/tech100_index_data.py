@@ -480,12 +480,13 @@ def get_kpis(as_of_date: dt.date) -> dict:
 def get_rolling_vol(as_of_date: dt.date, window: int = 20) -> Optional[float]:
     if _data_mode() == "fixture":
         return 0.182
-    stats = get_stats(as_of_date)
-    if stats and stats.get("vol_20d") is not None:
-        try:
-            return float(stats["vol_20d"])
-        except (TypeError, ValueError):
-            pass
+    if window == 20:
+        stats = get_stats(as_of_date)
+        if stats and stats.get("vol_20d") is not None:
+            try:
+                return float(stats["vol_20d"])
+            except (TypeError, ValueError):
+                pass
 
     levels = _get_recent_levels(as_of_date, window + 1)
     returns = _returns_from_levels(levels)
@@ -773,6 +774,23 @@ def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
             "WHERE c.trade_date = :trade_date "
             "ORDER BY c.weight DESC NULLS LAST",
         )
+        sql_with_gics_sector = (
+            "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
+            "d.ret_1d, d.contribution, "
+            "(SELECT t.company_name "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name, "
+            "(SELECT t.gics_sector "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS sector "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
+            "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
+            "WHERE c.trade_date = :trade_date "
+            "ORDER BY c.weight DESC NULLS LAST",
+        )
         sql_without_sector = (
             "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
             "d.ret_1d, d.contribution, "
@@ -790,8 +808,12 @@ def get_holdings_with_meta(as_of_date: dt.date) -> list[dict]:
             rows = _execute_rows(sql_with_sector, {"trade_date": as_of_date})
             has_sector = True
         except Exception:
-            rows = _execute_rows(sql_without_sector, {"trade_date": as_of_date})
-            has_sector = False
+            try:
+                rows = _execute_rows(sql_with_gics_sector, {"trade_date": as_of_date})
+                has_sector = True
+            except Exception:
+                rows = _execute_rows(sql_without_sector, {"trade_date": as_of_date})
+                has_sector = False
         results = []
         for row in rows:
             results.append(
@@ -816,7 +838,7 @@ def get_sector_breakdown(holdings: list[dict]) -> list[dict]:
         return _fixture_sector_breakdown()
     totals: dict[str, float] = {}
     for row in holdings:
-        sector = row.get("sector") or "Unclassified"
+        sector = (row.get("sector") or "").strip() or "Unclassified"
         weight = float(row.get("weight") or 0.0)
         totals[sector] = totals.get(sector, 0.0) + weight
     return [
@@ -855,6 +877,25 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             "WHERE c.trade_date = :as_of_date "
             "ORDER BY c.weight DESC NULLS LAST",
         )
+        sql_with_gics_sector = (
+            "SELECT c.ticker, c.weight, c.price_quality, "
+            "d.ret_1d, d.contribution, "
+            "(SELECT SUM(x.contribution) FROM SC_IDX_CONTRIBUTION_DAILY x "
+            " WHERE x.ticker = c.ticker AND x.trade_date BETWEEN :mtd_start AND :as_of_date) AS contrib_mtd, "
+            "(SELECT SUM(x.contribution) FROM SC_IDX_CONTRIBUTION_DAILY x "
+            " WHERE x.ticker = c.ticker AND x.trade_date BETWEEN :ytd_start AND :as_of_date) AS contrib_ytd, "
+            "(SELECT t.company_name FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :as_of_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name, "
+            "(SELECT t.gics_sector FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :as_of_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS sector "
+            "FROM SC_IDX_CONSTITUENT_DAILY c "
+            "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY d "
+            "ON d.trade_date = c.trade_date AND d.ticker = c.ticker "
+            "WHERE c.trade_date = :as_of_date "
+            "ORDER BY c.weight DESC NULLS LAST",
+        )
         sql_without_sector = (
             "SELECT c.ticker, c.weight, c.price_quality, "
             "d.ret_1d, d.contribution, "
@@ -878,11 +919,18 @@ def get_attribution_table(as_of_date: dt.date, mtd_start: dt.date, ytd_start: dt
             )
             has_sector = True
         except Exception:
-            rows = _execute_rows(
-                sql_without_sector,
-                {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
-            )
-            has_sector = False
+            try:
+                rows = _execute_rows(
+                    sql_with_gics_sector,
+                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+                )
+                has_sector = True
+            except Exception:
+                rows = _execute_rows(
+                    sql_without_sector,
+                    {"as_of_date": as_of_date, "mtd_start": mtd_start, "ytd_start": ytd_start},
+                )
+                has_sector = False
         results = []
         for row in rows:
             results.append(
