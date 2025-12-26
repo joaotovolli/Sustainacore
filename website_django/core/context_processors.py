@@ -1,6 +1,7 @@
 import json
 
 from django.conf import settings
+from core.auth import is_logged_in
 
 
 def seo_defaults(request):
@@ -37,4 +38,10 @@ def preview_context(request):
     return {
         "is_preview": is_preview,
         "preview_host": host,
+    }
+
+
+def auth_context(request):
+    return {
+        "is_logged_in": is_logged_in(request),
     }
