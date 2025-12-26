@@ -1,0 +1,4 @@
+Django==4.2.27
+gunicorn==21.2.0
+oracledb==2.5.*
+requests==2.32.3
