@@ -11,7 +11,7 @@
                 <h1>Enter your 6-digit code</h1>
                 <p class="muted">
                     We sent a code to <strong>{{ email }}</strong>.
-                    <a class="text-link" href="{% url 'login' %}">Change email</a>
+                    <a class="text-link" href="{% url 'login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Change email</a>
                 </p>
             </div>
         </div>

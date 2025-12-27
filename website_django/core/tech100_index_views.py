@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import csv
 from typing import Optional
 
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render
 from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_GET
@@ -32,6 +33,7 @@ from core.tech100_index_data import (
     get_trade_date_bounds,
     get_attribution_table,
 )
+from core.downloads import require_login_for_download
 
 logger = logging.getLogger(__name__)
 
@@ -452,3 +454,104 @@ def api_tech100_stats(request):
     if not stats:
         return JsonResponse({"error": "no_stats", "as_of": selected_date.isoformat()}, status=404)
     return JsonResponse({"as_of": selected_date.isoformat(), "stats": stats})
+
+
+@require_GET
+@require_login_for_download
+def tech100_index_export(request):
+    latest = get_latest_trade_date()
+    if latest is None:
+        return HttpResponse("No TECH100 data available.", status=503)
+    kind = (request.GET.get("kind") or "levels").strip().lower()
+    if kind not in {"levels", "constituents"}:
+        return HttpResponse("Unknown export type.", status=400)
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f"attachment; filename=tech100_{kind}.csv"
+    writer = csv.writer(response)
+
+    if kind == "levels":
+        min_date, _ = get_trade_date_bounds()
+        start_date = min_date or latest
+        rows = get_index_levels(start_date, latest)
+        writer.writerow(["DATE", "LEVEL"])
+        for trade_date, level in rows:
+            writer.writerow([trade_date.isoformat(), level])
+        return response
+
+    rows = get_constituents(latest)
+    writer.writerow(["TICKER", "NAME", "WEIGHT", "RET_1D", "CONTRIBUTION", "PRICE", "QUALITY"])
+    for row in rows:
+        writer.writerow(
+            [
+                row.get("ticker") or "",
+                row.get("name") or "",
+                row.get("weight") or "",
+                row.get("ret_1d") or "",
+                row.get("contribution") or "",
+                row.get("price") or "",
+                row.get("quality") or "",
+            ]
+        )
+    return response
+
+
+@require_GET
+@require_login_for_download
+def tech100_performance_export(request):
+    latest = get_latest_trade_date()
+    if latest is None:
+        return HttpResponse("No TECH100 data available.", status=503)
+    kind = (request.GET.get("kind") or "holdings").strip().lower()
+    if kind not in {"holdings", "attribution"}:
+        return HttpResponse("Unknown export type.", status=400)
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f"attachment; filename=tech100_{kind}.csv"
+    writer = csv.writer(response)
+
+    if kind == "holdings":
+        rows = get_holdings_with_meta(latest)
+        writer.writerow(["TICKER", "NAME", "SECTOR", "WEIGHT", "RET_1D", "CONTRIBUTION"])
+        for row in rows:
+            writer.writerow(
+                [
+                    row.get("ticker") or "",
+                    row.get("name") or "",
+                    row.get("sector") or "",
+                    row.get("weight") or "",
+                    row.get("ret_1d") or "",
+                    row.get("contribution") or "",
+                ]
+            )
+        return response
+
+    mtd_start = dt.date(latest.year, latest.month, 1)
+    ytd_start = dt.date(latest.year, 1, 1)
+    rows = get_attribution_table(latest, mtd_start, ytd_start)
+    writer.writerow(
+        [
+            "TICKER",
+            "NAME",
+            "SECTOR",
+            "WEIGHT",
+            "RET_1D",
+            "CONTRIBUTION",
+            "CONTRIB_MTD",
+            "CONTRIB_YTD",
+        ]
+    )
+    for row in rows:
+        writer.writerow(
+            [
+                row.get("ticker") or "",
+                row.get("name") or "",
+                row.get("sector") or "",
+                row.get("weight") or "",
+                row.get("ret_1d") or "",
+                row.get("contribution") or "",
+                row.get("contrib_mtd") or "",
+                row.get("contrib_ytd") or "",
+            ]
+        )
+    return response

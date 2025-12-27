@@ -31,6 +31,18 @@ class LoginViewsTests(TestCase):
         self.assertIn("sc_session", response.cookies)
         self.assertEqual(self.client.session.get("auth_email"), "user@example.com")
 
+    @mock.patch("core.views.requests.post")
+    def test_login_code_redirects_to_next(self, post_mock):
+        post_mock.return_value.status_code = 200
+        post_mock.return_value.json.return_value = {"token": "abc123", "expires_in_seconds": 3600}
+        session = self.client.session
+        session["login_email"] = "user@example.com"
+        session.save()
+
+        response = self.client.post(reverse("login_code"), {"code": "123456", "next": "/tech100/"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/tech100/")
+
     @mock.patch("core.views.requests.post", side_effect=requests.exceptions.Timeout)
     def test_login_code_handles_timeout(self, post_mock):
         session = self.client.session
