@@ -2272,7 +2272,7 @@ textarea:focus {
     }
 }
 
-.modal {
+.modal--download {
     position: fixed;
     inset: 0;
     display: none;
@@ -2280,11 +2280,26 @@ textarea:focus {
     justify-content: center;
     padding: 24px;
     background: rgba(16, 22, 34, 0.45);
-    z-index: 50;
+    z-index: 9999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
 }
 
-.modal--open {
+.modal--download.modal--open {
     display: flex;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.modal--download.is-visible {
+    display: flex;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.has-download-modal {
+    overflow: hidden;
 }
 
 .modal__dialog {
