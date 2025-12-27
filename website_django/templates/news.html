@@ -76,7 +76,7 @@
                 {% for article in articles %}
                 <article class="news-card">
                     {% if article.has_full_body and article.id %}
-                    <a class="news-card__link" href="{% url 'news_detail' article.id %}" data-news-link>
+                    <a class="news-card__link" href="{% url 'news_detail' article.id %}{% if back_query %}?back={{ back_query|urlencode }}{% endif %}" data-news-link>
                     {% elif article.url %}
                     <a class="news-card__link" href="{{ article.url }}" target="_blank" rel="noopener noreferrer" data-news-link data-news-external>
                     {% else %}

@@ -97,3 +97,82 @@ class NewsDetailSmokeTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn("Short fallback summary.", content)
         self.assertIn("Full text is not available", content)
+
+    @mock.patch("core.views.fetch_filter_options")
+    @mock.patch("core.views.fetch_news_detail_oracle")
+    def test_news_detail_prefers_long_full_text(self, fetch_detail, fetch_filter_options):
+        fetch_filter_options.return_value = {
+            "source_options": [],
+            "tag_options": [],
+            "supports_source": False,
+            "supports_tag": False,
+            "supports_ticker": False,
+        }
+        long_text = "Long body text. " * 80
+        fetch_detail.return_value = {
+            "item": {
+                "id": "NEWS_ITEMS:44",
+                "title": "Long form headline",
+                "url": "https://example.com/story",
+                "source": "Example News",
+                "published_at": "2025-01-02T12:30:00Z",
+                "summary": "Short summary.",
+                "full_text": long_text,
+            },
+            "error": None,
+        }
+        response = self.client.get(reverse("news_detail", args=["NEWS_ITEMS:44"]), HTTP_HOST="sustainacore.org")
+        content = response.content.decode("utf-8")
+        self.assertIn("Long body text.", content)
+
+    @mock.patch("core.views.fetch_filter_options")
+    @mock.patch("core.views.fetch_news_detail_oracle")
+    def test_news_detail_sanitizes_html(self, fetch_detail, fetch_filter_options):
+        fetch_filter_options.return_value = {
+            "source_options": [],
+            "tag_options": [],
+            "supports_source": False,
+            "supports_tag": False,
+            "supports_ticker": False,
+        }
+        fetch_detail.return_value = {
+            "item": {
+                "id": "NEWS_ITEMS:55",
+                "title": "HTML headline",
+                "url": "https://example.com/story",
+                "source": "Example News",
+                "published_at": "2025-01-02T12:30:00Z",
+                "content": "<p>Safe</p><script>alert(1)</script>",
+            },
+            "error": None,
+        }
+        response = self.client.get(reverse("news_detail", args=["NEWS_ITEMS:55"]), HTTP_HOST="sustainacore.org")
+        content = response.content.decode("utf-8")
+        self.assertIn("<p>Safe</p>", content)
+        self.assertNotIn("<script>", content)
+
+    @mock.patch("core.views.fetch_filter_options")
+    @mock.patch("core.views.fetch_news_detail_oracle")
+    def test_news_detail_hides_internal_source_link(self, fetch_detail, fetch_filter_options):
+        fetch_filter_options.return_value = {
+            "source_options": [],
+            "tag_options": [],
+            "supports_source": False,
+            "supports_tag": False,
+            "supports_ticker": False,
+        }
+        fetch_detail.return_value = {
+            "item": {
+                "id": "NEWS_ITEMS:77",
+                "title": "Internal link headline",
+                "url": "https://sustainacore.org/press/example",
+                "source": "Example News",
+                "published_at": "2025-01-02T12:30:00Z",
+                "summary": "Short summary.",
+            },
+            "error": None,
+        }
+        response = self.client.get(reverse("news_detail", args=["NEWS_ITEMS:77"]), HTTP_HOST="sustainacore.org")
+        content = response.content.decode("utf-8")
+        self.assertNotIn("Read at source", content)
+        self.assertIn("Source link not available", content)
