@@ -423,6 +423,39 @@ class HomeViewTests(SimpleTestCase):
         self.assertIn("Gov headline", content)
 
     @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
+    @mock.patch("core.views.fetch_news")
+    @mock.patch("core.views.fetch_tech100")
+    def test_home_news_preview_is_truncated_and_links_to_detail(self, tech100_mock, news_mock):
+        cache.clear()
+        tech100_mock.return_value = {"items": [], "error": None, "meta": {}}
+        long_text = (
+            "<p>Long news body with a lot of detail. "
+            + ("More detail. " * 80)
+            + "TAILMARKER</p>"
+        )
+        news_mock.return_value = {
+            "items": [
+                {
+                    "id": "NEWS_ITEMS:123",
+                    "title": "Long form headline",
+                    "summary": long_text,
+                    "source": "Example News",
+                    "published_at": "2025-01-01",
+                    "tags": [],
+                }
+            ],
+            "error": None,
+            "meta": {},
+        }
+
+        response = self.client.get("/", HTTP_HOST="sustainacore.org")
+        content = response.content.decode("utf-8")
+        self.assertIn("Long form headline", content)
+        self.assertIn("Read full article →", content)
+        self.assertIn("/news/NEWS_ITEMS:123/", content)
+        self.assertNotIn("TAILMARKER", content)
+
+    @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     @mock.patch("core.views.get_return_between")
     @mock.patch("core.views.fetch_news")
     @mock.patch("core.views.fetch_tech100")

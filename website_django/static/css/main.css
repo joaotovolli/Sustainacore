@@ -1128,6 +1128,23 @@ body.has-modal-open {
     margin: 0 0 0.5rem;
 }
 
+.news-card__title-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.news-card__title-link:hover,
+.news-card__title-link:focus-visible {
+    color: var(--brand-blue-strong);
+}
+
+.home-news__snippet {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
 .news-card__tags {
     display: flex;
     gap: 0.4rem;
