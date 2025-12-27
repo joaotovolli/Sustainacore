@@ -386,6 +386,7 @@ class HomeViewTests(SimpleTestCase):
     @mock.patch("core.views.fetch_news")
     @mock.patch("core.views.fetch_tech100")
     def test_home_renders_with_canonical_tech100_data(self, tech100_mock, news_mock):
+        cache.clear()
         tech100_mock.return_value = {
             "items": [
                 {
@@ -441,6 +442,7 @@ class HomeViewTests(SimpleTestCase):
     @mock.patch("core.views.fetch_news")
     @mock.patch("core.views.fetch_tech100")
     def test_home_snapshot_markers_present(self, tech100_mock, news_mock):
+        cache.clear()
         tech100_mock.return_value = {"items": [], "error": None, "meta": {}}
         news_mock.return_value = {"items": [], "error": None, "meta": {}}
         response = self.client.get("/", HTTP_HOST="sustainacore.org")
