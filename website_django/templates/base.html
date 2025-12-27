@@ -44,14 +44,32 @@
                 </nav>
                 <div class="nav nav--auth" aria-label="Account">
                     {% if is_logged_in %}
-                        {% if auth_email_masked %}
-                        <span class="nav__status">Logged in as {{ auth_email_masked }}</span>
-                        {% endif %}
-                        <a href="{% url 'account' %}" class="nav__link nav__link--pill">Account</a>
-                        <form action="{% url 'logout' %}" method="post" class="nav__form">
-                            {% csrf_token %}
-                            <button type="submit" class="nav__link nav__link--button">Logout</button>
-                        </form>
+                        <div class="auth-pill" data-auth-menu>
+                            <button
+                                type="button"
+                                class="auth-pill__button"
+                                aria-haspopup="true"
+                                aria-expanded="false"
+                                aria-controls="auth-menu"
+                            >
+                                <span class="auth-pill__label">{{ auth_email_local }}</span>
+                                <span class="auth-pill__chevron" aria-hidden="true">▾</span>
+                                <span class="auth-pill__tooltip" role="tooltip">
+                                    <strong>Connected</strong>
+                                    <span>{{ auth_email }}</span>
+                                    <small>Manage your account</small>
+                                </span>
+                            </button>
+                            <div class="auth-menu" id="auth-menu" role="menu">
+                                <a class="auth-menu__item" href="{% url 'account' %}" role="menuitem">Manage account</a>
+                                <form action="{% url 'logout' %}" method="post" class="auth-menu__form">
+                                    {% csrf_token %}
+                                    <button type="submit" class="auth-menu__item auth-menu__item--danger" role="menuitem">
+                                        Log out
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
                     {% else %}
                         <a href="{% url 'login' %}" class="nav__link nav__link--pill">Login</a>
                     {% endif %}
@@ -114,5 +132,6 @@
     </a>
 
     {% block extra_scripts %}{% endblock %}
+    <script src="{% static 'js/header_auth.js' %}"></script>
 </body>
 </html>

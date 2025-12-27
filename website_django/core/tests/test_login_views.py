@@ -1,3 +1,5 @@
+import base64
+import json
 from unittest import mock
 
 import requests
@@ -51,7 +53,7 @@ class LoginViewsTests(TestCase):
         session.flush()
         response = self.client.get(reverse("login"))
         self.assertContains(response, "Login")
-        self.assertNotContains(response, "Logout")
+        self.assertNotContains(response, "auth-menu")
 
     def test_header_shows_account_when_logged_in(self):
         session = self.client.session
@@ -59,9 +61,10 @@ class LoginViewsTests(TestCase):
         session.save()
         self.client.cookies["sc_session"] = "token"
         response = self.client.get(reverse("login"))
-        self.assertContains(response, "Account")
-        self.assertContains(response, "Logout")
-        self.assertContains(response, "u***@example.com")
+        self.assertContains(response, "auth-menu")
+        self.assertContains(response, "user")
+        self.assertContains(response, "Connected")
+        self.assertContains(response, "user@example.com")
 
     def test_account_redirects_when_logged_out(self):
         response = self.client.get(reverse("account"))
@@ -81,3 +84,20 @@ class LoginViewsTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         upsert_mock.assert_called_once_with("user@example.com", "US", "Acme", "555")
+
+    def test_header_ignores_invalid_token(self):
+        self.client.cookies["sc_session"] = "not-a-token"
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, "Login")
+        self.assertNotContains(response, "auth-menu")
+
+    def test_header_accepts_token_with_email_claim(self):
+        payload = {"email": "alice@example.com"}
+        payload_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        payload_b64 = base64.urlsafe_b64encode(payload_json).decode("utf-8").rstrip("=")
+        token = f"header.{payload_b64}.sig"
+        self.client.cookies["sc_session"] = token
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, "alice")
+        self.assertContains(response, "alice@example.com")
+        self.assertContains(response, "auth-menu")

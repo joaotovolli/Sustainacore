@@ -273,6 +273,118 @@ h3 {
     border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
+.auth-pill {
+    position: relative;
+}
+
+.auth-pill__button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+    position: relative;
+}
+
+.auth-pill__button:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+.auth-pill__label {
+    font-weight: 600;
+}
+
+.auth-pill__chevron {
+    font-size: 0.75rem;
+    opacity: 0.7;
+}
+
+.auth-pill__tooltip {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.4rem);
+    background: #101c3b;
+    color: #fff;
+    border-radius: 12px;
+    padding: 0.6rem 0.75rem;
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+    display: none;
+    min-width: 190px;
+    z-index: 30;
+    text-align: left;
+}
+
+.auth-pill__tooltip strong {
+    display: block;
+    font-size: 0.85rem;
+}
+
+.auth-pill__tooltip span {
+    display: block;
+    font-size: 0.85rem;
+    opacity: 0.9;
+}
+
+.auth-pill__tooltip small {
+    display: block;
+    font-size: 0.75rem;
+    opacity: 0.7;
+    margin-top: 0.2rem;
+}
+
+.auth-pill__button:hover .auth-pill__tooltip,
+.auth-pill__button:focus-visible .auth-pill__tooltip {
+    display: block;
+}
+
+.auth-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.5rem);
+    background: #ffffff;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.16);
+    padding: 0.4rem;
+    min-width: 180px;
+    display: none;
+    z-index: 40;
+}
+
+.auth-pill.is-open .auth-menu {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.auth-menu__item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.55rem 0.75rem;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.auth-menu__item:hover,
+.auth-menu__item:focus-visible {
+    background: var(--surface-muted);
+    outline: none;
+}
+
+.auth-menu__item--danger {
+    color: #a11a1a;
+}
+
 .nav__link.is-active {
     background: rgba(255, 255, 255, 0.18);
     color: #fff;
