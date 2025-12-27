@@ -46,6 +46,7 @@ const run = async () => {
 
   await page.goto(`${baseUrl}/login/`, { waitUntil: "networkidle", timeout: timeoutMs });
   await page.screenshot({ path: path.join(outDir, "login_email.png"), fullPage: true, timeout: timeoutMs });
+  await page.screenshot({ path: path.join(outDir, "header_logged_out.png"), fullPage: true, timeout: timeoutMs });
 
   if (loginSession) {
     await context.addCookies([cookieFor("sessionid", loginSession)]);
@@ -63,7 +64,10 @@ const run = async () => {
   await page.screenshot({ path: path.join(outDir, "account.png"), fullPage: true, timeout: timeoutMs });
 
   await page.goto(`${baseUrl}/login/`, { waitUntil: "networkidle", timeout: timeoutMs });
-  await page.screenshot({ path: path.join(outDir, "header_logged_in.png"), fullPage: true, timeout: timeoutMs });
+  await page.click(".auth-pill__button");
+  await page.screenshot({ path: path.join(outDir, "header_logged_in_dropdown.png"), fullPage: true, timeout: timeoutMs });
+  await page.hover(".auth-pill__button");
+  await page.screenshot({ path: path.join(outDir, "header_logged_in_tooltip.png"), fullPage: true, timeout: timeoutMs });
 
   await context.close();
   await browser.close();
