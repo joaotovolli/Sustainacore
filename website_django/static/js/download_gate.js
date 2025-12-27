@@ -1,5 +1,5 @@
 (() => {
-  const modal = document.querySelector("[data-download-modal]");
+  const modal = document.getElementById("download-auth-modal");
   document.documentElement.dataset.downloadGate = "ready";
   if (!modal) {
     return;
@@ -91,16 +91,25 @@
   };
 
   const openModal = () => {
+    modal.hidden = false;
     modal.setAttribute("aria-hidden", "false");
-    modal.classList.add("modal--open");
+    modal.classList.add("modal--open", "is-visible");
+    document.body.classList.add("has-download-modal");
     showEmailStep();
     setTimeout(() => emailInput?.focus(), 50);
+    return modal.classList.contains("modal--open");
   };
 
-  const closeModal = () => {
+  const closeModal = (options = {}) => {
+    const shouldClearPending = options.clearPending !== false;
     modal.setAttribute("aria-hidden", "true");
-    modal.classList.remove("modal--open");
+    modal.classList.remove("modal--open", "is-visible");
+    document.body.classList.remove("has-download-modal");
+    modal.hidden = true;
     showError("");
+    if (shouldClearPending) {
+      clearPending();
+    }
   };
 
   const showEmailStep = () => {
@@ -151,7 +160,10 @@
     showDebugToast(`Download detected: ${href} | logged_in=false | action=modal`);
     storePending(href);
     sendEvent("download_blocked", { download: href, page: window.location.pathname });
-    openModal();
+    const opened = openModal();
+    if (!opened) {
+      window.location.assign(href);
+    }
   };
 
   const isDownloadUrl = (href) => {
@@ -210,6 +222,12 @@
     }
     if (event.key === "Tab") {
       trapFocus(modal, event);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && modal.classList.contains("modal--open")) {
+      closeModal();
     }
   });
 
@@ -294,7 +312,7 @@
         return;
       }
       body.dataset.loggedIn = "true";
-      closeModal();
+      closeModal({ clearPending: false });
       triggerPendingDownload();
     } catch (err) {
       showError("We could not verify the code right now. Please try again.");

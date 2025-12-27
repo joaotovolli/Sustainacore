@@ -37,7 +37,23 @@ const run = async () => {
   });
 
   await page.goto(`${baseUrl}/tech100/performance/`, { waitUntil: "networkidle", timeout: timeoutMs });
-  await page.click("a[href*=\"/tech100/performance/export/\"]");
+  await page.waitForFunction(
+    () => document.documentElement.dataset.downloadGate === "ready",
+    { timeout: timeoutMs }
+  );
+  await page.evaluate(() => {
+    sessionStorage.removeItem("sc_pending_download");
+    sessionStorage.removeItem("sc_pending_next");
+    const modal = document.querySelector("#download-auth-modal");
+    if (!modal) return;
+    modal.classList.remove("modal--open", "is-visible");
+    modal.setAttribute("aria-hidden", "true");
+    modal.hidden = true;
+  });
+  await page.evaluate(() => {
+    const link = document.querySelector("a[href*=\"/tech100/performance/export/\"]");
+    if (link) link.click();
+  });
   await page.waitForSelector(".modal--open", { timeout: timeoutMs });
   await page.screenshot({ path: path.join(outDir, "download_modal_email.png"), fullPage: true, timeout: timeoutMs });
 
@@ -67,7 +83,10 @@ const run = async () => {
   ]);
   await page.goto(`${baseUrl}/tech100/performance/`, { waitUntil: "networkidle", timeout: timeoutMs });
   const downloadPromise = page.waitForEvent("download", { timeout: 15000 }).catch(() => null);
-  await page.click("a[href*=\"/tech100/performance/export/\"]");
+  await page.evaluate(() => {
+    const link = document.querySelector("a[href*=\"/tech100/performance/export/\"]");
+    if (link) link.click();
+  });
   await downloadPromise;
   await page.screenshot({ path: path.join(outDir, "download_success.png"), fullPage: true, timeout: timeoutMs });
 
