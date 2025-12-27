@@ -22,6 +22,8 @@ EVENT_TYPES = {
     "table_preview_rendered",
     "table_unlock_click",
     "table_unlock_success",
+    "news_list_error",
+    "news_detail_error",
 }
 
 ANON_COOKIE = "sc_anon"
