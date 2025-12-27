@@ -40,9 +40,14 @@ def seo_defaults(request):
 
 def preview_context(request):
     host = request.get_host().split(":")[0].lower()
-    is_preview = settings.PREVIEW_MODE or host in {h.lower() for h in settings.PREVIEW_HOSTS}
+    prod_hosts = {"sustainacore.org", "www.sustainacore.org"}
+    preview_hosts = {h.lower() for h in settings.PREVIEW_HOSTS}
+    host_is_preview = host in preview_hosts or host.startswith("preview.") or ".preview." in host
+    env_is_preview = settings.SUSTAINACORE_ENV == "preview" or settings.PREVIEW_MODE
+    show_preview_banner = (host not in prod_hosts) and (env_is_preview or host_is_preview)
     return {
-        "is_preview": is_preview,
+        "is_preview": show_preview_banner,
+        "show_preview_banner": show_preview_banner,
         "preview_host": host,
     }
 
