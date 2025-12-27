@@ -16,6 +16,7 @@ def _ensure_profile_table(cursor: oracledb.Cursor) -> None:
             f"""
             CREATE TABLE {TABLE_NAME} (
                 email_normalized VARCHAR2(320) PRIMARY KEY,
+                name VARCHAR2(200),
                 country VARCHAR2(120),
                 company VARCHAR2(200),
                 phone VARCHAR2(80),
@@ -39,7 +40,7 @@ def get_profile(email_normalized: str) -> Optional[Dict[str, str]]:
             _ensure_profile_table(cursor)
             cursor.execute(
                 f"""
-                SELECT email_normalized, country, company, phone
+                SELECT email_normalized, name, country, company, phone
                 FROM {TABLE_NAME}
                 WHERE email_normalized = :email
                 """,
@@ -50,13 +51,24 @@ def get_profile(email_normalized: str) -> Optional[Dict[str, str]]:
                 return None
             return {
                 "email_normalized": row[0],
-                "country": row[1] or "",
-                "company": row[2] or "",
-                "phone": row[3] or "",
+                "name": row[1] or "",
+                "country": row[2] or "",
+                "company": row[3] or "",
+                "phone": row[4] or "",
             }
 
+def _normalize_optional(value: str) -> Optional[str]:
+    stripped = (value or "").strip()
+    return stripped if stripped else None
 
-def upsert_profile(email_normalized: str, country: str, company: str, phone: str) -> None:
+
+def upsert_profile(
+    email_normalized: str,
+    name: str,
+    country: str,
+    company: str,
+    phone: str,
+) -> None:
     if not email_normalized:
         return
     with get_connection() as conn:
@@ -67,6 +79,7 @@ def upsert_profile(email_normalized: str, country: str, company: str, phone: str
                 MERGE INTO {TABLE_NAME} target
                 USING (
                     SELECT :email email_normalized,
+                           :name name,
                            :country country,
                            :company company,
                            :phone phone
@@ -74,27 +87,21 @@ def upsert_profile(email_normalized: str, country: str, company: str, phone: str
                 ) src
                 ON (target.email_normalized = src.email_normalized)
                 WHEN MATCHED THEN
-                    UPDATE SET target.country = src.country,
+                    UPDATE SET target.name = src.name,
+                               target.country = src.country,
                                target.company = src.company,
                                target.phone = src.phone,
                                target.updated_at = SYSTIMESTAMP
                 WHEN NOT MATCHED THEN
-                    INSERT (email_normalized, country, company, phone, created_at, updated_at)
-                    VALUES (src.email_normalized, src.country, src.company, src.phone, SYSTIMESTAMP, SYSTIMESTAMP)
+                    INSERT (email_normalized, name, country, company, phone, created_at, updated_at)
+                    VALUES (src.email_normalized, src.name, src.country, src.company, src.phone, SYSTIMESTAMP, SYSTIMESTAMP)
                 """,
                 {
                     "email": email_normalized,
-                    "country": country,
-                    "company": company,
-                    "phone": phone,
+                    "name": _normalize_optional(name),
+                    "country": _normalize_optional(country),
+                    "company": _normalize_optional(company),
+                    "phone": _normalize_optional(phone),
                 },
             )
             conn.commit()
-
-
-def is_profile_complete(profile: Optional[Dict[str, str]]) -> bool:
-    if not profile:
-        return False
-    return bool((profile.get("country") or "").strip()) and bool(
-        (profile.get("company") or "").strip()
-    )

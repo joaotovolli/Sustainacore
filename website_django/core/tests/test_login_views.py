@@ -27,7 +27,7 @@ class LoginViewsTests(TestCase):
 
         response = self.client.post(reverse("login_code"), {"code": "123456"})
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], reverse("account"))
+        self.assertEqual(response["Location"], reverse("home"))
         self.assertIn("sc_session", response.cookies)
         self.assertEqual(self.client.session.get("auth_email"), "user@example.com")
 
@@ -80,10 +80,44 @@ class LoginViewsTests(TestCase):
         self.client.cookies["sc_session"] = "token"
         response = self.client.post(
             reverse("account"),
-            {"country": "US", "company": "Acme", "phone": "555"},
+            {"name": "Alex", "country": "United States", "company": "Acme", "phone": "555"},
         )
         self.assertEqual(response.status_code, 200)
-        upsert_mock.assert_called_once_with("user@example.com", "US", "Acme", "555")
+        upsert_mock.assert_called_once_with(
+            "user@example.com",
+            "Alex",
+            "United States",
+            "Acme",
+            "555",
+        )
+
+    @mock.patch("core.views.upsert_profile")
+    @mock.patch("core.views.get_profile", return_value=None)
+    def test_account_allows_empty_profile(self, profile_mock, upsert_mock):
+        session = self.client.session
+        session["auth_email"] = "user@example.com"
+        session.save()
+        self.client.cookies["sc_session"] = "token"
+        response = self.client.post(
+            reverse("account"),
+            {"name": "", "country": "", "company": "", "phone": ""},
+        )
+        self.assertEqual(response.status_code, 200)
+        upsert_mock.assert_called_once_with("user@example.com", "", "", "", "")
+
+    @mock.patch("core.views.upsert_profile")
+    @mock.patch("core.views.get_profile", return_value=None)
+    def test_account_saves_country_only(self, profile_mock, upsert_mock):
+        session = self.client.session
+        session["auth_email"] = "user@example.com"
+        session.save()
+        self.client.cookies["sc_session"] = "token"
+        response = self.client.post(
+            reverse("account"),
+            {"name": "", "country": "Canada", "company": "", "phone": ""},
+        )
+        self.assertEqual(response.status_code, 200)
+        upsert_mock.assert_called_once_with("user@example.com", "", "Canada", "", "")
 
     def test_header_ignores_invalid_token(self):
         self.client.cookies["sc_session"] = "not-a-token"

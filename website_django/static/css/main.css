@@ -1323,6 +1323,7 @@ select,
 input[type="text"],
 input[type="search"],
 input[type="date"],
+input[type="tel"],
 textarea {
     width: 100%;
     min-height: 40px;
