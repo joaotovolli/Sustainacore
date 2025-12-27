@@ -19,7 +19,7 @@
     {% endif %}
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body data-logged-in="{% if is_logged_in %}true{% else %}false{% endif %}">
     <header class="topbar">
         <div class="shell topbar__inner">
             <div class="brand">
@@ -97,6 +97,53 @@
         </div>
     </main>
 
+    <form style="display:none" aria-hidden="true">
+        {% csrf_token %}
+    </form>
+
+    <div class="modal" data-download-modal aria-hidden="true">
+        <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="download-modal-title">
+            <div class="modal__header">
+                <div>
+                    <p class="eyebrow">Download access</p>
+                    <h2 id="download-modal-title">Verify your email to download</h2>
+                    <p class="muted">Free and unlimited access on SustainaCore.org — we’ll email you a 6-digit code.</p>
+                </div>
+                <button type="button" class="modal__close" data-modal-close aria-label="Close">×</button>
+            </div>
+            <div class="modal__body">
+                <div class="alert alert--warning" data-modal-error hidden></div>
+
+                <div data-step="email">
+                    <label class="modal__label">
+                        Email address
+                        <input type="email" data-email-input placeholder="you@example.com" autocomplete="email" />
+                    </label>
+                    <p class="modal__microcopy">No passwords. Code expires in 2 minutes.</p>
+                    <div class="modal__actions">
+                        <button class="btn btn--primary" type="button" data-send-code>Send code</button>
+                        <button class="btn btn--ghost" type="button" data-modal-close>Not now</button>
+                    </div>
+                </div>
+
+                <div data-step="code" hidden>
+                    <p class="muted">
+                        We sent a code to <strong data-email-display></strong>.
+                        <button type="button" class="text-link" data-resend>Resend code</button>
+                    </p>
+                    <label class="modal__label">
+                        6-digit code
+                        <input type="text" data-code-input inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" />
+                    </label>
+                    <div class="modal__actions">
+                        <button class="btn btn--primary" type="button" data-verify-code>Verify &amp; continue</button>
+                        <button class="btn btn--ghost" type="button" data-modal-close>Not now</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer">
         <div class="shell footer__grid">
             <div>
@@ -133,5 +180,6 @@
 
     {% block extra_scripts %}{% endblock %}
     <script src="{% static 'js/header_auth.js' %}"></script>
+    <script src="{% static 'js/download_gate.js' %}"></script>
 </body>
 </html>
