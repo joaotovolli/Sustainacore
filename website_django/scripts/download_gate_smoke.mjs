@@ -26,17 +26,27 @@ const run = async () => {
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
 
-  // Logged-out: modal should open.
-  await page.goto(`${baseUrl}/tech100/performance/?dg_debug=1`, {
-    waitUntil: "domcontentloaded",
-    timeout: timeoutMs,
-  });
-  await page.click('a[href*="/tech100/performance/export/"]');
-  await page.waitForTimeout(800);
-  const modalOpen = await page.evaluate(
-    () => document.querySelector(".modal")?.classList.contains("modal--open")
-  );
-  expect(modalOpen, "Expected modal to open for logged-out download click.");
+  const assertModal = async (path, selector) => {
+    await page.goto(`${baseUrl}${path}?dg_debug=1`, {
+      waitUntil: "domcontentloaded",
+      timeout: timeoutMs,
+    });
+    await page.waitForFunction(
+      () => document.documentElement.dataset.downloadGate === "ready",
+      { timeout: 5000 }
+    );
+    await page.click(selector);
+    await page.waitForSelector("#download-auth-modal.modal--open", { timeout: 1000 });
+    const modalOpen = await page.evaluate(
+      () => document.querySelector("#download-auth-modal")?.classList.contains("modal--open")
+    );
+    expect(modalOpen, `Expected modal to open for ${path}`);
+    await page.click("#download-auth-modal [data-modal-close]");
+    await page.waitForSelector("#download-auth-modal", { state: "hidden", timeout: 2000 });
+  };
+
+  await assertModal("/tech100/performance/", 'a[href*="/tech100/performance/export/"]');
+  await assertModal("/tech100/index/", 'a[href*="/tech100/index/export/"]');
 
   // Non-download link should navigate (no dead click).
   await page.click('a[href="/"]');
