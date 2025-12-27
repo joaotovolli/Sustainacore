@@ -20,6 +20,7 @@
             </div>
             <div class="filters">
                 <form class="filters filters--news" method="get">
+                    {% if source_supported %}
                     <label>
                         Source
                         <select name="source">
@@ -29,6 +30,8 @@
                             {% endfor %}
                         </select>
                     </label>
+                    {% endif %}
+                    {% if tag_supported %}
                     <label>
                         Tag
                         <select name="tag">
@@ -38,10 +41,13 @@
                             {% endfor %}
                         </select>
                     </label>
+                    {% endif %}
+                    {% if ticker_supported %}
                     <label>
                         Ticker
                         <input type="search" name="ticker" placeholder="e.g., MSFT" value="{{ filters.ticker }}">
                     </label>
+                    {% endif %}
                     <label>
                         Date range
                         <select name="date_range">
@@ -58,7 +64,7 @@
         </div>
         {% if news_error %}
         <div class="alert alert--warning">
-            News is temporarily unavailable. Please try again in a moment.
+            {{ news_error }}
         </div>
         {% endif %}
         <div class="news-grid" data-news-list>

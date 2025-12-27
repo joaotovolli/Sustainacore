@@ -67,11 +67,19 @@ class SeoFoundationsTests(SimpleTestCase):
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")
     @mock.patch("core.views.fetch_news_list")
+    @mock.patch("core.views.fetch_filter_options")
     @mock.patch("core.views.get_latest_trade_date")
     def test_json_ld_present_on_home_and_news(
-        self, get_latest_trade_date, fetch_news_list, fetch_news, fetch_tech100
+        self, get_latest_trade_date, fetch_filter_options, fetch_news_list, fetch_news, fetch_tech100
     ):
         get_latest_trade_date.return_value = None
+        fetch_filter_options.return_value = {
+            "source_options": [],
+            "tag_options": [],
+            "supports_source": False,
+            "supports_tag": False,
+            "supports_ticker": False,
+        }
         fetch_tech100.return_value = {"items": [], "error": None, "meta": {}}
         fetch_news.return_value = {
             "items": [

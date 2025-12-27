@@ -6,8 +6,16 @@ from django.urls import reverse
 
 
 class NewsDetailSmokeTests(SimpleTestCase):
+    @mock.patch("core.views.fetch_filter_options")
     @mock.patch("core.views.fetch_news_list")
-    def test_news_detail_navigation(self, fetch_news_list):
+    def test_news_detail_navigation(self, fetch_news_list, fetch_filter_options):
+        fetch_filter_options.return_value = {
+            "source_options": [],
+            "tag_options": [],
+            "supports_source": False,
+            "supports_tag": False,
+            "supports_ticker": False,
+        }
         fetch_news_list.return_value = {
             "items": [
                 {
@@ -63,8 +71,16 @@ class NewsDetailSmokeTests(SimpleTestCase):
             self.assertRegex(detail_content, r"Full article body")
             self.assertRegex(detail_content, r'href=\"https://example.com/story\"')
 
+    @mock.patch("core.views.fetch_filter_options")
     @mock.patch("core.views.fetch_news_detail_oracle")
-    def test_news_detail_renders_fallback_summary(self, fetch_detail):
+    def test_news_detail_renders_fallback_summary(self, fetch_detail, fetch_filter_options):
+        fetch_filter_options.return_value = {
+            "source_options": [],
+            "tag_options": [],
+            "supports_source": False,
+            "supports_tag": False,
+            "supports_ticker": False,
+        }
         fetch_detail.return_value = {
             "item": {
                 "id": "NEWS_ITEMS:99",

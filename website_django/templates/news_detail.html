@@ -10,7 +10,7 @@
         <a class="text-link news-detail__back" href="{% url 'news' %}">← Back to news</a>
         {% if news_error %}
         <div class="alert alert--warning">
-            News details are temporarily unavailable. Please try again in a moment.
+            {{ news_error }}
         </div>
         {% endif %}
         {% if article %}

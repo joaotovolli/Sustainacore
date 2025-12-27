@@ -1,4 +1,5 @@
 from datetime import datetime, date, timedelta
+import uuid
 import csv
 import json
 import re
@@ -25,6 +26,7 @@ from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_POST
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+from core.news_data import NewsDataError, fetch_filter_options
 from core.news_data import fetch_news_detail as fetch_news_detail_oracle
 from core.news_data import fetch_news_list
 from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
@@ -1154,7 +1156,7 @@ def news(request):
         "date_range": date_range,
     }
 
-    date_mapping = {"7": 7, "30": 30, "90": 90}
+    date_mapping = {"7": 7, "30": 30, "90": 90, "365": 365}
     days = date_mapping.get(date_range)
 
     page_raw = request.GET.get("page", "1")
@@ -1165,22 +1167,50 @@ def news(request):
     limit = 20
     offset = (page - 1) * limit
 
-    news_response = fetch_news_list(
-        source=filters["source"] or None,
-        tag=filters["tag"] or None,
-        ticker=filters["ticker"] or None,
-        days=days,
-        limit=limit,
-        offset=offset,
-    )
+    news_error = None
+    news_error_ref = None
+    try:
+        news_response = fetch_news_list(
+            source=filters["source"] or None,
+            tag=filters["tag"] or None,
+            ticker=filters["ticker"] or None,
+            days=days,
+            limit=limit,
+            offset=offset,
+            date_range=date_range,
+        )
+    except NewsDataError:
+        ref = f"news-{uuid.uuid4().hex[:8]}"
+        news_error_ref = ref
+        news_error = f"News is temporarily unavailable. Reference ID: {ref}"
+        logger.exception("news_oracle_error list ref=%s", ref)
+        log_event("news_list_error", request, metadata={"ref": ref})
+        news_response = {"items": [], "meta": {}, "error": news_error}
+
+    filter_options = {
+        "source_options": [],
+        "tag_options": [],
+        "supports_source": False,
+        "supports_tag": False,
+        "supports_ticker": False,
+    }
+    try:
+        filter_options = fetch_filter_options()
+    except NewsDataError:
+        ref = f"news-filter-{uuid.uuid4().hex[:8]}"
+        logger.exception("news_oracle_error filters ref=%s", ref)
 
     news_items = news_response.get("items", [])
     for item in news_items:
         if "has_full_body" not in item:
             item_id = str(item.get("id") or "")
             item["has_full_body"] = item_id.startswith("ESG_NEWS:")
-    sources = sorted({item.get("source") for item in news_items if item.get("source")})
-    tags = sorted({tag for item in news_items for tag in item.get("tags", [])})
+    sources = filter_options["source_options"] or sorted(
+        {item.get("source") for item in news_items if item.get("source")}
+    )
+    tags = filter_options["tag_options"] or sorted(
+        {tag for item in news_items for tag in item.get("tags", [])}
+    )
 
     news_structured = []
     for item in news_items:
@@ -1218,12 +1248,16 @@ def news(request):
     context = {
         "year": datetime.now().year,
         "articles": news_items,
-        "news_error": news_response.get("error"),
+        "news_error": news_error or news_response.get("error"),
+        "news_error_ref": news_error_ref,
         "news_meta": news_response.get("meta", {}),
         "news_json_ld": json.dumps(news_structured, ensure_ascii=True) if news_structured else "",
         "filters": filters,
         "source_options": sources,
         "tag_options": tags,
+        "source_supported": filter_options["supports_source"],
+        "tag_supported": filter_options["supports_tag"],
+        "ticker_supported": filter_options["supports_ticker"],
         "page": page,
         "prev_url": prev_url,
         "next_url": next_url,
@@ -1232,6 +1266,7 @@ def news(request):
             {"value": "7", "label": "Last 7 days"},
             {"value": "30", "label": "Last 30 days"},
             {"value": "90", "label": "Last 90 days"},
+            {"value": "365", "label": "Last 12 months"},
         ],
     }
     return render(request, "news.html", context)
@@ -1241,8 +1276,18 @@ def news_detail(request, news_id: str):
     resolved_id = (news_id or "").strip()
     decoded_id = unquote(resolved_id) if resolved_id else resolved_id
 
-    detail_response = fetch_news_detail_oracle(news_id=decoded_id or resolved_id)
-    selected_item = detail_response.get("item")
+    detail_response = {"item": None, "error": None}
+    selected_item = None
+    news_error_ref = None
+    try:
+        detail_response = fetch_news_detail_oracle(news_id=decoded_id or resolved_id)
+        selected_item = detail_response.get("item")
+    except NewsDataError:
+        ref = f"news-detail-{uuid.uuid4().hex[:8]}"
+        news_error_ref = ref
+        logger.exception("news_oracle_error detail ref=%s", ref)
+        log_event("news_detail_error", request, metadata={"ref": ref, "news_id": decoded_id or resolved_id})
+        detail_response = {"item": None, "error": f"News details are temporarily unavailable. Reference ID: {ref}"}
 
     published_at = _parse_news_datetime(selected_item.get("published_at")) if selected_item else None
     body_text = ""
