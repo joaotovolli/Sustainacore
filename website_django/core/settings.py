@@ -54,6 +54,7 @@ CSRF_TRUSTED_ORIGINS = get_env_list(
 
 PREVIEW_HOSTS = get_env_list("PREVIEW_HOSTS", "preview.sustainacore.org")
 PREVIEW_MODE = env_bool("PREVIEW_MODE", default=False)
+SUSTAINACORE_ENV = os.environ.get("SUSTAINACORE_ENV", "production").strip().lower()
 
 SITE_URL = os.environ.get("SITE_URL", "https://sustainacore.org")
 DEFAULT_META_DESCRIPTION = (
