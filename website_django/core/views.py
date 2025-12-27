@@ -29,6 +29,7 @@ from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
 from core.news_data import NewsDataError, fetch_filter_options
 from core.news_data import fetch_news_detail as fetch_news_detail_oracle
 from core.news_data import fetch_news_list
+from core.news_snippets import build_news_snippet
 from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
 from core.analytics import EVENT_TYPES, log_event
 from core.downloads import require_login_for_download
@@ -934,6 +935,33 @@ def home(request):
         for item in tech100_items[:3]
     ]
     news_items = news_response.get("items", [])
+    news_preview = []
+    for item in news_items[:3]:
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("id")
+        detail_url = reverse("news_detail", args=[item_id]) if item_id else reverse("news")
+        raw_text = (
+            item.get("summary")
+            or item.get("body")
+            or item.get("content")
+            or item.get("full_text")
+            or ""
+        )
+        snippet = build_news_snippet(raw_text, max_len=260)
+        if not snippet:
+            snippet = "Open the full story for details."
+        news_preview.append(
+            {
+                "id": item_id,
+                "title": item.get("title"),
+                "source": item.get("source"),
+                "published_at": item.get("published_at"),
+                "tags": item.get("tags") or [],
+                "snippet": snippet,
+                "detail_url": detail_url,
+            }
+        )
 
     tech100_snapshot = {
         "has_data": False,
@@ -996,7 +1024,7 @@ def home(request):
     context = {
         "year": datetime.now().year,
         "tech100_preview": tech100_preview,
-        "news_preview": news_items[:3],
+        "news_preview": news_preview,
         "tech100_snapshot": tech100_snapshot,
     }
     return render(request, "home.html", context)
