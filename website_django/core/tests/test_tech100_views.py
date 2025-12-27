@@ -3,7 +3,7 @@ import os
 from unittest import mock
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
 
@@ -388,7 +388,7 @@ class HomeViewTests(SimpleTestCase):
         self.assertContains(response, "data-tech100-home-has-data")
 
 
-class Tech100ExportTests(SimpleTestCase):
+class Tech100ExportTests(TestCase):
     @mock.patch("core.views.fetch_tech100")
     def test_export_returns_csv(self, fetch_mock):
         fetch_mock.return_value = {
@@ -421,6 +421,11 @@ class Tech100ExportTests(SimpleTestCase):
             "error": None,
             "meta": {},
         }
+
+        session = self.client.session
+        session["auth_email"] = "user@example.com"
+        session.save()
+        self.client.cookies["sc_session"] = "token"
 
         response = self.client.get(
             reverse("tech100_export"), {"port_date": "2025-01-01", "sector": "Software", "q": "EXM"}
