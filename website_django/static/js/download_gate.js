@@ -95,6 +95,7 @@
     modal.classList.add("modal--open");
     showEmailStep();
     setTimeout(() => emailInput?.focus(), 50);
+    return modal.classList.contains("modal--open");
   };
 
   const closeModal = () => {
@@ -138,7 +139,7 @@
     }
   };
 
-  const handleDownloadClick = (event, link, href) => {
+  const handleDownloadClick = (event, href) => {
     if (!href) return;
     sendEvent("download_click", { download: href, page: window.location.pathname });
     event.preventDefault();
@@ -151,7 +152,10 @@
     showDebugToast(`Download detected: ${href} | logged_in=false | action=modal`);
     storePending(href);
     sendEvent("download_blocked", { download: href, page: window.location.pathname });
-    openModal();
+    const opened = openModal();
+    if (!opened) {
+      window.location.assign(href);
+    }
   };
 
   const isDownloadUrl = (href) => {
@@ -188,7 +192,7 @@
       if (!href) {
         return;
       }
-      handleDownloadClick(event, target, href);
+      handleDownloadClick(event, href);
     },
     true
   );

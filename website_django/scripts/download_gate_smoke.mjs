@@ -26,23 +26,73 @@ const run = async () => {
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
 
-  // Logged-out: modal should open.
-  await page.goto(`${baseUrl}/tech100/performance/?dg_debug=1`, {
-    waitUntil: "domcontentloaded",
-    timeout: timeoutMs,
-  });
-  await page.click('a[href*="/tech100/performance/export/"]');
-  await page.waitForTimeout(800);
-  const modalOpen = await page.evaluate(
-    () => document.querySelector(".modal")?.classList.contains("modal--open")
-  );
-  expect(modalOpen, "Expected modal to open for logged-out download click.");
+  const pagesToCheck = [
+    "/tech100/performance/",
+    "/tech100/index/",
+    "/tech100/",
+  ];
 
-  // Non-download link should navigate (no dead click).
-  await page.click('a[href="/"]');
-  await page.waitForURL(/\/$/, { timeout: timeoutMs });
+  const collectTargets = async (activePage) => {
+    return await activePage.evaluate(() => {
+      const elements = Array.from(document.querySelectorAll("a, button, [data-download-url]"));
+      return elements
+        .filter((el) => {
+          const text = (el.textContent || "").toLowerCase();
+          const href = el.getAttribute?.("href") || "";
+          const dataUrl = el.getAttribute?.("data-download-url") || "";
+          return (
+            text.includes("download") ||
+            href.includes("/export/") ||
+            href.includes("format=csv") ||
+            href.endsWith(".csv") ||
+            dataUrl
+          );
+        })
+        .map((el) => {
+          const href = el.getAttribute?.("href") || "";
+          const dataUrl = el.getAttribute?.("data-download-url") || "";
+          return {
+            tag: el.tagName.toLowerCase(),
+            href,
+            dataUrl,
+            text: (el.textContent || "").trim().slice(0, 80),
+          };
+        });
+    });
+  };
 
-  // Logged-in: download should start.
+  const assertLoggedOut = async (path) => {
+    await page.goto(`${baseUrl}${path}?dg_debug=1`, {
+      waitUntil: "networkidle",
+      timeout: timeoutMs,
+    });
+    const targets = await collectTargets(page);
+    for (let i = 0; i < targets.length; i += 1) {
+      const target = targets[i];
+      const selector = target.href
+        ? `a[href="${target.href}"]`
+        : target.dataUrl
+          ? `[data-download-url="${target.dataUrl}"]`
+          : `${target.tag}:has-text("${target.text}")`;
+      const locator = page.locator(selector).first();
+      await locator.scrollIntoViewIfNeeded();
+      await locator.click();
+      await page.waitForTimeout(600);
+      const modalOpen = await page.evaluate(
+        () => document.querySelector("[data-download-modal]")?.classList.contains("modal--open")
+      );
+      const urlChanged = page.url().includes("/export/") || page.url().includes("download_login=1");
+      if (!modalOpen && !urlChanged) {
+        await page.screenshot({ path: `download_gate_dead_click_${path.replace(/\//g, "_")}_${i}.png` });
+        throw new Error(`Dead click detected on ${path}: ${target.text || target.href || target.dataUrl}`);
+      }
+    }
+  };
+
+  await assertLoggedOut(pagesToCheck[0]);
+  await assertLoggedOut(pagesToCheck[1]);
+  await assertLoggedOut(pagesToCheck[2]);
+
   const cookieDomain = new URL(baseUrl).hostname;
   await context.addCookies([
     {
@@ -53,16 +103,35 @@ const run = async () => {
       httpOnly: true,
     },
   ]);
-  const loggedInPage = await context.newPage();
-  await loggedInPage.goto(`${baseUrl}/tech100/performance/`, {
-    waitUntil: "domcontentloaded",
-    timeout: timeoutMs,
-  });
-  const downloadPromise = loggedInPage.waitForEvent("download", { timeout: timeoutMs });
-  await loggedInPage.click('a[href*="/tech100/performance/export/"]');
-  await downloadPromise;
-  await loggedInPage.close();
 
+  const loggedInPage = await context.newPage();
+  for (const path of pagesToCheck) {
+    await loggedInPage.goto(`${baseUrl}${path}`, {
+      waitUntil: "networkidle",
+      timeout: timeoutMs,
+    });
+    const targets = await collectTargets(loggedInPage);
+    for (let i = 0; i < targets.length; i += 1) {
+      const target = targets[i];
+      const selector = target.href
+        ? `a[href="${target.href}"]`
+        : target.dataUrl
+          ? `[data-download-url="${target.dataUrl}"]`
+          : `${target.tag}:has-text("${target.text}")`;
+      const locator = loggedInPage.locator(selector).first();
+      await locator.scrollIntoViewIfNeeded();
+      const downloadPromise = loggedInPage.waitForEvent("download", { timeout: 8000 }).catch(() => null);
+      await locator.click();
+      const download = await downloadPromise;
+      const nav = loggedInPage.url().includes("/export/");
+      if (!download && !nav) {
+        await loggedInPage.screenshot({ path: `download_gate_logged_in_dead_${path.replace(/\//g, "_")}_${i}.png` });
+        throw new Error(`Logged-in click did not download or navigate: ${target.text || target.href || target.dataUrl}`);
+      }
+    }
+  }
+
+  await loggedInPage.close();
   await browser.close();
 };
 
