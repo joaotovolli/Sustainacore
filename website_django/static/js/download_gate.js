@@ -23,6 +23,10 @@
 
   const pendingKey = "sc_pending_download";
   const pendingNextKey = "sc_pending_next";
+  const intentKey = "sc_post_auth_intent";
+  const intentNextKey = "sc_post_auth_next";
+  const unlockMetaKey = "sc_unlock_meta";
+  const unlockSuccessKey = "sc_unlock_success";
 
   const getCookie = (name) => {
     const match = document.cookie.match(new RegExp(`(^| )${name}=([^;]+)`));
@@ -109,6 +113,9 @@
     showError("");
     if (shouldClearPending) {
       clearPending();
+      clearPostAuthIntent();
+      sessionStorage.removeItem(unlockMetaKey);
+      sessionStorage.removeItem(unlockSuccessKey);
     }
   };
 
@@ -139,11 +146,56 @@
     sessionStorage.removeItem(pendingNextKey);
   };
 
-  const triggerPendingDownload = () => {
+  const setPostAuthIntent = (intentType, nextUrl) => {
+    sessionStorage.setItem(intentKey, intentType);
+    sessionStorage.setItem(intentNextKey, nextUrl || window.location.href);
+  };
+
+  const getPostAuthIntent = () => ({
+    type: sessionStorage.getItem(intentKey),
+    nextUrl: sessionStorage.getItem(intentNextKey),
+  });
+
+  const clearPostAuthIntent = () => {
+    sessionStorage.removeItem(intentKey);
+    sessionStorage.removeItem(intentNextKey);
+  };
+
+  const storeUnlockMeta = (metadata) => {
+    try {
+      sessionStorage.setItem(unlockMetaKey, JSON.stringify(metadata || {}));
+    } catch (err) {
+      // Ignore storage errors.
+    }
+  };
+
+  const popUnlockMeta = () => {
+    const raw = sessionStorage.getItem(unlockMetaKey);
+    sessionStorage.removeItem(unlockMetaKey);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      return {};
+    }
+  };
+
+  const handlePostAuthSuccess = () => {
     const pending = getPending();
     if (pending && isLoggedIn()) {
       clearPending();
-      window.location.href = pending;
+      window.location.assign(pending);
+      return;
+    }
+    const intent = getPostAuthIntent();
+    if (intent.type === "unlock_table") {
+      sessionStorage.setItem(unlockSuccessKey, "1");
+      clearPostAuthIntent();
+      if (intent.nextUrl) {
+        window.location.assign(intent.nextUrl);
+      } else {
+        window.location.reload();
+      }
     }
   };
 
@@ -152,6 +204,7 @@
     sendEvent("download_click", { download: href, page: window.location.pathname });
     event.preventDefault();
     event.stopPropagation();
+    clearPostAuthIntent();
     if (isLoggedIn()) {
       showDebugToast(`Download detected: ${href} | logged_in=true | action=nav`);
       window.location.assign(href);
@@ -190,6 +243,27 @@
     }
     return null;
   };
+
+  document.addEventListener("click", (event) => {
+    const trigger = event.target.closest("[data-open-download-modal]");
+    if (!trigger) return;
+    event.preventDefault();
+    const intent = trigger.getAttribute("data-intent") || "";
+    const nextUrl = trigger.getAttribute("data-next-url") || window.location.href;
+    if (intent === "unlock_table") {
+      setPostAuthIntent("unlock_table", nextUrl);
+      const metadata = {
+        page: trigger.getAttribute("data-page") || window.location.pathname,
+        port_date: trigger.getAttribute("data-port-date") || "",
+        sector: trigger.getAttribute("data-sector") || "",
+        q: trigger.getAttribute("data-q") || "",
+        preview_limit: trigger.getAttribute("data-preview-limit") || "",
+      };
+      storeUnlockMeta(metadata);
+      sendEvent("table_unlock_click", metadata);
+    }
+    openModal();
+  });
 
   document.addEventListener(
     "click",
@@ -313,7 +387,7 @@
       }
       body.dataset.loggedIn = "true";
       closeModal({ clearPending: false });
-      triggerPendingDownload();
+      handlePostAuthSuccess();
     } catch (err) {
       showError("We could not verify the code right now. Please try again.");
     } finally {
@@ -332,9 +406,24 @@
     }
   }
 
+  const unlockIntent = getPostAuthIntent();
   if (getPending() && !isLoggedIn()) {
     openModal();
+  } else if (unlockIntent.type === "unlock_table" && !isLoggedIn()) {
+    openModal();
   } else {
-    triggerPendingDownload();
+    handlePostAuthSuccess();
+  }
+
+  if (isLoggedIn() && sessionStorage.getItem(unlockSuccessKey) === "1") {
+    sessionStorage.removeItem(unlockSuccessKey);
+    const metadata = popUnlockMeta();
+    sendEvent("table_unlock_success", {
+      page: metadata.page || window.location.pathname,
+      port_date: metadata.port_date || "",
+      sector: metadata.sector || "",
+      q: metadata.q || "",
+      preview_limit: metadata.preview_limit || "",
+    });
   }
 })();
