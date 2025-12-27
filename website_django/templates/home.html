@@ -236,13 +236,16 @@
             {% for item in news_preview %}
             <article class="news-card">
                 <div class="news-card__meta">{{ item.source }} · {{ item.published_at|date:"M j, Y" }}</div>
-                <h3 class="news-card__title">{{ item.title }}</h3>
-                <p class="muted">{{ item.summary }}</p>
+                <h3 class="news-card__title">
+                    <a class="news-card__title-link" href="{{ item.detail_url }}">{{ item.title }}</a>
+                </h3>
+                <p class="muted home-news__snippet">{{ item.snippet }}</p>
                 <div class="news-card__tags">
                     {% for tag in item.tags %}
                     <span class="tag">{{ tag }}</span>
                     {% endfor %}
                 </div>
+                <a class="news-card__cta" href="{{ item.detail_url }}">Read full article →</a>
             </article>
             {% endfor %}
         </div>
