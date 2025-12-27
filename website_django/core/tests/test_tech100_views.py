@@ -6,6 +6,8 @@ from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
+from core.auth import COOKIE_NAME
+
 
 class Tech100ViewTests(SimpleTestCase):
     @mock.patch("core.views.fetch_tech100")
@@ -218,6 +220,64 @@ class Tech100ViewTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         for expected in ["Data Corp", "5", "81.0", "76.0", "71.0", "56.0", "Latest snapshot summary"]:
             self.assertIn(expected, content)
+
+
+class Tech100PreviewGateTests(TestCase):
+    @mock.patch("core.views.fetch_tech100")
+    def test_logged_out_shows_preview_and_locked_block(self, fetch_mock):
+        fetch_mock.return_value = {
+            "items": [
+                {
+                    "port_date": "2025-01-01",
+                    "rank_index": i + 1,
+                    "company_name": f"Company {i}",
+                    "ticker": f"T{i:02d}",
+                    "gics_sector": "Software",
+                    "port_weight": 5.23,
+                    "aiges_composite_average": 88.2,
+                }
+                for i in range(40)
+            ],
+            "error": None,
+            "meta": {},
+        }
+
+        response = self.client.get(reverse("tech100"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["companies"]), 25)
+        self.assertContains(response, "Showing 25 of 40 companies (preview)")
+        self.assertContains(response, "constituents-locked")
+        self.assertNotContains(response, "Company 30")
+
+    @mock.patch("core.views.fetch_tech100")
+    def test_logged_in_shows_full_list(self, fetch_mock):
+        fetch_mock.return_value = {
+            "items": [
+                {
+                    "port_date": "2025-01-01",
+                    "rank_index": i + 1,
+                    "company_name": f"Company {i}",
+                    "ticker": f"T{i:02d}",
+                    "gics_sector": "Software",
+                    "port_weight": 5.23,
+                    "aiges_composite_average": 88.2,
+                }
+                for i in range(40)
+            ],
+            "error": None,
+            "meta": {},
+        }
+
+        session = self.client.session
+        session["auth_email"] = "user@example.com"
+        session.save()
+        self.client.cookies[COOKIE_NAME] = "header.payload.sig"
+
+        response = self.client.get(reverse("tech100"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["companies"]), 40)
+        self.assertContains(response, "Showing 40 of 40 companies")
+        self.assertNotContains(response, "preview")
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_derives_rank_when_missing(self, fetch_mock):

@@ -48,8 +48,12 @@
       <div class="card__header card__header--split">
         <div>
           <h2 class="h4">TECH100 constituents</h2>
-          <p class="muted">
-            Showing {{ visible_count }} of {{ total_count }} companies.
+          <p class="muted" id="constituents-summary">
+            {% if is_preview %}
+              Showing {{ preview_limit }} of {{ total_count }} companies (preview). Verify your email to unlock the full list.
+            {% else %}
+              Showing {{ visible_count }} of {{ total_count }} companies.
+            {% endif %}
           </p>
         </div>
       </div>
@@ -249,9 +253,9 @@
                                     </td>
                                   </tr>
                                 {% endfor %}
-                              </tbody>
-                            </table>
-                          </div>
+            </tbody>
+          </table>
+        </div>
                           {% if c.history|length <= 1 %}
                             <p class="tech100-history-note muted">
                               Only the latest rebalance is available. Historical scores will appear as new rebalances are added.
@@ -272,6 +276,32 @@
             </tbody>
           </table>
       </div>
+      {% if is_preview %}
+      <div class="constituents-locked" data-constituents-locked data-open-download-modal data-intent="unlock_table"
+           data-next-url="{{ request.get_full_path }}"
+           data-port-date="{{ filters.port_date }}"
+           data-page="/tech100/"
+           data-preview-limit="{{ preview_limit }}"
+           data-sector="{{ filters.sector }}"
+           data-q="{{ filters.q }}">
+        <div class="constituents-locked__rows" aria-hidden="true">
+          {% for _ in "1234567890" %}
+          <div class="constituents-locked__row">
+            <span class="constituents-locked__cell short"></span>
+            <span class="constituents-locked__cell short"></span>
+            <span class="constituents-locked__cell mid"></span>
+            <span class="constituents-locked__cell long"></span>
+            <span class="constituents-locked__cell mid"></span>
+            <span class="constituents-locked__cell short"></span>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="constituents-locked__cta">
+          <button class="btn btn--primary" type="button">Verify email to view full list</button>
+          <p class="muted">Free and unlimited access — we’ll email a 6-digit code.</p>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
 

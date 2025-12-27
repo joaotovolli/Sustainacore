@@ -19,6 +19,9 @@ EVENT_TYPES = {
     "auth_request_code",
     "auth_verify_ok",
     "auth_verify_fail",
+    "table_preview_rendered",
+    "table_unlock_click",
+    "table_unlock_success",
 }
 
 ANON_COOKIE = "sc_anon"
