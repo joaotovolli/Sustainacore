@@ -4,21 +4,26 @@ from typing import Dict, List, Tuple
 
 
 COMMON_COUNTRY_CODES = [
-    "GB",
     "US",
-    "IT",
-    "BR",
-    "CA",
+    "GB",
+    "IN",
+    "CN",
     "DE",
     "FR",
+    "BR",
+    "CA",
+    "AU",
+    "IT",
     "ES",
-    "PT",
     "NL",
     "CH",
     "IE",
-    "AU",
     "SG",
     "AE",
+    "MX",
+    "JP",
+    "KR",
+    "ID",
 ]
 
 ALL_COUNTRIES: List[Tuple[str, str]] = [

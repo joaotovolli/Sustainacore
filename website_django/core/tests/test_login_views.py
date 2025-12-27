@@ -126,9 +126,13 @@ class LoginViewsTests(TestCase):
         self.client.cookies["sc_session"] = "token"
         response = self.client.get(reverse("account"))
         content = response.content.decode("utf-8")
-        self.assertIn('optgroup label="Common"', content)
+        self.assertIn('optgroup label="Most used"', content)
         self.assertIn('optgroup label="All countries"', content)
-        self.assertIn("United Kingdom", content)
+        most_used_block = content.split('optgroup label="Most used"', 1)[-1]
+        most_used_block = most_used_block.split('optgroup label="All countries"', 1)[0]
+        self.assertIn("United Kingdom", most_used_block)
+        self.assertIn("India", most_used_block)
+        self.assertIn("China", most_used_block)
         option_count = content.count("<option")
         self.assertGreaterEqual(option_count, 200)
 
