@@ -51,11 +51,17 @@
                 {% if body_html %}
                 <div class="news-detail__body">
                     <h2>Full article</h2>
+                    {% if body_is_fallback %}
+                    <p class="muted">Full text is not available for this story. Showing the available summary instead.</p>
+                    {% endif %}
                     <div class="news-detail__rich">{{ body_html|safe }}</div>
                 </div>
                 {% elif body_paragraphs %}
                 <div class="news-detail__body">
                     <h2>Full article</h2>
+                    {% if body_is_fallback %}
+                    <p class="muted">Full text is not available for this story. Showing the available summary instead.</p>
+                    {% endif %}
                     {% for paragraph in body_paragraphs %}
                     <p>{{ paragraph }}</p>
                     {% endfor %}

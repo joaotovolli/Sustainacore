@@ -62,3 +62,22 @@ class NewsDetailSmokeTests(SimpleTestCase):
             self.assertIn("Sample ESG headline", detail_content)
             self.assertRegex(detail_content, r"Full article body")
             self.assertRegex(detail_content, r'href=\"https://example.com/story\"')
+
+    @mock.patch("core.views.fetch_news_detail")
+    def test_news_detail_renders_fallback_summary(self, fetch_detail):
+        fetch_detail.return_value = {
+            "item": {
+                "id": "NEWS_ITEMS:99",
+                "title": "Fallback headline",
+                "url": "https://example.com/story",
+                "source": "Example News",
+                "published_at": "2025-01-02T12:30:00Z",
+                "summary": "Short fallback summary.",
+            },
+            "error": None,
+        }
+        response = self.client.get(reverse("news_detail", args=["NEWS_ITEMS:99"]), HTTP_HOST="sustainacore.org")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Short fallback summary.", content)
+        self.assertIn("Full text is not available", content)
