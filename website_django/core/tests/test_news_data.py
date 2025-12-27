@@ -20,6 +20,7 @@ class NewsDataTests(SimpleTestCase):
                     "url": "URL",
                     "source": "SOURCE_NAME",
                     "body": "BODY",
+                    "summary": "SUMMARY",
                     "pillar_tags": "PILLAR_TAGS",
                     "categories": "CATEGORIES",
                     "tags": "TAGS",
@@ -42,6 +43,7 @@ class NewsDataTests(SimpleTestCase):
                 "https://example.com/story",
                 "Example News",
                 "Short body",
+                "Summary text",
                 "Transparency",
                 "AI",
                 "Regulation",
@@ -78,6 +80,10 @@ class NewsDataTests(SimpleTestCase):
                     "source": "SOURCE_NAME",
                     "body": "BODY",
                     "full_text": "FULL_TEXT",
+                    "content": "CONTENT",
+                    "article_text": "ARTICLE_TEXT",
+                    "text": "TEXT",
+                    "summary": "SUMMARY",
                     "pillar_tags": "PILLAR_TAGS",
                     "categories": "CATEGORIES",
                     "tags": "TAGS",
@@ -98,6 +104,10 @@ class NewsDataTests(SimpleTestCase):
             "Example News",
             "Short body",
             "Full body text",
+            None,
+            None,
+            None,
+            "Summary text",
             "Transparency",
             "AI",
             "Regulation",
@@ -112,7 +122,7 @@ class NewsDataTests(SimpleTestCase):
         result = news_data.fetch_news_detail(news_id="NEWS_ITEMS:202")
         item = result["item"]
         self.assertEqual(item["id"], "NEWS_ITEMS:202")
-        self.assertEqual(item["body"], "Full body text")
+        self.assertEqual(item["full_text"], "Full body text")
 
     @mock.patch("core.news_data._discover_objects")
     def test_resolve_source_prefers_full_text(self, discover_objects):

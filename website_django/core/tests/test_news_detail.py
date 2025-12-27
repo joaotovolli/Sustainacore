@@ -2,6 +2,7 @@ import re
 from unittest import mock
 
 from django.test import SimpleTestCase
+from django.test.utils import override_settings
 from django.urls import reverse
 
 
@@ -175,4 +176,33 @@ class NewsDetailSmokeTests(SimpleTestCase):
         response = self.client.get(reverse("news_detail", args=["NEWS_ITEMS:77"]), HTTP_HOST="sustainacore.org")
         content = response.content.decode("utf-8")
         self.assertNotIn("Read at source", content)
-        self.assertIn("Source link not available", content)
+        self.assertNotIn("Source link not available", content)
+
+    @mock.patch("core.views.fetch_filter_options")
+    @mock.patch("core.views.fetch_news_detail_oracle")
+    @override_settings(DEBUG=True)
+    def test_news_detail_includes_debug_comment_when_enabled(self, fetch_detail, fetch_filter_options):
+        fetch_filter_options.return_value = {
+            "source_options": [],
+            "tag_options": [],
+            "supports_source": False,
+            "supports_tag": False,
+            "supports_ticker": False,
+        }
+        full_text = "Deep article text. " * 300
+        fetch_detail.return_value = {
+            "item": {
+                "id": "NEWS_ITEMS:88",
+                "title": "Debug headline",
+                "url": "https://example.com/story",
+                "source": "Example News",
+                "published_at": "2025-01-02T12:30:00Z",
+                "summary": "Short summary.",
+                "full_text": full_text,
+            },
+            "error": None,
+        }
+        response = self.client.get(reverse("news_detail", args=["NEWS_ITEMS:88"]), HTTP_HOST="sustainacore.org")
+        content = response.content.decode("utf-8")
+        self.assertIn("news_debug", content)
+        self.assertIn("field=full_text", content)
