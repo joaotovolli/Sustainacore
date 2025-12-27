@@ -43,6 +43,7 @@ from core import sitemaps
 
 
 logger = logging.getLogger(__name__)
+TECH100_PREVIEW_LIMIT = 25
 
 PAGE_CACHE_SECONDS = 60
 
@@ -1030,16 +1031,35 @@ def tech100(request):
     )
     sector_options = sorted({item.get("sector") for item in companies if item.get("sector")})
 
+    total_count = len(display_companies)
+    logged_in = is_logged_in(request)
+    is_preview = not logged_in
+    if is_preview:
+        display_companies = display_companies[:TECH100_PREVIEW_LIMIT]
+        log_event(
+            "table_preview_rendered",
+            request,
+            {
+                "page": "/tech100/",
+                "port_date": filters.get("port_date", ""),
+                "sector": filters.get("sector", ""),
+                "q": filters.get("q", ""),
+                "preview_limit": TECH100_PREVIEW_LIMIT,
+            },
+        )
+
     context = {
         "year": datetime.now().year,
         "companies": display_companies,
-        "all_companies": companies,
+        "all_companies": display_companies if is_preview else companies,
         "tech100_error": tech100_response.get("error"),
         "port_date_options": port_date_options,
         "sector_options": sector_options,
         "filters": filters,
         "visible_count": len(display_companies),
-        "total_count": len(grouped_companies),
+        "total_count": total_count,
+        "preview_limit": TECH100_PREVIEW_LIMIT,
+        "is_preview": is_preview,
     }
     return render(request, "tech100.html", context)
 
