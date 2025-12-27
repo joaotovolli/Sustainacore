@@ -536,23 +536,34 @@ def _fetch_news_detail_from_oracle(item_key: str) -> Optional[Dict[str, object]]
         logger.warning("Oracle helper import failed: %s", exc)
         return None
 
-    sql = (
+    sql_enriched = (
         "SELECT e.item_table, e.item_id, e.dt_pub, e.ticker, e.title, e.url, "
         "e.source_name, e.body, a.full_text, e.pillar_tags, e.categories, e.tags, e.tickers "
         "FROM v_news_enriched e "
-        "JOIN v_news_all a ON a.item_table = e.item_table AND a.item_id = e.item_id "
+        "LEFT JOIN v_news_all a ON a.item_table = e.item_table AND a.item_id = e.item_id "
         "WHERE e.item_id = :item_id "
+    )
+    sql_recent = (
+        "SELECT r.item_table, r.item_id, r.dt_pub, r.ticker, r.title, r.url, "
+        "r.source_name, r.body, a.full_text, r.pillar_tags, r.categories, r.tags, r.tickers "
+        "FROM v_news_recent r "
+        "LEFT JOIN v_news_all a ON a.item_table = r.item_table AND a.item_id = r.item_id "
+        "WHERE r.item_id = :item_id "
     )
     binds: Dict[str, object] = {"item_id": item_id}
     if table:
-        sql += "AND e.item_table = :item_table "
+        sql_enriched += "AND e.item_table = :item_table "
+        sql_recent += "AND r.item_table = :item_table "
         binds["item_table"] = table
 
     try:
         with db_helper.get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(sql, binds)
+            cur.execute(sql_enriched, binds)
             row = cur.fetchone()
+            if not row:
+                cur.execute(sql_recent, binds)
+                row = cur.fetchone()
             if not row:
                 return None
             (
@@ -592,19 +603,22 @@ def _fetch_news_detail_from_oracle(item_key: str) -> Optional[Dict[str, object]]
     elif item_id_value is not None:
         item_id_str = str(item_id_value)
 
+    full_body = full_text or body or None
+    summary_value = body or full_body or ""
+
     return {
         "id": item_id_str,
         "title": title,
         "source": source_name,
         "url": url,
-        "summary": body,
-        "body": full_text or None,
+        "summary": summary_value,
+        "body": full_body,
         "tags": parsed_tags,
         "categories": parsed_categories,
         "pillar_tags": parsed_pillar_tags,
         "ticker": ticker_value or None,
         "published_at": dt_pub,
-        "has_full_body": bool(full_text),
+        "has_full_body": bool(full_body),
     }
 
 
@@ -1211,9 +1225,19 @@ def news_detail(request, news_id: str):
 
     published_at = _parse_news_datetime(selected_item.get("published_at")) if selected_item else None
     body_text = ""
+    body_source = ""
     if selected_item:
-        body_text = selected_item.get("body") or ""
+        for key in ("full_text", "content", "body", "text", "summary"):
+            value = selected_item.get(key)
+            if value is None:
+                continue
+            value = str(value)
+            if value.strip():
+                body_text = value
+                body_source = key
+                break
     body_text = str(body_text) if body_text is not None else ""
+    body_is_fallback = body_source == "summary"
 
     body_html = ""
     body_paragraphs: List[str] = []
@@ -1238,6 +1262,7 @@ def news_detail(request, news_id: str):
         "published_at": published_at,
         "body_html": body_html,
         "body_paragraphs": body_paragraphs,
+        "body_is_fallback": body_is_fallback,
         "tags": tags,
         "categories": categories,
         "pillar_tags": pillar_tags,
