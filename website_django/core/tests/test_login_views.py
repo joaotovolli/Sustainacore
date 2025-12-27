@@ -119,6 +119,19 @@ class LoginViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         upsert_mock.assert_called_once_with("user@example.com", "", "Canada", "", "")
 
+    def test_account_country_groups_render(self):
+        session = self.client.session
+        session["auth_email"] = "user@example.com"
+        session.save()
+        self.client.cookies["sc_session"] = "token"
+        response = self.client.get(reverse("account"))
+        content = response.content.decode("utf-8")
+        self.assertIn('optgroup label="Common"', content)
+        self.assertIn('optgroup label="All countries"', content)
+        self.assertIn("United Kingdom", content)
+        option_count = content.count("<option")
+        self.assertGreaterEqual(option_count, 200)
+
     def test_header_ignores_invalid_token(self):
         self.client.cookies["sc_session"] = "not-a-token"
         response = self.client.get(reverse("login"))

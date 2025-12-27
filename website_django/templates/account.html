@@ -41,21 +41,16 @@
                     Country
                     <select name="country" {% if missing_email %}disabled{% endif %}>
                         <option value="">Select a country</option>
-                        <option value="United Kingdom" {% if profile.country == "United Kingdom" %}selected{% endif %}>United Kingdom</option>
-                        <option value="Italy" {% if profile.country == "Italy" %}selected{% endif %}>Italy</option>
-                        <option value="Brazil" {% if profile.country == "Brazil" %}selected{% endif %}>Brazil</option>
-                        <option value="United States" {% if profile.country == "United States" %}selected{% endif %}>United States</option>
-                        <option value="Canada" {% if profile.country == "Canada" %}selected{% endif %}>Canada</option>
-                        <option value="France" {% if profile.country == "France" %}selected{% endif %}>France</option>
-                        <option value="Germany" {% if profile.country == "Germany" %}selected{% endif %}>Germany</option>
-                        <option value="Spain" {% if profile.country == "Spain" %}selected{% endif %}>Spain</option>
-                        <option value="Portugal" {% if profile.country == "Portugal" %}selected{% endif %}>Portugal</option>
-                        <option value="Netherlands" {% if profile.country == "Netherlands" %}selected{% endif %}>Netherlands</option>
-                        <option value="Switzerland" {% if profile.country == "Switzerland" %}selected{% endif %}>Switzerland</option>
-                        <option value="Ireland" {% if profile.country == "Ireland" %}selected{% endif %}>Ireland</option>
-                        <option value="Australia" {% if profile.country == "Australia" %}selected{% endif %}>Australia</option>
-                        <option value="Singapore" {% if profile.country == "Singapore" %}selected{% endif %}>Singapore</option>
-                        <option value="United Arab Emirates" {% if profile.country == "United Arab Emirates" %}selected{% endif %}>United Arab Emirates</option>
+                        <optgroup label="Common">
+                            {% for country in country_lists.common %}
+                                <option value="{{ country.code }}" {% if profile.country == country.code or profile.country == country.name %}selected{% endif %}>{{ country.name }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        <optgroup label="All countries">
+                            {% for country in country_lists.all %}
+                                <option value="{{ country.code }}" {% if profile.country == country.code or profile.country == country.name %}selected{% endif %}>{{ country.name }}</option>
+                            {% endfor %}
+                        </optgroup>
                     </select>
                 </label>
                 <label>
