@@ -5,7 +5,8 @@
   }
 
   const body = document.body;
-  const isLoggedIn = () => body?.dataset?.loggedIn === "true";
+  const hasSessionCookie = () => document.cookie.includes("sc_session=");
+  const isLoggedIn = () => body?.dataset?.loggedIn === "true" || hasSessionCookie();
   const emailStep = modal.querySelector("[data-step='email']");
   const codeStep = modal.querySelector("[data-step='code']");
   const emailInput = modal.querySelector("[data-email-input]");
@@ -112,32 +113,56 @@
     }
   };
 
-  const handleDownloadClick = (event, link) => {
-    const href = link.getAttribute("href");
+  const handleDownloadClick = (event, link, href) => {
     if (!href) return;
     sendEvent("download_click", { download: href, page: window.location.pathname });
+    event.preventDefault();
+    event.stopPropagation();
     if (isLoggedIn()) {
+      window.location.assign(href);
       return;
     }
-    event.preventDefault();
     storePending(href);
     sendEvent("download_blocked", { download: href, page: window.location.pathname });
     openModal();
   };
 
-  const isDownloadLink = (link) => {
-    if (!link || !link.getAttribute) return false;
-    const href = link.getAttribute("href") || "";
-    return href.includes("/export/") || href.includes("format=csv") || link.hasAttribute("data-download");
+  const getDownloadTarget = (element) => {
+    if (!element) return null;
+    if (element.hasAttribute?.("data-download-url")) {
+      return element.getAttribute("data-download-url");
+    }
+    if (element.getAttribute) {
+      const href = element.getAttribute("href") || "";
+      if (href) return href;
+    }
+    return null;
   };
 
-  document.addEventListener("click", (event) => {
-    const link = event.target.closest("a");
-    if (!link) return;
-    if (isDownloadLink(link)) {
-      handleDownloadClick(event, link);
-    }
-  });
+  const isDownloadLink = (element, href) => {
+    if (!element) return false;
+    const value = href || "";
+    return (
+      value.includes("/export/") ||
+      value.includes("format=csv") ||
+      value.endsWith(".csv") ||
+      element.hasAttribute?.("data-download") ||
+      element.hasAttribute?.("data-download-url")
+    );
+  };
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target.closest("a, button, [data-download-url], [data-download]");
+      if (!target) return;
+      const href = getDownloadTarget(target) || "";
+      if (isDownloadLink(target, href)) {
+        handleDownloadClick(event, target, href);
+      }
+    },
+    true
+  );
 
   closeButtons.forEach((button) => {
     button.addEventListener("click", () => closeModal());
