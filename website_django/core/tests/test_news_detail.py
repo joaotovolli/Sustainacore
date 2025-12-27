@@ -6,9 +6,9 @@ from django.urls import reverse
 
 
 class NewsDetailSmokeTests(SimpleTestCase):
-    @mock.patch("core.views.fetch_news")
-    def test_news_detail_navigation(self, fetch_news):
-        fetch_news.return_value = {
+    @mock.patch("core.views.fetch_news_list")
+    def test_news_detail_navigation(self, fetch_news_list):
+        fetch_news_list.return_value = {
             "items": [
                 {
                     "id": "NEWS_ITEMS:101",
@@ -24,7 +24,7 @@ class NewsDetailSmokeTests(SimpleTestCase):
                     "ticker": "MSFT",
                 }
             ],
-            "meta": {"count": 1},
+            "meta": {"count": 1, "has_more": False},
             "error": None,
         }
 
@@ -42,7 +42,7 @@ class NewsDetailSmokeTests(SimpleTestCase):
             self.assertIn("example.com", detail_url)
             return
 
-        with mock.patch("core.views.fetch_news_detail") as fetch_detail:
+        with mock.patch("core.views.fetch_news_detail_oracle") as fetch_detail:
             fetch_detail.return_value = {
                 "item": {
                     "id": "NEWS_ITEMS:101",
@@ -63,7 +63,7 @@ class NewsDetailSmokeTests(SimpleTestCase):
             self.assertRegex(detail_content, r"Full article body")
             self.assertRegex(detail_content, r'href=\"https://example.com/story\"')
 
-    @mock.patch("core.views.fetch_news_detail")
+    @mock.patch("core.views.fetch_news_detail_oracle")
     def test_news_detail_renders_fallback_summary(self, fetch_detail):
         fetch_detail.return_value = {
             "item": {

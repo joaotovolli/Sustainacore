@@ -24,7 +24,9 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_POST
 
-from core.api_client import create_news_item_admin, fetch_news, fetch_news_detail, fetch_tech100
+from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+from core.news_data import fetch_news_detail as fetch_news_detail_oracle
+from core.news_data import fetch_news_list
 from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
 from core.analytics import EVENT_TYPES, log_event
 from core.downloads import require_login_for_download
@@ -1155,12 +1157,21 @@ def news(request):
     date_mapping = {"7": 7, "30": 30, "90": 90}
     days = date_mapping.get(date_range)
 
-    news_response = fetch_news(
+    page_raw = request.GET.get("page", "1")
+    try:
+        page = max(1, int(page_raw))
+    except (TypeError, ValueError):
+        page = 1
+    limit = 20
+    offset = (page - 1) * limit
+
+    news_response = fetch_news_list(
         source=filters["source"] or None,
         tag=filters["tag"] or None,
         ticker=filters["ticker"] or None,
         days=days,
-        limit=20,
+        limit=limit,
+        offset=offset,
     )
 
     news_items = news_response.get("items", [])
@@ -1192,6 +1203,18 @@ def news(request):
         cleaned = {key: value for key, value in article.items() if value is not None}
         news_structured.append(cleaned)
 
+    has_more = bool(news_response.get("meta", {}).get("has_more"))
+    prev_url = None
+    next_url = None
+    if page > 1:
+        prev_params = request.GET.copy()
+        prev_params["page"] = page - 1
+        prev_url = f"?{prev_params.urlencode()}"
+    if has_more:
+        next_params = request.GET.copy()
+        next_params["page"] = page + 1
+        next_url = f"?{next_params.urlencode()}"
+
     context = {
         "year": datetime.now().year,
         "articles": news_items,
@@ -1201,6 +1224,9 @@ def news(request):
         "filters": filters,
         "source_options": sources,
         "tag_options": tags,
+        "page": page,
+        "prev_url": prev_url,
+        "next_url": next_url,
         "date_range_options": [
             {"value": "all", "label": "All time"},
             {"value": "7", "label": "Last 7 days"},
@@ -1215,13 +1241,8 @@ def news_detail(request, news_id: str):
     resolved_id = (news_id or "").strip()
     decoded_id = unquote(resolved_id) if resolved_id else resolved_id
 
-    detail_response = fetch_news_detail(news_id=decoded_id or resolved_id)
+    detail_response = fetch_news_detail_oracle(news_id=decoded_id or resolved_id)
     selected_item = detail_response.get("item")
-    if not selected_item or not selected_item.get("body"):
-        oracle_item = _fetch_news_detail_from_oracle(decoded_id or resolved_id)
-        if oracle_item:
-            selected_item = oracle_item
-            detail_response = {"item": oracle_item, "error": None}
 
     published_at = _parse_news_datetime(selected_item.get("published_at")) if selected_item else None
     body_text = ""

@@ -66,8 +66,11 @@ class SeoFoundationsTests(SimpleTestCase):
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")
+    @mock.patch("core.views.fetch_news_list")
     @mock.patch("core.views.get_latest_trade_date")
-    def test_json_ld_present_on_home_and_news(self, get_latest_trade_date, fetch_news, fetch_tech100):
+    def test_json_ld_present_on_home_and_news(
+        self, get_latest_trade_date, fetch_news_list, fetch_news, fetch_tech100
+    ):
         get_latest_trade_date.return_value = None
         fetch_tech100.return_value = {"items": [], "error": None, "meta": {}}
         fetch_news.return_value = {
@@ -82,6 +85,21 @@ class SeoFoundationsTests(SimpleTestCase):
             ],
             "error": None,
             "meta": {},
+        }
+        fetch_news_list.return_value = {
+            "items": [
+                {
+                    "title": "Sample headline",
+                    "url": "https://example.com/article",
+                    "summary": "Sample summary",
+                    "published_at": "2025-01-01T00:00:00Z",
+                    "source": "Example News",
+                    "has_full_body": True,
+                    "id": "NEWS_ITEMS:101",
+                }
+            ],
+            "error": None,
+            "meta": {"count": 1, "has_more": False},
         }
 
         home_response = self.client.get(reverse("home"))
