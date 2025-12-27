@@ -1,5 +1,6 @@
 (() => {
   const modal = document.querySelector("[data-download-modal]");
+  document.documentElement.dataset.downloadGate = "ready";
   if (!modal) {
     return;
   }
@@ -129,6 +130,18 @@
 
   const getDownloadTarget = (element) => {
     if (!element) return null;
+    const container = element.closest?.("[data-download-url]");
+    if (container?.getAttribute) {
+      const value = container.getAttribute("data-download-url");
+      if (value) return value;
+    }
+    if (element.closest) {
+      const anchor = element.closest("a");
+      if (anchor?.getAttribute) {
+        const href = anchor.getAttribute("href") || "";
+        if (href) return href;
+      }
+    }
     if (element.hasAttribute?.("data-download-url")) {
       return element.getAttribute("data-download-url");
     }
