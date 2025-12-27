@@ -161,6 +161,7 @@ def logout(request):
     request.session.pop("login_email", None)
     request.session.pop("login_notice", None)
     request.session.pop("auth_email", None)
+    request.session.pop("auth_state", None)
     response = redirect("home")
     clear_auth_cookie(response)
     return response
