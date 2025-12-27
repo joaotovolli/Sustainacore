@@ -36,6 +36,17 @@ else
   echo "STATIC_VERSION=$STATIC_VERSION" | sudo tee "$ENV_FILE" >/dev/null
 fi
 
+# 2.2) Ensure production environment flag is present (banner should never show on prod host)
+if [ -f "$ENV_FILE" ]; then
+  if grep -q "^SUSTAINACORE_ENV=" "$ENV_FILE"; then
+    sudo sed -i "s/^SUSTAINACORE_ENV=.*/SUSTAINACORE_ENV=production/" "$ENV_FILE"
+  else
+    echo "SUSTAINACORE_ENV=production" | sudo tee -a "$ENV_FILE" >/dev/null
+  fi
+else
+  echo "SUSTAINACORE_ENV=production" | sudo tee "$ENV_FILE" >/dev/null
+fi
+
 # 3) Create or repair the user-owned venv
 mkdir -p "${HOME}/.venvs"
 echo "[VM2] Checking venv health..."

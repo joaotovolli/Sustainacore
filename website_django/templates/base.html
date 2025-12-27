@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/main.css' %}">
-    {% if is_preview %}
+    {% if show_preview_banner %}
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
     {% endif %}
     {% block extra_head %}{% endblock %}
@@ -77,7 +77,7 @@
             </div>
         </div>
     </header>
-    {% if is_preview %}
+    {% if show_preview_banner %}
     <div class="preview-banner">
         <span>PREVIEW</span>
         <small>Preview environment — do not share publicly.</small>
