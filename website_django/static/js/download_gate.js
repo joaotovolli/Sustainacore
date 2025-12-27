@@ -8,6 +8,7 @@
   const body = document.body;
   const hasSessionCookie = () => document.cookie.includes("sc_session=");
   const isLoggedIn = () => body?.dataset?.loggedIn === "true" || hasSessionCookie();
+  const debugEnabled = new URLSearchParams(window.location.search).get("dg_debug") === "1";
   const emailStep = modal.querySelector("[data-step='email']");
   const codeStep = modal.querySelector("[data-step='code']");
   const emailInput = modal.querySelector("[data-email-input]");
@@ -42,6 +43,29 @@
     } catch (err) {
       // Analytics must never block UX.
     }
+  };
+
+  const showDebugToast = (message) => {
+    if (!debugEnabled) return;
+    const existing = document.getElementById("dg-debug-toast");
+    if (existing) existing.remove();
+    const toast = document.createElement("div");
+    toast.id = "dg-debug-toast";
+    toast.textContent = message;
+    toast.style.position = "fixed";
+    toast.style.bottom = "24px";
+    toast.style.right = "24px";
+    toast.style.zIndex = "9999";
+    toast.style.padding = "10px 14px";
+    toast.style.background = "rgba(15, 23, 42, 0.92)";
+    toast.style.color = "#fff";
+    toast.style.borderRadius = "10px";
+    toast.style.fontSize = "12px";
+    toast.style.boxShadow = "0 10px 30px rgba(15,23,42,0.35)";
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.remove();
+    }, 2500);
   };
 
   const showError = (message) => {
@@ -120,48 +144,39 @@
     event.preventDefault();
     event.stopPropagation();
     if (isLoggedIn()) {
+      showDebugToast(`Download detected: ${href} | logged_in=true | action=nav`);
       window.location.assign(href);
       return;
     }
+    showDebugToast(`Download detected: ${href} | logged_in=false | action=modal`);
     storePending(href);
     sendEvent("download_blocked", { download: href, page: window.location.pathname });
     openModal();
   };
 
+  const isDownloadUrl = (href) => {
+    if (!href) return false;
+    return href.includes("/export/") || href.includes("format=csv") || href.endsWith(".csv");
+  };
+
   const getDownloadTarget = (element) => {
     if (!element) return null;
+    const anchor = element.closest?.("a");
+    if (anchor?.getAttribute) {
+      const href = anchor.getAttribute("href") || "";
+      if (isDownloadUrl(href)) {
+        return href;
+      }
+    }
     const container = element.closest?.("[data-download-url]");
     if (container?.getAttribute) {
       const value = container.getAttribute("data-download-url");
       if (value) return value;
     }
-    if (element.closest) {
-      const anchor = element.closest("a");
-      if (anchor?.getAttribute) {
-        const href = anchor.getAttribute("href") || "";
-        if (href) return href;
-      }
-    }
     if (element.hasAttribute?.("data-download-url")) {
       return element.getAttribute("data-download-url");
     }
-    if (element.getAttribute) {
-      const href = element.getAttribute("href") || "";
-      if (href) return href;
-    }
     return null;
-  };
-
-  const isDownloadLink = (element, href) => {
-    if (!element) return false;
-    const value = href || "";
-    return (
-      value.includes("/export/") ||
-      value.includes("format=csv") ||
-      value.endsWith(".csv") ||
-      element.hasAttribute?.("data-download") ||
-      element.hasAttribute?.("data-download-url")
-    );
   };
 
   document.addEventListener(
@@ -170,9 +185,10 @@
       const target = event.target.closest("a, button, [data-download-url], [data-download]");
       if (!target) return;
       const href = getDownloadTarget(target) || "";
-      if (isDownloadLink(target, href)) {
-        handleDownloadClick(event, target, href);
+      if (!href) {
+        return;
       }
+      handleDownloadClick(event, target, href);
     },
     true
   );
