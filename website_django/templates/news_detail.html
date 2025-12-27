@@ -7,7 +7,7 @@
 {% block content %}
 <section class="section news-detail">
     <div class="shell">
-        <a class="text-link news-detail__back" href="{% url 'news' %}">← Back to news</a>
+        <a class="text-link news-detail__back" href="{{ back_url }}">← Back to news</a>
         {% if news_error %}
         <div class="alert alert--warning">
             {{ news_error }}
@@ -19,8 +19,10 @@
                 <div class="news-detail__meta">
                     {{ article.source|default:"SustainaCore" }}
                     {% if published_at %} · {{ published_at|date:"M j, Y · H:i" }}{% elif article.published_at %} · {{ article.published_at }}{% endif %}
-                    {% if article.url %}
-                        · <a class="text-link" href="{{ article.url }}" target="_blank" rel="noopener noreferrer">Original source</a>
+                    {% if external_url %}
+                        · <a class="text-link" href="{{ external_url }}" target="_blank" rel="noopener noreferrer">Read at source</a>
+                    {% elif article.url %}
+                        · <span class="muted">Source link not available</span>
                     {% endif %}
                 </div>
                 <h1 data-news-title>{{ article.title }}</h1>
@@ -50,7 +52,6 @@
                 {% endif %}
                 {% if body_html %}
                 <div class="news-detail__body">
-                    <h2>Full article</h2>
                     {% if body_is_fallback %}
                     <p class="muted">Full text is not available for this story. Showing the available summary instead.</p>
                     {% endif %}
@@ -58,7 +59,6 @@
                 </div>
                 {% elif body_paragraphs %}
                 <div class="news-detail__body">
-                    <h2>Full article</h2>
                     {% if body_is_fallback %}
                     <p class="muted">Full text is not available for this story. Showing the available summary instead.</p>
                     {% endif %}
@@ -71,8 +71,11 @@
                     <p class="muted">Full text is not available for this story. Please use the original source link above.</p>
                 </div>
                 {% endif %}
-                {% if not article.url %}
+                {% if not external_url and not article.url %}
                 <p class="muted">Original article link unavailable.</p>
+                {% endif %}
+                {% if debug %}
+                <!-- body_len={{ body_length }} -->
                 {% endif %}
             </div>
             <aside class="news-detail__aside">
