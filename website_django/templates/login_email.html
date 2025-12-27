@@ -27,6 +27,9 @@
                     Email address
                     <input type="email" name="email" placeholder="you@example.com" required />
                 </label>
+                {% if next %}
+                    <input type="hidden" name="next" value="{{ next }}" />
+                {% endif %}
                 <div class="form__actions">
                     <button class="btn btn--primary" type="submit">Send code</button>
                 </div>

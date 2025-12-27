@@ -7,7 +7,7 @@ from html.parser import HTMLParser
 from typing import Dict, Iterable, List, Optional
 import logging
 import time
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlencode
 from pathlib import Path
 import sys
 
@@ -17,14 +17,17 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.sitemaps.views import sitemap as django_sitemap
 from django.core.cache import cache
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import cache_page
+from django.views.decorators.http import require_POST
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_news_detail, fetch_tech100
 from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
+from core.analytics import EVENT_TYPES, log_event
+from core.downloads import require_login_for_download
 from core.profile_data import get_profile, upsert_profile
 from core.countries import get_country_lists, resolve_country_name
 from core.tech100_index_data import (
@@ -73,6 +76,7 @@ def _backend_host() -> str:
 def login_email(request):
     notice = request.session.pop("login_notice", "")
     error = ""
+    next_url = request.GET.get("next") or request.POST.get("next") or ""
     if request.method == "POST":
         email = _normalize_email(request.POST.get("email", ""))
         if email:
@@ -92,6 +96,7 @@ def login_email(request):
                     response.status_code,
                     duration_ms,
                 )
+                log_event("auth_request_code", request, {"source": "login_page"})
             except requests.RequestException as exc:
                 duration_ms = int((time.monotonic() - start) * 1000)
                 logger.warning(
@@ -101,10 +106,17 @@ def login_email(request):
                     type(exc).__name__,
                     duration_ms,
                 )
+                log_event("auth_request_code", request, {"source": "login_page", "status": "error"})
         request.session["login_email"] = email
         request.session["login_notice"] = "If that email is eligible, we sent a code."
+        if next_url:
+            return redirect(f"{reverse('login_code')}?{urlencode({'next': next_url})}")
         return redirect("login_code")
-    return render(request, "login_email.html", {"notice": notice, "error": error})
+    return render(
+        request,
+        "login_email.html",
+        {"notice": notice, "error": error, "next": next_url},
+    )
 
 
 def login_code(request):
@@ -139,15 +151,104 @@ def login_code(request):
                         target = next_url
                     response = redirect(target)
                     apply_auth_cookie(response, token, expires)
+                    log_event("auth_verify_ok", request, {"source": "login_page"})
                     return response
             error = "Invalid or expired code. Please try again."
+            log_event("auth_verify_fail", request, {"source": "login_page"})
         except requests.RequestException:
             error = "We could not verify the code right now. Please try again."
+            log_event("auth_verify_fail", request, {"source": "login_page", "status": "error"})
     return render(
         request,
         "login_code.html",
         {"email": email, "error": error, "notice": notice, "next": next_url},
     )
+
+
+@require_POST
+def auth_request_code(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        payload = {}
+    email = _normalize_email(payload.get("email", ""))
+    if email:
+        start = time.monotonic()
+        try:
+            response = requests.post(
+                _backend_url("/api/auth/request-code"),
+                json={"email": email},
+                timeout=settings.SUSTAINACORE_BACKEND_TIMEOUT,
+            )
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.warning(
+                "auth.request_code backend=%s email=%s status=%s duration_ms=%s",
+                _backend_host(),
+                _mask_email(email),
+                response.status_code,
+                duration_ms,
+            )
+            log_event("auth_request_code", request, {"source": "modal"})
+        except requests.RequestException as exc:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.warning(
+                "auth.request_code backend=%s email=%s error=%s duration_ms=%s",
+                _backend_host(),
+                _mask_email(email),
+                type(exc).__name__,
+                duration_ms,
+            )
+            log_event("auth_request_code", request, {"source": "modal", "status": "error"})
+    request.session["login_email"] = email
+    return JsonResponse({"ok": True})
+
+
+@require_POST
+def auth_verify_code(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        payload = {}
+    email = _normalize_email(payload.get("email", ""))
+    code = (payload.get("code") or "").strip()
+    if not email or not code:
+        log_event("auth_verify_fail", request, {"source": "modal", "status": "missing"})
+        return JsonResponse({"ok": False, "error": "invalid"}, status=400)
+    try:
+        resp = requests.post(
+            _backend_url("/api/auth/verify-code"),
+            json={"email": email, "code": code},
+            timeout=settings.SUSTAINACORE_BACKEND_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            data = resp.json() or {}
+            token = data.get("token")
+            expires = data.get("expires_in_seconds")
+            if token:
+                request.session["auth_email"] = email
+                response = JsonResponse({"ok": True})
+                apply_auth_cookie(response, token, expires)
+                log_event("auth_verify_ok", request, {"source": "modal"})
+                return response
+        log_event("auth_verify_fail", request, {"source": "modal"})
+        return JsonResponse({"ok": False, "error": "invalid"}, status=400)
+    except requests.RequestException:
+        log_event("auth_verify_fail", request, {"source": "modal", "status": "error"})
+        return JsonResponse({"ok": False, "error": "error"}, status=502)
+
+
+@require_POST
+def ux_event(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        payload = {}
+    event_type = payload.get("event_type")
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    if event_type not in EVENT_TYPES:
+        return JsonResponse({"ok": False}, status=400)
+    log_event(event_type, request, metadata)
+    return JsonResponse({"ok": True})
 
 
 def logout(request):
@@ -943,6 +1044,7 @@ def tech100(request):
     return render(request, "tech100.html", context)
 
 
+@require_login_for_download
 def tech100_export(request):
     search_term = (request.GET.get("q") or request.GET.get("search") or "").strip()
     filters = {
