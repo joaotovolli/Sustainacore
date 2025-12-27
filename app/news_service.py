@@ -283,22 +283,33 @@ def fetch_news_item_detail(item_key: str) -> Optional[Dict[str, Any]]:
     if item_id is None:
         return None
 
-    sql = (
+    sql_enriched = (
         "SELECT e.item_table, e.item_id, e.dt_pub, e.ticker, e.title, e.url, "
         "e.source_name, e.body, a.full_text, e.pillar_tags, e.categories, e.tags, e.tickers "
         "FROM v_news_enriched e "
-        "JOIN v_news_all a ON a.item_table = e.item_table AND a.item_id = e.item_id "
+        "LEFT JOIN v_news_all a ON a.item_table = e.item_table AND a.item_id = e.item_id "
         "WHERE e.item_id = :item_id "
+    )
+    sql_recent = (
+        "SELECT r.item_table, r.item_id, r.dt_pub, r.ticker, r.title, r.url, "
+        "r.source_name, r.body, a.full_text, r.pillar_tags, r.categories, r.tags, r.tickers "
+        "FROM v_news_recent r "
+        "LEFT JOIN v_news_all a ON a.item_table = r.item_table AND a.item_id = r.item_id "
+        "WHERE r.item_id = :item_id "
     )
     binds: Dict[str, Any] = {"item_id": item_id}
     if table:
-        sql += "AND e.item_table = :item_table "
+        sql_enriched += "AND e.item_table = :item_table "
+        sql_recent += "AND r.item_table = :item_table "
         binds["item_table"] = table
 
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql, binds)
+        cur.execute(sql_enriched, binds)
         row = cur.fetchone()
+        if not row:
+            cur.execute(sql_recent, binds)
+            row = cur.fetchone()
         if not row:
             return None
 
@@ -327,9 +338,9 @@ def fetch_news_item_detail(item_key: str) -> Optional[Dict[str, Any]]:
         ticker_single or tickers_raw or ""
     )
 
-    full_body = full_text or None
+    full_body = full_text or body or None
     has_full_body = bool(full_body)
-    summary = _build_summary(body)
+    summary = _build_summary(body or full_body)
 
     item_id_str = None
     if item_table and item_id_value:
