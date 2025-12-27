@@ -35,6 +35,22 @@ class _FakeCursor:
         return list(self._rows)
 
 
+class _FakeDetailCursor:
+    def __init__(self, rows_per_call):
+        self._rows_per_call = list(rows_per_call)
+        self.executed_sql = []
+        self.binds = []
+
+    def execute(self, sql, binds=None):
+        self.executed_sql.append(sql)
+        self.binds.append(binds or {})
+
+    def fetchone(self):
+        if not self._rows_per_call:
+            return None
+        return self._rows_per_call.pop(0)
+
+
 class _FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
@@ -111,3 +127,54 @@ def test_fetch_news_items_maps_rows_and_meta(monkeypatch):
     assert cursor.binds["days"] == 30
     assert cursor.binds["source"] == "Bloomberg"
     assert any(key.startswith("tag_") for key in cursor.binds)
+
+
+def test_fetch_news_item_detail_prefers_full_text(monkeypatch):
+    row = (
+        "NEWS_ITEMS",
+        101,
+        datetime(2025, 1, 2, 15, 4, 5, tzinfo=timezone.utc),
+        "MSFT",
+        "Example headline",
+        "https://example.com/article",
+        "Example Source",
+        "Snippet body",
+        "Full article content",
+        "E, G",
+        "Markets, Technology",
+        "esg, tech",
+        "MSFT",
+    )
+    cursor = _FakeDetailCursor([row])
+    fake_conn = _FakeConnection(cursor)
+    monkeypatch.setattr(news_service, "get_connection", lambda: fake_conn)
+
+    item = news_service.fetch_news_item_detail("NEWS_ITEMS:101")
+    assert item is not None
+    assert item["body"] == "Full article content"
+    assert item["summary"] == "Snippet body"
+
+
+def test_fetch_news_item_detail_falls_back_to_body(monkeypatch):
+    row = (
+        "NEWS_ITEMS",
+        202,
+        datetime(2025, 1, 2, 15, 4, 5, tzinfo=timezone.utc),
+        "MSFT",
+        "Example headline",
+        "https://example.com/article",
+        "Example Source",
+        "Body-only content",
+        None,
+        "E, G",
+        "Markets, Technology",
+        "esg, tech",
+        "MSFT",
+    )
+    cursor = _FakeDetailCursor([None, row])
+    fake_conn = _FakeConnection(cursor)
+    monkeypatch.setattr(news_service, "get_connection", lambda: fake_conn)
+
+    item = news_service.fetch_news_item_detail("NEWS_ITEMS:202")
+    assert item is not None
+    assert item["body"] == "Body-only content"
