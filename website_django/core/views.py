@@ -25,7 +25,7 @@ from django.views.decorators.cache import cache_page
 
 from core.api_client import create_news_item_admin, fetch_news, fetch_news_detail, fetch_tech100
 from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
-from core.profile_data import get_profile, is_profile_complete, upsert_profile
+from core.profile_data import get_profile, upsert_profile
 from core.tech100_index_data import (
     get_data_mode,
     get_index_levels,
@@ -136,14 +136,6 @@ def login_code(request):
                         require_https=request.is_secure(),
                     ):
                         target = next_url
-                    else:
-                        try:
-                            profile = get_profile(email)
-                            if not is_profile_complete(profile):
-                                target = reverse("account")
-                        except Exception as exc:
-                            logger.warning("account.profile_lookup_failed", exc_info=exc)
-                            target = reverse("account")
                     response = redirect(target)
                     apply_auth_cookie(response, token, expires)
                     return response
@@ -175,9 +167,16 @@ def account(request):
     missing_email = not email
     profile = None
     error = ""
+    profile_empty = False
     if email:
         try:
             profile = get_profile(email)
+            if profile:
+                profile_empty = not any(
+                    (profile.get("name"), profile.get("country"), profile.get("company"), profile.get("phone"))
+                )
+            else:
+                profile_empty = True
         except Exception as exc:
             logger.warning("account.profile_load_failed", exc_info=exc)
             error = "We could not load your profile details right now."
@@ -185,13 +184,20 @@ def account(request):
     if request.method == "POST":
         if not email:
             return redirect(f"{reverse('login')}?next={reverse('account')}")
+        name = (request.POST.get("name") or "").strip()
         country = (request.POST.get("country") or "").strip()
         company = (request.POST.get("company") or "").strip()
         phone = (request.POST.get("phone") or "").strip()
         try:
-            upsert_profile(email, country, company, phone)
+            upsert_profile(email, name, country, company, phone)
             messages.success(request, "Profile saved.")
-            profile = {"country": country, "company": company, "phone": phone}
+            profile = {
+                "name": name,
+                "country": country,
+                "company": company,
+                "phone": phone,
+            }
+            profile_empty = not any((name, country, company, phone))
         except Exception as exc:
             logger.warning("account.profile_save_failed", exc_info=exc)
             error = "We could not save your profile right now."
@@ -200,9 +206,11 @@ def account(request):
         request,
         "account.html",
         {
-            "profile": profile or {"country": "", "company": "", "phone": ""},
+            "profile": profile
+            or {"name": "", "country": "", "company": "", "phone": ""},
             "missing_email": missing_email,
             "error": error,
+            "profile_empty": profile_empty,
         },
     )
 
