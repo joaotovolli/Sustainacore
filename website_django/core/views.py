@@ -5,7 +5,7 @@ import json
 import re
 from html import escape
 from html.parser import HTMLParser
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 import logging
 import time
 from urllib.parse import unquote, urlparse, urlencode
@@ -452,7 +452,23 @@ def _split_news_paragraphs(text: str) -> List[str]:
 
 
 class _NewsHTMLSanitizer(HTMLParser):
-    allowed_tags = {"p", "br", "ul", "ol", "li", "strong", "em", "b", "i", "a", "blockquote"}
+    allowed_tags = {
+        "p",
+        "br",
+        "ul",
+        "ol",
+        "li",
+        "strong",
+        "em",
+        "b",
+        "i",
+        "a",
+        "blockquote",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+    }
     allowed_attrs = {"a": {"href", "title"}}
 
     def __init__(self) -> None:
@@ -512,6 +528,59 @@ def _sanitize_news_html(raw_html: str) -> str:
     parser.feed(raw_html)
     parser.close()
     return parser.sanitized()
+
+
+def _resolve_news_full_text(item: Dict[str, object]) -> Tuple[str, str]:
+    """Return the best available article body and the chosen source key."""
+    candidates = [
+        "full_text",
+        "content",
+        "article_text",
+        "body",
+        "text",
+        "summary",
+    ]
+    values: Dict[str, str] = {}
+    for key in candidates:
+        value = item.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        values[key] = text
+
+    if not values:
+        return "", ""
+
+    def _score(key: str, text: str) -> Tuple[int, int]:
+        priority = candidates.index(key) if key in candidates else len(candidates)
+        return (-priority, len(text))
+
+    best_key = max(values, key=lambda k: _score(k, values[k]))
+    best_text = values[best_key]
+
+    longest_key = max(values, key=lambda k: len(values[k]))
+    longest_text = values[longest_key]
+
+    if len(best_text) < 500 and len(longest_text) > len(best_text):
+        return longest_text, longest_key
+
+    return best_text, best_key
+
+
+def _is_external_url(url: str) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    if host.endswith("sustainacore.org"):
+        return False
+    return True
 
 
 def _fetch_news_detail_from_oracle(item_key: str) -> Optional[Dict[str, object]]:
@@ -1245,6 +1314,7 @@ def news(request):
         next_params["page"] = page + 1
         next_url = f"?{next_params.urlencode()}"
 
+    back_query = request.GET.urlencode()
     context = {
         "year": datetime.now().year,
         "articles": news_items,
@@ -1258,6 +1328,7 @@ def news(request):
         "source_supported": filter_options["supports_source"],
         "tag_supported": filter_options["supports_tag"],
         "ticker_supported": filter_options["supports_ticker"],
+        "back_query": back_query,
         "page": page,
         "prev_url": prev_url,
         "next_url": next_url,
@@ -1293,17 +1364,9 @@ def news_detail(request, news_id: str):
     body_text = ""
     body_source = ""
     if selected_item:
-        for key in ("full_text", "content", "body", "text", "summary"):
-            value = selected_item.get(key)
-            if value is None:
-                continue
-            value = str(value)
-            if value.strip():
-                body_text = value
-                body_source = key
-                break
+        body_text, body_source = _resolve_news_full_text(selected_item)
     body_text = str(body_text) if body_text is not None else ""
-    body_is_fallback = body_source == "summary"
+    body_is_fallback = body_source in {"summary", "text"}
 
     body_html = ""
     body_paragraphs: List[str] = []
@@ -1321,18 +1384,34 @@ def news_detail(request, news_id: str):
         tickers.extend(_parse_news_list(ticker_single))
     tickers = list(dict.fromkeys([ticker for ticker in tickers if ticker]))
 
+    external_url = None
+    if selected_item:
+        url_value = (selected_item.get("url") or "").strip()
+        if url_value and _is_external_url(url_value):
+            external_url = url_value
+
+    back_query = request.GET.get("back", "").strip()
+    back_url = reverse("news")
+    if back_query and "http" not in back_query and "//" not in back_query:
+        back_url = f"{back_url}?{back_query}"
+
     context = {
         "year": datetime.now().year,
         "news_error": detail_response.get("error"),
+        "news_error_ref": news_error_ref,
         "article": selected_item,
         "published_at": published_at,
         "body_html": body_html,
         "body_paragraphs": body_paragraphs,
         "body_is_fallback": body_is_fallback,
+        "body_length": len(body_text),
+        "debug": settings.DEBUG,
         "tags": tags,
         "categories": categories,
         "pillar_tags": pillar_tags,
         "tickers": tickers,
+        "external_url": external_url,
+        "back_url": back_url,
     }
 
     status = 200 if selected_item else 404
