@@ -41,7 +41,7 @@
                     Country
                     <select name="country" {% if missing_email %}disabled{% endif %}>
                         <option value="">Select a country</option>
-                        <optgroup label="Common">
+                        <optgroup label="Most used">
                             {% for country in country_lists.common %}
                                 <option value="{{ country.code }}" {% if profile.country == country.code or profile.country == country.name %}selected{% endif %}>{{ country.name }}</option>
                             {% endfor %}
