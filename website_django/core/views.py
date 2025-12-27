@@ -26,6 +26,7 @@ from django.views.decorators.cache import cache_page
 from core.api_client import create_news_item_admin, fetch_news, fetch_news_detail, fetch_tech100
 from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
 from core.profile_data import get_profile, upsert_profile
+from core.countries import get_country_lists, resolve_country_name
 from core.tech100_index_data import (
     get_data_mode,
     get_index_levels,
@@ -185,7 +186,7 @@ def account(request):
         if not email:
             return redirect(f"{reverse('login')}?next={reverse('account')}")
         name = (request.POST.get("name") or "").strip()
-        country = (request.POST.get("country") or "").strip()
+        country = resolve_country_name((request.POST.get("country") or "").strip())
         company = (request.POST.get("company") or "").strip()
         phone = (request.POST.get("phone") or "").strip()
         try:
@@ -211,6 +212,7 @@ def account(request):
             "missing_email": missing_email,
             "error": error,
             "profile_empty": profile_empty,
+            "country_lists": get_country_lists(),
         },
     )
 
