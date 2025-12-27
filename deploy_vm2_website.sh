@@ -23,6 +23,19 @@ else
   echo "[VM2] No .env.vm2 file found, continuing without it."
 fi
 
+# 2.1) Ensure STATIC_VERSION is set for the gunicorn environment
+ENV_FILE="/etc/sysconfig/sustainacore-django.env"
+STATIC_VERSION="$(git rev-parse --short HEAD 2>/dev/null || date +%s)"
+if [ -f "$ENV_FILE" ]; then
+  if grep -q "^STATIC_VERSION=" "$ENV_FILE"; then
+    sudo sed -i "s/^STATIC_VERSION=.*/STATIC_VERSION=$STATIC_VERSION/" "$ENV_FILE"
+  else
+    echo "STATIC_VERSION=$STATIC_VERSION" | sudo tee -a "$ENV_FILE" >/dev/null
+  fi
+else
+  echo "STATIC_VERSION=$STATIC_VERSION" | sudo tee "$ENV_FILE" >/dev/null
+fi
+
 # 3) Create or repair the user-owned venv
 mkdir -p "${HOME}/.venvs"
 echo "[VM2] Checking venv health..."
