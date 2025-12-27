@@ -553,17 +553,22 @@ def _resolve_news_full_text(item: Dict[str, object]) -> Tuple[str, str]:
     if not values:
         return "", ""
 
-    def _score(key: str, text: str) -> Tuple[int, int]:
-        priority = candidates.index(key) if key in candidates else len(candidates)
-        return (-priority, len(text))
+    best_key = None
+    for key in candidates:
+        if key in values:
+            best_key = key
+            break
 
-    best_key = max(values, key=lambda k: _score(k, values[k]))
+    best_key = best_key or next(iter(values.keys()))
     best_text = values[best_key]
 
     longest_key = max(values, key=lambda k: len(values[k]))
     longest_text = values[longest_key]
 
-    if len(best_text) < 500 and len(longest_text) > len(best_text):
+    if best_key == "summary" and len(longest_text) >= max(len(best_text) * 3, 800):
+        return longest_text, longest_key
+
+    if len(best_text) < 800 and len(longest_text) > len(best_text):
         return longest_text, longest_key
 
     return best_text, best_key
@@ -1404,6 +1409,7 @@ def news_detail(request, news_id: str):
         "body_html": body_html,
         "body_paragraphs": body_paragraphs,
         "body_is_fallback": body_is_fallback,
+        "body_source": body_source,
         "body_length": len(body_text),
         "debug": settings.DEBUG,
         "tags": tags,

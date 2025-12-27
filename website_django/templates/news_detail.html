@@ -21,8 +21,6 @@
                     {% if published_at %} · {{ published_at|date:"M j, Y · H:i" }}{% elif article.published_at %} · {{ article.published_at }}{% endif %}
                     {% if external_url %}
                         · <a class="text-link" href="{{ external_url }}" target="_blank" rel="noopener noreferrer">Read at source</a>
-                    {% elif article.url %}
-                        · <span class="muted">Source link not available</span>
                     {% endif %}
                 </div>
                 <h1 data-news-title>{{ article.title }}</h1>
@@ -68,14 +66,11 @@
                 </div>
                 {% else %}
                 <div class="news-detail__body">
-                    <p class="muted">Full text is not available for this story. Please use the original source link above.</p>
+                    <p class="muted">Full text is not available for this story.</p>
                 </div>
                 {% endif %}
-                {% if not external_url and not article.url %}
-                <p class="muted">Original article link unavailable.</p>
-                {% endif %}
                 {% if debug %}
-                <!-- body_len={{ body_length }} -->
+                <!-- news_debug id={{ article.id }} field={{ body_source }} len={{ body_length }} -->
                 {% endif %}
             </div>
             <aside class="news-detail__aside">

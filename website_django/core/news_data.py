@@ -94,6 +94,10 @@ def _column_map(columns: List[str]) -> Dict[str, Optional[str]]:
         "source": pick(["SOURCE_NAME", "SOURCE"]),
         "body": pick(["FULL_TEXT", "CONTENT", "BODY", "TEXT", "SUMMARY", "DESCRIPTION"]),
         "full_text": pick(["FULL_TEXT", "CONTENT"]),
+        "content": pick(["CONTENT"]),
+        "article_text": pick(["ARTICLE_TEXT", "ARTICLE_BODY"]),
+        "text": pick(["TEXT"]),
+        "summary": pick(["SUMMARY", "DESCRIPTION"]),
         "tags": pick(["TAGS"]),
         "categories": pick(["CATEGORIES"]),
         "pillar_tags": pick(["PILLAR_TAGS"]),
@@ -337,6 +341,7 @@ def fetch_news_list(
     url_col = mapping.get("url")
     source_col = mapping.get("source")
     body_col = mapping.get("body")
+    summary_col = mapping.get("summary")
     pillar_col = mapping.get("pillar_tags")
     categories_col = mapping.get("categories")
     tags_col = mapping.get("tags")
@@ -355,7 +360,8 @@ def fetch_news_list(
         f"SELECT {item_table_col or 'NULL'} AS item_table, {item_id_col} AS item_id, "
         f"{published_col or 'NULL'} AS dt_pub, {ticker_col or 'NULL'} AS ticker, "
         f"{title_col} AS title, {url_col} AS url, {source_col or 'NULL'} AS source_name, "
-        f"{body_col or 'NULL'} AS body, {pillar_col or 'NULL'} AS pillar_tags, "
+        f"{body_col or 'NULL'} AS body, {summary_col or 'NULL'} AS summary, "
+        f"{pillar_col or 'NULL'} AS pillar_tags, "
         f"{categories_col or 'NULL'} AS categories, {tags_col or 'NULL'} AS tags, "
         f"{tickers_col or 'NULL'} AS tickers, {has_full_expr} AS has_full_body "
         f"FROM {table_name} r "
@@ -392,6 +398,7 @@ def fetch_news_list(
             url,
             source_name,
             body,
+            summary_value,
             pillar_tags,
             categories,
             tags_raw,
@@ -420,7 +427,7 @@ def fetch_news_list(
                 "title": title,
                 "source": source_name,
                 "url": url,
-                "summary": body or "",
+                "summary": (summary_value or body or ""),
                 "tags": parsed_tags,
                 "categories": parsed_categories,
                 "pillar_tags": parsed_pillar_tags,
@@ -477,6 +484,10 @@ def fetch_news_detail(*, news_id: str) -> Dict[str, Any]:
     source_col = mapping.get("source")
     body_col = mapping.get("body")
     full_text_col = mapping.get("full_text")
+    content_col = mapping.get("content")
+    article_text_col = mapping.get("article_text")
+    text_col = mapping.get("text")
+    summary_col = mapping.get("summary")
     pillar_col = mapping.get("pillar_tags")
     categories_col = mapping.get("categories")
     tags_col = mapping.get("tags")
@@ -487,12 +498,18 @@ def fetch_news_detail(*, news_id: str) -> Dict[str, Any]:
         raise NewsDataError("News detail source missing required columns.")
 
     full_text_select = full_text_col or "NULL"
+    content_select = content_col or "NULL"
+    article_text_select = article_text_col or "NULL"
+    text_select = text_col or "NULL"
+    summary_select = summary_col or "NULL"
 
     sql = (
         f"SELECT {item_table_col or 'NULL'} AS item_table, {item_id_col} AS item_id, "
         f"{published_col or 'NULL'} AS dt_pub, {ticker_col or 'NULL'} AS ticker, "
         f"{title_col} AS title, {url_col or 'NULL'} AS url, {source_col or 'NULL'} AS source_name, "
         f"{body_col or 'NULL'} AS body, {full_text_select} AS full_text, "
+        f"{content_select} AS content, {article_text_select} AS article_text, "
+        f"{text_select} AS text, {summary_select} AS summary, "
         f"{pillar_col or 'NULL'} AS pillar_tags, {categories_col or 'NULL'} AS categories, "
         f"{tags_col or 'NULL'} AS tags, {tickers_col or 'NULL'} AS tickers "
         f"FROM {table_name} e "
@@ -521,6 +538,10 @@ def fetch_news_detail(*, news_id: str) -> Dict[str, Any]:
                 source_name,
                 body,
                 full_text,
+                content,
+                article_text,
+                text,
+                summary_value,
                 pillar_tags,
                 categories,
                 tags_raw,
@@ -552,9 +573,12 @@ def fetch_news_detail(*, news_id: str) -> Dict[str, Any]:
             "title": title,
             "source": source_name,
             "url": url,
-            "summary": body or "",
-            "body": full_body,
+            "summary": summary_value or body or "",
+            "body": body,
             "full_text": full_body,
+            "content": content,
+            "article_text": article_text,
+            "text": text,
             "tags": parsed_tags,
             "categories": parsed_categories,
             "pillar_tags": parsed_pillar_tags,
