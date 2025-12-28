@@ -33,6 +33,7 @@ const pages = [
 ];
 
 const sanitizeName = (name) => name.replace(/[^a-z0-9_-]+/gi, "_");
+const statusMap = {};
 
 const checkMobileLayout = async (page, label, url) => {
   const result = await page.evaluate(() => {
@@ -124,10 +125,12 @@ const run = async () => {
     await page.addStyleTag({
       content: "* { transition: none !important; animation: none !important; }",
     });
+    statusMap[viewport.label] = {};
 
     for (const entry of pages) {
       const url = `${baseUrl}${entry.path}`;
-      await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
+      const response = await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
+      statusMap[viewport.label][entry.name] = response ? response.status() : 0;
       await page.waitForTimeout(500);
 
       if (runChecks && viewport.mobile) {
@@ -146,6 +149,13 @@ const run = async () => {
   }
 
   await browser.close();
+
+  const statusPath = path.join(outRoot, mode, "status.json");
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(
+    statusPath,
+    JSON.stringify({ baseUrl, mode, capturedAt: new Date().toISOString(), status: statusMap }, null, 2)
+  );
 };
 
 run().catch((err) => {

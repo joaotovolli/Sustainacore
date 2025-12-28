@@ -8,6 +8,8 @@ const outRoot = process.env.VRT_DIR || path.resolve(rootDir, "..", "artifacts", 
 const beforeDir = path.join(outRoot, "baseline");
 const afterDir = path.join(outRoot, "current");
 const diffDir = path.join(outRoot, "diff");
+const statusBeforePath = path.join(beforeDir, "status.json");
+const statusAfterPath = path.join(afterDir, "status.json");
 
 const viewports = [
   { label: "desktop_1440x900", desktop: true, maxMismatch: 0.002 },
@@ -25,6 +27,20 @@ const pages = [
   "tech100_index",
   "tech100_constituents",
 ];
+
+const loadStatus = (filePath) => {
+  if (!fs.existsSync(filePath)) return {};
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    return parsed.status || {};
+  } catch (err) {
+    return {};
+  }
+};
+
+const statusBefore = loadStatus(statusBeforePath);
+const statusAfter = loadStatus(statusAfterPath);
 
 const readPng = (filePath) => PNG.sync.read(fs.readFileSync(filePath));
 
@@ -80,6 +96,19 @@ for (const viewport of viewports) {
   for (const page of pages) {
     const beforePath = path.join(beforeDir, viewport.label, `${page}.png`);
     const afterPath = path.join(afterDir, viewport.label, `${page}.png`);
+    const beforeStatus = statusBefore?.[viewport.label]?.[page];
+    const afterStatus = statusAfter?.[viewport.label]?.[page];
+
+    if (afterStatus && afterStatus >= 500) {
+      console.error(`Current render failed for ${viewport.label} ${page}: status ${afterStatus}`);
+      failed = true;
+      continue;
+    }
+
+    if (beforeStatus && beforeStatus >= 500) {
+      process.stdout.write(`skip diff for ${viewport.label} ${page} (baseline status ${beforeStatus})\n`);
+      continue;
+    }
     assertNotBlank(afterPath);
     const diffPath = path.join(diffDir, viewport.label, `${page}.png`);
     const ratio = diffPair(beforePath, afterPath, diffPath, viewport.maxMismatch);
