@@ -1655,6 +1655,13 @@ def press_index(request):
     return render(request, "press_index.html", context)
 
 
+def privacy(request):
+    context = {
+        "year": datetime.now().year,
+    }
+    return render(request, "privacy.html", context)
+
+
 def press_tech100(request):
     context = {
         "year": datetime.now().year,
