@@ -9,6 +9,10 @@ const getArg = (name, fallback) => {
 };
 
 const mode = getArg("--mode", process.env.VRT_MODE || "current");
+const repoRoot = getArg(
+  "--repo-root",
+  process.env.VRT_REPO_ROOT || path.resolve(process.cwd(), "..")
+);
 const port = Number(process.env.VRT_PORT || "8001");
 const baseUrl = process.env.VRT_BASE_URL || `http://127.0.0.1:${port}`;
 const timeoutMs = Number(process.env.VRT_TIMEOUT_MS || "45000");
@@ -43,10 +47,12 @@ const run = async () => {
     PYTHONUNBUFFERED: "1",
   };
 
-  const managePy = path.join(process.cwd(), "manage.py");
+  const managePy = path.join(repoRoot, "website_django", "manage.py");
+  const djangoDir = path.join(repoRoot, "website_django");
   const runserver = spawn(pythonBin, [managePy, "runserver", `127.0.0.1:${port}`], {
     env,
     stdio: "inherit",
+    cwd: djangoDir,
   });
 
   const ready = await waitForServer();

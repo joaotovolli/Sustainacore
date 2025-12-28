@@ -74,15 +74,14 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main
-          git checkout origin/main
+          git worktree add /tmp/sustainacore-main origin/main
           cd website_django
-          node scripts/run_mobile_vrt_ci.mjs --mode baseline
+          node scripts/run_mobile_vrt_ci.mjs --mode baseline --repo-root /tmp/sustainacore-main
       - name: Capture current (PR)
         run: |
           set -euo pipefail
-          git checkout "$GITHUB_SHA"
           cd website_django
-          node scripts/run_mobile_vrt_ci.mjs --mode current
+          node scripts/run_mobile_vrt_ci.mjs --mode current --repo-root "$GITHUB_WORKSPACE"
       - name: Diff screenshots
         run: |
           set -euo pipefail
