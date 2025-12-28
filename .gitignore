@@ -6,6 +6,9 @@ Thumbs.db
 __pycache__/
 *.pyc
 .venv/
+website_django/venv/
+website_django/staticfiles/
+artifacts/
 .env
 node_modules/
 dist/

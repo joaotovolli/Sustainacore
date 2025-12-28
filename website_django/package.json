@@ -14,6 +14,10 @@
     "screenshots:tech100:before": "node scripts/tech100_screenshots.mjs --mode before",
     "screenshots:tech100:after": "node scripts/tech100_screenshots.mjs --mode after",
     "screenshots:tech100:diff": "node scripts/tech100_screenshot_diff.mjs",
-    "screenshots:tech100:ci": "node scripts/run_tech100_screenshots_ci.mjs"
+    "screenshots:tech100:ci": "node scripts/run_tech100_screenshots_ci.mjs",
+    "vrt:baseline": "node scripts/mobile_vrt.mjs --mode baseline",
+    "vrt:current": "node scripts/mobile_vrt.mjs --mode current",
+    "vrt:diff": "node scripts/mobile_vrt_diff.mjs",
+    "vrt:ci": "node scripts/run_mobile_vrt_ci.mjs"
   }
 }

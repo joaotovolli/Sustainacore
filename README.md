@@ -114,6 +114,20 @@ The helper writes `/etc/systemd/system/sustainacore-ai.service.d/15-persona.conf
 > ![APEX dashboard placeholder](docs/images/apex-dashboard-placeholder.png)
 > ![Ask2 pipeline placeholder](docs/images/ask2-pipeline-placeholder.png)
 
+## Visual regression checks (VM2)
+To validate mobile and desktop layouts for the public site, run the Playwright VRT harness from the Django app:
+
+```bash
+python3 -m pip install -r website_django/requirements.txt
+cd website_django
+npm ci
+node scripts/run_mobile_vrt_ci.mjs --mode baseline
+node scripts/run_mobile_vrt_ci.mjs --mode current
+node scripts/mobile_vrt_diff.mjs
+```
+
+Artifacts are saved under `artifacts/vrt/` (baseline/current/diff) in the repo root.
+
 ## Roadmap
 - Harden observability and tracing for production workloads.
 - Expand integration tests around failover scenarios.

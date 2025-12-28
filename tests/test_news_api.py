@@ -89,7 +89,7 @@ def test_news_endpoint_applies_filters(monkeypatch):
 
     client = _client()
     response = client.get(
-        "/api/news?limit=5&days=10&source=Bloomberg&tag=ai&tag=ml&ticker=MSFT",
+        "/api/news?limit=5&days=10&source=Example%20News&tag=ai&tag=ml&ticker=MSFT",
         headers={"Authorization": f"Bearer {_API_TOKEN}"},
     )
 
@@ -98,7 +98,7 @@ def test_news_endpoint_applies_filters(monkeypatch):
     assert payload["meta"]["limit"] == 5
     assert captured["limit"] == 5
     assert captured["days"] == 10
-    assert captured["source"] == "Bloomberg"
+    assert captured["source"] == "Example News"
     assert captured["tags"] == ["ai", "ml"]
     assert captured["ticker"] == "MSFT"
 

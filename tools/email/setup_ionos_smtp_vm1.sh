@@ -25,7 +25,7 @@ prompt() {
 
 prompt_secret() {
   local prompt_text="$1"
-  read -r -s -p "$prompt_text: " value
+  read -r -s "$prompt_text: " value
   printf '\n' >&2
   printf '%s' "$value"
 }

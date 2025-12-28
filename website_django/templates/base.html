@@ -36,11 +36,14 @@
             <div class="topbar__nav">
                 <nav class="nav nav--primary" aria-label="Primary">
                     <a href="{% url 'home' %}" class="nav__link">Home</a>
-                    <a href="{% url 'ask2:ask2_page' %}" class="nav__link">Ask2 AI Assistant</a>
+                    <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2">
+                        <span class="nav__label nav__label--full">Ask2 AI Assistant</span>
+                        <span class="nav__label nav__label--short">Ask2</span>
+                    </a>
                     <a href="{% url 'tech100' %}" class="nav__link">TECH100</a>
                     <a href="{% url 'news' %}" class="nav__link">News</a>
-                    <a href="mailto:info@sustainacore.org" class="nav__link">Contact</a>
-                    <a href="https://github.com/joaotovolli/Sustainacore" class="nav__link" target="_blank" rel="noreferrer">GitHub</a>
+                    <a href="mailto:info@sustainacore.org" class="nav__link nav__link--aux">Contact</a>
+                    <a href="https://github.com/joaotovolli/Sustainacore" class="nav__link nav__link--aux" target="_blank" rel="noreferrer">GitHub</a>
                 </nav>
                 <div class="nav nav--auth" aria-label="Account">
                     {% if is_logged_in %}

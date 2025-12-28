@@ -253,6 +253,10 @@ h3 {
     letter-spacing: 0.01em;
 }
 
+.nav__label--short {
+    display: none;
+}
+
 .nav__link:hover {
     background: rgba(255, 255, 255, 0.12);
     color: #fff;
@@ -2290,9 +2294,54 @@ textarea:focus {
     .tech100-filters-row {
         padding: 0 1.25rem 1rem;
     }
+
+    .shell,
+    .page__container {
+        padding-left: 1.25rem;
+        padding-right: 1.25rem;
+    }
+
+    .topbar__inner {
+        padding: 0.75rem 0;
+        gap: 0.75rem;
+    }
+
+    .topbar__nav {
+        flex-wrap: wrap;
+        row-gap: 0.65rem;
+    }
+
+    .brand__text {
+        min-width: 0;
+    }
+
+    .brand__tagline {
+        display: none;
+    }
+
+    .nav--primary {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 0.35rem;
+    }
+
+    .nav__link {
+        font-size: 0.9rem;
+        padding: 0.4rem 0.65rem;
+        white-space: nowrap;
+    }
+
+    .nav__link--aux {
+        display: none;
+    }
 }
 
 @media (max-width: 768px) {
+    body {
+        overflow-x: hidden;
+    }
+
     .topbar__inner {
         flex-direction: column;
         align-items: flex-start;
@@ -2310,7 +2359,41 @@ textarea:focus {
 
     .nav--auth {
         width: 100%;
-        justify-content: flex-start;
+        justify-content: flex-end;
+    }
+
+    .nav__label--full {
+        display: none;
+    }
+
+    .nav__label--short {
+        display: inline;
+    }
+
+    .nav--primary {
+        gap: 0.4rem;
+        padding-bottom: 0.25rem;
+        scrollbar-width: none;
+    }
+
+    .nav--primary::-webkit-scrollbar {
+        display: none;
+    }
+
+    .auth-pill__button {
+        max-width: 100%;
+    }
+
+    .auth-pill__label {
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .page__container {
+        padding-left: 1rem;
+        padding-right: 1rem;
     }
 
     .hero__grid {
@@ -2356,11 +2439,47 @@ textarea:focus {
     .tech100-index__actions {
         justify-content: flex-start;
     }
+
+    .page {
+        padding-top: 1.25rem;
+    }
+
+    .section {
+        padding: 2.5rem 0;
+    }
+
+    .section--with-header {
+        padding-top: 3rem;
+    }
+
+    .hero {
+        padding: 2.5rem 0 2rem;
+    }
+
+    .table-wrap {
+        max-height: none;
+    }
+
+    .table-wrapper,
+    .table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+    }
+
+    .table-wrap table,
+    .table-wrapper table {
+        min-width: 720px;
+    }
 }
 
 @media (max-width: 640px) {
     .tech100-home__range {
         flex-wrap: wrap;
+    }
+
+    .section {
+        padding: 2rem 0;
     }
 }
 
