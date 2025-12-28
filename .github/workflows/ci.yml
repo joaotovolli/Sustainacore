@@ -70,6 +70,11 @@ jobs:
           set -euo pipefail
           cd website_django
           npm ci
+      - name: Install Playwright browsers
+        run: |
+          set -euo pipefail
+          cd website_django
+          npx playwright install --with-deps chromium
       - name: Capture baseline (main)
         run: |
           set -euo pipefail
