@@ -1,4 +1,5 @@
 from datetime import datetime, date, timedelta
+import os
 import uuid
 import csv
 import json
@@ -71,6 +72,64 @@ def _mask_email(value: str) -> str:
     else:
         masked = f"{name[0]}***"
     return f"{masked}@{domain}"
+
+
+def _news_fixture_items() -> List[Dict[str, object]]:
+    return [
+        {
+            "id": "NEWS_ITEMS:99",
+            "title": "Responsible AI governance updates for Q3",
+            "summary": "A concise overview of the quarter’s policy signals, disclosure trends, and board-level oversight moves.",
+            "source": "SustainaCore",
+            "published_at": "2025-01-02",
+            "tags": ["Governance", "Policy"],
+            "has_full_body": True,
+        },
+        {
+            "id": "NEWS_ITEMS:44",
+            "title": "Transparency report highlights from leading firms",
+            "summary": "Key themes across transparency reports including audit scope, model risk tracking, and incident response.",
+            "source": "SustainaCore",
+            "published_at": "2025-01-01",
+            "tags": ["Transparency"],
+            "has_full_body": True,
+        },
+        {
+            "id": "NEWS_ITEMS:77",
+            "title": "Regulatory signals shaping AI disclosure",
+            "summary": "A snapshot of new regulatory guidance and what it means for public accountability commitments.",
+            "source": "SustainaCore",
+            "published_at": "2024-12-28",
+            "tags": ["Regulation"],
+            "has_full_body": True,
+        },
+    ]
+
+
+def _news_fixture_detail(news_id: str) -> Optional[Dict[str, object]]:
+    fixtures = {
+        "NEWS_ITEMS:99": "This full article expands on governance updates, covering policy milestones, stakeholder engagement, and risk review practices in depth.",
+        "NEWS_ITEMS:44": "This full article unpacks transparency report coverage including model risk controls, audit outcomes, and disclosure cadence.",
+        "NEWS_ITEMS:77": "This full article reviews regulatory guidance, highlighting disclosure expectations and oversight requirements.",
+    }
+    body = fixtures.get(news_id)
+    if not body:
+        return None
+    title = next((item["title"] for item in _news_fixture_items() if item["id"] == news_id), "News update")
+    return {
+        "id": news_id,
+        "title": title,
+        "summary": body[:200],
+        "full_text": body,
+        "source": "SustainaCore",
+        "published_at": "2025-01-02T12:30:00Z",
+        "url": "",
+        "tags": ["Governance"],
+        "categories": [],
+        "pillar_tags": [],
+        "ticker": None,
+        "has_full_body": True,
+    }
 
 
 def _backend_host() -> str:
@@ -1249,6 +1308,35 @@ def tech100_export(request):
 
 
 def news(request):
+    if os.getenv("NEWS_UI_DATA_MODE") == "fixture":
+        news_items = _news_fixture_items()
+        back_query = request.GET.urlencode()
+        context = {
+            "year": datetime.now().year,
+            "articles": news_items,
+            "news_error": None,
+            "news_error_ref": None,
+            "news_meta": {"count": len(news_items), "has_more": False},
+            "news_json_ld": "",
+            "filters": {"source": "", "tag": "", "ticker": "", "date_range": "all"},
+            "source_options": ["SustainaCore"],
+            "tag_options": sorted({tag for item in news_items for tag in item.get("tags", [])}),
+            "source_supported": True,
+            "tag_supported": True,
+            "ticker_supported": False,
+            "back_query": back_query,
+            "page": 1,
+            "prev_url": None,
+            "next_url": None,
+            "date_range_options": [
+                {"value": "all", "label": "All time"},
+                {"value": "7", "label": "Last 7 days"},
+                {"value": "30", "label": "Last 30 days"},
+                {"value": "90", "label": "Last 90 days"},
+                {"value": "365", "label": "Last 12 months"},
+            ],
+        }
+        return render(request, "news.html", context)
     raw_date_range = (request.GET.get("date_range") or "all").strip()
     date_range = raw_date_range if raw_date_range in {"all", "7", "30", "90"} else "all"
     filters = {
@@ -1383,15 +1471,19 @@ def news_detail(request, news_id: str):
     detail_response = {"item": None, "error": None}
     selected_item = None
     news_error_ref = None
-    try:
-        detail_response = fetch_news_detail_oracle(news_id=decoded_id or resolved_id)
-        selected_item = detail_response.get("item")
-    except NewsDataError:
-        ref = f"news-detail-{uuid.uuid4().hex[:8]}"
-        news_error_ref = ref
-        logger.exception("news_oracle_error detail ref=%s", ref)
-        log_event("news_detail_error", request, metadata={"ref": ref, "news_id": decoded_id or resolved_id})
-        detail_response = {"item": None, "error": f"News details are temporarily unavailable. Reference ID: {ref}"}
+    if os.getenv("NEWS_UI_DATA_MODE") == "fixture":
+        selected_item = _news_fixture_detail(decoded_id or resolved_id)
+        detail_response = {"item": selected_item, "error": None if selected_item else "News item not found."}
+    else:
+        try:
+            detail_response = fetch_news_detail_oracle(news_id=decoded_id or resolved_id)
+            selected_item = detail_response.get("item")
+        except NewsDataError:
+            ref = f"news-detail-{uuid.uuid4().hex[:8]}"
+            news_error_ref = ref
+            logger.exception("news_oracle_error detail ref=%s", ref)
+            log_event("news_detail_error", request, metadata={"ref": ref, "news_id": decoded_id or resolved_id})
+            detail_response = {"item": None, "error": f"News details are temporarily unavailable. Reference ID: {ref}"}
 
     published_at = _parse_news_datetime(selected_item.get("published_at")) if selected_item else None
     body_text = ""

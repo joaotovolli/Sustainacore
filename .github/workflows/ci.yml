@@ -21,6 +21,16 @@ jobs:
           fi
           echo "No tracked .env or wallet files detected."
 
+  guard-forbidden-terms:
+    name: Guard forbidden terms
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for forbidden provider terms
+        run: |
+          set -euo pipefail
+          python3 tools/guard_forbidden_terms.py
+
   persona-guard:
     name: Persona guard (manual eval lives in persona-eval)
     runs-on: ubuntu-latest
@@ -40,3 +50,46 @@ jobs:
             echo;
             echo "Use **Actions → Persona eval → Run workflow** to execute the full evaluation when you need persona coverage.";
           } >> "$GITHUB_STEP_SUMMARY"
+
+  vrt-mobile:
+    name: Mobile VRT (desktop hard gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          python3 -m pip install -r website_django/requirements.txt
+      - name: Install Node dependencies
+        run: |
+          set -euo pipefail
+          cd website_django
+          npm ci
+      - name: Capture baseline (main)
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout origin/main
+          cd website_django
+          node scripts/run_mobile_vrt_ci.mjs --mode baseline
+      - name: Capture current (PR)
+        run: |
+          set -euo pipefail
+          git checkout "$GITHUB_SHA"
+          cd website_django
+          node scripts/run_mobile_vrt_ci.mjs --mode current
+      - name: Diff screenshots
+        run: |
+          set -euo pipefail
+          cd website_django
+          node scripts/mobile_vrt_diff.mjs
+      - name: Upload VRT artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-vrt-artifacts
+          path: artifacts/vrt
