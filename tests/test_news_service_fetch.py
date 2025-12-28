@@ -74,7 +74,7 @@ def test_fetch_news_items_maps_rows_and_meta(monkeypatch):
             "MSFT",
             "Example headline",
             "https://example.com/article",
-            "Bloomberg",
+            "Example News",
             "Summary text",
             "E, G",
             "Markets, Technology",
@@ -88,7 +88,7 @@ def test_fetch_news_items_maps_rows_and_meta(monkeypatch):
             "AAPL",
             "Another headline",
             "https://example.com/other",
-            "Reuters",
+            "Example Source",
             "Body text",
             None,
             None,
@@ -103,7 +103,7 @@ def test_fetch_news_items_maps_rows_and_meta(monkeypatch):
     monkeypatch.setattr(news_service, "get_connection", lambda: fake_conn)
 
     items, has_more, effective_limit = news_service.fetch_news_items(
-        limit=1, days=30, source="Bloomberg", tags=["tech"], ticker=None
+        limit=1, days=30, source="Example News", tags=["tech"], ticker=None
     )
 
     assert effective_limit == 1
@@ -113,7 +113,7 @@ def test_fetch_news_items_maps_rows_and_meta(monkeypatch):
     item = items[0]
     assert item["id"] == "NEWS_ITEMS:123"
     assert item["title"] == "Example headline"
-    assert item["source"] == "Bloomberg"
+    assert item["source"] == "Example News"
     assert item["url"] == "https://example.com/article"
     assert item["summary"] == "Summary text"
     assert item["tags"] == ["esg", "tech"]
@@ -125,7 +125,7 @@ def test_fetch_news_items_maps_rows_and_meta(monkeypatch):
     assert "FROM v_news_recent" in cursor.executed_sql
     assert cursor.binds["limit_plus_one"] == 2
     assert cursor.binds["days"] == 30
-    assert cursor.binds["source"] == "Bloomberg"
+    assert cursor.binds["source"] == "Example News"
     assert any(key.startswith("tag_") for key in cursor.binds)
 
 
