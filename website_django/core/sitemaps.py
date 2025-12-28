@@ -31,6 +31,7 @@ class StaticViewSitemap(Sitemap):
         "ask2:ask2_page": "ask2.html",
         "press_index": "press_index.html",
         "press_tech100": "press_tech100.html",
+        "privacy": "privacy.html",
     }
 
     def items(self):
