@@ -13,6 +13,7 @@ const mode = getArg("--mode", process.env.VRT_MODE || "current");
 const baseUrl = getArg("--base-url", process.env.VRT_BASE_URL || "http://127.0.0.1:8001");
 const outRoot = process.env.VRT_DIR || path.resolve(process.cwd(), "..", "artifacts", "vrt");
 const timeoutMs = Number(process.env.VRT_TIMEOUT_MS || "60000");
+const runChecks = mode !== "baseline";
 
 const viewports = [
   { label: "desktop_1440x900", width: 1440, height: 900, mobile: false },
@@ -129,7 +130,7 @@ const run = async () => {
       await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
       await page.waitForTimeout(500);
 
-      if (viewport.mobile) {
+      if (runChecks && viewport.mobile) {
         await checkMobileLayout(page, viewport.label, url);
       }
 
