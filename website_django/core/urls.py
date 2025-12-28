@@ -33,6 +33,7 @@ urlpatterns = [
     path("", views.home, name="home"),
     path("press/", views.press_index, name="press_index"),
     path("press/tech100/", views.press_tech100, name="press_tech100"),
+    path("privacy/", views.privacy, name="privacy"),
     path("login/", views.login_email, name="login"),
     path("login/code/", views.login_code, name="login_code"),
     path("logout/", views.logout, name="logout"),
