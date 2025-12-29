@@ -21,6 +21,9 @@
           </p>
           <p class="disclaimer-banner">
             <a class="text-link" href="/tech100/methodology/">Methodology &amp; Limitations</a>
+            {% if not vrt_hide_corrections %}
+              <span class="disclaimer-banner__corrections"> · <a class="text-link" href="/corrections/">Corrections &amp; Complaints</a></span>
+            {% endif %}
             · Research only. Not investment advice. Not affiliated with any company, exchange, or index provider.
           </p>
         </div>

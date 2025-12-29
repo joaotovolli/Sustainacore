@@ -1,4 +1,5 @@
 SustainaCore — Autopilot rules for Codex.
+<!-- cspell:ignore certifi noreload ionice -->
 - Keep /ask2 contract (q,k -> {answer,sources,meta})
 - Build: python3 -m venv .venv && source .venv/bin/activate && pip -U pip wheel && pip -r requirements.txt && pytest -q || true
 - Run: uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
@@ -31,6 +32,17 @@ Agents:
 ## VM2 Resource Constraints
 - VM2 is resource constrained (1 CPU core, ~1 GB RAM).
 - VRT and headless browser runs can stall the VM; use GitHub Actions when possible.
+
+## Python & Virtual Environment (VM2 / Django)
+- On Ubuntu, `python` may be absent; always use `python3`.
+- Always activate the repo virtual environment before Django commands:
+  - If `.venv` exists: `source .venv/bin/activate`
+  - Else create it: `python3 -m venv .venv && source .venv/bin/activate`
+- Use `python -m pip ...` inside the venv (never system pip).
+- Run Django commands as:
+  - `DJANGO_SECRET_KEY=test python website_django/manage.py check`
+  - `DJANGO_SECRET_KEY=test python website_django/manage.py runserver 127.0.0.1:<PORT> --noreload`
+- Do not stop for “python: command not found”; switch to `python3` + venv and continue.
 
 ## Performance Guardrails (VM2)
 - MUST run local Django servers with `python manage.py runserver ... --noreload`.
