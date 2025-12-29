@@ -14,8 +14,9 @@ const statusAfterPath = path.join(afterDir, "status.json");
 const viewports = [
   { label: "desktop_1440x900", desktop: true, maxMismatch: 0.002 },
   { label: "desktop_1920x1080", desktop: true, maxMismatch: 0.002 },
-  { label: "mobile_390x844", desktop: false, maxMismatch: 1 },
-  { label: "mobile_844x390", desktop: false, maxMismatch: 1 },
+  // Mobile is advisory unless the mismatch exceeds 1% to avoid minor reflow noise.
+  { label: "mobile_390x844", desktop: false, maxMismatch: 0.01 },
+  { label: "mobile_844x390", desktop: false, maxMismatch: 0.01 },
 ];
 
 const pages = [
@@ -91,8 +92,10 @@ const diffPair = (beforePath, afterPath, diffPath, maxMismatch) => {
 
 let failed = false;
 fs.mkdirSync(diffDir, { recursive: true });
+const summary = {};
 
 for (const viewport of viewports) {
+  summary[viewport.label] = {};
   for (const page of pages) {
     const beforePath = path.join(beforeDir, viewport.label, `${page}.png`);
     const afterPath = path.join(afterDir, viewport.label, `${page}.png`);
@@ -114,12 +117,25 @@ for (const viewport of viewports) {
     const ratio = diffPair(beforePath, afterPath, diffPath, viewport.maxMismatch);
     const ratioText = (ratio * 100).toFixed(2);
     process.stdout.write(`${viewport.label} ${page} mismatch ${ratioText}%\n`);
+    summary[viewport.label][page] = {
+      mismatchRatio: ratio,
+      mismatchPercent: Number(ratioText),
+      baselineStatus: beforeStatus ?? null,
+      currentStatus: afterStatus ?? null,
+    };
     if (viewport.desktop && ratio > viewport.maxMismatch) {
       console.error(`Desktop diff too large for ${viewport.label} ${page}: ${ratioText}%`);
       failed = true;
     }
+    if (!viewport.desktop && ratio > viewport.maxMismatch) {
+      console.error(`Mobile diff too large for ${viewport.label} ${page}: ${ratioText}%`);
+      failed = true;
+    }
   }
 }
+
+const summaryPath = path.join(diffDir, "summary.json");
+fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
 
 if (failed) {
   process.exit(1);

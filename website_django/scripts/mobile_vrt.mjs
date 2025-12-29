@@ -120,16 +120,47 @@ const run = async () => {
   for (const viewport of viewports) {
     const context = await browser.newContext({
       viewport: { width: viewport.width, height: viewport.height },
+      deviceScaleFactor: 1,
+      locale: "en-US",
+      timezoneId: "UTC",
+      reducedMotion: "reduce",
+    });
+    await context.addInitScript(() => {
+      window.__VRT__ = true;
+      const fixed = new Date("2025-01-01T00:00:00Z").getTime();
+      const NativeDate = Date;
+      class MockDate extends NativeDate {
+        constructor(...args) {
+          if (args.length === 0) {
+            return new NativeDate(fixed);
+          }
+          return new NativeDate(...args);
+        }
+        static now() {
+          return fixed;
+        }
+      }
+      MockDate.parse = NativeDate.parse;
+      MockDate.UTC = NativeDate.UTC;
+      MockDate.prototype = NativeDate.prototype;
+      window.Date = MockDate;
+      Math.random = () => 0.42;
     });
     const page = await context.newPage();
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.addStyleTag({
-      content: "* { transition: none !important; animation: none !important; }",
+      content: "* { transition: none !important; animation: none !important; caret-color: transparent !important; }",
     });
     statusMap[viewport.label] = {};
 
     for (const entry of pages) {
       const url = `${baseUrl}${entry.path}`;
       const response = await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
+      await page.evaluate(async () => {
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+      });
       statusMap[viewport.label][entry.name] = response ? response.status() : 0;
       await page.waitForTimeout(500);
 
