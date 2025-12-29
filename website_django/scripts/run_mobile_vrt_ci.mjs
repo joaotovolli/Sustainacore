@@ -44,6 +44,7 @@ const run = async () => {
     DJANGO_DEBUG: "1",
     TECH100_UI_DATA_MODE: "fixture",
     NEWS_UI_DATA_MODE: "fixture",
+    VRT_HIDE_CORRECTIONS_LINKS: process.env.VRT_HIDE_CORRECTIONS_LINKS || "1",
     PYTHONUNBUFFERED: "1",
   };
 
