@@ -122,6 +122,13 @@
                         Email address
                         <input type="email" data-email-input placeholder="you@example.com" autocomplete="email" />
                     </label>
+                    <label class="consent-check">
+                        <input type="checkbox" data-terms-accept />
+                        <span>
+                            I agree to the <a class="text-link" href="/terms/">Terms and Conditions</a> and
+                            <a class="text-link" href="/privacy/">Privacy Policy</a>.
+                        </span>
+                    </label>
                     <p class="modal__microcopy">No passwords. Code expires in 2 minutes.</p>
                     <div class="modal__actions">
                         <button class="btn btn--primary" type="button" data-send-code>Send code</button>
@@ -166,6 +173,7 @@
                 <a href="{% url 'ask2:ask2_page' %}" class="nav__link">Ask2 AI Assistant</a>
                 <a href="mailto:info@sustainacore.org" class="nav__link">Contact</a>
                 <a href="{% url 'privacy' %}" class="nav__link">Privacy Policy</a>
+                <a href="{% url 'terms' %}" class="nav__link">Terms</a>
                 <a href="{% url 'corrections' %}" class="nav__link">Corrections &amp; Complaints</a>
                 <a href="https://github.com/joaotovolli/Sustainacore" class="nav__link" target="_blank" rel="noreferrer">GitHub</a>
             </div>

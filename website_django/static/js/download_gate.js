@@ -19,6 +19,7 @@
   const sendButton = modal.querySelector("[data-send-code]");
   const verifyButton = modal.querySelector("[data-verify-code]");
   const emailDisplay = modal.querySelector("[data-email-display]");
+  const termsCheckbox = modal.querySelector("[data-terms-accept]");
   const focusableSelector = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
 
   const pendingKey = "sc_pending_download";
@@ -77,6 +78,8 @@
     errorBox.textContent = message;
     errorBox.hidden = !message;
   };
+
+  const hasAcceptedTerms = () => !termsCheckbox || termsCheckbox.checked;
 
   const trapFocus = (container, event) => {
     const focusable = Array.from(container.querySelectorAll(focusableSelector)).filter(
@@ -312,6 +315,10 @@
       showError("Please enter a valid email.");
       return;
     }
+    if (!hasAcceptedTerms()) {
+      showError("Please agree to the Terms and Privacy Policy to receive a code.");
+      return;
+    }
     showError("");
     sendButton.disabled = true;
     try {
@@ -322,10 +329,19 @@
           "Content-Type": "application/json",
           "X-CSRFToken": getCookie("csrftoken"),
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, terms_accepted: true }),
       });
       if (!resp.ok) {
-        showError("We could not send a code right now. Please try again.");
+        let message = "We could not send a code right now. Please try again.";
+        try {
+          const data = await resp.json();
+          if (data?.error === "terms_required") {
+            message = "Please agree to the Terms and Privacy Policy to receive a code.";
+          }
+        } catch (err) {
+          // ignore JSON errors
+        }
+        showError(message);
         sendButton.disabled = false;
         return;
       }
@@ -344,6 +360,10 @@
       showError("Please enter a valid email.");
       return;
     }
+    if (!hasAcceptedTerms()) {
+      showError("Please agree to the Terms and Privacy Policy to receive a code.");
+      return;
+    }
     showError("");
     try {
       await fetch("/auth/request-code/", {
@@ -353,7 +373,7 @@
           "Content-Type": "application/json",
           "X-CSRFToken": getCookie("csrftoken"),
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, terms_accepted: true }),
       });
     } catch (err) {
       showError("We could not resend the code. Please try again.");
@@ -381,7 +401,16 @@
         body: JSON.stringify({ email, code }),
       });
       if (!resp.ok) {
-        showError("Invalid or expired code. Please try again.");
+        let message = "Invalid or expired code. Please try again.";
+        try {
+          const data = await resp.json();
+          if (data?.error === "terms_required") {
+            message = "Please accept the Terms and Privacy Policy before signing in.";
+          }
+        } catch (err) {
+          // ignore JSON errors
+        }
+        showError(message);
         verifyButton.disabled = false;
         return;
       }
