@@ -28,6 +28,31 @@ Agents:
 - Desktop/laptop is the primary target.
 - Improve mobile without harming desktop; never degrade desktop to “fix” mobile.
 
+## VM2 Resource Constraints
+- VM2 is resource constrained (1 CPU core, ~1 GB RAM).
+- VRT and headless browser runs can stall the VM; use GitHub Actions when possible.
+
+## Performance Guardrails (VM2)
+- MUST run local Django servers with `python manage.py runserver ... --noreload`.
+- Prefer running full VRT in GitHub Actions, not on VM2.
+- If running VRT locally, use a single worker and throttle with `nice`/`ionice`.
+- Never run `npm ci` unless required by a failing command.
+- Avoid scanning huge trees (e.g., node_modules) in reload/watch modes.
+- Always capture evidence before/after heavy tasks: `uptime`, `free -h`, `df -h`.
+
+### Health Check Commands
+```bash
+free -h
+uptime
+vmstat 1 5
+ps aux --sort=-%mem | head -n 15
+dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
+```
+
+### Stop Conditions (VM2)
+- If MemAvailable < 150MB or load average > 2.0 for >60s, stop heavy tasks and revert to GitHub-only verification.
+- If SSH becomes unresponsive, do not keep retrying heavy commands.
+
 ## Oracle Bootstrap Contract (VM1)
 - Codex CLI shells may start with no DB_* envs; this is expected.
 - Never source /etc/sustainacore/*.env or /etc/sustainacore-ai/*.env (not bash-safe).
