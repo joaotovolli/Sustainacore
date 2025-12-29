@@ -49,11 +49,15 @@ const run = async () => {
 
   const managePy = path.join(repoRoot, "website_django", "manage.py");
   const djangoDir = path.join(repoRoot, "website_django");
-  const runserver = spawn(pythonBin, [managePy, "runserver", `127.0.0.1:${port}`], {
-    env,
-    stdio: "inherit",
-    cwd: djangoDir,
-  });
+  const runserver = spawn(
+    pythonBin,
+    [managePy, "runserver", `127.0.0.1:${port}`, "--noreload"],
+    {
+      env,
+      stdio: "inherit",
+      cwd: djangoDir,
+    }
+  );
 
   const ready = await waitForServer();
   if (!ready) {
