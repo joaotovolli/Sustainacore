@@ -54,10 +54,6 @@ TECH100_PREVIEW_LIMIT = 25
 PAGE_CACHE_SECONDS = 60
 
 
-def _vrt_hide_corrections_links() -> bool:
-    return os.environ.get("VRT_HIDE_CORRECTIONS_LINKS") == "1"
-
-
 def _backend_url(path: str) -> str:
     base = settings.SUSTAINACORE_BACKEND_URL.rstrip("/")
     return f"{base}{path}"
@@ -1243,7 +1239,6 @@ def tech100(request):
         "total_count": total_count,
         "preview_limit": TECH100_PREVIEW_LIMIT,
         "is_preview": is_preview,
-        "vrt_hide_corrections": _vrt_hide_corrections_links(),
     }
     return render(request, "tech100.html", context)
 

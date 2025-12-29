@@ -17,6 +17,7 @@
     "node_modules",
     "dist",
     "build",
+    "artifacts/**",
     "**/*.lock",
     "**/.venv/**",
     "**/__pycache__/**",
