@@ -1675,8 +1675,9 @@ textarea:focus {
 
 .footer__links {
     display: grid;
-    gap: 0.4rem;
+    gap: 0.3rem;
     align-content: start;
+    font-size: 0.95rem;
 }
 
 .footer__meta {
