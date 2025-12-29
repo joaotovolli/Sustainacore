@@ -34,6 +34,7 @@ urlpatterns = [
     path("press/", views.press_index, name="press_index"),
     path("press/tech100/", views.press_tech100, name="press_tech100"),
     path("privacy/", views.privacy, name="privacy"),
+    path("terms/", views.terms, name="terms"),
     path("corrections/", views.corrections, name="corrections"),
     path("tech100/methodology/", views.tech100_methodology, name="tech100_methodology"),
     path("login/", views.login_email, name="login"),

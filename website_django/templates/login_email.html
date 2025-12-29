@@ -27,6 +27,13 @@
                     Email address
                     <input type="email" name="email" placeholder="you@example.com" required />
                 </label>
+                <label class="consent-check">
+                    <input type="checkbox" name="terms_accept" required />
+                    <span>
+                        I agree to the <a class="text-link" href="/terms/">Terms and Conditions</a> and
+                        <a class="text-link" href="/privacy/">Privacy Policy</a>.
+                    </span>
+                </label>
                 {% if next %}
                     <input type="hidden" name="next" value="{{ next }}" />
                 {% endif %}
