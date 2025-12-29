@@ -1643,7 +1643,7 @@ textarea:focus {
 .disclaimer-banner {
     font-size: 0.85rem;
     color: var(--muted);
-    margin-top: 0.4rem;
+    margin-top: 0.35rem;
     line-height: 1.4;
 }
 
