@@ -1,5 +1,6 @@
 SustainaCore
 TECH100
+Tech100
 SC_IDX
 AlphaVantage
 ALPHAVANTAGE
@@ -33,7 +34,12 @@ nofollow
 nosnippet
 noarchive
 certbot
+certifi
 htpasswd
 Playwright
+noreload
 runserver
 Gunicorn
+ionice
+AIGES
+VRT

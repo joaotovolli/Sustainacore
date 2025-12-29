@@ -17,6 +17,7 @@ build/
 *.bak
 *.dump
 *.dmp
+*.sqlite3
 *.zip
 *.tgz
 *.7z
