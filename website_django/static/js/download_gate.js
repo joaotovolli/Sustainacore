@@ -26,6 +26,7 @@
   const pendingNextKey = "sc_pending_next";
   const intentKey = "sc_post_auth_intent";
   const intentNextKey = "sc_post_auth_next";
+  const detailsIntentKey = "sc_post_auth_details";
   const unlockMetaKey = "sc_unlock_meta";
   const unlockSuccessKey = "sc_unlock_success";
 
@@ -164,6 +165,25 @@
     sessionStorage.removeItem(intentNextKey);
   };
 
+  const setDetailsIntent = (payload) => {
+    try {
+      sessionStorage.setItem(detailsIntentKey, JSON.stringify(payload || {}));
+    } catch (err) {
+      // ignore storage errors
+    }
+  };
+
+  const popDetailsIntent = () => {
+    const raw = sessionStorage.getItem(detailsIntentKey);
+    sessionStorage.removeItem(detailsIntentKey);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      return null;
+    }
+  };
+
   const storeUnlockMeta = (metadata) => {
     try {
       sessionStorage.setItem(unlockMetaKey, JSON.stringify(metadata || {}));
@@ -200,6 +220,13 @@
         window.location.reload();
       }
     }
+    if (intent.type === "details_modal" && isLoggedIn()) {
+      clearPostAuthIntent();
+      const detailsPayload = popDetailsIntent();
+      if (detailsPayload) {
+        window.dispatchEvent(new CustomEvent("sc:open-tech100-details", { detail: detailsPayload }));
+      }
+    }
   };
 
   const handleDownloadClick = (event, link, href) => {
@@ -220,6 +247,17 @@
     if (!opened) {
       window.location.assign(href);
     }
+  };
+
+  const gateDetails = (payload) => {
+    if (isLoggedIn()) {
+      return false;
+    }
+    clearPostAuthIntent();
+    setPostAuthIntent("details_modal", window.location.href);
+    setDetailsIntent(payload);
+    openModal();
+    return true;
   };
 
   const isDownloadUrl = (href) => {
@@ -455,4 +493,9 @@
       preview_limit: metadata.preview_limit || "",
     });
   }
+
+  window.SCDownloadGate = {
+    isLoggedIn,
+    gateDetails,
+  };
 })();

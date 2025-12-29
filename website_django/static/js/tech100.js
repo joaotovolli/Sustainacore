@@ -4,7 +4,6 @@
   const content = modal ? modal.querySelector("#tech100-modal-content") : null;
   const title = modal ? modal.querySelector("#tech100-modal-title") : null;
   const closeButton = modal ? modal.querySelector(".modal__close") : null;
-  const detailsButtons = document.querySelectorAll(".tech100-details-button");
   const copyButtons = document.querySelectorAll("[data-copy-link]");
   let activeTrigger = null;
 
@@ -33,11 +32,11 @@
     });
   });
 
-  if (!modal || !dialog || !content || !detailsButtons.length) {
+  if (!modal || !dialog || !content) {
     return;
   }
 
-  function openModal(templateId, companyLabel) {
+  function openModal(templateId, companyLabel, trigger) {
     const template = document.getElementById(templateId);
     if (!template) return;
 
@@ -53,6 +52,9 @@
       modal.classList.add("is-visible");
     });
     document.body.classList.add("has-modal-open");
+    if (trigger) {
+      activeTrigger = trigger;
+    }
     dialog.focus({ preventScroll: true });
   }
 
@@ -66,11 +68,26 @@
     }
   }
 
-  detailsButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      activeTrigger = button;
-      openModal(button.dataset.template, button.dataset.company);
-    });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".tech100-details-button");
+    if (!button) return;
+    const payload = {
+      templateId: button.dataset.template,
+      companyLabel: button.dataset.company,
+    };
+    const gate = window.SCDownloadGate?.gateDetails;
+    if (typeof gate === "function" && gate(payload)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    openModal(payload.templateId, payload.companyLabel, button);
+  });
+
+  window.addEventListener("sc:open-tech100-details", (event) => {
+    const detail = event.detail || {};
+    if (!detail.templateId) return;
+    openModal(detail.templateId, detail.companyLabel, null);
   });
 
   closeButton?.addEventListener("click", closeModal);
