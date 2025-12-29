@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Tech100 AI Ethics &amp; Governance Index | Methodology &amp; Limitations{% endblock %}
+{% block meta_description %}Methodology and limitations for the Tech100 AI Ethics & Governance Index.{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header">
+            <p class="eyebrow">TECH100 Index</p>
+            <h1>Tech100 AI Ethics &amp; Governance Index</h1>
+            <p class="muted">Methodology &amp; Limitations</p>
+        </div>
+
+        <div class="card card--lined">
+            <h2>Purpose</h2>
+            <p>The Tech100 AI Ethics &amp; Governance Index is a research index created by SustainaCore to assess how large, influential technology-adjacent companies approach Artificial Intelligence (AI) governance and ethics. The index is designed for educational and informational use and is not intended as investment advice.</p>
+
+            <h2>Universe and inclusion criteria</h2>
+            <p>The index tracks 100 publicly traded companies selected using a repeatable, research-driven process based on publicly available information and broad market relevance to Artificial Intelligence (AI)-enabled products, services, or infrastructure. The universe is reviewed at each rebalance.</p>
+
+            <h2>Scoring framework: AI Governance &amp; Ethics Score (AIGES)</h2>
+            <p>Each constituent is assessed across five pillars. Each pillar is scored on a 0–100 scale.</p>
+            <ol>
+                <li><strong>Transparency</strong><br>Public clarity of Artificial Intelligence (AI)-related disclosures, governance reporting, and clarity about how Artificial Intelligence (AI) is used and managed.</li>
+                <li><strong>Ethical Principles</strong><br>Existence and clarity of responsible Artificial Intelligence (AI) principles, commitments, and documented approaches to harm mitigation.</li>
+                <li><strong>Governance Structure</strong><br>Evidence of internal accountability, oversight mechanisms, and governance processes related to Artificial Intelligence (AI) risk.</li>
+                <li><strong>Regulatory Alignment</strong><br>Alignment with relevant regulatory expectations and demonstrated readiness for evolving Artificial Intelligence (AI) governance requirements.</li>
+                <li><strong>Stakeholder Engagement</strong><br>Evidence of engagement with stakeholders (users, industry initiatives, research communities, civil society, and partners) on Artificial Intelligence (AI) governance and safety topics.</li>
+            </ol>
+
+            <h2>Composite score calculation</h2>
+            <p>The AI Governance &amp; Ethics Score (AIGES) Composite Average is calculated as the simple average of the five pillar scores:</p>
+            <p><strong>AIGES Composite Average = (Transparency + Ethical Principles + Governance Structure + Regulatory Alignment + Stakeholder Engagement) / 5</strong></p>
+
+            <h2>Ranking</h2>
+            <p>Constituents are ranked from highest to lowest by AIGES Composite Average. Where scores are tied, a deterministic tie-break approach is applied to ensure ranking stability.</p>
+
+            <h2>Weighting</h2>
+            <p>At each rebalance:</p>
+            <ul>
+                <li>The top 25 ranked constituents receive an equal weight of 4.00% each.</li>
+                <li>All other constituents receive 0.00%.</li>
+            </ul>
+            <p>This weighting rule is intended to highlight the highest-scoring companies under this research framework rather than represent a broad market portfolio.</p>
+
+            <h2>Rebalance schedule and maintenance</h2>
+            <p>The index is rebalanced on the dates published on the Site. At each rebalance, SustainaCore may:</p>
+            <ul>
+                <li>update scores and narratives based on newly available public information;</li>
+                <li>add or remove constituents to maintain the 100-company universe;</li>
+                <li>refresh sectors and metadata for consistency.</li>
+            </ul>
+
+            <h2>Data inputs</h2>
+            <p>Scores and summaries are derived from publicly available information such as:</p>
+            <ul>
+                <li>company disclosures (reports, policies, governance statements);</li>
+                <li>statements and publications from regulators and standard-setting bodies;</li>
+                <li>reputable journalism and public reporting;</li>
+                <li>other lawful public documents relevant to Artificial Intelligence (AI) governance.</li>
+            </ul>
+            <p>SustainaCore does not claim that any single source is definitive. When information is incomplete, SustainaCore applies conservative judgement consistent with the methodology.</p>
+
+            <h2>Limitations (important)</h2>
+            <p>You should read this section before relying on any outputs.</p>
+            <ol>
+                <li><strong>Not investment advice</strong><br>The index is research content. It is not a recommendation, solicitation, or offer to buy or sell any security.</li>
+                <li><strong>Best-effort accuracy</strong><br>Public information can be incomplete, outdated, corrected later, or contested. Errors may exist despite best efforts.</li>
+                <li><strong>Interpretive scoring</strong><br>AI Governance &amp; Ethics Score (AIGES) scoring involves judgement. Reasonable analysts may disagree with scoring or weighting.</li>
+                <li><strong>Time lag</strong><br>A company may improve (or deteriorate) before changes appear in public disclosures. Scores may not reflect real-time practices.</li>
+                <li><strong>Scope</strong><br>The index focuses on Artificial Intelligence (AI) ethics and governance signals. It is not a full assessment of overall company quality, safety, security, legality, or financial performance.</li>
+                <li><strong>No affiliation</strong><br>SustainaCore is not affiliated with, sponsored by, or endorsed by any company mentioned, nor by any exchange, index provider, or regulator.</li>
+            </ol>
+
+            <h2>Contact</h2>
+            <p>If you believe a score or summary is incorrect, outdated, or missing important context, please contact: <a class="text-link" href="mailto:info@sustainacore.org">info@sustainacore.org</a>. See the Corrections &amp; Complaints page for the review process.</p>
+        </div>
+    </div>
+</section>
+{% endblock %}
