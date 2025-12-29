@@ -1662,6 +1662,13 @@ def privacy(request):
     return render(request, "privacy.html", context)
 
 
+def corrections(request):
+    context = {
+        "year": datetime.now().year,
+    }
+    return render(request, "corrections.html", context)
+
+
 def tech100_methodology(request):
     context = {
         "year": datetime.now().year,
