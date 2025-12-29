@@ -66,3 +66,5 @@ BASIC_AUTH_USER=joaogt BASIC_AUTH_PASS=NEWPASS \
 sudo rm -f /etc/nginx/conf.d/preview.sustainacore.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+<!-- Non-UI change for VRT skip smoke test. -->
