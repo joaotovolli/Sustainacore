@@ -10,6 +10,9 @@ const afterDir = path.join(outRoot, "current");
 const diffDir = path.join(outRoot, "diff");
 const statusBeforePath = path.join(beforeDir, "status.json");
 const statusAfterPath = path.join(afterDir, "status.json");
+const baselineOverrideDir = path.join(rootDir, "vrt_baseline", "baseline");
+const statusOverridePath = path.join(baselineOverrideDir, "status.json");
+const hasBaselineOverride = fs.existsSync(baselineOverrideDir);
 
 const viewports = [
   { label: "desktop_1440x900", desktop: true, maxMismatch: 0.002 },
@@ -41,6 +44,7 @@ const loadStatus = (filePath) => {
 };
 
 const statusBefore = loadStatus(statusBeforePath);
+const statusOverride = loadStatus(statusOverridePath);
 const statusAfter = loadStatus(statusAfterPath);
 
 const readPng = (filePath) => PNG.sync.read(fs.readFileSync(filePath));
@@ -97,9 +101,14 @@ const summary = {};
 for (const viewport of viewports) {
   summary[viewport.label] = {};
   for (const page of pages) {
-    const beforePath = path.join(beforeDir, viewport.label, `${page}.png`);
+    const overridePath = path.join(baselineOverrideDir, viewport.label, `${page}.png`);
+    const beforePath =
+      hasBaselineOverride && fs.existsSync(overridePath)
+        ? overridePath
+        : path.join(beforeDir, viewport.label, `${page}.png`);
     const afterPath = path.join(afterDir, viewport.label, `${page}.png`);
-    const beforeStatus = statusBefore?.[viewport.label]?.[page];
+    const beforeStatus =
+      statusOverride?.[viewport.label]?.[page] ?? statusBefore?.[viewport.label]?.[page];
     const afterStatus = statusAfter?.[viewport.label]?.[page];
 
     if (afterStatus && afterStatus >= 500) {

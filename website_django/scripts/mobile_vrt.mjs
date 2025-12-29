@@ -32,6 +32,14 @@ const pages = [
   { name: "tech100_constituents", path: "/tech100/constituents/" },
 ];
 
+const filterList = (process.env.VRT_PAGES || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const filteredPages = filterList.length
+  ? pages.filter((page) => filterList.includes(page.name))
+  : pages;
+
 const sanitizeName = (name) => name.replace(/[^a-z0-9_-]+/gi, "_");
 const statusMap = {};
 
@@ -153,7 +161,7 @@ const run = async () => {
     });
     statusMap[viewport.label] = {};
 
-    for (const entry of pages) {
+    for (const entry of filteredPages) {
       const url = `${baseUrl}${entry.path}`;
       const response = await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
       await page.evaluate(async () => {
