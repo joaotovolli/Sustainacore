@@ -19,7 +19,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.sitemaps.views import sitemap as django_sitemap
 from django.core.cache import cache
-from django.http import HttpResponse, JsonResponse
+from django.http import FileResponse, HttpResponse, JsonResponse, Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -1722,6 +1722,16 @@ def tech100_methodology(request):
         "year": datetime.now().year,
     }
     return render(request, "tech100_methodology.html", context)
+
+
+@require_login_for_download
+def tech100_methodology_download(request):
+    pdf_path = Path(settings.BASE_DIR) / "static" / "docs" / "TECH100_AI_Governance_Methodology_v1.1.pdf"
+    if not pdf_path.exists():
+        raise Http404("Methodology PDF not found.")
+    response = FileResponse(pdf_path.open("rb"), content_type="application/pdf")
+    response["Content-Disposition"] = 'attachment; filename="TECH100_AI_Governance_Methodology_v1.1.pdf"'
+    return response
 
 
 def press_tech100(request):
