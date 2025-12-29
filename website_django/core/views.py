@@ -35,6 +35,7 @@ from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
 from core.analytics import EVENT_TYPES, log_event
 from core.downloads import require_login_for_download
 from core.profile_data import get_profile, upsert_profile
+from core.terms_acceptance import has_terms_acceptance, record_terms_acceptance
 from core.countries import get_country_lists, resolve_country_name
 from core.tech100_index_data import (
     get_data_mode,
@@ -144,7 +145,26 @@ def login_email(request):
     next_url = request.GET.get("next") or request.POST.get("next") or ""
     if request.method == "POST":
         email = _normalize_email(request.POST.get("email", ""))
+        accepted = request.POST.get("terms_accept") in {"on", "true", "1"}
+        if not accepted:
+            error = "You must agree to the Terms and Privacy Policy to receive a login code."
+            return render(
+                request,
+                "login_email.html",
+                {"notice": notice, "error": error, "next": next_url},
+            )
         if email:
+            try:
+                recorded = record_terms_acceptance(email, request, "request_code")
+            except Exception:
+                recorded = False
+            if not recorded:
+                error = "We could not record your acceptance. Please try again."
+                return render(
+                    request,
+                    "login_email.html",
+                    {"notice": notice, "error": error, "next": next_url},
+                )
             payload = {"email": email}
             start = time.monotonic()
             try:
@@ -192,6 +212,13 @@ def login_code(request):
     error = ""
     next_url = request.GET.get("next") or request.POST.get("next") or ""
     if request.method == "POST":
+        if not has_terms_acceptance(email):
+            error = "Please accept the Terms and Privacy Policy before signing in."
+            return render(
+                request,
+                "login_code.html",
+                {"email": email, "error": error, "notice": notice, "next": next_url},
+            )
         code = (request.POST.get("code") or "").strip()
         payload = {"email": email, "code": code}
         try:
@@ -237,6 +264,17 @@ def auth_request_code(request):
     except (json.JSONDecodeError, UnicodeDecodeError):
         payload = {}
     email = _normalize_email(payload.get("email", ""))
+    accepted = bool(payload.get("terms_accepted"))
+    if not email:
+        return JsonResponse({"ok": False, "error": "invalid"}, status=400)
+    if not accepted:
+        return JsonResponse({"ok": False, "error": "terms_required"}, status=400)
+    try:
+        recorded = record_terms_acceptance(email, request, "request_code")
+    except Exception:
+        recorded = False
+    if not recorded:
+        return JsonResponse({"ok": False, "error": "acceptance_failed"}, status=502)
     if email:
         start = time.monotonic()
         try:
@@ -279,6 +317,9 @@ def auth_verify_code(request):
     if not email or not code:
         log_event("auth_verify_fail", request, {"source": "modal", "status": "missing"})
         return JsonResponse({"ok": False, "error": "invalid"}, status=400)
+    if not has_terms_acceptance(email):
+        log_event("auth_verify_fail", request, {"source": "modal", "status": "terms_required"})
+        return JsonResponse({"ok": False, "error": "terms_required"}, status=403)
     try:
         resp = requests.post(
             _backend_url("/api/auth/verify-code"),
@@ -1660,6 +1701,13 @@ def privacy(request):
         "year": datetime.now().year,
     }
     return render(request, "privacy.html", context)
+
+
+def terms(request):
+    context = {
+        "year": datetime.now().year,
+    }
+    return render(request, "terms.html", context)
 
 
 def corrections(request):

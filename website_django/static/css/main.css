@@ -693,6 +693,19 @@ h3 {
     gap: 1rem;
 }
 
+.consent-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.4;
+}
+
+.consent-check input {
+    margin-top: 0.2rem;
+}
+
 .section__header {
     display: flex;
     flex-direction: column;
