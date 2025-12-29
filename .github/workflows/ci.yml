@@ -63,6 +63,13 @@ jobs:
           node-version: "18"
           cache: "npm"
           cache-dependency-path: website_django/package-lock.json
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('website_django/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
       - name: Install Python dependencies
         run: |
           set -euo pipefail
@@ -83,7 +90,11 @@ jobs:
         run: |
           set -euo pipefail
           cd website_django
-          npx playwright install --with-deps chromium
+          if ls ~/.cache/ms-playwright/chromium* >/dev/null 2>&1; then
+            echo "Playwright browsers already cached; skipping install."
+          else
+            npx playwright install --with-deps chromium
+          fi
       - name: Capture baseline (main)
         run: |
           set -euo pipefail
