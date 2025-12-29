@@ -51,9 +51,30 @@ jobs:
             echo "Use **Actions → Persona eval → Run workflow** to execute the full evaluation when you need persona coverage.";
           } >> "$GITHUB_STEP_SUMMARY"
 
+  vrt-changes:
+    name: Detect VRT paths
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.filter.outputs.ui }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            ui:
+              - "website_django/templates/**"
+              - "website_django/static/**"
+              - "website_django/core/**"
+              - ".github/workflows/**"
+
   vrt-mobile:
     name: Mobile VRT (desktop hard gate)
     runs-on: ubuntu-latest
+    needs: vrt-changes
+    if: needs.vrt-changes.outputs.ui == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
