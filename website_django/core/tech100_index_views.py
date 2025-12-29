@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import csv
+import os
 from typing import Optional
 
 from django.http import JsonResponse, HttpResponse
@@ -45,6 +46,10 @@ RANGE_WINDOWS = {
     "6m": 180,
     "1y": 365,
 }
+
+
+def _vrt_hide_corrections_links() -> bool:
+    return os.environ.get("VRT_HIDE_CORRECTIONS_LINKS") == "1"
 
 
 def _parse_date(value: Optional[str], fallback: Optional[dt.date]) -> Optional[dt.date]:
@@ -163,6 +168,7 @@ def tech100_index_overview(request):
             "imputed_count": imputed_count,
             "imputed_url": f"/tech100/constituents/?date={latest.isoformat()}&imputed=1",
             "top_constituents": top_constituents,
+            "vrt_hide_corrections": _vrt_hide_corrections_links(),
         }
     except Exception:
         logger.exception("TECH100 index overview failed.")
@@ -172,6 +178,7 @@ def tech100_index_overview(request):
             "levels_payload": [],
             "levels_count": 0,
             "constituents_count": 0,
+            "vrt_hide_corrections": _vrt_hide_corrections_links(),
         }
     return render(request, "tech100_index_overview.html", context)
 
@@ -254,6 +261,7 @@ def tech100_performance(request):
             "worst_mtd": worst_mtd,
             "top_ytd": top_ytd,
             "worst_ytd": worst_ytd,
+            "vrt_hide_corrections": _vrt_hide_corrections_links(),
         }
     except Exception:
         logger.exception("TECH100 performance page failed.")
@@ -266,6 +274,7 @@ def tech100_performance(request):
             "levels_count": 0,
             "holdings_count": 0,
             "attribution_count": 0,
+            "vrt_hide_corrections": _vrt_hide_corrections_links(),
         }
 
     return render(request, "tech100_performance.html", context)
@@ -290,6 +299,7 @@ def tech100_constituents(request):
         "show_imputed_only": show_imputed_only,
         "rows": rows,
         "weight_sum": weight_sum,
+        "vrt_hide_corrections": _vrt_hide_corrections_links(),
     }
     return render(request, "tech100_constituents.html", context)
 
