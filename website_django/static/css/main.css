@@ -1640,6 +1640,13 @@ textarea:focus {
     margin-bottom: 1.5rem;
 }
 
+.disclaimer-banner {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 0.35rem;
+    line-height: 1.4;
+}
+
 .footer {
     background: #ffffff;
     border-top: 1px solid var(--border);
