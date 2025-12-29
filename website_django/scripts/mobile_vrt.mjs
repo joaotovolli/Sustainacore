@@ -159,7 +159,7 @@ const run = async () => {
     await page.addStyleTag({
       content: [
         "* { transition: none !important; animation: none !important; caret-color: transparent !important; }",
-        ".footer__links a[href=\"/corrections/\"], .disclaimer-banner a[href=\"/corrections/\"] { display: none !important; }",
+        ".footer__links a[href=\"/corrections/\"], .disclaimer-banner__corrections { display: none !important; }",
       ].join("\n"),
     });
     statusMap[viewport.label] = {};
