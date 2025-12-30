@@ -86,6 +86,16 @@
         <small>Preview environment — do not share publicly.</small>
     </div>
     {% endif %}
+    <div class="consent-banner" data-consent-banner hidden>
+        <div class="shell consent-banner__inner">
+            <p>Help us improve sustainacore.org with privacy-friendly analytics.</p>
+            <div class="consent-banner__actions">
+                <button class="btn btn--primary" type="button" data-consent-accept>Accept analytics</button>
+                <button class="btn btn--primary" type="button" data-consent-reject>Reject analytics</button>
+                <button class="btn btn--ghost" type="button" data-consent-manage>More options</button>
+            </div>
+        </div>
+    </div>
 
     <main class="page">
         <div class="page__container">
@@ -154,6 +164,56 @@
         </div>
     </div>
 
+    <div id="consent-modal" class="modal modal--consent" data-consent-modal aria-hidden="true" hidden>
+        <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="consent-modal-title">
+            <div class="modal__header">
+                <div>
+                    <p class="eyebrow">Privacy settings</p>
+                    <h2 id="consent-modal-title">Manage your privacy preferences</h2>
+                    <p class="muted">You can change these choices at any time from the footer link.</p>
+                </div>
+                <button type="button" class="modal__close" data-consent-close aria-label="Close">×</button>
+            </div>
+            <div class="modal__body">
+                <div class="consent-row consent-row--locked">
+                    <div>
+                        <strong>Strictly necessary</strong>
+                        <p class="muted">Required for core site functionality, security, and login.</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" checked disabled />
+                        <span class="toggle__slider" aria-hidden="true"></span>
+                    </label>
+                </div>
+                <div class="consent-row">
+                    <div>
+                        <strong>Analytics</strong>
+                        <p class="muted">Helps us understand usage patterns to improve the Site.</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" data-consent-analytics />
+                        <span class="toggle__slider" aria-hidden="true"></span>
+                    </label>
+                </div>
+                <div class="consent-row">
+                    <div>
+                        <strong>Functional</strong>
+                        <p class="muted">Optional enhancements and remembered preferences.</p>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" data-consent-functional />
+                        <span class="toggle__slider" aria-hidden="true"></span>
+                    </label>
+                </div>
+                <div class="modal__actions">
+                    <button class="btn btn--primary" type="button" data-consent-save>Save choices</button>
+                    <button class="btn btn--ghost" type="button" data-consent-accept-all>Accept all</button>
+                    <button class="btn btn--ghost" type="button" data-consent-reject-all>Reject non-essential</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer">
         <div class="shell footer__grid">
             <div>
@@ -173,6 +233,7 @@
                 <a href="{% url 'ask2:ask2_page' %}" class="nav__link">Ask2 AI Assistant</a>
                 <a href="mailto:info@sustainacore.org" class="nav__link">Contact</a>
                 <a href="{% url 'privacy' %}" class="nav__link">Privacy Policy</a>
+                <a href="#privacy-settings" class="nav__link" data-consent-open>Privacy settings</a>
                 <a href="{% url 'terms' %}" class="nav__link">Terms</a>
                 <a href="{% url 'corrections' %}" class="nav__link">Corrections &amp; Complaints</a>
                 <a href="https://github.com/joaotovolli/Sustainacore" class="nav__link" target="_blank" rel="noreferrer">GitHub</a>
@@ -193,6 +254,10 @@
     </a>
 
     {% block extra_scripts %}{% endblock %}
+    <script>
+        window.SC_TELEMETRY_POLICY_VERSION = "{{ telemetry_policy_version }}";
+    </script>
+    <script src="{% static 'js/telemetry.js' %}?v={{ static_version }}"></script>
     <script src="{% static 'js/header_auth.js' %}"></script>
     <script src="{% static 'js/download_gate.js' %}?v={{ static_version }}"></script>
 </body>

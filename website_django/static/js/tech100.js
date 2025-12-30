@@ -122,6 +122,10 @@
 
   function requestFilterSubmit() {
     if (!filterForm) return;
+    window.SCTelemetry?.track?.("filter_applied", {
+      page: window.location.pathname,
+      filter: "port_date",
+    });
     const submitButton = filterForm.querySelector('button[type="submit"]');
     if (typeof filterForm.requestSubmit === "function") {
       filterForm.requestSubmit(submitButton || undefined);

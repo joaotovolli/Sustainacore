@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import json
+from urllib.parse import urlparse
+
+from django.conf import settings
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.views.decorators.http import require_POST
+
+from telemetry.consent import CONSENT_COOKIE, ConsentState, get_consent_from_request, serialize_consent
+from telemetry.logger import record_consent, record_event
+
+
+ALLOWED_UI_EVENTS = {
+    "filter_applied",
+    "search_submitted",
+    "download_click",
+    "ask2_opened",
+    "tab_changed",
+}
+
+
+def _load_json(request: HttpRequest) -> dict:
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _event_path(payload: dict, fallback: str) -> str:
+    referrer = payload.get("page") or payload.get("referrer") or ""
+    if isinstance(referrer, str) and referrer:
+        parsed = urlparse(referrer)
+        return parsed.path or fallback
+    return fallback
+
+
+@require_POST
+def consent(request: HttpRequest) -> JsonResponse:
+    payload = _load_json(request)
+    analytics = bool(payload.get("analytics"))
+    functional = bool(payload.get("functional"))
+    source = str(payload.get("source") or "banner")
+
+    consent_state = ConsentState(
+        analytics=analytics,
+        functional=functional,
+        policy_version=settings.TELEMETRY_POLICY_VERSION,
+        source=source,
+    )
+    cookie_value = serialize_consent(consent_state)
+    response = JsonResponse({"ok": True})
+    response.set_cookie(
+        CONSENT_COOKIE,
+        cookie_value,
+        max_age=settings.TELEMETRY_CONSENT_MAX_AGE_DAYS * 24 * 60 * 60,
+        httponly=False,
+        samesite="Lax",
+        secure=not settings.DEBUG,
+        path="/",
+    )
+    try:
+        record_consent(consent=consent_state, request=request)
+    except Exception:
+        pass
+    return response
+
+
+@require_POST
+def telemetry_event(request: HttpRequest) -> HttpResponse:
+    consent = get_consent_from_request(request)
+    if not consent.analytics:
+        return HttpResponse(status=204)
+
+    payload = _load_json(request)
+    event_name = payload.get("event_name") or payload.get("event") or payload.get("name")
+    if not isinstance(event_name, str):
+        return HttpResponse(status=204)
+    event_name = event_name.strip()
+    if not event_name or event_name not in ALLOWED_UI_EVENTS:
+        return HttpResponse(status=204)
+
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    try:
+        record_event(
+            event_type="ui_event",
+            request=request,
+            consent=consent,
+            path=_event_path(metadata, request.path),
+            query_string=None,
+            http_method=request.method,
+            status_code=204,
+            payload={
+                "event_name": event_name,
+                "metadata": metadata,
+            },
+        )
+    except Exception:
+        pass
+    return HttpResponse(status=204)
+
+# Create your views here.
