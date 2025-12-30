@@ -409,7 +409,7 @@ def run_pipeline(
             elif snippet:
                 fallback_lines.append(f"- {snippet[:180]}")
         if (not answer_text or answer_text == "I’m sorry, I couldn’t generate an answer from the retrieved facts.") and fallback_lines:
-            answer_text = _format_final_answer("", facts_list, None)
+            answer_text = _format_final_answer("", "", facts_list, None)
     if not answer_text:
         answer_text = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
 
@@ -451,7 +451,7 @@ def run_pipeline(
         facts_list = [fact for fact in facts if isinstance(fact, dict)]
         if not facts_list:
             return ""
-        return _format_final_answer("", facts_list, None)
+        return _format_final_answer("", "", facts_list, None)
 
     def _sources_from_facts(facts: Iterable[Dict[str, Any]]) -> List[str]:
         sources: List[str] = []
