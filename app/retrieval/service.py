@@ -12,7 +12,7 @@ from threading import Lock
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional
 
-from .gemini_gateway import gateway
+from .gemini_gateway import gateway, _format_final_answer
 from .observability import observer
 from .oracle_retriever import retriever
 from .settings import settings
@@ -36,7 +36,12 @@ class GeminiUnavailableError(Exception):
 _RATE_BUCKETS: Dict[str, deque] = {}
 _RATE_LOCK = Lock()
 _NO_FACTS_FALLBACK = (
-    "I couldn't find enough internal data to answer that question, but here's how I would approach it with SustainaCore's sources."
+    "**Answer**\n"
+    "I could not find enough SustainaCore context to answer this question.\n\n"
+    "**Key facts (from SustainaCore)**\n"
+    "- No high-confidence facts were retrieved for this query.\n\n"
+    "**Evidence**\n"
+    "- No evidence snippets were returned by the retriever."
 )
 
 
@@ -404,8 +409,7 @@ def run_pipeline(
             elif snippet:
                 fallback_lines.append(f"- {snippet[:180]}")
         if (not answer_text or answer_text == "I’m sorry, I couldn’t generate an answer from the retrieved facts.") and fallback_lines:
-            answer_text = "Here's the best supported summary from SustainaCore:\n" + "\n".join(fallback_lines)
-            answer_text = "Here’s the best supported summary from SustainaCore:\n" + "\n".join(fallback_lines)
+            answer_text = _format_final_answer("", facts_list, None)
     if not answer_text:
         answer_text = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
 
@@ -444,21 +448,10 @@ def run_pipeline(
         return lowered.startswith(prefixes) or _is_plan_like(lowered)
 
     def _summarize_facts(facts: Iterable[Dict[str, Any]]) -> str:
-        lines = []
-        for fact in list(facts)[:4]:
-            if not isinstance(fact, dict):
-                continue
-            title = (fact.get("title") or fact.get("source_name") or "").strip()
-            snippet = (fact.get("snippet") or fact.get("chunk_text") or "").strip()
-            if title and snippet:
-                lines.append(f"- {title}: {snippet[:180]}")
-            elif title:
-                lines.append(f"- {title}")
-            elif snippet:
-                lines.append(f"- {snippet[:180]}")
-        if not lines:
+        facts_list = [fact for fact in facts if isinstance(fact, dict)]
+        if not facts_list:
             return ""
-        return "Here's the best supported summary from SustainaCore:\n" + "\n".join(lines)
+        return _format_final_answer("", facts_list, None)
 
     def _sources_from_facts(facts: Iterable[Dict[str, Any]]) -> List[str]:
         sources: List[str] = []

@@ -38,7 +38,15 @@ def _synth_from_facts(facts, *, max_bullets=3):
             lines.append(f"- {snippet[:240]}")
     if not lines:
         return ""
-    return "Here’s a brief summary from SustainaCore sources:\n" + "\n".join(lines)
+    return (
+        "**Answer**\n"
+        "Here is a brief summary from SustainaCore sources.\n\n"
+        "**Key facts (from SustainaCore)**\n"
+        + "\n".join(lines)
+        + "\n\n"
+        "**Evidence**\n"
+        "- See the retrieved sources list for full context."
+    )
 
 
 def _parse_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -288,8 +296,9 @@ class GeminiGateway:
             "retriever_result": retriever_result,
             "hop_count": hop_count,
             "instructions": {
-                "style": "≤1 short paragraph + optional bullets; friendly and precise",
-                "citations": "inline using [citation_id]",
+                "style": "short paragraphs, direct sentences, no filler",
+                "citations": "every sentence must include [citation_id]",
+                "format": "Answer, Key facts (from SustainaCore), Evidence sections",
                 "no_debug": True,
                 "max_sources": settings.retriever_fact_cap,
                 "prohibited_openers": [
@@ -303,16 +312,28 @@ class GeminiGateway:
         prompt = (
             "You are the Gemini composer for SustainaCore.\n"
             "Use ONLY the facts in retriever_result.facts to answer the question.\n"
-            "Every claim referencing retrieved evidence must include an inline citation like [FCA_2024_Guidance].\n"
+            "Every sentence must include an inline citation like [FCA_2024_Guidance].\n"
             "Do not invent citation ids or facts.\n"
             "Keep the tone confident, concise, and human.\n"
             "Do not prefix the answer with explanations such as 'Here’s the best supported answer' or 'Why this answer'.\n"
-            "Return ONLY JSON with keys: answer (string) and sources (array of strings formatted 'Title — Publisher (Date)').\n"
-            "Do not include debug sections, numbered sources, or redundant source listings in the answer body.\n"
+            "Return ONLY JSON with keys: answer (string) and key_facts (array of strings).\n"
+            "The answer must follow this exact format:\n"
+            "Title line (optional)\n"
+            "blank line\n"
+            "**Answer**\n"
+            "1-3 short paragraphs.\n"
+            "blank line\n"
+            "**Key facts (from SustainaCore)**\n"
+            "- bullet list, max 5 bullets, one sentence each, each with citation.\n"
+            "blank line\n"
+            "**Evidence**\n"
+            "- 2-5 bullets, each bullet includes a source title or id plus a short quoted snippet.\n"
+            "Only use citation ids from retriever_result.facts.\n"
             f"Payload: {json.dumps(payload, ensure_ascii=False)}"
         )
         response = self._call_json(prompt, model=settings.gemini_model_answer) or {}
         answer = response.get("answer") if isinstance(response, dict) else None
+        key_facts_raw = response.get("key_facts") if isinstance(response, dict) else None
         if not isinstance(answer, str):
             answer = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
         cleaned_answer = _clean_answer_text(answer)
@@ -344,8 +365,9 @@ class GeminiGateway:
 
         final_sources = _dedup_sources(derived_sources, settings.retriever_fact_cap)
 
+        formatted_answer = _format_final_answer(cleaned_answer, fact_list, key_facts_raw)
         composed: Dict[str, Any] = {
-            "answer": cleaned_answer,
+            "answer": formatted_answer,
             "sources": final_sources,
             "raw": response,
         }
@@ -479,6 +501,213 @@ def _clean_answer_text(answer: str) -> str:
         return collapsed
 
     return "" if removed_any else text
+
+
+def _strip_section_markers(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    lines = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        lowered = line.lower().strip("*").strip()
+        if lowered in {"answer", "key facts (from sustainacore)", "key facts", "evidence", "sources"}:
+            continue
+        if lowered.startswith("key facts"):
+            continue
+        if lowered.startswith("evidence"):
+            continue
+        lines.append(raw)
+    return "\n".join(lines).strip()
+
+def _normalize_bullet_runs(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return ""
+    if text.count(" - ") >= 2:
+        return text.replace(" - ", "\n- ")
+    return text
+
+
+def _split_paragraphs(text: str) -> List[str]:
+    if not isinstance(text, str) or not text.strip():
+        return []
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if paragraphs:
+        return paragraphs
+    return [text.strip()]
+
+
+def _sentence_split(text: str) -> List[str]:
+    if not isinstance(text, str) or not text.strip():
+        return []
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _strip_citations(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    cleaned = _CITATION_PATTERN.sub("", text)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
+def _sentences_with_valid_citations(text: str, valid_ids: set[str]) -> List[str]:
+    sentences = _sentence_split(text)
+    kept: List[str] = []
+    for sentence in sentences:
+        citations = _extract_citation_ids(sentence)
+        if not citations:
+            continue
+        if not any(cit.lower() in valid_ids for cit in citations):
+            continue
+        stripped = _strip_citations(sentence)
+        if stripped:
+            kept.append(stripped)
+    return kept
+
+
+def _first_sentence(text: str, *, max_len: int = 240) -> str:
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    collapsed = re.sub(r"\s+", " ", text.strip())
+    sentences = _sentence_split(collapsed)
+    if sentences:
+        sentence = sentences[0]
+    else:
+        sentence = collapsed
+    if len(sentence) > max_len:
+        sentence = sentence[: max_len - 3].rstrip() + "..."
+    if sentence and sentence[-1] not in ".!?":
+        sentence += "."
+    return sentence
+
+
+def _shorten_snippet(text: str, *, max_len: int = 220) -> str:
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    collapsed = re.sub(r"\s+", " ", text.strip())
+    if len(collapsed) <= max_len:
+        return collapsed
+    return collapsed[: max_len - 3].rstrip() + "..."
+
+
+def _build_key_facts_from_facts(facts: List[Dict[str, Any]], max_bullets: int = 5) -> List[str]:
+    bullets: List[str] = []
+    seen: set[str] = set()
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        snippet = fact.get("snippet") or fact.get("chunk_text") or ""
+        sentence = _first_sentence(str(snippet))
+        if not sentence:
+            continue
+        key = sentence.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        bullets.append(sentence)
+        if len(bullets) >= max_bullets:
+            break
+    return bullets
+
+
+def _build_evidence_bullets(facts: List[Dict[str, Any]], *, max_bullets: int = 5) -> List[str]:
+    bullets: List[str] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        title = str(fact.get("title") or fact.get("source_name") or "").strip()
+        citation_id = str(fact.get("citation_id") or "").strip()
+        snippet = _shorten_snippet(str(fact.get("snippet") or fact.get("chunk_text") or ""))
+        if not snippet:
+            continue
+        label = title or citation_id or "Source"
+        if citation_id and citation_id not in label:
+            label = f"{label} (ID: {citation_id})"
+        bullets.append(f'{label}: "{snippet}"')
+        if len(bullets) >= max_bullets:
+            break
+    return bullets
+
+
+def _build_key_facts_from_llm(items: object, valid_ids: set[str], max_bullets: int = 5) -> List[str]:
+    bullets: List[str] = []
+    if not isinstance(items, list):
+        return bullets
+    for raw in items:
+        if not isinstance(raw, str):
+            continue
+        raw = raw.lstrip("-").strip()
+        citations = _extract_citation_ids(raw)
+        if not citations or not any(cit.lower() in valid_ids for cit in citations):
+            continue
+        cleaned = _strip_citations(raw)
+        if cleaned:
+            if cleaned[-1] not in ".!?":
+                cleaned += "."
+            bullets.append(cleaned)
+        if len(bullets) >= max_bullets:
+            break
+    return bullets
+
+
+def _summarize_facts_for_answer(facts: List[Dict[str, Any]]) -> List[str]:
+    if not facts:
+        return []
+    snippets = []
+    for fact in facts[:3]:
+        snippet = _first_sentence(str(fact.get("snippet") or fact.get("chunk_text") or ""))
+        if snippet:
+            snippets.append(snippet)
+    if not snippets:
+        return []
+    return [" ".join(snippets)]
+
+
+def _format_final_answer(answer_text: str, facts: List[Dict[str, Any]], key_facts_raw: object) -> str:
+    valid_ids = {str(f.get("citation_id") or "").strip().lower() for f in facts if isinstance(f, dict)}
+    valid_ids = {vid for vid in valid_ids if vid}
+
+    stripped = _normalize_bullet_runs(_strip_section_markers(answer_text))
+    paragraphs: List[str] = []
+    for paragraph in _split_paragraphs(stripped):
+        sentences = _sentences_with_valid_citations(paragraph, valid_ids) if valid_ids else []
+        if sentences:
+            paragraphs.append(" ".join(sentences))
+    if not paragraphs:
+        paragraphs = _summarize_facts_for_answer(facts)
+
+    if not paragraphs:
+        paragraphs = ["I could not find enough SustainaCore context to answer this question."]
+
+    if len(facts) < 2:
+        paragraphs.append("Coverage looks thin based on the retrieved snippets.")
+
+    key_facts = _build_key_facts_from_llm(key_facts_raw, valid_ids)
+    if not key_facts:
+        key_facts = _build_key_facts_from_facts(facts)
+    if not key_facts:
+        key_facts = ["No high-confidence facts were retrieved for this query."]
+
+    evidence = _build_evidence_bullets(facts)
+    if not evidence:
+        evidence = ["No evidence snippets were returned by the retriever."]
+
+    answer_lines = ["**Answer**"] + paragraphs
+    key_fact_lines = ["", "**Key facts (from SustainaCore)**"] + [f"- {item}" for item in key_facts[:5]]
+    evidence_lines = ["", "**Evidence**"] + [f"- {item}" for item in evidence[:5]]
+
+    cap = int(os.getenv("ASK2_ANSWER_CHAR_CAP", "1200"))
+    if cap > 0:
+        evidence_text = "\n".join(evidence_lines).strip()
+        remaining = max(cap - len(evidence_text) - 2, 0)
+        content = "\n".join(answer_lines + key_fact_lines).strip()
+        if remaining and len(content) > remaining:
+            content = content[:remaining].rstrip()
+        combined = "\n".join([content, evidence_text]).strip()
+    else:
+        combined = "\n".join(answer_lines + key_fact_lines + evidence_lines).strip()
+    return combined
 
 
 def _dedup_sources(sources: Iterable[str], limit: int) -> List[str]:
@@ -634,5 +863,3 @@ __all__ = [
     "_dedup_sources",
     "_build_sources_from_facts",
 ]
-
-
