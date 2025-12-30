@@ -11,6 +11,7 @@ This document describes the privacy-friendly telemetry system for sustainacore.o
 - Consent is stored in a first-party cookie (`sc_consent`) after the user makes a choice.
 - If the user does nothing, analytics consent is treated as **no**.
 - Choices are reflected in the banner or the Privacy settings modal.
+- Once consent is set, the banner does not reappear on subsequent pages.
 
 ## What is logged
 Server-side (always, minimal):
@@ -25,6 +26,9 @@ Client-side (only if analytics consent = yes):
 - `download_click`
 - `ask2_opened`
 - `tab_changed`
+
+Ask2 content (optional, OFF by default):
+- Enable with `ASK2_STORE_CONVERSATIONS=1` to store user + assistant messages (truncated to 8k chars).
 
 ## Data minimisation
 - `ip_trunc`: IPv4 /24 or IPv6 /48
@@ -52,3 +56,4 @@ Environment variables (optional):
 - `TELEMETRY_RETENTION_DAYS` (default `180`)
 - `TELEMETRY_TRUST_X_FORWARDED_FOR` (`1` to trust proxy headers)
 - `TELEMETRY_STORE_ASK2_TEXT` (`1` to store Ask2 message text; default OFF)
+- `ASK2_STORE_CONVERSATIONS` (`1` to store Ask2 prompts + replies in events; default OFF)
