@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from typing import Any, Dict
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 
 from . import client
+from telemetry.consent import get_consent_from_request
+from telemetry.logger import record_event
 
 
 def ask2_page(request: HttpRequest) -> HttpResponse:
@@ -28,6 +32,7 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
     if request.method != "POST":
         return JsonResponse({"error": "method_not_allowed", "message": "Use POST."}, status=405)
 
+    start = time.monotonic()
     user_message = ""
     if request.content_type and "application/json" in request.content_type:
         try:
@@ -60,5 +65,43 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
     }
     if "error" in result:
         response_data["error"] = result.get("error")
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    reply_text = (
+        response_data.get("reply")
+        or response_data.get("answer")
+        or response_data.get("content")
+        or ""
+    )
+    payload = {
+        "latency_ms": latency_ms,
+        "success": status_code < 400,
+        "model": result.get("model"),
+        "prompt_chars": len(user_message),
+        "response_chars": len(reply_text or ""),
+    }
+    if settings.TELEMETRY_STORE_ASK2_TEXT:
+        payload["prompt_text"] = user_message
+        payload["response_text"] = reply_text
+    try:
+        consent = get_consent_from_request(request)
+        try:
+            session_key = getattr(request.session, "session_key", None)
+        except Exception:
+            session_key = None
+        record_event(
+            event_type="ask2_chat",
+            request=request,
+            consent=consent,
+            path=request.path,
+            query_string=request.META.get("QUERY_STRING") or None,
+            http_method=request.method,
+            status_code=status_code,
+            response_ms=latency_ms,
+            payload=payload,
+            session_key=session_key,
+        )
+    except Exception:
+        pass
 
     return JsonResponse(response_data, status=status_code)

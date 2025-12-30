@@ -47,6 +47,8 @@ from core.tech100_index_data import (
     get_rolling_vol,
 )
 from core import sitemaps
+from telemetry.consent import get_consent_from_request
+from telemetry.logger import record_event
 
 
 logger = logging.getLogger(__name__)
@@ -353,7 +355,23 @@ def ux_event(request):
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     if event_type not in EVENT_TYPES:
         return JsonResponse({"ok": False}, status=400)
+    consent = get_consent_from_request(request)
+    if not consent.analytics:
+        return JsonResponse({"ok": True}, status=204)
     log_event(event_type, request, metadata)
+    try:
+        record_event(
+            event_type="ui_event",
+            request=request,
+            consent=consent,
+            path=request.path,
+            query_string=None,
+            http_method=request.method,
+            status_code=204,
+            payload={"event_name": event_type, "metadata": metadata},
+        )
+    except Exception:
+        pass
     return JsonResponse({"ok": True})
 
 

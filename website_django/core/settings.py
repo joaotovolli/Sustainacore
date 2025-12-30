@@ -63,6 +63,12 @@ DEFAULT_META_DESCRIPTION = (
 )
 STATIC_VERSION = os.environ.get("STATIC_VERSION", "dev")
 SITEMAP_CACHE_SECONDS = int(os.environ.get("SITEMAP_CACHE_SECONDS", "3600"))
+TELEMETRY_POLICY_VERSION = os.environ.get("TELEMETRY_POLICY_VERSION", "2025-12-30")
+TELEMETRY_HASH_SALT = os.environ.get("TELEMETRY_HASH_SALT", SECRET_KEY)
+TELEMETRY_RETENTION_DAYS = int(os.environ.get("TELEMETRY_RETENTION_DAYS", "180"))
+TELEMETRY_CONSENT_MAX_AGE_DAYS = int(os.environ.get("TELEMETRY_CONSENT_MAX_AGE_DAYS", "180"))
+TELEMETRY_TRUST_X_FORWARDED_FOR = env_bool("TELEMETRY_TRUST_X_FORWARDED_FOR", default=False)
+TELEMETRY_STORE_ASK2_TEXT = env_bool("TELEMETRY_STORE_ASK2_TEXT", default=False)
 
 # Application definition
 
@@ -75,6 +81,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.sitemaps',
     'ask2',
+    'telemetry',
 ]
 
 MIDDLEWARE = [
@@ -87,6 +94,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'core.analytics_middleware.PageViewAnalyticsMiddleware',
+    'telemetry.middleware.TelemetryMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 

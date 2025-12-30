@@ -33,6 +33,7 @@ def seo_defaults(request):
         "default_meta_description": settings.DEFAULT_META_DESCRIPTION,
         "site_url": settings.SITE_URL,
         "static_version": settings.STATIC_VERSION,
+        "telemetry_policy_version": settings.TELEMETRY_POLICY_VERSION,
         "org_json_ld": json.dumps(org_payload, ensure_ascii=True),
         "site_json_ld": json.dumps(site_payload, ensure_ascii=True),
     }
