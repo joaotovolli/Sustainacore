@@ -40,9 +40,14 @@ Ask2 content (optional, OFF by default):
 - `manage.py purge_web_telemetry --days N` removes older rows.
 
 ## Deployment & migrations
-- Ensure telemetry migrations run on the Oracle alias:
-  - `python website_django/manage.py migrate --database=oracle --noinput`
-- Use `python website_django/manage.py diagnose_db --database=oracle` to confirm tables and migrations.
+- Production uses the same Oracle config as the website (preferred):
+  - `DB_USER`, `DB_PASSWORD` (or `DB_PASS`), `DB_DSN`
+  - Fallback: `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_DSN` or `ORACLE_CONNECT_STRING`
+- Gunicorn should load `/etc/sustainacore.env` plus `/etc/sustainacore/db.env`.
+- Run migrations against the active production database:
+  - `python website_django/manage.py migrate --noinput`
+- Verify Oracle + telemetry tables:
+  - `python website_django/manage.py diagnose_db --fail-on-sqlite --verify-insert`
 
 ## Oracle permissions checklist
 If migrations fail or tables are missing, confirm the Oracle user has:
