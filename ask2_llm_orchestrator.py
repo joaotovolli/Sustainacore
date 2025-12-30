@@ -127,6 +127,122 @@ def _strip_inline_refs(text: str) -> str:
     text = INLINE_NUM.sub("", text)
     return re.sub(r"\s{2,}", " ", text).strip()
 
+def _strip_section_markers(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    lines = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        lowered = line.lower().strip("*").strip()
+        if lowered in {"answer", "key facts (from sustainacore)", "key facts", "evidence", "sources"}:
+            continue
+        if lowered.startswith("key facts"):
+            continue
+        if lowered.startswith("evidence"):
+            continue
+        lines.append(raw)
+    return "\n".join(lines).strip()
+
+def _normalize_bullet_runs(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return ""
+    if text.count(" - ") >= 2:
+        return text.replace(" - ", "\n- ")
+    return text
+
+def _split_paragraphs(text: str):
+    if not isinstance(text, str) or not text.strip():
+        return []
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    return paragraphs or [text.strip()]
+
+def _first_sentence(text: str, max_len=240):
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    collapsed = re.sub(r"\s+", " ", text.strip())
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", collapsed)
+    sentence = parts[0].strip() if parts else collapsed
+    if len(sentence) > max_len:
+        sentence = sentence[: max_len - 3].rstrip() + "..."
+    if sentence and sentence[-1] not in ".!?":
+        sentence += "."
+    return sentence
+
+def _shorten_snippet(text: str, max_len=220):
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    collapsed = re.sub(r"\s+", " ", text.strip())
+    if len(collapsed) <= max_len:
+        return collapsed
+    return collapsed[: max_len - 3].rstrip() + "..."
+
+def _build_key_facts_from_snippets(snips, max_bullets=5):
+    bullets = []
+    seen = set()
+    for snippet in snips or []:
+        sentence = _first_sentence(snippet)
+        if not sentence:
+            continue
+        key = sentence.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        bullets.append(sentence)
+        if len(bullets) >= max_bullets:
+            break
+    return bullets
+
+def _build_evidence(snips, citations, max_bullets=5):
+    bullets = []
+    for idx, snippet in enumerate(snips or []):
+        if len(bullets) >= max_bullets:
+            break
+        short = _shorten_snippet(snippet)
+        if not short:
+            continue
+        label = "Source"
+        if citations and idx < len(citations):
+            label = citations[idx].get("title") or citations[idx].get("url") or "Source"
+        bullets.append(f'{label}: "{short}"')
+    return bullets
+
+def _format_structured_answer(answer_text, snips, citations):
+    cleaned = _normalize_bullet_runs(_strip_section_markers(_strip_inline_refs(answer_text or "")))
+    paragraphs = _split_paragraphs(cleaned)
+    if not paragraphs:
+        paragraphs = []
+    if not paragraphs and snips:
+        paragraphs = [" ".join(_build_key_facts_from_snippets(snips, max_bullets=3))]
+    if not paragraphs:
+        paragraphs = ["I could not find enough SustainaCore context to answer this question."]
+
+    if len(snips or []) < 2:
+        paragraphs.append("Coverage looks thin based on the retrieved snippets.")
+
+    key_facts = _build_key_facts_from_snippets(snips)
+    if not key_facts:
+        key_facts = ["No high-confidence facts were retrieved for this query."]
+
+    evidence = _build_evidence(snips, citations)
+    if not evidence:
+        evidence = ["No evidence snippets were returned by the retriever."]
+
+    answer_lines = ["**Answer**"] + paragraphs
+    key_fact_lines = ["", "**Key facts (from SustainaCore)**"] + [f"- {item}" for item in key_facts[:5]]
+    evidence_lines = ["", "**Evidence**"] + [f"- {item}" for item in evidence[:5]]
+
+    cap = int(os.getenv("ASK2_ANSWER_CHAR_CAP", "1200"))
+    if cap > 0:
+        evidence_text = "\n".join(evidence_lines).strip()
+        remaining = max(cap - len(evidence_text) - 2, 0)
+        content = "\n".join(answer_lines + key_fact_lines).strip()
+        if remaining and len(content) > remaining:
+            content = content[:remaining].rstrip()
+        combined = "\n".join([content, evidence_text]).strip()
+    else:
+        combined = "\n".join(answer_lines + key_fact_lines + evidence_lines).strip()
+    return combined
+
 def _chat(messages, *, json_mode=True): 
     return _ollama_chat(messages, json_mode=json_mode)
 
@@ -222,21 +338,41 @@ class Ask2LLMOrchestratorMiddleware:
         curated = _prioritize_snippets(ev.get("snippets",[]), "general")
         citations = _dedup_sources(payload.get("sources",[]) if isinstance(payload, dict) else ev.get("sources",[]), limit=3)
 
-        sys1 = {"role":"Write a unified answer using ONLY the provided evidence; no hallucinations; no inline refs.","style":self.style,"format":"Return JSON { answer: string }"}
+        sys1 = {
+            "role":"Write a unified answer using ONLY the provided evidence; no hallucinations; no inline refs.",
+            "style":self.style,
+            "format":"Return JSON { answer: string }"
+        }
         draft = _chat([{"role":"system","content":json.dumps(sys1)},
                        {"role":"user","content":json.dumps({"question":question,"evidence_snippets":curated})}], json_mode=True)
-        sys2 = {"role":"Improve tone/clarity; keep human; remove repetition; no inline refs.","style":self.style,"format":"Return JSON { answer: string }"}
+        sys2 = {
+            "role":"Improve tone/clarity; keep human; remove repetition; no inline refs.",
+            "style":self.style,
+            "format":"Return JSON { answer: string }"
+        }
         improved = _chat([{"role":"system","content":json.dumps(sys2)},
                           {"role":"user","content":json.dumps({"question":question,"draft":draft})}], json_mode=True)
-        sys3 = {"role":"Validate against evidence; compress to ~120 words; prep for Sources footer.","style":self.style,"format":"Return JSON { answer: string }"}
+        sys3 = {
+            "role":"Validate against evidence; compress to ~120 words; format for final response.",
+            "style":self.style,
+            "format":"Return JSON { answer: string }",
+            "output_format":[
+                "Title line (optional)",
+                "",
+                "**Answer**",
+                "1-3 short paragraphs",
+                "",
+                "**Key facts (from SustainaCore)**",
+                "- max 5 bullets, one sentence each",
+                "",
+                "**Evidence**",
+                "- 2-5 bullets with short snippets"
+            ]
+        }
         final = _chat([{"role":"system","content":json.dumps(sys3)},
                        {"role":"user","content":json.dumps({"question":question,"answer":improved,"evidence_snippets":curated})}], json_mode=True)
 
-        answer = _strip_inline_refs(final.get("answer",""))
-        if citations and answer:
-            answer += "\n\nSources:\n" + "\n".join("• " + c["title"] + (f" — {c['url']}" if c.get("url") else "") for c in citations)
+        answer = _format_structured_answer(final.get("answer",""), curated, citations)
 
         start_response("200 OK",[("Content-Type","application/json; charset=utf-8")])
         return [json.dumps({"answer": answer, "sources": citations}).encode("utf-8")]
-
-

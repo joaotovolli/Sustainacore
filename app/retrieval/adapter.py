@@ -27,7 +27,14 @@ except Exception:  # pragma: no cover - keep legacy path available
     _service_run_pipeline = None
 
 LOGGER = logging.getLogger("app.retrieval.adapter")
-_FALLBACK_ANSWER = "Gemini is momentarily unavailable, but the retrieved Sustainacore contexts are attached."
+_FALLBACK_ANSWER = (
+    "**Answer**\n"
+    "Gemini is momentarily unavailable. The retrieved SustainaCore contexts are attached below.\n\n"
+    "**Key facts (from SustainaCore)**\n"
+    "- Use the Evidence section to review the available snippets.\n\n"
+    "**Evidence**\n"
+    "- Retrieval contexts are listed in the response sources."
+)
 
 
 def _contexts_to_facts(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
