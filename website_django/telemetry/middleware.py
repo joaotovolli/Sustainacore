@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Iterable
+
+from django.db import connections, transaction
 
 from telemetry.consent import get_consent_from_request
 from telemetry.logger import _log_db_health_once, record_event, touch_session
@@ -24,9 +27,13 @@ API_PREFIXES: Iterable[str] = (
 class TelemetryMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
+        self._logged_active = False
 
     def __call__(self, request):
         _log_db_health_once()
+        if not self._logged_active:
+            logging.getLogger(__name__).info("telemetry.middleware_active")
+            self._logged_active = True
         start = time.monotonic()
         response = self.get_response(request)
         duration_ms = int((time.monotonic() - start) * 1000)
@@ -45,25 +52,38 @@ class TelemetryMiddleware:
         except Exception:
             session_key = None
 
-        try:
-            touch_session(request=request, session_key=session_key)
-        except Exception:
-            pass
+        def _write_events():
+            try:
+                touch_session(request=request, session_key=session_key)
+            except Exception:
+                pass
+
+            try:
+                record_event(
+                    event_type=event_type,
+                    request=request,
+                    consent=consent,
+                    path=path,
+                    query_string=request.META.get("QUERY_STRING") or None,
+                    http_method=request.method,
+                    status_code=getattr(response, "status_code", None),
+                    response_ms=duration_ms,
+                    session_key=session_key,
+                )
+            except Exception:
+                pass
 
         try:
-            record_event(
-                event_type=event_type,
-                request=request,
-                consent=consent,
-                path=path,
-                query_string=request.META.get("QUERY_STRING") or None,
-                http_method=request.method,
-                status_code=getattr(response, "status_code", None),
-                response_ms=duration_ms,
-                session_key=session_key,
-            )
+            from django.conf import settings
+
+            alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
+            conn = connections[alias]
+            if conn.in_atomic_block:
+                transaction.on_commit(_write_events)
+            else:
+                _write_events()
         except Exception:
-            pass
+            _write_events()
 
         return response
 
