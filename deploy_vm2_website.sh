@@ -86,6 +86,16 @@ DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/ma
 echo "[VM2] Applying migrations..."
 DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" migrate --noinput
 
+if [ -n "${ORACLE_DSN:-}" ] && [ -n "${ORACLE_USER:-}" ] && [ -n "${ORACLE_PASSWORD:-}" ]; then
+  echo "[VM2] Applying telemetry migrations to Oracle..."
+  if ! DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" migrate --database=oracle --noinput; then
+    echo "[VM2] Warning: Oracle telemetry migrations failed. Check privileges/quota." >&2
+  fi
+  DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" diagnose_db --database=oracle || true
+else
+  echo "[VM2] Oracle env not configured; skipping telemetry Oracle migrations."
+fi
+
 echo "[VM2] Collecting static files..."
 DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" collectstatic --noinput
 

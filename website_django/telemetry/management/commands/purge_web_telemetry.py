@@ -28,11 +28,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         days = int(options["days"])
         cutoff = now() - timedelta(days=days)
-        deleted_events, _ = WebEvent.objects.filter(event_ts__lt=cutoff).delete()
+        db_alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
+        deleted_events, _ = WebEvent.objects.using(db_alias).filter(event_ts__lt=cutoff).delete()
         message = f"Deleted {deleted_events} web events older than {days} days."
 
         if options["sessions"]:
-            deleted_sessions, _ = WebSession.objects.filter(last_seen_ts__lt=cutoff).delete()
+            deleted_sessions, _ = (
+                WebSession.objects.using(db_alias).filter(last_seen_ts__lt=cutoff).delete()
+            )
             message = f"{message} Deleted {deleted_sessions} web sessions."
 
         self.stdout.write(self.style.SUCCESS(message))
