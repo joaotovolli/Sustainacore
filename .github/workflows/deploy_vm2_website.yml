@@ -15,6 +15,16 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Secret leak guard (deploy scripts)
+        run: |
+          set -euo pipefail
+          rg -n "source |\\. /etc/|<\\(|/dev/fd/|eval |set -x|printenv|env \\||cat /etc/sustainacore|grep /etc/sustainacore" \
+            deploy_vm2_website.sh scripts/vm2_manage.sh || true
+          if rg -n "source |\\. /etc/|<\\(|/dev/fd/|eval |set -x|printenv|env \\||cat /etc/sustainacore|grep /etc/sustainacore" \
+            deploy_vm2_website.sh scripts/vm2_manage.sh; then
+            echo "Forbidden secret-leaking pattern detected." >&2
+            exit 1
+          fi
       - name: Prepare SSH key
         env:
           VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
