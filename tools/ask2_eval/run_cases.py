@@ -28,6 +28,8 @@ QUESTIONS = [
     "What does the AI Governance & Ethics Score measure?",
     "Show me the top companies by AI Governance & Ethics Score.",
     "Summarize the latest AI governance headlines on SustainaCore.",
+    "who created sustainacore.org?",
+    "who owns sustainacore.org?",
 ]
 
 DEFAULT_K = 6
