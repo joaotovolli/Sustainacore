@@ -632,6 +632,8 @@ def _ensure_non_empty_answer(value: Optional[str], fallback: Optional[str] = Non
 def _strip_source_sections(text: Optional[str]) -> str:
     if not text:
         return ""
+    if "**Sources**" in text:
+        return text.strip()
 
     banned_prefixes = (
         "sources:",

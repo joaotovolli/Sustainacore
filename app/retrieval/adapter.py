@@ -30,10 +30,10 @@ LOGGER = logging.getLogger("app.retrieval.adapter")
 _FALLBACK_ANSWER = (
     "**Answer**\n"
     "Gemini is momentarily unavailable. The retrieved SustainaCore contexts are attached below.\n\n"
-    "**Key facts (from SustainaCore)**\n"
-    "- Use the Evidence section to review the available snippets.\n\n"
-    "**Evidence**\n"
-    "- Retrieval contexts are listed in the response sources."
+    "**Key facts**\n"
+    "- Use the Sources section to review the available references.\n\n"
+    "**Sources**\n"
+    "1. Retrieval contexts are listed in the response sources."
 )
 
 

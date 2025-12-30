@@ -212,7 +212,40 @@ def _postprocess_formatted(text: str) -> str:
     out = re.sub(r"\s*•\s*", "\n- ", text)
     out = re.sub(r"\n{3,}", "\n\n", out)
     out = out.replace("\r\n", "\n").strip()
+    out = out.replace("...", "")
+    out = re.sub(r"\n\*\*Key facts\*\*", "\n\n**Key facts**", out)
+    out = re.sub(r"\n\*\*Sources\*\*", "\n\n**Sources**", out)
+    if "**Sources**" not in out and re.search(r"^\d+\\. ", out, re.M):
+        out = re.sub(r"\n+(\\d+\\.)", "\n\n**Sources**\n\\1", out, count=1)
     return out
+
+def _slugify_title(text: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+    return cleaned or "source"
+
+def _build_sources_list(citations, max_items=5):
+    sources = []
+    seen = set()
+    for item in citations or []:
+        if not isinstance(item, dict):
+            continue
+        title = (item.get("title") or "").strip()
+        url = (item.get("url") or "").strip()
+        if not title and not url:
+            continue
+        if url.startswith(("local://", "file://", "internal://")):
+            url = ""
+        if not url:
+            url = f"/sources/{_slugify_title(title)}"
+        key = f"{title.lower()}|{url.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        label = f"{title} — {url}" if title else url
+        sources.append(label)
+        if len(sources) >= max_items:
+            break
+    return sources
 
 def _ensure_period(text: str) -> str:
     if not isinstance(text, str) or not text.strip():
@@ -236,14 +269,14 @@ def _fit_content(answer_lines, key_fact_lines, max_len):
     if not key_block or len(key_block) > max_len:
         key_block = _joined(
             [
-                "**Key facts (from SustainaCore)**",
-                "- See the Evidence section for details.",
+                "**Key facts**",
+                "- See the Sources section for details.",
             ]
         )
     remaining = max_len - len(key_block) - 4
     answer_block = _joined(answer_lines)
     if remaining <= 0:
-        answer_block = "**Answer**\nSee the Evidence section for the retrieved sources."
+        answer_block = "**Answer**\nSee the Sources section for the retrieved references."
     elif len(answer_block) > remaining:
         answer_block = answer_block[:remaining].rstrip()
     return _joined([answer_block, "", key_block])
@@ -284,7 +317,8 @@ def _first_sentence(text: str, max_len=240):
     parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", collapsed)
     sentence = parts[0].strip() if parts else collapsed
     if len(sentence) > max_len:
-        sentence = sentence[: max_len - 3].rstrip() + "..."
+        cut = max(sentence.rfind(".", 0, max_len), sentence.rfind("!", 0, max_len), sentence.rfind("?", 0, max_len))
+        sentence = sentence[: cut + 1].rstrip() if cut > 0 else sentence[:max_len].rstrip()
     if sentence and sentence[-1] not in ".!?":
         sentence += "."
     return sentence
@@ -295,7 +329,10 @@ def _shorten_snippet(text: str, max_len=160):
     collapsed = re.sub(r"\s+", " ", text.strip())
     if len(collapsed) <= max_len:
         return collapsed
-    return collapsed[: max_len - 3].rstrip() + "..."
+    cut = max(collapsed.rfind(".", 0, max_len), collapsed.rfind("!", 0, max_len), collapsed.rfind("?", 0, max_len))
+    if cut > 0:
+        return collapsed[: cut + 1].rstrip()
+    return collapsed[:max_len].rstrip()
 
 def _build_key_facts_from_snippets(snips, max_bullets=5):
     bullets = []
@@ -313,19 +350,13 @@ def _build_key_facts_from_snippets(snips, max_bullets=5):
             break
     return bullets
 
-def _build_evidence(snips, citations, max_bullets=4):
-    bullets = []
-    for idx, snippet in enumerate(snips or []):
-        if len(bullets) >= max_bullets:
-            break
-        short = _shorten_snippet(_sanitize_snippet(snippet))
-        if not short:
-            continue
-        label = "Source"
-        if citations and idx < len(citations):
-            label = citations[idx].get("title") or citations[idx].get("url") or "Source"
-        bullets.append(f'{label}: "{short}"')
-    return bullets
+def _build_sources_list_or_fallback(citations, snips):
+    sources = _build_sources_list(citations)
+    if sources:
+        return sources
+    if not snips:
+        return ["Sources not available in the retrieved results."]
+    return ["Sources not available in the retrieved results."]
 
 def _format_structured_answer(question, answer_text, snips, citations):
     cleaned = _normalize_bullet_runs(_strip_section_markers(_strip_inline_refs(answer_text or "")))
@@ -346,9 +377,7 @@ def _format_structured_answer(question, answer_text, snips, citations):
     if not key_facts:
         key_facts = ["No high-confidence facts were retrieved for this query."]
 
-    evidence = _build_evidence(snips, citations)
-    if not evidence:
-        evidence = ["No evidence snippets were returned by the retriever."]
+    sources = _build_sources_list_or_fallback(citations, snips)
 
     seen = set()
     paragraphs, seen = _dedupe_sentences(paragraphs, seen)
@@ -362,21 +391,19 @@ def _format_structured_answer(question, answer_text, snips, citations):
             if len(key_facts) >= 3:
                 break
     if len(key_facts) < 3:
-        for item in evidence:
-            snippet = item.rsplit(":", 1)[-1]
+        for snippet in snips or []:
             fact = _first_sentence(_sanitize_snippet(snippet))
-            if not fact or fact in key_facts:
+            if not fact or _normalize_sentence(fact) in {_normalize_sentence(k) for k in key_facts}:
                 continue
             key_facts.append(fact)
             if len(key_facts) >= 3:
                 break
-    evidence_filtered = []
-    for item in evidence:
-        snippet = item.rsplit(":", 1)[-1]
-        if _normalize_sentence(snippet) in seen:
+    sources_filtered = []
+    for item in sources:
+        if _normalize_sentence(item) in seen:
             continue
-        evidence_filtered.append(item)
-    evidence = evidence_filtered or evidence
+        sources_filtered.append(item)
+    sources = sources_filtered or sources
 
     if _ownership_intent(question) and not _has_ownership_statement(snips):
         paragraphs = [
@@ -400,9 +427,7 @@ def _format_structured_answer(question, answer_text, snips, citations):
                         break
                 if len(key_facts) >= 3:
                     break
-        evidence = _build_evidence(snips, citations)
-        if not evidence:
-            evidence = ["No evidence snippets were returned by the retriever."]
+        sources = _build_sources_list_or_fallback(citations, snips)
 
     key_facts = [_ensure_period(item) for item in key_facts if item]
     answer_lines = ["**Answer**"]
@@ -410,27 +435,27 @@ def _format_structured_answer(question, answer_text, snips, citations):
         answer_lines.append(para)
         if idx < len(paragraphs) - 1:
             answer_lines.append("")
-    key_fact_lines = ["**Key facts (from SustainaCore)**"] + [f"- {item}" for item in key_facts[:5]]
-    evidence_lines = ["**Evidence**"] + [f"- {item}" for item in evidence[:5]]
+    key_fact_lines = ["**Key facts**"] + [f"- {item}" for item in key_facts[:5]]
+    source_lines = ["**Sources**"] + [f"{idx}. {item}" for idx, item in enumerate(sources[:5], start=1)]
 
     cap = int(os.getenv("ASK2_ANSWER_CHAR_CAP", "2000"))
     if cap > 0:
-        evidence_text = "\n".join(evidence_lines).strip()
-        remaining = max(cap - len(evidence_text) - 2, 0)
+        sources_text = "\n".join(source_lines).strip()
+        remaining = max(cap - len(sources_text) - 2, 0)
         content = _fit_content(answer_lines, key_fact_lines, remaining)
         if not content:
             content = "\n".join(
                 [
                     "**Answer**",
-                    "See the Evidence section for the retrieved sources.",
+                    "See the Sources section for the retrieved references.",
                     "",
-                    "**Key facts (from SustainaCore)**",
-                    "- See the Evidence section for details.",
+                    "**Key facts**",
+                    "- See the Sources section for details.",
                 ]
             )
-        combined = "\n".join([content, "", evidence_text]).strip()
+        combined = "\n".join([content, "", sources_text]).strip()
     else:
-        combined = "\n".join(answer_lines + [""] + key_fact_lines + [""] + evidence_lines).strip()
+        combined = "\n".join(answer_lines + [""] + key_fact_lines + [""] + source_lines).strip()
     return _postprocess_formatted(combined)
 
 def _chat(messages, *, json_mode=True): 
@@ -547,16 +572,14 @@ class Ask2LLMOrchestratorMiddleware:
             "style":self.style,
             "format":"Return JSON { answer: string }",
             "output_format":[
-                "Title line (optional)",
-                "",
                 "**Answer**",
-                "1-3 short paragraphs",
+                "1-2 short paragraphs",
                 "",
-                "**Key facts (from SustainaCore)**",
-                "- max 5 bullets, one sentence each",
+                "**Key facts**",
+                "- 3-5 bullets, one sentence each",
                 "",
-                "**Evidence**",
-                "- 2-5 bullets with short snippets"
+                "**Sources**",
+                "1. Title — URL"
             ]
         }
         final = _chat([{"role":"system","content":json.dumps(sys3)},

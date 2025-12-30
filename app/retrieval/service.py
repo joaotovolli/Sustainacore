@@ -38,10 +38,10 @@ _RATE_LOCK = Lock()
 _NO_FACTS_FALLBACK = (
     "**Answer**\n"
     "I could not find enough SustainaCore context to answer this question.\n\n"
-    "**Key facts (from SustainaCore)**\n"
+    "**Key facts**\n"
     "- No high-confidence facts were retrieved for this query.\n\n"
-    "**Evidence**\n"
-    "- No evidence snippets were returned by the retriever."
+    "**Sources**\n"
+    "1. Sources not available in the retrieved results."
 )
 
 
@@ -520,6 +520,8 @@ _SOURCE_BLOCK_RE = re.compile(r"(?:\r?\n){1,}\s*Sources?:.*$", re.IGNORECASE | r
 def _strip_sources_block(answer: str) -> str:
     if not isinstance(answer, str) or not answer:
         return ""
+    if "**Sources**" in answer:
+        return answer
     return _SOURCE_BLOCK_RE.sub("", answer).strip()
 
 
