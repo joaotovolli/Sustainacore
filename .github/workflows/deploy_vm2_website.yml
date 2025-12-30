@@ -53,3 +53,23 @@ jobs:
           cd /opt/code/Sustainacore
           scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --verify-insert --timeout 60
           SSH
+
+      - name: Verify telemetry inserts on request (VM2)
+        env:
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" <<'SSH'
+          set -euo pipefail
+          cd /opt/code/Sustainacore
+          BEFORE=$(scripts/vm2_manage.sh shell -c "from telemetry.models import WebEvent; print(WebEvent.objects.using('default').count())")
+          curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/ >/tmp/telemetry_health_code
+          AFTER=$(scripts/vm2_manage.sh shell -c "from telemetry.models import WebEvent; print(WebEvent.objects.using('default').count())")
+          echo "telemetry_count_before ${BEFORE}"
+          echo "telemetry_count_after ${AFTER}"
+          if [ "${AFTER}" -le "${BEFORE}" ]; then
+            echo "Telemetry count did not increase after request." >&2
+            exit 1
+          fi
+          SSH
