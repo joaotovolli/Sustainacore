@@ -32,7 +32,10 @@
     const raw = getCookie(CONSENT_COOKIE);
     if (!raw) return null;
     try {
-      const payload = JSON.parse(raw);
+      let payload = JSON.parse(raw);
+      if (typeof payload === "string") {
+        payload = JSON.parse(payload);
+      }
       if (!payload || typeof payload !== "object") return null;
       if (payload.policy_version !== POLICY_VERSION) return null;
       return {

@@ -21,6 +21,6 @@ class TelemetryRouter:
         telemetry_alias = self._telemetry_alias()
         if app_label == "telemetry":
             return db == telemetry_alias
-        if db == telemetry_alias:
+        if db == telemetry_alias and telemetry_alias != "default":
             return False
         return None

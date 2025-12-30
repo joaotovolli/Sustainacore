@@ -23,6 +23,19 @@ class TestConsentCookie(TestCase):
         self.assertTrue(parsed.analytics)
         self.assertFalse(parsed.functional)
 
+    def test_parse_quoted_consent_cookie(self):
+        consent = ConsentState(
+            analytics=False,
+            functional=True,
+            policy_version=settings.TELEMETRY_POLICY_VERSION,
+            source="banner",
+        )
+        raw = f"\"{serialize_consent(consent)}\""
+        parsed = parse_consent_cookie(raw)
+        self.assertIsNotNone(parsed)
+        self.assertFalse(parsed.analytics)
+        self.assertTrue(parsed.functional)
+
 
 class TestTelemetryMiddleware(TestCase):
     def test_logs_page_view_event(self):
