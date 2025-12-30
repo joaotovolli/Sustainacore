@@ -223,7 +223,11 @@
 
   const handleDownloadClick = (event, link, href) => {
     if (!href) return;
-    sendEvent("download_click", { download: href, page: window.location.pathname });
+    sendEvent("download_click", {
+      resource: href,
+      page: window.location.pathname,
+      gated: !isLoggedIn(),
+    });
     event.preventDefault();
     event.stopPropagation();
     clearPostAuthIntent();
