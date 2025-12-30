@@ -53,6 +53,126 @@
       return bubble;
     }
 
+    function stripInternalIds(text) {
+      return text.replace(/\(ID:[^)]+\)/gi, '').trim();
+    }
+
+    function appendTextWithLinks(parent, text) {
+      const urlRegex = /https?:\/\/[^\s]+/g;
+      let lastIndex = 0;
+      let match;
+
+      while ((match = urlRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          parent.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+
+        let url = match[0];
+        let trailing = '';
+        while (/[).,;]+$/.test(url)) {
+          trailing = url.slice(-1) + trailing;
+          url = url.slice(0, -1);
+        }
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = url;
+        parent.appendChild(link);
+
+        if (trailing) {
+          parent.appendChild(document.createTextNode(trailing));
+        }
+        lastIndex = match.index + match[0].length;
+      }
+
+      if (lastIndex < text.length) {
+        parent.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+    }
+
+    function renderAsk2Message(rawText) {
+      const fragment = document.createDocumentFragment();
+      const cleaned = stripInternalIds(rawText || '').replace(/\r\n/g, '\n');
+      const lines = cleaned.split('\n');
+      let i = 0;
+
+      function flushParagraph(paragraphLines) {
+        if (!paragraphLines.length) return;
+        const p = document.createElement('p');
+        appendTextWithLinks(p, paragraphLines.join(' ').trim());
+        fragment.appendChild(p);
+        paragraphLines.length = 0;
+      }
+
+      while (i < lines.length) {
+        const line = lines[i].trim();
+        if (!line) {
+          i += 1;
+          continue;
+        }
+
+        const headingMatch = line.match(/^\*\*(.+?)\*\*$/);
+        if (headingMatch) {
+          const heading = document.createElement('div');
+          heading.className = 'ask2-h';
+          heading.textContent = headingMatch[1].trim();
+          fragment.appendChild(heading);
+          i += 1;
+          continue;
+        }
+
+        if (/^-\s+/.test(line)) {
+          const ul = document.createElement('ul');
+          while (i < lines.length && /^-\s+/.test(lines[i].trim())) {
+            const li = document.createElement('li');
+            appendTextWithLinks(li, lines[i].trim().replace(/^-+\s+/, ''));
+            ul.appendChild(li);
+            i += 1;
+          }
+          fragment.appendChild(ul);
+          continue;
+        }
+
+        if (/^\d+\.\s+/.test(line)) {
+          const ol = document.createElement('ol');
+          while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+            const li = document.createElement('li');
+            appendTextWithLinks(li, lines[i].trim().replace(/^\d+\.\s+/, ''));
+            ol.appendChild(li);
+            i += 1;
+          }
+          fragment.appendChild(ol);
+          continue;
+        }
+
+        const paragraphLines = [];
+        while (i < lines.length) {
+          const current = lines[i].trim();
+          if (
+            !current
+            || /^\*\*(.+?)\*\*$/.test(current)
+            || /^-\s+/.test(current)
+            || /^\d+\.\s+/.test(current)
+          ) {
+            break;
+          }
+          paragraphLines.push(current);
+          i += 1;
+        }
+        flushParagraph(paragraphLines);
+      }
+
+      if (!fragment.childNodes.length) {
+        const fallback = document.createElement('p');
+        fallback.textContent = cleaned;
+        fragment.appendChild(fallback);
+      }
+
+      return fragment;
+    }
+
     let isSending = false;
 
     function setThinking(isThinking) {
@@ -111,7 +231,7 @@
         }
 
         const reply = data.reply || data.answer || data.content || 'The assistant did not return a response.';
-        placeholder.textContent = reply;
+        placeholder.replaceChildren(renderAsk2Message(reply));
         placeholder.classList.remove('bubble--muted');
         setStatus('Ready to chat');
       } catch (error) {
