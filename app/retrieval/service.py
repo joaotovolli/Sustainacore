@@ -12,13 +12,23 @@ from threading import Lock
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional
 
-from .gemini_gateway import gateway, _format_final_answer
+from .gemini_gateway import gateway, _format_final_answer, _resolve_source_url
 from .observability import observer
 from .oracle_retriever import retriever
 from .settings import settings
 
 
 LOGGER = logging.getLogger("gemini-service")
+
+
+def _needs_ranked_results(question: str) -> bool:
+    lowered = (question or "").lower()
+    return any(term in lowered for term in ("top", "rank", "highest", "lowest", "leaders", "list"))
+
+
+def _needs_unfiltered_results(question: str) -> bool:
+    lowered = (question or "").lower()
+    return any(term in lowered for term in ("in the index", "in the tech100", "included", "constituent", "member of"))
 
 
 class RateLimitError(Exception):
@@ -38,10 +48,10 @@ _RATE_LOCK = Lock()
 _NO_FACTS_FALLBACK = (
     "**Answer**\n"
     "I could not find enough SustainaCore context to answer this question.\n\n"
-    "**Key facts (from SustainaCore)**\n"
+    "**Key facts**\n"
     "- No high-confidence facts were retrieved for this query.\n\n"
-    "**Evidence**\n"
-    "- No evidence snippets were returned by the retriever."
+    "**Sources**\n"
+    "1. SustainaCore — https://sustainacore.org"
 )
 
 
@@ -350,8 +360,17 @@ def run_pipeline(
     plan = gateway.plan_retrieval(sanitized_q)
     latencies["plan_ms"] = int((time.time() - plan_start) * 1000)
     plan_k = int(plan.get("k") or settings.oracle_knn_k)
+    plan_k = max(plan_k, k)
+    if _needs_ranked_results(sanitized_q):
+        plan_k = max(plan_k, settings.retriever_fact_cap)
     filters = plan.get("filters") or {}
     variants = plan.get("query_variants") or [sanitized_q]
+    if sanitized_q not in variants:
+        variants = [sanitized_q] + list(variants)
+    if _needs_ranked_results(sanitized_q):
+        filters = {}
+    if _needs_unfiltered_results(sanitized_q):
+        filters = {}
 
     retrieval_start = time.time()
     oracle_result = _oracle_search_variants(variants, plan_k, filters)
@@ -375,9 +394,14 @@ def run_pipeline(
     retrieval_elapsed = int((time.time() - retrieval_start) * 1000)
     latencies["oracle_total_ms"] = retrieval_elapsed
 
-    final_facts = facts[: settings.retriever_fact_cap]
+    fact_cap = max(settings.retriever_fact_cap, 3)
+    final_facts = facts[:fact_cap]
+    raw_contexts = list(getattr(oracle_result, "raw_facts", []) or [])
+    if extra_result is not None:
+        raw_contexts = _dedupe_contexts(raw_contexts + list(getattr(extra_result, "raw_facts", []) or []))
     retriever_payload = {
         "facts": final_facts,
+        "contexts": raw_contexts[:fact_cap],
         "context_note": context_note,
     }
 
@@ -409,7 +433,7 @@ def run_pipeline(
             elif snippet:
                 fallback_lines.append(f"- {snippet[:180]}")
         if (not answer_text or answer_text == "I’m sorry, I couldn’t generate an answer from the retrieved facts.") and fallback_lines:
-            answer_text = _format_final_answer("", facts_list, None)
+            answer_text = _format_final_answer("", "", facts_list, None)
     if not answer_text:
         answer_text = "I’m sorry, I couldn’t generate an answer from the retrieved facts."
 
@@ -451,7 +475,7 @@ def run_pipeline(
         facts_list = [fact for fact in facts if isinstance(fact, dict)]
         if not facts_list:
             return ""
-        return _format_final_answer("", facts_list, None)
+        return _format_final_answer("", "", facts_list, None)
 
     def _sources_from_facts(facts: Iterable[Dict[str, Any]]) -> List[str]:
         sources: List[str] = []
@@ -461,17 +485,17 @@ def run_pipeline(
                 continue
             title = (fact.get("title") or fact.get("source_name") or "").strip()
             url = (fact.get("source_url") or fact.get("url") or "").strip()
-            label = title or url
-            if not label:
+            if url.startswith(("local://", "file://", "internal://")):
+                url = ""
+            url = _resolve_source_url(title, url)
+            if not url:
                 continue
+            label = title or "SustainaCore"
             key = (label.lower(), url.lower())
             if key in seen:
                 continue
             seen.add(key)
-            if url and url not in label:
-                sources.append(f"{label} - {url}")
-            else:
-                sources.append(label)
+            sources.append(f"{label} — {url}")
             if len(sources) >= settings.retriever_fact_cap:
                 break
         return sources
@@ -520,6 +544,8 @@ _SOURCE_BLOCK_RE = re.compile(r"(?:\r?\n){1,}\s*Sources?:.*$", re.IGNORECASE | r
 def _strip_sources_block(answer: str) -> str:
     if not isinstance(answer, str) or not answer:
         return ""
+    if "**Sources**" in answer:
+        return answer
     return _SOURCE_BLOCK_RE.sub("", answer).strip()
 
 

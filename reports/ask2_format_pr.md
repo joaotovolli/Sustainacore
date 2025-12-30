@@ -8,12 +8,12 @@ Restart confirmation
 Harness
 - Command: python3 tools/ask2_eval/run_cases.py --k 6 --timeout 8
 
-Before (pre-restart, run-on formatting)
-- File: tools/ask2_eval/out/20251230_143240/summary.md
+Before (missing Sources header + single-line sections)
+- File: tools/ask2_eval/out/20251230_153539/summary.md
 - Excerpt:
-  "Here's the best supported summary from SustainaCore: - Membership › TECH100 AI Governance & Ethics Index › Microsoft Corporation: Yes – Microsoft Corporation is included... Key sco"
+  "**Answer**\nYes – Microsoft Corporation is included...\n\n**Key facts**\n- ...\n\n1. Membership › TECH100 AI Governance & Ethics Index › Microsoft Corporation — /sources/..."
 
-After (post-restart, structured formatting)
-- File: tools/ask2_eval/out/20251230_145106/summary.md
+After (sanitized + structured formatting + Sources)
+- File: tools/ask2_eval/out/20251230_153841/summary.md
 - Excerpt:
-  "**Answer**\nYes – Microsoft Corporation is included...\n\n**Key facts (from SustainaCore)**\n- Yes – Microsoft Corporation is included...\n\n**Evidence**\n- Membership › TECH100 AI Governance & Ethics Index › Microsoft Corporation (ID: 3800): \"Yes – Microsoft Corporation is included...\""
+  "**Answer**\nYes – Microsoft Corporation is included in the July 2025 portfolio of the TECH100 AI Governance & Ethics Index.\n\n**Key facts**\n- SustainaCore Launches the TECH100 AI Governance & Ethics Index.\n- 1 – Microsoft Corporation ranks first in the July 2025 TECH100 AI Governance & Ethics Index.\n- Yes – Microsoft Corporation is included in the July 2025 portfolio of the TECH100 AI Governance & Ethics Index.\n\n**Sources**\n1. Membership › TECH100 AI Governance & Ethics Index › Microsoft Corporation — /sources/membership-tech100-ai-governance-ethics-index-microsoft-corporation"
