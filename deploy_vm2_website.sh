@@ -219,6 +219,17 @@ if ! grep -qi "Content-Type: text/css" <<< "$STATIC_CHECK_OUTPUT"; then
   exit 1
 fi
 
+echo "[VM2] Verifying telemetry inserts..."
+telemetry_before="$(run_manage shell -c "from telemetry.models import WebEvent; print(WebEvent.objects.using('default').count())")"
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/ >/dev/null
+telemetry_after="$(run_manage shell -c "from telemetry.models import WebEvent; print(WebEvent.objects.using('default').count())")"
+echo "[VM2] telemetry_count_before ${telemetry_before}"
+echo "[VM2] telemetry_count_after ${telemetry_after}"
+if [ "${telemetry_after}" -le "${telemetry_before}" ]; then
+  echo "[VM2] Telemetry count did not increase after request." >&2
+  exit 1
+fi
+
 echo "[VM2] Pinging Google for sitemap..."
 if ! run_manage ping_google --sitemap=https://www.sustainacore.org/sitemap.xml; then
   echo "[VM2] Warning: Google sitemap ping failed (non-fatal)." >&2
