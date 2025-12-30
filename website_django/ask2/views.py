@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-import uuid
 from datetime import datetime
 from typing import Any, Dict
 
@@ -14,6 +13,11 @@ from django.views.decorators.csrf import csrf_exempt
 from . import client
 from telemetry.consent import get_consent_from_request
 from telemetry.logger import record_event
+from telemetry.ask2_logging import (
+    ASK2_CONVERSATION_COOKIE,
+    get_or_create_conversation_id,
+    log_ask2_exchange,
+)
 
 
 def ask2_page(request: HttpRequest) -> HttpResponse:
@@ -51,6 +55,7 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
     if not user_message:
         return JsonResponse({"error": "missing_message", "message": "Message is required."}, status=400)
 
+    conversation_id = get_or_create_conversation_id(request)
     result = client.ask2_query(user_message)
 
     status_code = 200 if "error" not in result else 502
@@ -72,6 +77,7 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
         response_data.get("reply")
         or response_data.get("answer")
         or response_data.get("content")
+        or response_data.get("message")
         or ""
     )
     payload = {
@@ -102,57 +108,36 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
             payload=payload,
             session_key=session_key,
         )
-        if settings.ASK2_STORE_CONVERSATIONS:
-            conversation_id = request.session.get("ask2_conversation_id")
-            if not conversation_id:
-                conversation_id = uuid.uuid4().hex
-                request.session["ask2_conversation_id"] = conversation_id
-                request.session["ask2_message_index"] = 0
-            message_index = int(request.session.get("ask2_message_index") or 0)
-            def _truncate(value: str, max_len: int = 8000) -> str:
-                if len(value) <= max_len:
-                    return value
-                return value[:max_len]
-            user_payload = {
-                "conversation_id": conversation_id,
-                "role": "user",
-                "message_index": message_index,
-                "content": _truncate(user_message),
-                "content_len": len(user_message),
-            }
-            record_event(
-                event_type="ask2_message",
-                request=request,
-                consent=consent,
-                path=request.path,
-                query_string=request.META.get("QUERY_STRING") or None,
-                http_method=request.method,
-                status_code=status_code,
-                response_ms=latency_ms,
-                payload=user_payload,
-                session_key=session_key,
-            )
-            assistant_payload = {
-                "conversation_id": conversation_id,
-                "role": "assistant",
-                "message_index": message_index + 1,
-                "content": _truncate(reply_text),
-                "content_len": len(reply_text),
-            }
-            record_event(
-                event_type="ask2_message",
-                request=request,
-                consent=consent,
-                path=request.path,
-                query_string=request.META.get("QUERY_STRING") or None,
-                http_method=request.method,
-                status_code=status_code,
-                response_ms=latency_ms,
-                payload=assistant_payload,
-                session_key=session_key,
-            )
-            request.session["ask2_message_index"] = message_index + 2
     except Exception:
         pass
 
-    return JsonResponse(response_data, status=status_code)
+    try:
+        log_ask2_exchange(
+            request=request,
+            conversation_id=conversation_id,
+            prompt_text=user_message,
+            reply_text=reply_text or "",
+            latency_ms=latency_ms,
+            model_name=result.get("model"),
+            tokens_in=result.get("tokens_in"),
+            tokens_out=result.get("tokens_out"),
+            request_id=result.get("request_id"),
+            status="ok" if status_code < 400 else "error",
+            error_class=type(result.get("error")).__name__ if result.get("error") else None,
+            error_msg=str(result.get("error")) if result.get("error") else None,
+            path_first=request.path,
+        )
+    except Exception:
+        pass
+
+    response = JsonResponse(response_data, status=status_code)
+    response.set_cookie(
+        ASK2_CONVERSATION_COOKIE,
+        str(conversation_id),
+        max_age=365 * 24 * 60 * 60,
+        httponly=False,
+        samesite="Lax",
+        secure=not settings.DEBUG,
+        path="/",
+    )
+    return response
