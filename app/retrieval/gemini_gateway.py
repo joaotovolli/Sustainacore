@@ -41,10 +41,10 @@ def _synth_from_facts(facts, *, max_bullets=3):
     return (
         "**Answer**\n"
         "Here is a brief summary from SustainaCore sources.\n\n"
-        "**Key facts (from SustainaCore)**\n"
+        "**Key facts**\n"
         + "\n".join(lines)
         + "\n\n"
-        "**Evidence**\n"
+        "**Sources**\n"
         "- See the retrieved sources list for full context."
     )
 
@@ -298,7 +298,7 @@ class GeminiGateway:
             "instructions": {
                 "style": "short paragraphs, direct sentences, no filler",
                 "citations": "every sentence must include [citation_id]",
-                "format": "Answer, Key facts (from SustainaCore), Evidence sections",
+                "format": "Answer, Key facts, Sources sections",
                 "no_debug": True,
                 "max_sources": settings.retriever_fact_cap,
                 "prohibited_openers": [
@@ -318,17 +318,14 @@ class GeminiGateway:
             "Do not prefix the answer with explanations such as 'Here’s the best supported answer' or 'Why this answer'.\n"
             "Return ONLY JSON with keys: answer (string) and key_facts (array of strings).\n"
             "The answer must follow this exact format:\n"
-            "Title line (optional)\n"
-            "blank line\n"
             "**Answer**\n"
-            "1-3 short paragraphs.\n"
-            "blank line\n"
-            "**Key facts (from SustainaCore)**\n"
-            "- bullet list, max 5 bullets, one sentence each, each with citation.\n"
-            "blank line\n"
-            "**Evidence**\n"
-            "- 2-5 bullets, each bullet includes a source title or id plus a short quoted snippet.\n"
-            "Only use citation ids from retriever_result.facts.\n"
+            "1-2 short paragraphs.\n"
+            "\n"
+            "**Key facts**\n"
+            "- bullet list, 3-5 bullets, one sentence each.\n"
+            "\n"
+            "**Sources**\n"
+            "1. Title — URL (if available)\n"
             f"Payload: {json.dumps(payload, ensure_ascii=False)}"
         )
         response = self._call_json(prompt, model=settings.gemini_model_answer) or {}
@@ -662,7 +659,8 @@ def _first_sentence(text: str, *, max_len: int = 240) -> str:
     else:
         sentence = collapsed
     if len(sentence) > max_len:
-        sentence = sentence[: max_len - 3].rstrip() + "..."
+        cut = max(sentence.rfind(".", 0, max_len), sentence.rfind("!", 0, max_len), sentence.rfind("?", 0, max_len))
+        sentence = sentence[: cut + 1].rstrip() if cut > 0 else sentence[:max_len].rstrip()
     if sentence and sentence[-1] not in ".!?":
         sentence += "."
     return sentence
@@ -674,7 +672,10 @@ def _shorten_snippet(text: str, *, max_len: int = 160) -> str:
     collapsed = _normalize_punctuation(text.strip())
     if len(collapsed) <= max_len:
         return collapsed
-    return collapsed[: max_len - 3].rstrip() + "..."
+    cut = max(collapsed.rfind(".", 0, max_len), collapsed.rfind("!", 0, max_len), collapsed.rfind("?", 0, max_len))
+    if cut > 0:
+        return collapsed[: cut + 1].rstrip()
+    return collapsed[:max_len].rstrip()
 
 
 def _build_key_facts_from_facts(facts: List[Dict[str, Any]], max_bullets: int = 5) -> List[str]:
@@ -697,23 +698,34 @@ def _build_key_facts_from_facts(facts: List[Dict[str, Any]], max_bullets: int = 
     return bullets
 
 
-def _build_evidence_bullets(facts: List[Dict[str, Any]], *, max_bullets: int = 4) -> List[str]:
-    bullets: List[str] = []
+def _slugify_title(text: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+    return cleaned or "source"
+
+
+def _build_sources_list(facts: List[Dict[str, Any]], *, max_items: int = 5) -> List[str]:
+    sources: List[str] = []
+    seen: set[str] = set()
     for fact in facts:
         if not isinstance(fact, dict):
             continue
         title = str(fact.get("title") or fact.get("source_name") or "").strip()
-        citation_id = str(fact.get("citation_id") or "").strip()
-        snippet = _shorten_snippet(_sanitize_snippet(str(fact.get("snippet") or fact.get("chunk_text") or "")))
-        if not snippet:
+        url = str(fact.get("source_url") or fact.get("url") or "").strip()
+        if not title and not url:
             continue
-        label = title or citation_id or "Source"
-        if citation_id and citation_id not in label:
-            label = f"{label} (ID: {citation_id})"
-        bullets.append(f'{label}: "{snippet}"')
-        if len(bullets) >= max_bullets:
+        if url.startswith(("local://", "file://", "internal://")):
+            url = ""
+        if not url:
+            url = f"/sources/{_slugify_title(title)}"
+        key = f"{title.lower()}|{url.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        label = f"{title} — {url}" if title else url
+        sources.append(label)
+        if len(sources) >= max_items:
             break
-    return bullets
+    return sources
 
 
 def _build_key_facts_from_llm(items: object, valid_ids: set[str], max_bullets: int = 5) -> List[str]:
@@ -766,6 +778,22 @@ def _ownership_intent(question: str) -> bool:
     return any(term in lowered for term in ("own", "owner", "created", "creator", "founded", "admin"))
 
 
+def _news_intent(question: str) -> bool:
+    lowered = (question or "").lower()
+    return "headline" in lowered or "headlines" in lowered or "news" in lowered
+
+
+def _filter_news_facts(facts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    filtered: List[Dict[str, Any]] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        title = str(fact.get("title") or "").lower()
+        source = str(fact.get("source_name") or "").lower()
+        if "news" in title or "headline" in title or "news" in source:
+            filtered.append(fact)
+    return filtered
+
 def _facts_with_titles(facts: List[Dict[str, Any]], keywords: Tuple[str, ...]) -> List[Dict[str, Any]]:
     matched: List[Dict[str, Any]] = []
     for fact in facts:
@@ -796,6 +824,11 @@ def _postprocess_formatted(text: str) -> str:
     out = re.sub(r"\n{3,}", "\n\n", out)
     out = re.sub(r"\n-\s*", "\n- ", out)
     out = out.replace("\r\n", "\n").strip()
+    out = out.replace("...", "")
+    out = re.sub(r"\n\*\*Key facts\*\*", "\n\n**Key facts**", out)
+    out = re.sub(r"\n\*\*Sources\*\*", "\n\n**Sources**", out)
+    if "**Sources**" not in out and re.search(r"^\d+\\. ", out, re.M):
+        out = re.sub(r"\n+(\\d+\\.)", "\n\n**Sources**\n\\1", out, count=1)
     return out
 
 
@@ -815,8 +848,8 @@ def _fit_content(answer_lines: List[str], key_fact_lines: List[str], max_len: in
     if max_len <= 0:
         return _joined(answer_lines + key_fact_lines)
 
-    header = key_fact_lines[:2]
-    bullets = key_fact_lines[2:]
+    header = key_fact_lines[:1]
+    bullets = key_fact_lines[1:]
     key_block = _joined(header + bullets)
     while bullets and len(key_block) > max_len:
         bullets = bullets[:-1]
@@ -824,15 +857,15 @@ def _fit_content(answer_lines: List[str], key_fact_lines: List[str], max_len: in
     if not key_block or len(key_block) > max_len:
         key_block = _joined(
             [
-                "**Key facts (from SustainaCore)**",
-                "- See the Evidence section for details.",
+                "**Key facts**",
+                "- See the Sources section for details.",
             ]
         )
 
     remaining = max_len - len(key_block) - 4
     answer_block = _joined(answer_lines)
     if remaining <= 0:
-        answer_block = "**Answer**\nSee the Evidence section for the retrieved sources."
+        answer_block = "**Answer**\nSee the Sources section for the retrieved references."
     elif len(answer_block) > remaining:
         answer_block = answer_block[:remaining].rstrip()
 
@@ -845,6 +878,11 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
 
     stripped = _normalize_bullet_runs(_strip_section_markers(answer_text))
     paragraphs: List[str] = []
+    filtered_facts = facts
+    if _news_intent(question):
+        news_facts = _filter_news_facts(facts)
+        if news_facts:
+            filtered_facts = news_facts
     for paragraph in _split_paragraphs(stripped):
         sentences = _sentences_with_valid_citations(paragraph, valid_ids) if valid_ids else []
         if sentences:
@@ -852,12 +890,12 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
             if deduped:
                 paragraphs.append(" ".join(deduped))
     if not paragraphs:
-        paragraphs = _summarize_facts_for_answer(facts)
+        paragraphs = _summarize_facts_for_answer(filtered_facts)
 
     if not paragraphs:
         paragraphs = ["I could not find enough SustainaCore context to answer this question."]
 
-    if len(facts) < 2:
+    if len(filtered_facts) < 2:
         paragraphs.append("Coverage looks thin based on the retrieved snippets.")
     if len(paragraphs) > 2:
         paragraphs = paragraphs[:2]
@@ -873,13 +911,9 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
         if filtered:
             key_facts = filtered
     if not key_facts:
-        key_facts = _build_key_facts_from_facts(facts)
+        key_facts = _build_key_facts_from_facts(filtered_facts)
     if not key_facts:
         key_facts = ["No high-confidence facts were retrieved for this query."]
-
-    evidence = _build_evidence_bullets(facts)
-    if not evidence:
-        evidence = ["No evidence snippets were returned by the retriever."]
 
     seen: set[str] = set()
     paragraph_sents: List[str] = []
@@ -888,7 +922,7 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
     _, seen = _dedupe_sentences(paragraph_sents, seen)
     key_facts, seen = _dedupe_sentences(key_facts, seen)
     if len(key_facts) < 3:
-        extras = _build_key_facts_from_facts(facts)
+        extras = _build_key_facts_from_facts(filtered_facts)
         for item in extras:
             if item in key_facts:
                 continue
@@ -896,23 +930,18 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
             if len(key_facts) >= 3:
                 break
     if len(key_facts) < 3:
-        for item in evidence:
-            snippet = item.rsplit(":", 1)[-1]
-            fact = _first_sentence(_sanitize_snippet(snippet))
+        for item in filtered_facts:
+            snippet = _sanitize_snippet(str(item.get("snippet") or item.get("chunk_text") or ""))
+            fact = _first_sentence(snippet)
             if not fact or fact in key_facts:
                 continue
             key_facts.append(fact)
             if len(key_facts) >= 3:
                 break
 
-    evidence_filtered: List[str] = []
-    for item in evidence:
-        snippet = item.rsplit(":", 1)[-1]
-        norm = _normalize_sentence(snippet)
-        if norm and norm in seen:
-            continue
-        evidence_filtered.append(item)
-    evidence = evidence_filtered or evidence
+    sources = _build_sources_list(filtered_facts, max_items=5)
+    if not sources:
+        sources = ["Sources not available in the retrieved results."]
 
     if _ownership_intent(question) and not _has_ownership_statement(facts):
         about_facts = _facts_with_titles(facts, ("about", "contact"))
@@ -936,9 +965,9 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
                         break
                 if len(key_facts) >= 3:
                     break
-        evidence = _build_evidence_bullets(about_facts)
-        if not evidence:
-            evidence = ["No evidence snippets were returned by the retriever."]
+        sources = _build_sources_list(about_facts, max_items=5)
+        if not sources:
+            sources = ["Sources not available in the retrieved results."]
 
     key_facts = [_ensure_period(item) for item in key_facts if item]
     answer_lines = ["**Answer**"]
@@ -946,27 +975,27 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
         answer_lines.append(para)
         if idx < len(paragraphs) - 1:
             answer_lines.append("")
-    key_fact_lines = ["**Key facts (from SustainaCore)**"] + [f"- {item}" for item in key_facts[:5]]
-    evidence_lines = ["**Evidence**"] + [f"- {item}" for item in evidence[:5]]
+    key_fact_lines = ["**Key facts**"] + [f"- {item}" for item in key_facts[:5]]
+    source_lines = ["**Sources**"] + [f"{idx}. {item}" for idx, item in enumerate(sources[:5], start=1)]
 
     cap = int(os.getenv("ASK2_ANSWER_CHAR_CAP", "2000"))
     if cap > 0:
-        evidence_text = "\n".join(evidence_lines).strip()
-        remaining = max(cap - len(evidence_text) - 2, 0)
+        sources_text = "\n".join(source_lines).strip()
+        remaining = max(cap - len(sources_text) - 2, 0)
         content = _fit_content(answer_lines, key_fact_lines, remaining)
         if not content:
             content = "\n".join(
                 [
                     "**Answer**",
-                    "See the Evidence section for the retrieved sources.",
+                    "See the Sources section for the retrieved references.",
                     "",
-                    "**Key facts (from SustainaCore)**",
-                    "- See the Evidence section for details.",
+                    "**Key facts**",
+                    "- See the Sources section for details.",
                 ]
             )
-        combined = "\n".join([content, "", evidence_text]).strip()
+        combined = "\n".join([content, "", sources_text]).strip()
     else:
-        combined = "\n".join(answer_lines + [""] + key_fact_lines + [""] + evidence_lines).strip()
+        combined = "\n".join(answer_lines + [""] + key_fact_lines + [""] + source_lines).strip()
     return _postprocess_formatted(combined)
 
 
