@@ -1510,10 +1510,11 @@ textarea:focus {
     border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 1.25rem;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 0.75rem;
-    grid-template-rows: 1fr auto auto;
     min-height: 520px;
+    max-height: clamp(520px, calc(100vh - 260px), 820px);
 }
 
 .chat-panel__messages {
@@ -1525,6 +1526,7 @@ textarea:focus {
     display: grid;
     gap: 0.85rem;
     align-content: start;
+    flex: 1 1 auto;
 }
 
 .chat-panel__meta {
@@ -1533,6 +1535,7 @@ textarea:focus {
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
+    flex: 0 0 auto;
 }
 
 .chat-panel__status {
@@ -1545,6 +1548,22 @@ textarea:focus {
 
 .chat-panel__status[hidden] {
     display: none;
+}
+
+.chat-panel__jump {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--brand-blue-strong);
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.chat-panel__jump:hover,
+.chat-panel__jump:focus {
+    border-color: rgba(31, 95, 191, 0.6);
 }
 
 .spinner {
@@ -1599,6 +1618,7 @@ textarea:focus {
 .chat__input {
     display: grid;
     gap: 0.75rem;
+    flex: 0 0 auto;
 }
 
 .chat__input textarea {
@@ -2579,6 +2599,7 @@ textarea:focus {
 
     .chat-panel {
         min-height: 420px;
+        max-height: none;
     }
 
     .chat-helper {
