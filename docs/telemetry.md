@@ -27,8 +27,10 @@ Client-side (only if analytics consent = yes):
 - `ask2_opened`
 - `tab_changed`
 
-Ask2 content (optional, OFF by default):
-- Enable with `ASK2_STORE_CONVERSATIONS=1` to store user + assistant messages (truncated to 8k chars).
+Ask2 content (stored in Oracle):
+- Ask2 user and assistant messages are stored in `W_WEB_ASK2_CONVERSATION` and `W_WEB_ASK2_MESSAGE`.
+- Content is truncated to 20,000 characters per message.
+- Use `manage.py purge_ask2_chats --days N` to remove older conversations.
 
 ## Data minimisation
 - `ip_trunc`: IPv4 /24 or IPv6 /48
@@ -48,6 +50,8 @@ Ask2 content (optional, OFF by default):
   - `python website_django/manage.py migrate --noinput`
 - Verify Oracle + telemetry tables:
   - `python website_django/manage.py diagnose_db --fail-on-sqlite --verify-insert`
+ - Verify Ask2 storage:
+   - `python website_django/manage.py diagnose_ask2_storage --fail-on-sqlite --verify-insert`
 
 ## Oracle permissions checklist
 If migrations fail or tables are missing, confirm the Oracle user has:
