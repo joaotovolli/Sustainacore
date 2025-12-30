@@ -39,12 +39,15 @@ Agents:
   - `/etc/sustainacore.env`
   - `/etc/sustainacore/db.env`
   - `/etc/sysconfig/sustainacore-django.env`
-- Do NOT `source /etc/sustainacore*.env` directly in deploy scripts; use `sudo -n cat` or `sudo -n systemd-run` so non-interactive deploys succeed without leaking secrets.
+- Do NOT `source` env files or parse them in shell; treat env files as data only.
+- Never print env contents (no `cat /etc/*.env`, no `printenv`, no `env`, no `set -x`).
+- Never use process substitution (`<(...)`) or `/dev/fd/*` for env files.
+- Use `sudo -n systemd-run` with `EnvironmentFile=` for manage.py so the service env is applied without printing secrets.
 - Canonical DB env var precedence in settings: `DB_USER/DB_PASSWORD/DB_DSN` → `ORACLE_USER/ORACLE_PASSWORD/ORACLE_DSN` → `ORACLE_CONNECT_STRING`.
 - Golden verification command (must appear in PRs touching deploy/scripts/settings):
   - `scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --verify-insert --timeout 60`
 - Common failure modes to avoid:
-  - Permission denied on `/etc/sustainacore.env` (fix via sudo -n cat or group perms).
+  - Permission denied on `/etc/sustainacore.env` (fix via sudo -n access or group perms).
   - “Missing Oracle credentials” because service env differs from shell env (use systemd-run env files).
   - Migrations run against sqlite due to wrong env context (always run with service env).
 
