@@ -23,8 +23,25 @@ else
   echo "[VM2] No .env.vm2 file found, continuing without it."
 fi
 
-# 2.1) Ensure STATIC_VERSION is set for the gunicorn environment
-ENV_FILE="/etc/sysconfig/sustainacore-django.env"
+# 2.1) Load systemd environment files used by gunicorn (do not print secrets)
+if [ -f "/etc/sustainacore.env" ]; then
+  echo "[VM2] Loading environment from /etc/sustainacore.env..."
+  set -a
+  # shellcheck disable=SC1091
+  . "/etc/sustainacore.env"
+  set +a
+fi
+
+if [ -f "/etc/sustainacore/db.env" ]; then
+  echo "[VM2] Loading environment from /etc/sustainacore/db.env..."
+  set -a
+  # shellcheck disable=SC1091
+  . "/etc/sustainacore/db.env"
+  set +a
+fi
+
+# 2.2) Ensure STATIC_VERSION is set for the gunicorn environment
+ENV_FILE="/etc/sustainacore.env"
 STATIC_VERSION="$(git rev-parse --short HEAD 2>/dev/null || date +%s)"
 if [ -f "$ENV_FILE" ]; then
   if grep -q "^STATIC_VERSION=" "$ENV_FILE"; then
@@ -36,7 +53,7 @@ else
   echo "STATIC_VERSION=$STATIC_VERSION" | sudo tee "$ENV_FILE" >/dev/null
 fi
 
-# 2.2) Ensure production environment flag is present (banner should never show on prod host)
+# 2.3) Ensure production environment flag is present (banner should never show on prod host)
 if [ -f "$ENV_FILE" ]; then
   if grep -q "^SUSTAINACORE_ENV=" "$ENV_FILE"; then
     sudo sed -i "s/^SUSTAINACORE_ENV=.*/SUSTAINACORE_ENV=production/" "$ENV_FILE"
@@ -46,6 +63,18 @@ if [ -f "$ENV_FILE" ]; then
 else
   echo "SUSTAINACORE_ENV=production" | sudo tee "$ENV_FILE" >/dev/null
 fi
+
+# 2.4) Ensure gunicorn loads all env files consistently
+GUNICORN_DROPIN_DIR="/etc/systemd/system/gunicorn.service.d"
+GUNICORN_DROPIN_FILE="${GUNICORN_DROPIN_DIR}/sustainacore-env.conf"
+sudo mkdir -p "$GUNICORN_DROPIN_DIR"
+sudo tee "$GUNICORN_DROPIN_FILE" >/dev/null <<'EOF'
+[Service]
+EnvironmentFile=/etc/sustainacore.env
+EnvironmentFile=/etc/sustainacore/db.env
+EnvironmentFile=/etc/sysconfig/sustainacore-django.env
+EOF
+sudo systemctl daemon-reload
 
 # 3) Create or repair the user-owned venv
 mkdir -p "${HOME}/.venvs"
@@ -86,14 +115,10 @@ DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/ma
 echo "[VM2] Applying migrations..."
 DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" migrate --noinput
 
-if [ -n "${ORACLE_DSN:-}" ] && [ -n "${ORACLE_USER:-}" ] && [ -n "${ORACLE_PASSWORD:-}" ]; then
-  echo "[VM2] Applying telemetry migrations to Oracle..."
-  if ! DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" migrate --database=oracle --noinput; then
-    echo "[VM2] Warning: Oracle telemetry migrations failed. Check privileges/quota." >&2
-  fi
-  DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" diagnose_db --database=oracle || true
-else
-  echo "[VM2] Oracle env not configured; skipping telemetry Oracle migrations."
+echo "[VM2] Verifying Oracle telemetry..."
+if ! DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" diagnose_db --fail-on-sqlite --verify-insert --timeout 60; then
+  echo "[VM2] Oracle telemetry verification failed. Check DB env variables and privileges." >&2
+  exit 1
 fi
 
 echo "[VM2] Collecting static files..."
