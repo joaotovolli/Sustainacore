@@ -1610,6 +1610,32 @@ textarea:focus {
     justify-self: start;
 }
 
+.bubble--assistant p {
+    margin: 0 0 0.75rem;
+}
+
+.bubble--assistant p:last-child {
+    margin-bottom: 0;
+}
+
+.bubble--assistant ul,
+.bubble--assistant ol {
+    margin: 0 0 0.75rem;
+    padding-left: 1.25rem;
+    display: grid;
+    gap: 0.35rem;
+}
+
+.bubble--assistant ul:last-child,
+.bubble--assistant ol:last-child {
+    margin-bottom: 0;
+}
+
+.ask2-h {
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+}
+
 .bubble--muted {
     color: var(--muted);
     font-style: italic;
