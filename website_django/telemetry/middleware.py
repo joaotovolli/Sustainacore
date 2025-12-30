@@ -4,7 +4,7 @@ import time
 from typing import Iterable
 
 from telemetry.consent import get_consent_from_request
-from telemetry.logger import record_event, touch_session
+from telemetry.logger import _log_db_health_once, record_event, touch_session
 
 
 EXCLUDED_PREFIXES: Iterable[str] = (
@@ -26,6 +26,7 @@ class TelemetryMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        _log_db_health_once()
         start = time.monotonic()
         response = self.get_response(request)
         duration_ms = int((time.monotonic() - start) * 1000)

@@ -12,6 +12,31 @@ from telemetry.models import WebConsent, WebEvent, WebSession
 from telemetry.utils import get_ip_fields
 
 logger = logging.getLogger(__name__)
+_HEALTH_LOGGED = False
+
+
+def _log_db_health_once() -> None:
+    global _HEALTH_LOGGED
+    if _HEALTH_LOGGED:
+        return
+    db_alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
+    engine = settings.DATABASES.get(db_alias, {}).get("ENGINE")
+    logger.info("telemetry.db_health alias=%s engine=%s", db_alias, engine)
+    _HEALTH_LOGGED = True
+
+
+def _log_write_error(action: str, exc: Exception, *, event_type: str | None = None, path: str | None = None) -> None:
+    db_alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
+    engine = settings.DATABASES.get(db_alias, {}).get("ENGINE")
+    logger.error(
+        "telemetry.%s_failed alias=%s engine=%s event_type=%s path=%s",
+        action,
+        db_alias,
+        engine,
+        event_type,
+        path,
+        exc_info=exc,
+    )
 
 
 def _safe_json(payload: Optional[Dict[str, Any]]) -> str | None:
@@ -44,7 +69,7 @@ def record_consent(
             ip_hash=ip_hash,
         )
     except Exception as exc:
-        logger.warning("telemetry.record_consent_failed", exc_info=exc)
+        _log_write_error("record_consent", exc)
 
 
 def record_event(
@@ -88,7 +113,7 @@ def record_event(
             payload_json=_safe_json(payload),
         )
     except Exception as exc:
-        logger.warning("telemetry.record_event_failed", exc_info=exc)
+        _log_write_error("record_event", exc, event_type=event_type, path=path)
 
 
 def touch_session(
@@ -108,7 +133,7 @@ def touch_session(
     try:
         existing = WebSession.objects.using(db_alias).filter(session_key=session_key).first()
     except Exception as exc:
-        logger.warning("telemetry.session_lookup_failed", exc_info=exc)
+        _log_write_error("session_lookup", exc)
         return
     if existing:
         existing.last_seen_ts = timestamp
@@ -126,7 +151,7 @@ def touch_session(
                 update_fields=["last_seen_ts", "user_id", "ip_hash", "user_agent", "country_code", "region_code"],
             )
         except Exception as exc:
-            logger.warning("telemetry.session_update_failed", exc_info=exc)
+            _log_write_error("session_update", exc)
         return
     try:
         WebSession.objects.using(db_alias).create(
@@ -140,4 +165,4 @@ def touch_session(
             ip_hash=ip_hash,
         )
     except Exception as exc:
-        logger.warning("telemetry.session_create_failed", exc_info=exc)
+        _log_write_error("session_create", exc)

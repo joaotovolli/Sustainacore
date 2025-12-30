@@ -54,7 +54,8 @@ CSRF_TRUSTED_ORIGINS = get_env_list(
 
 PREVIEW_HOSTS = get_env_list("PREVIEW_HOSTS", "preview.sustainacore.org")
 PREVIEW_MODE = env_bool("PREVIEW_MODE", default=False)
-SUSTAINACORE_ENV = os.environ.get("SUSTAINACORE_ENV", "production").strip().lower()
+_raw_env = os.environ.get("SUSTAINACORE_ENV")
+SUSTAINACORE_ENV = (_raw_env or "development").strip().lower()
 
 SITE_URL = os.environ.get("SITE_URL", "https://sustainacore.org")
 DEFAULT_META_DESCRIPTION = (
@@ -126,24 +127,65 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
 
-ORACLE_DSN = os.environ.get("ORACLE_DSN")
-ORACLE_USER = os.environ.get("ORACLE_USER")
-ORACLE_PASSWORD = os.environ.get("ORACLE_PASSWORD")
-if ORACLE_DSN and ORACLE_USER and ORACLE_PASSWORD:
-    DATABASES["oracle"] = {
+ORACLE_USER = os.environ.get("DB_USER") or os.environ.get("ORACLE_USER")
+ORACLE_PASSWORD = (
+    os.environ.get("DB_PASSWORD")
+    or os.environ.get("DB_PASS")
+    or os.environ.get("ORACLE_PASSWORD")
+)
+ORACLE_DSN = (
+    os.environ.get("DB_DSN")
+    or os.environ.get("ORACLE_DSN")
+    or os.environ.get("ORACLE_CONNECT_STRING")
+)
+ORACLE_CONFIGURED = bool(ORACLE_USER and ORACLE_PASSWORD and ORACLE_DSN)
+if ORACLE_CONFIGURED:
+    try:
+        import oracledb  # type: ignore
+        import sys
+
+        lib_dir = os.getenv("ORACLE_CLIENT_LIB_DIR", "/opt/oracle/instantclient_23")
+        config_dir = os.getenv("TNS_ADMIN", "/opt/adb_wallet_tp")
+        try:
+            oracledb.init_oracle_client(lib_dir=lib_dir, config_dir=config_dir)
+        except Exception:
+            pass
+
+        sys.modules.setdefault("cx_Oracle", oracledb)
+    except Exception:
+        pass
+
+PRODUCTION_MODE = SUSTAINACORE_ENV in {"production", "preview"} and not DEBUG
+if PRODUCTION_MODE and not ORACLE_CONFIGURED:
+    raise ImproperlyConfigured(
+        "Oracle is required in production. Set DB_USER/DB_PASSWORD/DB_DSN "
+        "(or ORACLE_USER/ORACLE_PASSWORD/ORACLE_DSN/ORACLE_CONNECT_STRING)."
+    )
+
+if ORACLE_CONFIGURED:
+    oracle_db = {
         "ENGINE": "django.db.backends.oracle",
         "NAME": ORACLE_DSN,
         "USER": ORACLE_USER,
         "PASSWORD": ORACLE_PASSWORD,
     }
+    if PRODUCTION_MODE:
+        DATABASES["default"] = oracle_db
+    else:
+        DATABASES["oracle"] = oracle_db
 
-TELEMETRY_DB_ALIAS = "oracle" if "oracle" in DATABASES else "default"
+if DATABASES["default"]["ENGINE"] == "django.db.backends.oracle":
+    TELEMETRY_DB_ALIAS = "default"
+elif "oracle" in DATABASES:
+    TELEMETRY_DB_ALIAS = "oracle"
+else:
+    TELEMETRY_DB_ALIAS = "default"
 DATABASE_ROUTERS = ["telemetry.db_router.TelemetryRouter"]
 
 
