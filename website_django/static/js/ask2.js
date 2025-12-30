@@ -8,6 +8,7 @@
     const statusText = document.querySelector('[data-ask2-status-text]');
     const sendButton = document.querySelector('[data-ask2-send]');
     const examples = document.querySelectorAll('[data-ask2-example]');
+    const jumpButton = document.querySelector('[data-ask2-jump]');
 
     if (!messagesEl || !form || !input) return;
     window.SCTelemetry?.track?.('ask2_opened', { page: window.location.pathname });
@@ -21,12 +22,34 @@
       return tokenInput ? tokenInput.value : null;
     }
 
+    function isNearBottom() {
+      if (!messagesEl) return true;
+      const distance = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+      return distance < 120;
+    }
+
+    function updateJumpVisibility() {
+      if (!jumpButton) return;
+      jumpButton.hidden = isNearBottom();
+    }
+
+    function scrollToBottom() {
+      if (!messagesEl) return;
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      updateJumpVisibility();
+    }
+
     function appendBubble(role, text, muted = false) {
+      const shouldScroll = isNearBottom();
       const bubble = document.createElement('div');
       bubble.className = `bubble bubble--${role}${muted ? ' bubble--muted' : ''}`;
       bubble.textContent = text;
       messagesEl.appendChild(bubble);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      if (shouldScroll) {
+        scrollToBottom();
+      } else {
+        updateJumpVisibility();
+      }
       return bubble;
     }
 
@@ -123,6 +146,16 @@
       }
     });
 
+    messagesEl.addEventListener('scroll', () => {
+      updateJumpVisibility();
+    });
+
+    if (jumpButton) {
+      jumpButton.addEventListener('click', () => {
+        scrollToBottom();
+      });
+    }
+
     examples.forEach((example) => {
       example.addEventListener('click', () => {
         const value = example.dataset.ask2Example || '';
@@ -134,5 +167,6 @@
     });
 
     setThinking(false);
+    updateJumpVisibility();
   });
 })();
