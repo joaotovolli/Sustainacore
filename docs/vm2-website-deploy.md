@@ -15,19 +15,13 @@ The site also proxies Ask2 traffic to VM1:
   - `/etc/sustainacore.env`
   - `/etc/sustainacore/db.env`
   - `/etc/sysconfig/sustainacore-django.env`
-- A repo-local `.env.vm2` lives at the repo root on VM2 (not committed). It should include required Django settings plus the Ask2 proxy values:
-  - `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_DEBUG`
-  - `BACKEND_API_BASE` (VM1 base URL) and `BACKEND_API_TOKEN` (must match VM1 `API_AUTH_TOKEN` when auth is enabled)
-  - Any database variables needed for the site itself (not Ask2)
-- The deploy script sources `.env.vm2` if it exists. Create or update this file directly on VM2 (or via Codex CLI) as needed and keep real secrets out of Git.
-  - Oracle config uses `DB_USER`, `DB_PASSWORD` (or `DB_PASS`), and `DB_DSN` (preferred). `ORACLE_*` vars are accepted as fallback.
+- Oracle config uses `DB_USER`, `DB_PASSWORD` (or `DB_PASS`), and `DB_DSN` (preferred). `ORACLE_*` vars are accepted as fallback.
 
 ### Env Files & Permissions
 - The deploy user may not have direct read access to `/etc/sustainacore*.env`.
-- The deploy script loads env files via:
-  - direct read if permitted, otherwise
-  - `sudo -n cat <envfile>` (non-interactive).
-- If neither is available, the deploy will fail fast with a link to this doc.
+- The deploy script validates env files via `sudo -n test -r` and uses `systemd-run` `EnvironmentFile=` to consume them.
+- It never sources env files in shell.
+- If sudo read access is unavailable, the deploy will fail fast with a link to this doc.
 - Do NOT chmod secrets world-readable. If needed, adjust group permissions (optional):
   - `chgrp ubuntu /etc/sustainacore.env /etc/sustainacore/db.env`
   - `chmod 640 /etc/sustainacore.env /etc/sustainacore/db.env`
@@ -39,7 +33,6 @@ The site also proxies Ask2 traffic to VM1:
 
 ## Deployment Script: `deploy_vm2_website.sh`
 - `cd` to the repository root.
-- If `.env.vm2` exists, export its variables for the shell session with a clean `set -a`/`set +a` block.
 - Use the same env files as gunicorn for Django management commands (via `sudo -n systemd-run` when available).
 - Run `manage.py migrate --noinput` and `manage.py collectstatic --noinput` inside `website_django/`.
 - Fail fast if Oracle is not active in production (`diagnose_db --fail-on-sqlite`).
