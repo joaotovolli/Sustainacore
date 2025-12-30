@@ -58,4 +58,45 @@ class WebEvent(models.Model):
     class Meta:
         db_table = "W_WEB_EVENT"
 
-# Create your models here.
+
+class WebAsk2Conversation(models.Model):
+    conversation_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField()
+    last_message_at = models.DateTimeField()
+    user_id = models.IntegerField(null=True, blank=True)
+    session_key = models.CharField(max_length=64, null=True, blank=True)
+    anon_id = models.CharField(max_length=64, null=True, blank=True)
+    ip_hash = models.CharField(max_length=128, null=True, blank=True)
+    ip_prefix = models.CharField(max_length=64, null=True, blank=True)
+    user_agent = models.CharField(max_length=512, null=True, blank=True)
+    path_first = models.CharField(max_length=512, null=True, blank=True)
+    consent_analytics_effective = models.CharField(max_length=1, null=True, blank=True)
+    metadata_json = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "W_WEB_ASK2_CONVERSATION"
+
+
+class WebAsk2Message(models.Model):
+    message_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    conversation = models.ForeignKey(
+        WebAsk2Conversation,
+        on_delete=models.CASCADE,
+        db_column="conversation_id",
+        related_name="messages",
+    )
+    created_at = models.DateTimeField()
+    role = models.CharField(max_length=16)
+    content = models.TextField()
+    content_len = models.IntegerField()
+    model_name = models.CharField(max_length=128, null=True, blank=True)
+    latency_ms = models.IntegerField(null=True, blank=True)
+    tokens_in = models.IntegerField(null=True, blank=True)
+    tokens_out = models.IntegerField(null=True, blank=True)
+    request_id = models.CharField(max_length=64, null=True, blank=True)
+    status = models.CharField(max_length=32, null=True, blank=True)
+    error_class = models.CharField(max_length=128, null=True, blank=True)
+    error_msg = models.CharField(max_length=512, null=True, blank=True)
+
+    class Meta:
+        db_table = "W_WEB_ASK2_MESSAGE"
