@@ -35,6 +35,16 @@ Client-side (only if analytics consent = yes):
 - Default retention is 180 days for telemetry events.
 - `manage.py purge_web_telemetry --days N` removes older rows.
 
+## Deployment & migrations
+- Ensure telemetry migrations run on the Oracle alias:
+  - `python website_django/manage.py migrate --database=oracle --noinput`
+- Use `python website_django/manage.py diagnose_db --database=oracle` to confirm tables and migrations.
+
+## Oracle permissions checklist
+If migrations fail or tables are missing, confirm the Oracle user has:
+- `CREATE TABLE` privilege
+- Sufficient tablespace quota for the target schema
+
 ## Configuration
 Environment variables (optional):
 - `TELEMETRY_POLICY_VERSION` (default `2025-12-30`)
