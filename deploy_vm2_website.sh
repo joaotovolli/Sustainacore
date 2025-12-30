@@ -123,6 +123,12 @@ if ! run_manage diagnose_db --fail-on-sqlite --verify-insert --timeout 60; then
   exit 1
 fi
 
+echo "[VM2] Verifying Ask2 storage..."
+if ! run_manage diagnose_ask2_storage --fail-on-sqlite --verify-insert --timeout 60; then
+  echo "[VM2] Ask2 storage verification failed. Check DB env variables and privileges." >&2
+  exit 1
+fi
+
 echo "[VM2] Collecting static files..."
 run_manage collectstatic --noinput
 
