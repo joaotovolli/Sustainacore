@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path
+from django.views.decorators.csrf import csrf_exempt
 
 from . import views
 from . import sitemaps
@@ -55,8 +56,8 @@ urlpatterns = [
     path("auth/request-code/", views.auth_request_code, name="auth_request_code"),
     path("auth/verify-code/", views.auth_verify_code, name="auth_verify_code"),
     path("api/ux-event/", views.ux_event, name="ux_event"),
-    path("telemetry/consent/", telemetry_views.consent, name="telemetry_consent"),
-    path("telemetry/event/", telemetry_views.telemetry_event, name="telemetry_event"),
+    path("telemetry/consent/", csrf_exempt(telemetry_views.consent), name="telemetry_consent"),
+    path("telemetry/event/", csrf_exempt(telemetry_views.telemetry_event), name="telemetry_event"),
     path("api/tech100/index-levels", tech100_index_views.api_tech100_index_levels),
     path("api/tech100/index/attribution", tech100_index_views.api_tech100_performance_attribution),
     path("api/tech100/index/holdings", tech100_index_views.api_tech100_holdings),

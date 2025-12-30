@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import unquote
 from dataclasses import dataclass
 from typing import Optional
 
@@ -21,10 +22,18 @@ class ConsentState:
 def parse_consent_cookie(raw: str) -> Optional[ConsentState]:
     if not raw:
         return None
+    raw = unquote(raw)
+    if raw.startswith('"') and raw.endswith('"'):
+        raw = raw[1:-1]
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
         return None
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
     if not isinstance(payload, dict):
         return None
     return ConsentState(

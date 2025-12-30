@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from datetime import datetime
 from typing import Any, Dict
 
@@ -101,6 +102,56 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
             payload=payload,
             session_key=session_key,
         )
+        if settings.ASK2_STORE_CONVERSATIONS:
+            conversation_id = request.session.get("ask2_conversation_id")
+            if not conversation_id:
+                conversation_id = uuid.uuid4().hex
+                request.session["ask2_conversation_id"] = conversation_id
+                request.session["ask2_message_index"] = 0
+            message_index = int(request.session.get("ask2_message_index") or 0)
+            def _truncate(value: str, max_len: int = 8000) -> str:
+                if len(value) <= max_len:
+                    return value
+                return value[:max_len]
+            user_payload = {
+                "conversation_id": conversation_id,
+                "role": "user",
+                "message_index": message_index,
+                "content": _truncate(user_message),
+                "content_len": len(user_message),
+            }
+            record_event(
+                event_type="ask2_message",
+                request=request,
+                consent=consent,
+                path=request.path,
+                query_string=request.META.get("QUERY_STRING") or None,
+                http_method=request.method,
+                status_code=status_code,
+                response_ms=latency_ms,
+                payload=user_payload,
+                session_key=session_key,
+            )
+            assistant_payload = {
+                "conversation_id": conversation_id,
+                "role": "assistant",
+                "message_index": message_index + 1,
+                "content": _truncate(reply_text),
+                "content_len": len(reply_text),
+            }
+            record_event(
+                event_type="ask2_message",
+                request=request,
+                consent=consent,
+                path=request.path,
+                query_string=request.META.get("QUERY_STRING") or None,
+                http_method=request.method,
+                status_code=status_code,
+                response_ms=latency_ms,
+                payload=assistant_payload,
+                session_key=session_key,
+            )
+            request.session["ask2_message_index"] = message_index + 2
     except Exception:
         pass
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import csrf_exempt
 
 from telemetry.consent import CONSENT_COOKIE, ConsentState, get_consent_from_request, serialize_consent
 from telemetry.logger import record_consent, record_event
@@ -36,8 +37,19 @@ def _event_path(payload: dict, fallback: str) -> str:
     return fallback
 
 
+def _is_same_origin(request: HttpRequest) -> bool:
+    origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER")
+    if not origin:
+        return True
+    parsed = urlparse(origin)
+    return parsed.netloc == request.get_host()
+
+
+@csrf_exempt
 @require_POST
 def consent(request: HttpRequest) -> JsonResponse:
+    if not _is_same_origin(request):
+        return JsonResponse({"ok": False}, status=403)
     payload = _load_json(request)
     analytics = bool(payload.get("analytics"))
     functional = bool(payload.get("functional"))
@@ -49,7 +61,7 @@ def consent(request: HttpRequest) -> JsonResponse:
         policy_version=settings.TELEMETRY_POLICY_VERSION,
         source=source,
     )
-    cookie_value = serialize_consent(consent_state)
+    cookie_value = quote(serialize_consent(consent_state))
     response = JsonResponse({"ok": True})
     response.set_cookie(
         CONSENT_COOKIE,
@@ -67,8 +79,11 @@ def consent(request: HttpRequest) -> JsonResponse:
     return response
 
 
+@csrf_exempt
 @require_POST
 def telemetry_event(request: HttpRequest) -> HttpResponse:
+    if not _is_same_origin(request):
+        return HttpResponse(status=403)
     consent = get_consent_from_request(request)
     if not consent.analytics:
         return HttpResponse(status=204)
