@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import re
 import signal
 import socket
 import sys
@@ -114,7 +115,7 @@ def _first_sentence(text: str, max_len: int = 240) -> str:
     else:
         sentence = collapsed
     if len(sentence) > max_len:
-        sentence = sentence[: max_len - 3].rstrip() + "..."
+        sentence = sentence[:max_len].rstrip()
     if sentence and sentence[-1] not in ".!?":
         sentence += "."
     return sentence
@@ -126,7 +127,7 @@ def _shorten(text: str, max_len: int = 220) -> str:
     collapsed = " ".join(text.strip().split())
     if len(collapsed) <= max_len:
         return collapsed
-    return collapsed[: max_len - 3].rstrip() + "..."
+    return collapsed[:max_len].rstrip()
 
 
 def _render_raw_retrieval(contexts: List[Dict[str, Any]]) -> str:
@@ -162,7 +163,7 @@ def _vector_only_answer(question: str, contexts: List[Dict[str, Any]]) -> str:
                 "- No high-confidence facts were retrieved for this query.",
                 "",
                 "**Sources**",
-                "1. Sources not available in the retrieved results.",
+                "1. SustainaCore — https://sustainacore.org",
             ]
         )
 
@@ -171,6 +172,8 @@ def _vector_only_answer(question: str, contexts: List[Dict[str, Any]]) -> str:
     key_facts = []
     for snippet in snippets[:5]:
         sentence = _first_sentence(snippet)
+        if ">" in sentence or "›" in sentence:
+            continue
         if sentence:
             key_facts.append(sentence)
 
@@ -181,12 +184,16 @@ def _vector_only_answer(question: str, contexts: List[Dict[str, Any]]) -> str:
     for idx, ctx in enumerate(contexts[:5], start=1):
         title = str(ctx.get("title") or ctx.get("doc_id") or f"Source {idx}").strip()
         url = str(ctx.get("source_url") or ctx.get("url") or "").strip()
-        if url.startswith(("local://", "file://", "internal://")) or not url:
-            url = f"/sources/{title.lower().replace(' ', '-')}"
+        if url.startswith(("local://", "file://", "internal://")):
+            url = ""
+        if url and not url.startswith("https://sustainacore.org") and not url.startswith("https://www.sustainacore.org"):
+            url = ""
+        if not url:
+            continue
         sources.append(f"{title} — {url}")
 
     if not sources:
-        sources = ["Sources not available in the retrieved results."]
+        sources = ["SustainaCore — https://sustainacore.org"]
 
     answer_paragraph = " ".join(_first_sentence(s) for s in snippets[:3] if s)
     if not answer_paragraph:
@@ -223,6 +230,28 @@ def _is_structured(text: str) -> Tuple[bool, List[str]]:
         missing.append("Internal IDs")
     if "..." in text:
         missing.append("Ellipses")
+    if "/sources/" in text:
+        missing.append("Sources slugs")
+    key_fact_lines = []
+    in_key = False
+    for line in text.splitlines():
+        if line.strip() == "**Key facts**":
+            in_key = True
+            continue
+        if line.strip() == "**Sources**":
+            in_key = False
+        if in_key and line.strip().startswith("- "):
+            key_fact_lines.append(line.strip())
+    for line in key_fact_lines:
+        if not line.endswith((".", "?", "!")):
+            missing.append("Key facts punctuation")
+            break
+        if ">" in line or "›" in line:
+            missing.append("Breadcrumbs in key facts")
+            break
+    source_lines = [line for line in text.splitlines() if re.match(r"^\d+\. ", line.strip())]
+    if len(source_lines) > 3:
+        missing.append("Too many sources")
     answer_block = ""
     if "**Answer**" in text:
         answer_block = text.split("**Answer**", 1)[1]
