@@ -33,6 +33,21 @@ Agents:
 - VM2 is resource constrained (1 CPU core, ~1 GB RAM).
 - VRT and headless browser runs can stall the VM; use GitHub Actions when possible.
 
+## VM2 Oracle & Env File Guardrails
+- VM2 production MUST use Oracle; sqlite is allowed only for local dev.
+- Canonical env sources for VM2 Django:
+  - `/etc/sustainacore.env`
+  - `/etc/sustainacore/db.env`
+  - `/etc/sysconfig/sustainacore-django.env`
+- Do NOT `source /etc/sustainacore*.env` directly in deploy scripts; use `sudo -n cat` or `sudo -n systemd-run` so non-interactive deploys succeed without leaking secrets.
+- Canonical DB env var precedence in settings: `DB_USER/DB_PASSWORD/DB_DSN` → `ORACLE_USER/ORACLE_PASSWORD/ORACLE_DSN` → `ORACLE_CONNECT_STRING`.
+- Golden verification command (must appear in PRs touching deploy/scripts/settings):
+  - `scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --verify-insert --timeout 60`
+- Common failure modes to avoid:
+  - Permission denied on `/etc/sustainacore.env` (fix via sudo -n cat or group perms).
+  - “Missing Oracle credentials” because service env differs from shell env (use systemd-run env files).
+  - Migrations run against sqlite due to wrong env context (always run with service env).
+
 ## Python & Virtual Environment (VM2 / Django)
 - On Ubuntu, `python` may be absent; always use `python3`.
 - Always activate the repo virtual environment before Django commands:
