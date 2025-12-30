@@ -131,6 +131,20 @@ DATABASES = {
     }
 }
 
+ORACLE_DSN = os.environ.get("ORACLE_DSN")
+ORACLE_USER = os.environ.get("ORACLE_USER")
+ORACLE_PASSWORD = os.environ.get("ORACLE_PASSWORD")
+if ORACLE_DSN and ORACLE_USER and ORACLE_PASSWORD:
+    DATABASES["oracle"] = {
+        "ENGINE": "django.db.backends.oracle",
+        "NAME": ORACLE_DSN,
+        "USER": ORACLE_USER,
+        "PASSWORD": ORACLE_PASSWORD,
+    }
+
+TELEMETRY_DB_ALIAS = "oracle" if "oracle" in DATABASES else "default"
+DATABASE_ROUTERS = ["telemetry.db_router.TelemetryRouter"]
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
