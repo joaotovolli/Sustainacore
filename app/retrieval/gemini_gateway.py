@@ -337,6 +337,15 @@ class GeminiGateway:
 
         raw_facts = retriever_result.get("facts") if isinstance(retriever_result, dict) else []
         fact_list = raw_facts if isinstance(raw_facts, list) else []
+        raw_contexts = retriever_result.get("contexts") if isinstance(retriever_result, dict) else []
+        if isinstance(raw_contexts, list):
+            context_facts = _facts_from_contexts(raw_contexts)
+            if context_facts:
+                fact_list = _merge_fact_lists(
+                    fact_list,
+                    context_facts,
+                    settings.retriever_fact_cap,
+                )
         derived_sources = _build_sources_from_facts(
             cleaned_answer, fact_list, settings.retriever_fact_cap
         )
@@ -545,6 +554,7 @@ _JUNK_PREFIXES = (
     "sibility.",
     "key sco",
     "e investment advice",
+    "meta:",
 )
 
 _JUNK_PATTERNS = (
@@ -584,7 +594,9 @@ def _looks_fragmentary(text: str) -> bool:
     lowered = stripped.lower()
     if any(lowered.startswith(prefix) for prefix in _JUNK_PREFIXES):
         return True
-    if len(stripped) < 30 and not re.search(r"\d", stripped):
+    if "card_path=" in lowered or "doc_ref=" in lowered or "aliases=" in lowered:
+        return True
+    if len(stripped) < 30 and not _has_numeric_fact(stripped):
         return True
     if stripped.lower().startswith(("by ", "and ", "or ", "as ", "to ", "of ")):
         return True
@@ -612,6 +624,208 @@ def _split_sentences(text: str) -> List[str]:
         return []
     parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text.strip())
     return [p.strip() for p in parts if p.strip()]
+
+
+def _clean_fact_sentence(text: str) -> str:
+    cleaned = _normalize_punctuation(text)
+    cleaned = re.sub(r"^Definition\s*[-–:]\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^As noted,\s*", "", cleaned, flags=re.I)
+    if cleaned.lower().startswith("meta:"):
+        return ""
+    if ">" in cleaned or "›" in cleaned:
+        return ""
+    cleaned = cleaned.strip()
+    if _looks_fragmentary(cleaned):
+        return ""
+    if not re.search(
+        r"\b(is|are|was|were|has|have|measures|measured|ranks|ranked|includes|included|contains|refreshes|rebalances|receives|receive|derived|derives|forms|form|designed|tracks|targets|uses|built|based)\b",
+        cleaned,
+        re.I,
+    ) and not _has_numeric_fact(cleaned):
+        return ""
+    return cleaned
+
+
+def _has_numeric_fact(text: str) -> bool:
+    return bool(re.search(r"\b\d+(?:\.\d+)?%?\b", text))
+
+
+def _extract_fact_sentences(snippet: str) -> List[str]:
+    cleaned = _sanitize_snippet(snippet)
+    if not cleaned:
+        return []
+    sentences = _split_sentences(cleaned)
+    out: List[str] = []
+    for sentence in sentences:
+        fact = _clean_fact_sentence(sentence)
+        if fact:
+            out.append(fact)
+    return out
+
+
+def _keyword_sentences(snippet: str, keywords: List[str]) -> List[str]:
+    if not keywords or not isinstance(snippet, str):
+        return []
+    cleaned = _normalize_punctuation(_strip_citations(snippet))
+    text = cleaned or snippet
+    out: List[str] = []
+    lowered_keywords = [kw.lower() for kw in keywords if kw]
+    for sentence in _split_sentences(text):
+        lowered = sentence.lower()
+        if any(kw in lowered for kw in lowered_keywords):
+            candidate = sentence.strip()
+            if candidate.lower().startswith("meta:"):
+                continue
+            if "card_path=" in candidate.lower() or "doc_ref=" in candidate.lower() or "aliases=" in candidate.lower():
+                continue
+            if candidate and len(candidate) >= 20:
+                out.append(candidate)
+    return out
+
+
+def _score_fact(sentence: str) -> int:
+    score = 0
+    lowered = sentence.lower()
+    if _has_numeric_fact(sentence):
+        score += 2
+    if any(term in lowered for term in ("rank", "weight", "rebalance", "quarter", "annual", "score", "index")):
+        score += 2
+    if any(term in lowered for term in ("includes", "included", "contains", "comprises")):
+        score += 1
+    return score
+
+
+def _question_keywords(question: str) -> List[str]:
+    if not isinstance(question, str):
+        return []
+    tokens = re.findall(r"[A-Za-z0-9]+", question.lower())
+    stop = {
+        "is",
+        "are",
+        "the",
+        "a",
+        "an",
+        "of",
+        "in",
+        "on",
+        "and",
+        "or",
+        "to",
+        "for",
+        "does",
+        "do",
+        "did",
+        "what",
+        "how",
+        "who",
+        "when",
+        "where",
+        "why",
+        "show",
+        "me",
+        "summarize",
+        "latest",
+        "by",
+    }
+    return [t for t in tokens if t not in stop and len(t) > 2]
+
+
+_GENERIC_QUERY_TERMS = {
+    "tech100",
+    "index",
+    "score",
+    "ai",
+    "governance",
+    "ethics",
+    "sustainacore",
+    "latest",
+    "headlines",
+    "headline",
+    "news",
+    "top",
+    "company",
+    "companies",
+}
+
+
+def _select_key_facts(
+    facts: List[Dict[str, Any]], max_items: int = 3, keywords: Optional[List[str]] = None
+) -> List[str]:
+    candidates: List[Tuple[int, str]] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        snippet = str(fact.get("snippet") or fact.get("chunk_text") or "")
+        for sentence in _extract_fact_sentences(snippet):
+            candidates.append((_score_fact(sentence), sentence))
+        for sentence in _keyword_sentences(snippet, keywords or []):
+            candidates.append((_score_fact(sentence) + 1, sentence))
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    keywords = [kw for kw in (keywords or []) if kw]
+    preferred: List[Tuple[int, str]] = []
+    if keywords:
+        for score, sentence in candidates:
+            lowered = sentence.lower()
+            if any(kw in lowered for kw in keywords):
+                preferred.append((score + 2, sentence))
+    ordered = preferred if preferred else candidates
+    out: List[str] = []
+    seen: set[str] = set()
+    for _, sentence in ordered:
+        key = _normalize_sentence(sentence)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(sentence)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _facts_for_key_facts(facts: List[Dict[str, Any]], key_facts: List[str]) -> List[Dict[str, Any]]:
+    matched: List[Dict[str, Any]] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        snippet = _sanitize_snippet(str(fact.get("snippet") or fact.get("chunk_text") or ""))
+        snippet_norm = _normalize_sentence(snippet)
+        for key_fact in key_facts:
+            if not key_fact:
+                continue
+            if _normalize_sentence(key_fact) in snippet_norm:
+                matched.append(fact)
+                break
+    return matched or facts
+
+def _resolve_source_url(title: str, url: str) -> str:
+    if isinstance(url, str) and url.strip():
+        try:
+            parsed = urlparse(url.strip())
+        except Exception:
+            parsed = None
+        if parsed and parsed.scheme in {"http", "https"} and parsed.netloc:
+            host = (parsed.hostname or "").lower()
+            if host.endswith("sustainacore.org"):
+                path = parsed.path or "/"
+                return f"https://sustainacore.org{path}"
+    lower_title = (title or "").lower()
+    if "contact" in lower_title:
+        return "https://sustainacore.org/contact"
+    if "press" in lower_title:
+        return "https://sustainacore.org/press"
+    if "news" in lower_title or "headline" in lower_title:
+        return "https://sustainacore.org/news"
+    if "constituent" in lower_title:
+        return "https://sustainacore.org/tech100/constituents"
+    if "performance" in lower_title:
+        return "https://sustainacore.org/tech100/performance"
+    if "stats" in lower_title or "score" in lower_title or "metrics" in lower_title:
+        return "https://sustainacore.org/tech100/stats"
+    if "tech100" in lower_title or "index" in lower_title or "methodology" in lower_title:
+        return "https://sustainacore.org/tech100"
+    if "about" in lower_title or "sustainacore" in lower_title:
+        return "https://sustainacore.org"
+    return ""
 
 
 def _normalize_sentence(text: str) -> str:
@@ -685,38 +899,40 @@ def _build_key_facts_from_facts(facts: List[Dict[str, Any]], max_bullets: int = 
         if not isinstance(fact, dict):
             continue
         snippet = fact.get("snippet") or fact.get("chunk_text") or ""
-        sentence = _first_sentence(_sanitize_snippet(str(snippet)))
-        if not sentence:
+        candidates = _extract_fact_sentences(str(snippet))
+        if not candidates:
             continue
-        key = sentence.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        bullets.append(sentence)
+        for sentence in candidates:
+            key = sentence.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            bullets.append(sentence)
+            break
         if len(bullets) >= max_bullets:
             break
     return bullets
 
 
-def _slugify_title(text: str) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
-    return cleaned or "source"
-
-
-def _build_sources_list(facts: List[Dict[str, Any]], *, max_items: int = 5) -> List[str]:
+def _build_sources_list(facts: List[Dict[str, Any]], *, max_items: int = 3) -> List[str]:
     sources: List[str] = []
     seen: set[str] = set()
     for fact in facts:
         if not isinstance(fact, dict):
             continue
         title = str(fact.get("title") or fact.get("source_name") or "").strip()
+        if ">" in title:
+            title = title.split(">")[-1].strip()
+        if "›" in title:
+            title = title.split("›")[-1].strip()
         url = str(fact.get("source_url") or fact.get("url") or "").strip()
         if not title and not url:
             continue
         if url.startswith(("local://", "file://", "internal://")):
             url = ""
+        url = _resolve_source_url(title, url)
         if not url:
-            url = f"/sources/{_slugify_title(title)}"
+            continue
         key = f"{title.lower()}|{url.lower()}"
         if key in seen:
             continue
@@ -803,6 +1019,65 @@ def _facts_with_titles(facts: List[Dict[str, Any]], keywords: Tuple[str, ...]) -
         if any(key in title for key in keywords):
             matched.append(fact)
     return matched
+
+
+def _ranking_intent(question: str) -> bool:
+    lowered = (question or "").lower()
+    return any(term in lowered for term in ("top companies", "top company", "highest", "ranked", "ranking", "top by"))
+
+
+def _rank_sentences(facts: List[Dict[str, Any]]) -> List[str]:
+    sentences: List[str] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        snippet = str(fact.get("snippet") or fact.get("chunk_text") or "")
+        cleaned = _normalize_punctuation(_strip_citations(snippet))
+        for sentence in _split_sentences(cleaned):
+            if not re.search(r"\branks?\b", sentence, re.I):
+                continue
+            if not _has_numeric_fact(sentence):
+                continue
+            if not re.search(r"\b[A-Z][a-z]", sentence):
+                continue
+            if _looks_fragmentary(sentence):
+                continue
+            sentences.append(sentence.strip())
+    return sentences
+
+
+def _facts_from_contexts(contexts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    facts: List[Dict[str, Any]] = []
+    for idx, ctx in enumerate(contexts or []):
+        if not isinstance(ctx, dict):
+            continue
+        citation = ctx.get("doc_id") or ctx.get("id") or f"CTX_{idx+1}"
+        fact = {
+            "citation_id": str(citation),
+            "title": ctx.get("title") or "",
+            "source_name": ctx.get("source_name") or "",
+            "source_url": ctx.get("source_url") or "",
+            "snippet": ctx.get("snippet") or ctx.get("chunk_text") or "",
+            "score": ctx.get("score"),
+        }
+        facts.append(fact)
+    return facts
+
+
+def _merge_fact_lists(primary: List[Dict[str, Any]], secondary: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    seen: set[str] = set()
+    merged: List[Dict[str, Any]] = []
+    for fact in (primary or []) + (secondary or []):
+        if not isinstance(fact, dict):
+            continue
+        key = _canonical_fact_key(fact) or str(len(merged))
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(fact)
+        if limit > 0 and len(merged) >= limit:
+            break
+    return merged
 
 
 def _has_ownership_statement(facts: List[Dict[str, Any]]) -> bool:
@@ -900,20 +1175,29 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
     if len(paragraphs) > 2:
         paragraphs = paragraphs[:2]
 
-    key_facts = _build_key_facts_from_llm(key_facts_raw, valid_ids)
-    fact_norms = _fact_snippet_norms(facts)
-    if key_facts and fact_norms:
-        filtered: List[str] = []
-        for fact in key_facts:
-            norm = _normalize_sentence(fact)
-            if any(norm and norm in candidate for candidate in fact_norms):
-                filtered.append(fact)
-        if filtered:
-            key_facts = filtered
-    if not key_facts:
-        key_facts = _build_key_facts_from_facts(filtered_facts)
+    keywords = _question_keywords(question)
+    focus_terms = [kw for kw in keywords if kw not in _GENERIC_QUERY_TERMS]
+    key_facts = _select_key_facts(filtered_facts, max_items=3, keywords=focus_terms or keywords)
+    ranked_sentences: List[str] = []
+    if _ranking_intent(question):
+        ranked_sentences = _rank_sentences(filtered_facts)
+        if ranked_sentences:
+            key_facts = ranked_sentences[:3]
     if not key_facts:
         key_facts = ["No high-confidence facts were retrieved for this query."]
+    if (
+        paragraphs
+        and paragraphs[0].startswith("I could not find enough SustainaCore context")
+        and key_facts
+        and not key_facts[0].startswith("No high-confidence")
+    ):
+        paragraphs = [f"Based on SustainaCore sources, {key_facts[0].rstrip('.')}."] + (
+            [f"In addition, {key_facts[1].rstrip('.')}."] if len(key_facts) > 1 else []
+        )
+    if _ranking_intent(question) and ranked_sentences:
+        paragraphs = [
+            "Here are the top companies by AI Governance & Ethics Score mentioned in the retrieved snippets."
+        ]
 
     seen: set[str] = set()
     paragraph_sents: List[str] = []
@@ -929,19 +1213,15 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
             key_facts.append(item)
             if len(key_facts) >= 3:
                 break
-    if len(key_facts) < 3:
-        for item in filtered_facts:
-            snippet = _sanitize_snippet(str(item.get("snippet") or item.get("chunk_text") or ""))
-            fact = _first_sentence(snippet)
-            if not fact or fact in key_facts:
-                continue
-            key_facts.append(fact)
-            if len(key_facts) >= 3:
-                break
+    if len(key_facts) < 2:
+        key_facts.append("The retrieved snippets do not include a ranked company list for this question.")
 
-    sources = _build_sources_list(filtered_facts, max_items=5)
+    source_facts = _facts_for_key_facts(filtered_facts, key_facts)
+    sources = _build_sources_list(source_facts, max_items=3)
     if not sources:
-        sources = ["Sources not available in the retrieved results."]
+        sources = _build_sources_list(filtered_facts, max_items=3)
+    if not sources:
+        sources = ["SustainaCore — https://sustainacore.org"]
 
     if _ownership_intent(question) and not _has_ownership_statement(facts):
         about_facts = _facts_with_titles(facts, ("about", "contact"))
@@ -965,18 +1245,34 @@ def _format_final_answer(question: str, answer_text: str, facts: List[Dict[str, 
                         break
                 if len(key_facts) >= 3:
                     break
-        sources = _build_sources_list(about_facts, max_items=5)
+        sources = _build_sources_list(about_facts, max_items=3)
         if not sources:
-            sources = ["Sources not available in the retrieved results."]
+            sources = ["SustainaCore — https://sustainacore.org"]
 
     key_facts = [_ensure_period(item) for item in key_facts if item]
+    if _news_intent(question) and not _filter_news_facts(facts):
+        paragraphs = [
+            "I couldn’t find recent headlines in the indexed news set right now.",
+            "Here are the most relevant governance items I found instead.",
+        ]
+
+    synthesized = paragraphs
+    if not synthesized:
+        synthesized = []
+    if not synthesized and key_facts and not key_facts[0].startswith("No high-confidence"):
+        synthesized.append(f"Based on SustainaCore sources, {key_facts[0].rstrip('.')}.")
+        if len(key_facts) > 1:
+            synthesized.append(f"In addition, {key_facts[1].rstrip('.')}.")
+    if not synthesized:
+        synthesized = paragraphs or ["I could not find enough SustainaCore context to answer this question."]
+
     answer_lines = ["**Answer**"]
-    for idx, para in enumerate(paragraphs):
+    for idx, para in enumerate(synthesized[:2]):
         answer_lines.append(para)
-        if idx < len(paragraphs) - 1:
+        if idx < len(synthesized[:2]) - 1:
             answer_lines.append("")
-    key_fact_lines = ["**Key facts**"] + [f"- {item}" for item in key_facts[:5]]
-    source_lines = ["**Sources**"] + [f"{idx}. {item}" for idx, item in enumerate(sources[:5], start=1)]
+    key_fact_lines = ["**Key facts**"] + [f"- {item}" for item in key_facts[:4]]
+    source_lines = ["**Sources**"] + [f"{idx}. {item}" for idx, item in enumerate(sources[:3], start=1)]
 
     cap = int(os.getenv("ASK2_ANSWER_CHAR_CAP", "2000"))
     if cap > 0:
@@ -1117,16 +1413,18 @@ def _canonical_fact_key(fact: Dict[str, Any]) -> str:
 
 
 def _format_source_display(fact: Dict[str, Any]) -> str:
-    title = str(fact.get("title") or "").strip() or "Untitled excerpt"
-    source = str(fact.get("source_name") or "").strip()
-    date = fact.get("date")
-    date_text = str(date).strip() if isinstance(date, str) else ""
-    display = title
-    if source:
-        display = f"{display} — {source}"
-    if date_text:
-        display = f"{display} ({date_text})"
-    return display.strip()
+    title = str(fact.get("title") or fact.get("source_name") or "").strip()
+    if ">" in title:
+        title = title.split(">")[-1].strip()
+    if "›" in title:
+        title = title.split("›")[-1].strip()
+    raw_url = str(fact.get("source_url") or fact.get("url") or "").strip()
+    url = _resolve_source_url(title, raw_url)
+    if not url:
+        return ""
+    if not title:
+        title = "SustainaCore"
+    return f"{title} — {url}".strip()
 
 
 def _normalize_url(url: str) -> str:
