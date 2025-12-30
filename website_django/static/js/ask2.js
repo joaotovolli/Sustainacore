@@ -7,6 +7,7 @@
     const errorBanner = document.querySelector('[data-ask2-error]');
     const statusText = document.querySelector('[data-ask2-status-text]');
     const sendButton = document.querySelector('[data-ask2-send]');
+    const examples = document.querySelectorAll('[data-ask2-example]');
 
     if (!messagesEl || !form || !input) return;
     window.SCTelemetry?.track?.('ask2_opened', { page: window.location.pathname });
@@ -29,9 +30,13 @@
       return bubble;
     }
 
+    let isSending = false;
+
     function setThinking(isThinking) {
+      isSending = isThinking;
       if (thinking) thinking.hidden = !isThinking;
       if (sendButton) sendButton.disabled = isThinking;
+      if (input) input.disabled = isThinking;
     }
 
     function setStatus(message, ok = true) {
@@ -52,6 +57,7 @@
     }
 
     async function sendMessage(text) {
+      if (isSending) return;
       hideError();
       setThinking(true);
       setStatus('Assistant is thinking…');
@@ -98,6 +104,7 @@
 
     form.addEventListener('submit', (event) => {
       event.preventDefault();
+      if (isSending) return;
       const text = (input.value || '').trim();
       if (!text) {
         input.focus();
@@ -115,5 +122,17 @@
         form.requestSubmit();
       }
     });
+
+    examples.forEach((example) => {
+      example.addEventListener('click', () => {
+        const value = example.dataset.ask2Example || '';
+        if (!value) return;
+        input.value = value;
+        input.focus();
+        input.setSelectionRange(value.length, value.length);
+      });
+    });
+
+    setThinking(false);
   });
 })();
