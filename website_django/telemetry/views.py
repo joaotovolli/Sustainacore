@@ -7,9 +7,11 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.timezone import now
 
 from telemetry.consent import CONSENT_COOKIE, ConsentState, get_consent_from_request, serialize_consent
 from telemetry.logger import record_consent, record_event
+from telemetry.models import WebEvent
 
 
 ALLOWED_UI_EVENTS = {
@@ -114,5 +116,26 @@ def telemetry_event(request: HttpRequest) -> HttpResponse:
     except Exception:
         pass
     return HttpResponse(status=204)
+
+
+def telemetry_health(request: HttpRequest) -> JsonResponse:
+    if not getattr(request.user, "is_staff", False):
+        return JsonResponse({"detail": "forbidden"}, status=403)
+    db_alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
+    engine = settings.DATABASES.get(db_alias, {}).get("ENGINE")
+    last_event = (
+        WebEvent.objects.using(db_alias)
+        .order_by("-event_ts")
+        .values_list("event_ts", flat=True)
+        .first()
+    )
+    payload = {
+        "ok": True,
+        "engine": engine,
+        "db_alias": db_alias,
+        "last_event_ts": last_event.isoformat() if last_event else None,
+        "checked_at": now().isoformat(),
+    }
+    return JsonResponse(payload)
 
 # Create your views here.
