@@ -7,7 +7,7 @@ import os
 import time
 from typing import Any, Dict, List, Tuple
 
-from .gemini_gateway import gateway as gemini_gateway
+from .gemini_gateway import gateway as gemini_gateway, _resolve_source_url
 from .oracle_retriever import RetrievalResult, capability_snapshot, retriever
 from .settings import settings
 
@@ -30,10 +30,10 @@ LOGGER = logging.getLogger("app.retrieval.adapter")
 _FALLBACK_ANSWER = (
     "**Answer**\n"
     "Gemini is momentarily unavailable. The retrieved SustainaCore contexts are attached below.\n\n"
-    "**Key facts (from SustainaCore)**\n"
-    "- Use the Evidence section to review the available snippets.\n\n"
-    "**Evidence**\n"
-    "- Retrieval contexts are listed in the response sources."
+    "**Key facts**\n"
+    "- Use the Sources section to review the available references.\n\n"
+    "**Sources**\n"
+    "1. SustainaCore — https://sustainacore.org"
 )
 
 
@@ -63,17 +63,17 @@ def _build_sources_from_contexts(contexts: List[Dict[str, Any]]) -> List[str]:
             continue
         title = str(ctx.get("title") or "").strip()
         url = str(ctx.get("source_url") or "").strip()
-        label = title or url
-        if not label:
+        if url.startswith(("local://", "file://", "internal://")):
+            url = ""
+        url = _resolve_source_url(title, url)
+        if not url:
             continue
+        label = title or "SustainaCore"
         key = (label.lower(), url.lower())
         if key in seen:
             continue
         seen.add(key)
-        if url and url not in label:
-            sources.append(f"{label} - {url}")
-        else:
-            sources.append(label)
+        sources.append(f"{label} — {url}")
         if len(sources) >= settings.retriever_fact_cap:
             break
     return sources

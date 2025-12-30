@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import re
 import signal
 import socket
 import sys
@@ -28,6 +29,8 @@ QUESTIONS = [
     "What does the AI Governance & Ethics Score measure?",
     "Show me the top companies by AI Governance & Ethics Score.",
     "Summarize the latest AI governance headlines on SustainaCore.",
+    "who created sustainacore.org?",
+    "who owns sustainacore.org?",
 ]
 
 DEFAULT_K = 6
@@ -112,7 +115,7 @@ def _first_sentence(text: str, max_len: int = 240) -> str:
     else:
         sentence = collapsed
     if len(sentence) > max_len:
-        sentence = sentence[: max_len - 3].rstrip() + "..."
+        sentence = sentence[:max_len].rstrip()
     if sentence and sentence[-1] not in ".!?":
         sentence += "."
     return sentence
@@ -124,7 +127,7 @@ def _shorten(text: str, max_len: int = 220) -> str:
     collapsed = " ".join(text.strip().split())
     if len(collapsed) <= max_len:
         return collapsed
-    return collapsed[: max_len - 3].rstrip() + "..."
+    return collapsed[:max_len].rstrip()
 
 
 def _render_raw_retrieval(contexts: List[Dict[str, Any]]) -> str:
@@ -156,11 +159,11 @@ def _vector_only_answer(question: str, contexts: List[Dict[str, Any]]) -> str:
                 "**Answer**",
                 "I could not find enough SustainaCore context to answer this question.",
                 "",
-                "**Key facts (from SustainaCore)**",
+                "**Key facts**",
                 "- No high-confidence facts were retrieved for this query.",
                 "",
-                "**Evidence**",
-                "- No evidence snippets were returned by the retriever.",
+                "**Sources**",
+                "1. SustainaCore — https://sustainacore.org",
             ]
         )
 
@@ -169,21 +172,28 @@ def _vector_only_answer(question: str, contexts: List[Dict[str, Any]]) -> str:
     key_facts = []
     for snippet in snippets[:5]:
         sentence = _first_sentence(snippet)
+        if ">" in sentence or "›" in sentence:
+            continue
         if sentence:
             key_facts.append(sentence)
 
     if not key_facts:
         key_facts = ["No high-confidence facts were retrieved for this query."]
 
-    evidence = []
+    sources = []
     for idx, ctx in enumerate(contexts[:5], start=1):
         title = str(ctx.get("title") or ctx.get("doc_id") or f"Source {idx}").strip()
-        snippet = _shorten(str(ctx.get("snippet") or ctx.get("chunk_text") or ""))
-        if snippet:
-            evidence.append(f'{title}: "{snippet}"')
+        url = str(ctx.get("source_url") or ctx.get("url") or "").strip()
+        if url.startswith(("local://", "file://", "internal://")):
+            url = ""
+        if url and not url.startswith("https://sustainacore.org") and not url.startswith("https://www.sustainacore.org"):
+            url = ""
+        if not url:
+            continue
+        sources.append(f"{title} — {url}")
 
-    if not evidence:
-        evidence = ["No evidence snippets were returned by the retriever."]
+    if not sources:
+        sources = ["SustainaCore — https://sustainacore.org"]
 
     answer_paragraph = " ".join(_first_sentence(s) for s in snippets[:3] if s)
     if not answer_paragraph:
@@ -193,11 +203,11 @@ def _vector_only_answer(question: str, contexts: List[Dict[str, Any]]) -> str:
     lines.append("**Answer**")
     lines.append(answer_paragraph)
     lines.append("")
-    lines.append("**Key facts (from SustainaCore)**")
+    lines.append("**Key facts**")
     lines.extend([f"- {fact}" for fact in key_facts[:5]])
     lines.append("")
-    lines.append("**Evidence**")
-    lines.extend([f"- {item}" for item in evidence[:5]])
+    lines.append("**Sources**")
+    lines.extend([f"{idx}. {item}" for idx, item in enumerate(sources[:5], start=1)])
     return "\n".join(lines).strip()
 
 
@@ -205,15 +215,51 @@ def _is_structured(text: str) -> Tuple[bool, List[str]]:
     missing: List[str] = []
     if "**Answer**" not in text:
         missing.append("Answer heading")
-    if "**Key facts (from SustainaCore)**" not in text:
+    if "**Key facts**" not in text:
         missing.append("Key facts heading")
-    if "**Evidence**" not in text:
-        missing.append("Evidence heading")
-    if text.count("\n") < 2:
-        missing.append("Line breaks")
+    if "**Sources**" not in text:
+        missing.append("Sources heading")
+    if "\n\n**Key facts**\n" not in text:
+        missing.append("Blank line before Key facts")
+    if "\n\n**Sources**\n" not in text:
+        missing.append("Blank line before Sources")
     bullet_lines = [line for line in text.splitlines() if line.strip().startswith("- ")]
     if len(bullet_lines) < 2:
         missing.append("Bullet lines")
+    if "(ID:" in text:
+        missing.append("Internal IDs")
+    if "..." in text:
+        missing.append("Ellipses")
+    if "/sources/" in text:
+        missing.append("Sources slugs")
+    key_fact_lines = []
+    in_key = False
+    for line in text.splitlines():
+        if line.strip() == "**Key facts**":
+            in_key = True
+            continue
+        if line.strip() == "**Sources**":
+            in_key = False
+        if in_key and line.strip().startswith("- "):
+            key_fact_lines.append(line.strip())
+    for line in key_fact_lines:
+        if not line.endswith((".", "?", "!")):
+            missing.append("Key facts punctuation")
+            break
+        if ">" in line or "›" in line:
+            missing.append("Breadcrumbs in key facts")
+            break
+    source_lines = [line for line in text.splitlines() if re.match(r"^\d+\. ", line.strip())]
+    if len(source_lines) > 3:
+        missing.append("Too many sources")
+    answer_block = ""
+    if "**Answer**" in text:
+        answer_block = text.split("**Answer**", 1)[1]
+    key_block = ""
+    if "**Key facts**" in text:
+        key_block = text.split("**Key facts**", 1)[1]
+    if "•" in answer_block or "•" in key_block:
+        missing.append("Unicode bullets")
     return (len(missing) == 0), missing
 
 
