@@ -10,6 +10,7 @@ subcmd="$1"
 shift || true
 timestamp="$(date +%s)"
 unit="vm2-django-${subcmd}-${timestamp}"
+python_bin="/home/ubuntu/.venvs/sustainacore_vm2/bin/python"
 
 sudo systemd-run \
   --quiet \
@@ -21,6 +22,6 @@ sudo systemd-run \
   --property EnvironmentFile=/etc/sustainacore.env \
   --property EnvironmentFile=/etc/sustainacore/db.env \
   --property EnvironmentFile=/etc/sysconfig/sustainacore-django.env \
-  /opt/sustainacore/website_django/venv/bin/python \
+  "${python_bin}" \
   /opt/code/Sustainacore/website_django/manage.py \
   "${subcmd}" "$@"
