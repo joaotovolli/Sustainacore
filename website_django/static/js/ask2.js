@@ -9,6 +9,7 @@
     const sendButton = document.querySelector('[data-ask2-send]');
 
     if (!messagesEl || !form || !input) return;
+    window.SCTelemetry?.track?.('ask2_opened', { page: window.location.pathname });
 
     const apiUrl = form.dataset.ask2Api || '/ask2/api/';
 

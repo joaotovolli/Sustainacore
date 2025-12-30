@@ -1,5 +1,6 @@
 (() => {
   const dateFormat = window.SCDateFormat || {};
+  const trackEvent = (name, metadata = {}) => window.SCTelemetry?.track?.(name, metadata);
 
   const parseJson = (id) => {
     const el = document.getElementById(id);
@@ -453,9 +454,18 @@
         .join("")}`;
     }
 
-    attrSearch?.addEventListener("input", updateFilters);
-    attrImputed?.addEventListener("change", updateFilters);
-    attrSector?.addEventListener("change", updateFilters);
+    attrSearch?.addEventListener("input", () => {
+      updateFilters();
+      trackEvent("search_submitted", { page: window.location.pathname, target: "attribution" });
+    });
+    attrImputed?.addEventListener("change", () => {
+      updateFilters();
+      trackEvent("filter_applied", { page: window.location.pathname, filter: "imputed_only" });
+    });
+    attrSector?.addEventListener("change", () => {
+      updateFilters();
+      trackEvent("filter_applied", { page: window.location.pathname, filter: "sector" });
+    });
     updateFilters();
 
     const setBarChart = (canvasId, rows, color) => {
@@ -498,6 +508,7 @@
     document.querySelectorAll(".tech100-attr-range").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const range = btn.dataset.range || "1d";
+        trackEvent("tab_changed", { page: window.location.pathname, tab: range, section: "attribution_range" });
         document.querySelectorAll(".tech100-attr-range").forEach((el) =>
           el.classList.toggle("is-active", el === btn)
         );
@@ -588,10 +599,14 @@
       });
     });
 
-    searchInput?.addEventListener("input", render);
+    searchInput?.addEventListener("input", () => {
+      render();
+      trackEvent("search_submitted", { page: window.location.pathname, target: "constituents" });
+    });
 
     dateInput?.addEventListener("change", async () => {
       if (!dateInput.value) return;
+      trackEvent("filter_applied", { page: window.location.pathname, filter: "constituents_date" });
       try {
         const resp = await fetch(`/tech100/constituents/data/?date=${dateInput.value}`);
         const payload = await resp.json();
@@ -639,6 +654,7 @@
 
     dateInput?.addEventListener("change", async () => {
       if (!dateInput.value) return;
+      trackEvent("filter_applied", { page: window.location.pathname, filter: "attribution_date" });
       try {
         const resp = await fetch(`/tech100/attribution/data/?date=${dateInput.value}`);
         const payload = await resp.json();
@@ -681,6 +697,7 @@
 
     dateInput.addEventListener("change", async () => {
       if (!dateInput.value) return;
+      trackEvent("filter_applied", { page: window.location.pathname, filter: "stats_date" });
       try {
         const resp = await fetch(`/tech100/stats/data/?date=${dateInput.value}`);
         const payload = await resp.json();

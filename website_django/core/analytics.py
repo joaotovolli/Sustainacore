@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 from django.utils.timezone import now
 
 from core.oracle_db import get_connection
+from telemetry.consent import get_consent_from_request
 
 
 EVENT_TYPES = {
@@ -65,6 +66,12 @@ def log_event(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     if event_type not in EVENT_TYPES:
+        return
+    try:
+        consent = get_consent_from_request(request)
+        if not consent.analytics:
+            return
+    except Exception:
         return
     try:
         session_id = request.COOKIES.get(ANON_COOKIE, "")

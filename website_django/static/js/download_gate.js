@@ -35,20 +35,12 @@
     return match ? decodeURIComponent(match[2]) : "";
   };
 
-  const sendEvent = async (eventType, metadata = {}) => {
-    try {
-      await fetch("/api/ux-event/", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": getCookie("csrftoken"),
-        },
-        body: JSON.stringify({ event_type: eventType, metadata }),
-      });
-    } catch (err) {
-      // Analytics must never block UX.
+  const sendEvent = (eventType, metadata = {}) => {
+    const tracker = window.SCTelemetry;
+    if (!tracker || typeof tracker.track !== "function") {
+      return;
     }
+    tracker.track(eventType, metadata);
   };
 
   const showDebugToast = (message) => {

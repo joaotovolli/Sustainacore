@@ -1,0 +1,61 @@
+import uuid
+
+from django.db import models
+
+
+class WebConsent(models.Model):
+    consent_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user_id = models.IntegerField(null=True, blank=True)
+    created_ts = models.DateTimeField(auto_now_add=True)
+    updated_ts = models.DateTimeField(auto_now=True)
+    consent_analytics = models.CharField(max_length=1, default="N")
+    consent_functional = models.CharField(max_length=1, default="N")
+    consent_policy_version = models.CharField(max_length=32)
+    source = models.CharField(max_length=64, default="banner")
+    user_agent = models.CharField(max_length=512, null=True, blank=True)
+    ip_trunc = models.CharField(max_length=64, null=True, blank=True)
+    ip_hash = models.CharField(max_length=128, null=True, blank=True)
+
+    class Meta:
+        db_table = "W_WEB_CONSENT"
+
+
+class WebSession(models.Model):
+    session_row_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session_key = models.CharField(max_length=64, null=True, blank=True)
+    user_id = models.IntegerField(null=True, blank=True)
+    first_seen_ts = models.DateTimeField()
+    last_seen_ts = models.DateTimeField()
+    country_code = models.CharField(max_length=8, null=True, blank=True)
+    region_code = models.CharField(max_length=16, null=True, blank=True)
+    user_agent = models.CharField(max_length=512, null=True, blank=True)
+    ip_hash = models.CharField(max_length=128, null=True, blank=True)
+
+    class Meta:
+        db_table = "W_WEB_SESSION"
+
+
+class WebEvent(models.Model):
+    event_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    event_ts = models.DateTimeField()
+    user_id = models.IntegerField(null=True, blank=True)
+    session_key = models.CharField(max_length=64, null=True, blank=True)
+    consent_analytics_effective = models.CharField(max_length=1, default="N")
+    event_type = models.CharField(max_length=64)
+    path = models.CharField(max_length=512)
+    query_string = models.TextField(null=True, blank=True)
+    http_method = models.CharField(max_length=16, null=True, blank=True)
+    status_code = models.IntegerField(null=True, blank=True)
+    response_ms = models.IntegerField(null=True, blank=True)
+    referrer = models.CharField(max_length=512, null=True, blank=True)
+    user_agent = models.CharField(max_length=512, null=True, blank=True)
+    ip_trunc = models.CharField(max_length=64, null=True, blank=True)
+    ip_hash = models.CharField(max_length=128, null=True, blank=True)
+    country_code = models.CharField(max_length=8, null=True, blank=True)
+    region_code = models.CharField(max_length=16, null=True, blank=True)
+    payload_json = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "W_WEB_EVENT"
+
+# Create your models here.
