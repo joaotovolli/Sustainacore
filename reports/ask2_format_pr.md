@@ -14,6 +14,6 @@ Before (pre-restart, run-on formatting)
   "Here's the best supported summary from SustainaCore: - Membership › TECH100 AI Governance & Ethics Index › Microsoft Corporation: Yes – Microsoft Corporation is included... Key sco"
 
 After (post-restart, structured formatting)
-- File: tools/ask2_eval/out/20251230_144645/summary.md
+- File: tools/ask2_eval/out/20251230_145106/summary.md
 - Excerpt:
   "**Answer**\nYes – Microsoft Corporation is included...\n\n**Key facts (from SustainaCore)**\n- Yes – Microsoft Corporation is included...\n\n**Evidence**\n- Membership › TECH100 AI Governance & Ethics Index › Microsoft Corporation (ID: 3800): \"Yes – Microsoft Corporation is included...\""

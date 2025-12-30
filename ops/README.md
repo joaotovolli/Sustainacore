@@ -58,6 +58,16 @@ Because preflight skips gracefully, only real execution failures trigger these a
 
 Manual deploys are also available through **Actions → Deploy after Canary → Run workflow**, optionally providing a `sha` input.
 
+## VM1 git-based deploy (no manual rsync)
+
+On VM1, `sustainacore-ai.service` runs from `/opt/sustainacore-ai` (a git checkout). To deploy without manual file syncs:
+
+```bash
+ops/scripts/deploy_vm1_git.sh
+```
+
+The script pulls `origin/main`, installs deps if needed, restarts `sustainacore-ai.service`, and verifies `/healthz`.
+
 ## Reverse loop (VM → GitHub → Codex Cloud)
 
 Authenticate the VM with GitHub CLI (`gh auth login --with-token`) and run the helper script captured in [`ops/VM_TO_CLOUD.md`](VM_TO_CLOUD.md). The script:
