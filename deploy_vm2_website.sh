@@ -18,99 +18,40 @@ fi
 # 1) Go to repo root
 cd "$REPO_DIR"
 
-# 2) Load optional local environment file
-if [ -f ".env.vm2" ]; then
-  echo "[VM2] Loading environment from .env.vm2..."
-  set -a
-  # shellcheck disable=SC1091
-  . ".env.vm2"
-  set +a
-else
-  echo "[VM2] No .env.vm2 file found, continuing without it."
-fi
-
-# 2.1) Helper to load env files safely without printing secrets
+# 2) Validate env files used by gunicorn (do not parse or print secrets)
 ENV_FILES=(
   "/etc/sustainacore.env"
   "/etc/sustainacore/db.env"
   "/etc/sysconfig/sustainacore-django.env"
 )
 
-load_env_file() {
-  local env_file="$1"
-  if [ -r "$env_file" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "$env_file"
-    set +a
-    return 0
-  fi
-  if sudo -n true >/dev/null 2>&1; then
-    if sudo -n test -r "$env_file" >/dev/null 2>&1; then
-      set -a
-      # shellcheck disable=SC1090
-      . <(sudo -n cat "$env_file")
-      set +a
-      return 0
-    fi
-  fi
-  return 1
-}
-
-load_env_files_or_fail() {
-  local missing=()
-  for env_file in "${ENV_FILES[@]}"; do
-    if [ -f "$env_file" ]; then
-      if load_env_file "$env_file"; then
-        echo "[VM2] Loaded environment from $env_file"
-      else
-        missing+=("$env_file")
-      fi
-    fi
-  done
-  if [ "${#missing[@]}" -gt 0 ]; then
-    echo "[VM2] Cannot read env files: ${missing[*]}" >&2
-    echo "[VM2] Fix permissions or allow sudo -n cat. See docs/vm2-website-deploy.md#env-files" >&2
+for env_file in "${ENV_FILES[@]}"; do
+  if [ ! -f "$env_file" ]; then
+    echo "[VM2] Missing env file: $env_file" >&2
+    echo "[VM2] See docs/vm2-website-deploy.md#env-files" >&2
     exit 1
   fi
-}
+  if ! sudo -n test -r "$env_file" >/dev/null 2>&1; then
+    echo "[VM2] Cannot access env file via sudo -n: $env_file" >&2
+    echo "[VM2] See docs/vm2-website-deploy.md#env-files" >&2
+    exit 1
+  fi
+done
 
-# 2.2) Load systemd environment files used by gunicorn (do not print secrets)
-load_env_files_or_fail
-
-# 2.3) Ensure STATIC_VERSION is set for the gunicorn environment
-ENV_FILE="/etc/sustainacore.env"
+# 2.1) Define environment flags for systemd-run/gunicorn
 STATIC_VERSION="$(git rev-parse --short HEAD 2>/dev/null || date +%s)"
-if [ -f "$ENV_FILE" ]; then
-  if grep -q "^STATIC_VERSION=" "$ENV_FILE"; then
-    sudo -n sed -i "s/^STATIC_VERSION=.*/STATIC_VERSION=$STATIC_VERSION/" "$ENV_FILE"
-  else
-    echo "STATIC_VERSION=$STATIC_VERSION" | sudo -n tee -a "$ENV_FILE" >/dev/null
-  fi
-else
-  echo "STATIC_VERSION=$STATIC_VERSION" | sudo -n tee "$ENV_FILE" >/dev/null
-fi
 
-# 2.4) Ensure production environment flag is present (banner should never show on prod host)
-if [ -f "$ENV_FILE" ]; then
-  if grep -q "^SUSTAINACORE_ENV=" "$ENV_FILE"; then
-    sudo -n sed -i "s/^SUSTAINACORE_ENV=.*/SUSTAINACORE_ENV=production/" "$ENV_FILE"
-  else
-    echo "SUSTAINACORE_ENV=production" | sudo -n tee -a "$ENV_FILE" >/dev/null
-  fi
-else
-  echo "SUSTAINACORE_ENV=production" | sudo -n tee "$ENV_FILE" >/dev/null
-fi
-
-# 2.5) Ensure gunicorn loads all env files consistently
+# 2.2) Ensure gunicorn loads all env files consistently
 GUNICORN_DROPIN_DIR="/etc/systemd/system/gunicorn.service.d"
 GUNICORN_DROPIN_FILE="${GUNICORN_DROPIN_DIR}/sustainacore-env.conf"
 sudo -n mkdir -p "$GUNICORN_DROPIN_DIR"
-sudo -n tee "$GUNICORN_DROPIN_FILE" >/dev/null <<'EOF'
+sudo -n tee "$GUNICORN_DROPIN_FILE" >/dev/null <<EOF
 [Service]
 EnvironmentFile=/etc/sustainacore.env
 EnvironmentFile=/etc/sustainacore/db.env
 EnvironmentFile=/etc/sysconfig/sustainacore-django.env
+Environment=SUSTAINACORE_ENV=production
+Environment=STATIC_VERSION=${STATIC_VERSION}
 EOF
 sudo -n systemctl daemon-reload
 
@@ -150,23 +91,23 @@ run_manage() {
   local cmd="$1"
   shift || true
   local unit="vm2-deploy-${cmd}-$(date +%s)"
-  if sudo -n true >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1; then
-    sudo -n systemd-run \
-      --quiet \
-      --collect \
-      --wait \
-      --pipe \
-      --unit "${unit}" \
-      --property WorkingDirectory="$REPO_DIR/website_django" \
-      --property EnvironmentFile=/etc/sustainacore.env \
-      --property EnvironmentFile=/etc/sustainacore/db.env \
-      --property EnvironmentFile=/etc/sysconfig/sustainacore-django.env \
-      "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" "$cmd" "$@"
-    return $?
+  if ! command -v systemd-run >/dev/null 2>&1; then
+    echo "[VM2] systemd-run not available; cannot run manage.py safely." >&2
+    exit 1
   fi
-
-  load_env_files_or_fail
-  DJANGO_SECRET_KEY=dev-secret "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" "$cmd" "$@"
+  sudo -n systemd-run \
+    --quiet \
+    --collect \
+    --wait \
+    --pipe \
+    --unit "${unit}" \
+    --property WorkingDirectory="$REPO_DIR/website_django" \
+    --property EnvironmentFile=/etc/sustainacore.env \
+    --property EnvironmentFile=/etc/sustainacore/db.env \
+    --property EnvironmentFile=/etc/sysconfig/sustainacore-django.env \
+    --property Environment=SUSTAINACORE_ENV=production \
+    --property Environment=STATIC_VERSION="${STATIC_VERSION}" \
+    "$VENV_DIR/bin/python" "$REPO_DIR/website_django/manage.py" "$cmd" "$@"
 }
 
 # 5) Run Django commands in the service environment
