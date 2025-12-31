@@ -12,7 +12,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install actionlint
         run: |
-          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+          # Pinned download with checksum verification (no curl|bash).
+          ACTIONLINT_VERSION="1.6.27"
+          ACTIONLINT_TGZ="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ACTIONLINT_TGZ}"
+          CHECKSUMS_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/SHA256SUMS"
+          curl -sSLO "${ACTIONLINT_URL}"
+          curl -sSLO "${CHECKSUMS_URL}"
+          grep " ${ACTIONLINT_TGZ}$" SHA256SUMS | sha256sum -c -
+          tar -xzf "${ACTIONLINT_TGZ}" actionlint
       - name: Run actionlint
         run: ./actionlint -color -shellcheck=
       - name: Install yamllint
