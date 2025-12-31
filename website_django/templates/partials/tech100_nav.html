@@ -4,7 +4,7 @@
     href="/tech100/index/"
     {% if request.path == '/tech100/index/' %}aria-current="page"{% endif %}
   >
-    Overview
+    Index overview
   </a>
   <a
     class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"
@@ -19,5 +19,26 @@
     {% if request.path == '/tech100/constituents/' %}aria-current="page"{% endif %}
   >
     Constituents
+  </a>
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/attribution/' %}is-active{% endif %}"
+    href="/tech100/attribution/"
+    {% if request.path == '/tech100/attribution/' %}aria-current="page"{% endif %}
+  >
+    Attribution
+  </a>
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/stats/' %}is-active{% endif %}"
+    href="/tech100/stats/"
+    {% if request.path == '/tech100/stats/' %}aria-current="page"{% endif %}
+  >
+    Stats
+  </a>
+  <a
+    class="tech100-nav__link {% if request.path == '/tech100/' %}is-active{% endif %}"
+    href="/tech100/"
+    {% if request.path == '/tech100/' %}aria-current="page"{% endif %}
+  >
+    Governance scores
   </a>
 </nav>

@@ -409,7 +409,6 @@
     const attributionRows = parseJson("tech100-performance-attribution") || [];
     const attrBody = document.getElementById("tech100-attr-body");
     const attrSearch = document.getElementById("tech100-attr-search");
-    const attrImputed = document.getElementById("tech100-attr-imputed");
     const attrSector = document.getElementById("tech100-attr-sector");
 
     const renderAttributionTable = (rows) => {
@@ -424,7 +423,6 @@
             <td class="text-right">${formatNumber((row.contribution || 0) * 10000, 2)}</td>
             <td class="text-right">${formatNumber((row.contrib_mtd || 0) * 10000, 2)}</td>
             <td class="text-right">${formatNumber((row.contrib_ytd || 0) * 10000, 2)}</td>
-            <td class="text-center">${row.quality || "—"}</td>
           </tr>`
         )
         .join("");
@@ -432,13 +430,11 @@
 
     const updateFilters = () => {
       const query = (attrSearch?.value || "").toLowerCase().trim();
-      const imputedOnly = attrImputed?.checked;
       const sector = attrSector?.value || "";
       const filtered = attributionRows.filter((row) => {
         const ticker = (row.ticker || "").toLowerCase();
         const name = (row.name || "").toLowerCase();
         if (query && !ticker.includes(query) && !name.includes(query)) return false;
-        if (imputedOnly && row.quality !== "IMPUTED") return false;
         if (sector && (row.sector || "") !== sector) return false;
         return true;
       });
@@ -457,10 +453,6 @@
     attrSearch?.addEventListener("input", () => {
       updateFilters();
       trackEvent("search_submitted", { page: window.location.pathname, target: "attribution" });
-    });
-    attrImputed?.addEventListener("change", () => {
-      updateFilters();
-      trackEvent("filter_applied", { page: window.location.pathname, filter: "imputed_only" });
     });
     attrSector?.addEventListener("change", () => {
       updateFilters();
@@ -576,7 +568,6 @@
             <td class="text-left">${row.name || "—"}</td>
             <td class="text-right">${formatNumber((row.weight || 0) * 100, 2)}</td>
             <td class="text-right">${formatNumber((row.ret_1d || 0) * 100, 2)}</td>
-            <td class="text-center">${row.quality || "—"}</td>
           </tr>`
         )
         .join("");
@@ -642,7 +633,6 @@
           <td class="text-right">${formatNumber((row.weight || row.weight_prev || 0) * 100, 2)}</td>
           <td class="text-right">${formatNumber((row.ret_1d || 0) * 100, 2)}</td>
           <td class="text-right">${formatNumber((row.contribution || 0) * 100, 2)}</td>
-          <td class="text-center">${row.quality || "—"}</td>
         </tr>`;
 
       topBody.innerHTML = positives.map(renderRow).join("");
@@ -687,7 +677,6 @@
         <div class="stat-tile"><span class="muted">20D Volatility</span><strong>${formatNumber(stats.vol_20d, 4)}</strong></div>
         <div class="stat-tile"><span class="muted">Max Drawdown (252D)</span><strong>${formatNumber(stats.max_drawdown_252d, 4)}</strong></div>
         <div class="stat-tile"><span class="muted">Constituents</span><strong>${stats.n_constituents ?? "—"}</strong></div>
-        <div class="stat-tile"><span class="muted">Imputed</span><strong>${stats.n_imputed ?? "—"}</strong></div>
         <div class="stat-tile"><span class="muted">Top 5 Weight</span><strong>${formatNumber(stats.top5_weight, 4)}</strong></div>
         <div class="stat-tile"><span class="muted">Herfindahl</span><strong>${formatNumber(stats.herfindahl, 4)}</strong></div>
       `;

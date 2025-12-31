@@ -2,16 +2,16 @@
 {% load static %}
 
 {% block title %}TECH100 Constituents | SustainaCore{% endblock %}
-{% block meta_description %}Review daily TECH100 constituents with weights, prices, and quality flags for each index holding.{% endblock %}
+{% block meta_description %}Review daily TECH100 constituents with weights and prices for each index holding.{% endblock %}
 
 {% block content %}
 <div class="tech100-index">
   <section class="section section--with-header">
     <div class="shell">
       <div class="section__header">
-        <span class="pill pill--soft">TECH100 Index</span>
-        <h1>Constituents &amp; Weights</h1>
-        <p class="muted">Daily holdings, weights, and quality flags.</p>
+        <span class="pill pill--soft">TECH100 AI Index</span>
+        <h1>Constituents</h1>
+        <p class="muted">Daily holdings, weights.</p>
         <p class="disclaimer-banner">
           <a class="text-link" href="/tech100/methodology/">Methodology &amp; Limitations</a>
           <span class="disclaimer-banner__corrections"> · <a class="text-link" href="/corrections/">Corrections &amp; Complaints</a></span>
@@ -33,6 +33,15 @@
       </div>
 
       <div class="card">
+        <div class="card__header card__header--split">
+          <div>
+            <h2 class="h4">Constituents</h2>
+            <p class="muted">Latest available holdings and weights.</p>
+          </div>
+          <div class="card__actions">
+            <a class="btn btn--ghost btn--sm" href="/tech100/index/export/?kind=constituents">Download constituents CSV</a>
+          </div>
+        </div>
         <div class="table-wrapper table-wrap">
           <table class="table table--wide tech100-table" aria-label="TECH100 constituents">
             <thead>
@@ -41,7 +50,6 @@
                 <th class="text-left"><button class="table-sort" data-key="name">Name</button></th>
                 <th class="text-right"><button class="table-sort" data-key="weight">Weight (%)</button></th>
                 <th class="text-right"><button class="table-sort" data-key="ret_1d">1D Return (%)</button></th>
-                <th class="text-center"><button class="table-sort" data-key="quality">Quality</button></th>
               </tr>
             </thead>
             <tbody id="constituents-body"></tbody>
