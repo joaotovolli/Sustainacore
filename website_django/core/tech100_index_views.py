@@ -25,6 +25,7 @@ from core.tech100_index_data import (
     get_max_drawdown,
     get_quality_counts,
     get_return_between,
+    get_ytd_return,
     get_rolling_vol,
     get_rolling_vol_series,
     get_holdings_with_meta,
@@ -198,6 +199,7 @@ def tech100_performance(request):
         kpis = get_kpis(latest)
         vol_30d = get_rolling_vol(latest, window=30)
         drawdown_ytd = get_max_drawdown(ytd_start, latest)
+        ret_ytd, _ = get_ytd_return(latest)
         quality_counts = get_quality_counts(latest)
         rebalance_date = get_latest_rebalance_date()
 
@@ -238,7 +240,7 @@ def tech100_performance(request):
                 "level": kpis.get("level"),
                 "ret_1d": _format_pct(kpis.get("ret_1d")),
                 "ret_mtd": _format_pct(get_return_between(latest, mtd_start)),
-                "ret_ytd": _format_pct(get_return_between(latest, ytd_start)),
+                "ret_ytd": _format_pct(ret_ytd),
                 "vol_30d": _format_pct(vol_30d),
                 "drawdown_ytd": _format_pct(drawdown_ytd.drawdown),
             },
