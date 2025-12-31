@@ -18,6 +18,10 @@ build/
 *.dump
 *.dmp
 *.sqlite3
+*.sqlite3-journal
+*.db
+db.sqlite3
+website_django/db.sqlite3
 *.zip
 *.tgz
 *.7z
