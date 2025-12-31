@@ -29,6 +29,9 @@ Agents:
 - Desktop/laptop is the primary target.
 - Improve mobile without harming desktop; never degrade desktop to “fix” mobile.
 
+## VM1 Resource Constraints
+- VM1 is resource constrained (1 CPU core, ~1 GB RAM).
+
 ## VM2 Resource Constraints
 - VM2 is resource constrained (1 CPU core, ~1 GB RAM).
 - VRT and headless browser runs can stall the VM; use GitHub Actions when possible.
