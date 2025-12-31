@@ -334,6 +334,21 @@ def get_return_between(as_of_date: dt.date, start_date: dt.date) -> Optional[flo
     return cache.get_or_set(key, _load, CACHE_TTLS["returns"])
 
 
+def get_ytd_return(as_of_date: dt.date) -> tuple[Optional[float], Optional[dt.date]]:
+    ytd_start = dt.date(as_of_date.year, 1, 1)
+    key = _cache_key("ytd_return", as_of_date.isoformat())
+
+    def _load() -> tuple[Optional[float], Optional[dt.date]]:
+        levels = get_index_levels(ytd_start, as_of_date)
+        if not levels:
+            return None, None
+        start_date, start_level = levels[0]
+        end_level = levels[-1][1]
+        return _return_from_levels(end_level, start_level), start_date
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["returns"])
+
+
 def get_index_returns(
     start_date: Optional[dt.date] = None, end_date: Optional[dt.date] = None
 ) -> list[tuple[dt.date, float]]:
@@ -436,12 +451,13 @@ def get_kpis(as_of_date: dt.date) -> dict:
         ret_1d = _return_from_levels(latest[1], levels[-2][1]) if len(levels) >= 2 else None
         ret_1w = _return_from_levels(latest[1], levels[-6][1]) if len(levels) >= 6 else None
         ret_1m = _return_from_levels(latest[1], levels[0][1]) if levels else None
+        ret_ytd, _ = get_ytd_return(as_of_date)
         return {
             "level": latest[1] if latest else None,
             "ret_1d": ret_1d,
             "ret_1w": ret_1w,
             "ret_1m": ret_1m,
-            "ret_ytd": _return_from_levels(latest[1], inception[1]) if inception and latest else None,
+            "ret_ytd": ret_ytd,
             "ret_since_inception": _return_from_levels(latest[1], inception[1]) if inception and latest else None,
         }
     key = _cache_key("kpis", as_of_date.isoformat())
@@ -458,17 +474,16 @@ def get_kpis(as_of_date: dt.date) -> dict:
                 return None
             return _return_from_levels(latest_level, prev[1])
 
-        ytd_start = dt.date(as_of_date.year, 1, 1)
-        ytd_level = _level_at_or_before(ytd_start)
         inception_min, _ = get_trade_date_bounds()
         inception_level = _level_at_or_before(inception_min) if inception_min else None
+        ret_ytd, _ = get_ytd_return(as_of_date)
 
         return {
             "level": latest_level,
             "ret_1d": stats.get("ret_1d") if stats else _return_for_delta(1),
             "ret_1w": stats.get("ret_5d") if stats else _return_for_delta(7),
             "ret_1m": stats.get("ret_20d") if stats else _return_for_delta(30),
-            "ret_ytd": _return_from_levels(latest_level, ytd_level[1] if ytd_level else None),
+            "ret_ytd": ret_ytd,
             "ret_since_inception": _return_from_levels(
                 latest_level, inception_level[1] if inception_level else None
             ),

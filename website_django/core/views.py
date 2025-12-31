@@ -45,6 +45,7 @@ from core.tech100_index_data import (
     get_quality_counts,
     get_return_between,
     get_rolling_vol,
+    get_ytd_return,
 )
 from core import sitemaps
 from telemetry.consent import get_consent_from_request
@@ -1101,9 +1102,9 @@ def home(request):
                 if prev_level not in (None, 0) and latest_level is not None:
                     ret_1d = (latest_level / prev_level) - 1.0
             ret_mtd = get_return_between(latest_date, month_start)
-            ret_ytd = get_return_between(latest_date, ytd_start)
+            ret_ytd, _ = get_ytd_return(latest_date)
             vol_30d = get_rolling_vol(latest_date, window=30)
-            ret_ytd_display = _format_percent(ret_ytd) if ret_ytd is not None else "0.00%"
+            ret_ytd_display = _format_percent(ret_ytd)
             tech100_snapshot = {
                 "has_data": True,
                 "data_error": False,
