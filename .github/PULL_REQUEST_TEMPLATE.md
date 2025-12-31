@@ -1,7 +1,16 @@
 ## Summary
-- [ ] No runtime/CI behavior changes.
-- [ ] No application code edits (imports, business logic, or deployment scripts).
-- [ ] Documentation updated where needed.
+- ...
+
+## Changes
+- ...
 
 ## Testing
-Describe how you validated these changes (tests, linters, manual steps). If not applicable, explain why.
+- `command --flags`
+- `command --flags`
+
+## Evidence
+- CI run: <link>
+- Screenshots/logs: <link or note>
+
+## Notes / Follow-ups
+- ...

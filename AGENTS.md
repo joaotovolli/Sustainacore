@@ -89,3 +89,45 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Always run `python3 tools/oracle/preflight_oracle.py` (or `python3 tools/test_db_connect.py`) before any Oracle task.
 - Any new Oracle-facing script must call `load_env_files()` then use `db_helper.get_connection()`.
 - If preflight fails: stop and report the error; do not attempt alternative drivers or wallet rewrites.
+
+## GitHub Hygiene: Commits & PRs
+- Commit messages: imperative subject, <= 72 chars, no trailing period.
+- Prefer logical commits for distinct changes; avoid noisy commits like "WIP", "fix", "temp".
+- PR descriptions must be real Markdown (no escaped "\\n" sequences). Use blank lines between sections.
+- Required PR sections and order:
+  - "## Summary"
+  - "## Changes"
+  - "## Testing"
+  - "## Evidence"
+  - "## Notes / Follow-ups"
+- Testing: include exact commands and outcomes.
+- Evidence: include CI run link when CI exists; do not claim "verified" without outputs/links.
+
+### Definition of Done (PRs)
+- PR includes what/why, testing, and a CI green link (if available).
+- Do not claim completion without concrete outputs or links.
+
+### Achievements (Optional, Professional)
+- Do not chase achievements by spamming PRs or trivial changes.
+- It is fine to earn achievements naturally by making meaningful changes and clear commits.
+- Keep PR descriptions professional; avoid badge-farming language.
+
+### Copy/paste PR body template
+```markdown
+## Summary
+- ...
+
+## Changes
+- ...
+
+## Testing
+- `command --flags`
+- `command --flags`
+
+## Evidence
+- CI run: <link>
+- Screenshots/logs: <link or note>
+
+## Notes / Follow-ups
+- ...
+```
