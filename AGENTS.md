@@ -106,6 +106,21 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Testing: include exact commands and outcomes.
 - Evidence: include CI run link when CI exists; do not claim "verified" without outputs/links.
 
+## Branch Hygiene & Push Policy (Pragmatic)
+- One-active-branch rule: only one active remote branch per task. Before pushing a new branch, delete/close the previous remote branch unless it has an open PR.
+- Always sanity-check diffs before any push. Must run and review:
+  - `git status`
+  - `git diff --stat`
+  - `git diff --name-only | head`
+  - `git diff --name-status | head`
+- If the diff shows mass deletions, unexpected repo-wide changes, vendored folders (venv/, node_modules/, artifacts/, screenshots/, __pycache__/), or large binary files not requested, STOP and fix locally; do not push.
+- Explicit denylist (never commit): venv/, .venv/, node_modules/, artifacts/, docs/screenshots/, playwright screenshots, dist/, build/, __pycache__/, *.pyc, *.sqlite3, *.db-journal, *.log, large tmp files.
+- If any denylist items appear in `git status`, remove/move them or add minimal .gitignore entries (when appropriate).
+- Push discipline: small WIP pushes are allowed only when the diff is small and scoped. No exploratory pushes touching hundreds of files.
+- PR expectation: user-facing changes must open a PR. Docs-only changes should use a PR (required for this change). PR body must be clean Markdown (no literal "\\n") with Summary/Changes/Testing/Notes.
+- Remote cleanup: delete remote branches after merge or if abandoned to keep branch list clean.
+- Safety: never force-push unless explicitly instructed; if required, create a backup tag/branch and document impact.
+
 ### Definition of Done (PRs)
 - PR includes what/why, testing, and a CI green link (if available).
 - Do not claim completion without concrete outputs or links.
