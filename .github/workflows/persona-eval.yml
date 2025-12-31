@@ -101,8 +101,13 @@ jobs:
           python -m pip install -U pip wheel
           pip install -r requirements.txt
 
-      - name: Print resolved URL
-        run: echo "ASK2_URL=${ASK2_URL}"
+      - name: Confirm ASK2_URL is set
+        run: |
+          if [ -n "${ASK2_URL}" ]; then
+            echo "ASK2_URL set: yes";
+          else
+            echo "ASK2_URL set: no";
+          fi
 
       - name: Run eval pack
         run: python scripts/run_eval.py
