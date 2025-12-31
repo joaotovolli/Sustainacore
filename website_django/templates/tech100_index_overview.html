@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}TECH100 Index | Performance & Risk{% endblock %}
-{% block meta_description %}Track TECH100 index performance, risk metrics, and data quality signals from the SustainaCore analytics feed.{% endblock %}
+{% block title %}TECH100 Index | Overview{% endblock %}
+{% block meta_description %}Track TECH100 index performance, risk metrics, and key index indicators from the SustainaCore analytics feed.{% endblock %}
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
@@ -12,24 +12,16 @@
 <div class="tech100-index">
   <section class="section section--with-header">
     <div class="shell">
-      <div class="section__header section__header--split">
+      <div class="section__header">
         <div>
           <span class="pill pill--soft">TECH100 AI Index</span>
-          <h1>Performance &amp; Risk</h1>
-          <p class="muted">
-            Direct index analytics with daily performance, risk, and data quality signals.
-          </p>
+          <h1>Index overview</h1>
+          <p class="muted">Performance, risk, and index overview.</p>
           <p class="disclaimer-banner">
             <a class="text-link" href="/tech100/methodology/">Methodology &amp; Limitations</a>
             <span class="disclaimer-banner__corrections"> · <a class="text-link" href="/corrections/">Corrections &amp; Complaints</a></span>
             · Research only. Not investment advice. Not affiliated with any company, exchange, or index provider.
           </p>
-        </div>
-        <div class="tech100-index__actions">
-          <a class="btn btn--secondary" href="/tech100/performance/">View TECH100 performance</a>
-          <a class="btn btn--ghost" href="/tech100/index/export/?kind=levels">Download levels CSV</a>
-          <a class="btn btn--ghost" href="/tech100/index/export/?kind=constituents">Download constituents CSV</a>
-          <button class="btn btn--ghost" type="button" data-copy-link="1">Copy link</button>
         </div>
       </div>
 
@@ -45,29 +37,6 @@
         <div id="tech100-data-status"
              data-level-count="{{ levels_count }}"
              data-constituent-count="{{ constituents_count }}"></div>
-
-        <div class="tech100-ribbon">
-          <a class="tech100-ribbon__item is-active" href="/tech100/index/">
-            <span class="tech100-ribbon__title">Overview</span>
-            <span class="tech100-ribbon__meta">Performance and risk signals</span>
-          </a>
-          <a class="tech100-ribbon__item" href="/tech100/performance/">
-            <span class="tech100-ribbon__title">Performance</span>
-            <span class="tech100-ribbon__meta">Levels, drawdowns, volatility</span>
-          </a>
-          <a class="tech100-ribbon__item" href="/tech100/constituents/">
-            <span class="tech100-ribbon__title">Constituents</span>
-            <span class="tech100-ribbon__meta">Holdings, weights, daily returns</span>
-          </a>
-          <a class="tech100-ribbon__item" href="/tech100/attribution/">
-            <span class="tech100-ribbon__title">Attribution</span>
-            <span class="tech100-ribbon__meta">Top contributors and detractors</span>
-          </a>
-          <a class="tech100-ribbon__item" href="/tech100/stats/">
-            <span class="tech100-ribbon__title">Stats</span>
-            <span class="tech100-ribbon__meta">Volatility and concentration</span>
-          </a>
-        </div>
 
         <div class="card tech100-index__chart-card">
           <div class="card__header card__header--split">
@@ -145,24 +114,11 @@
           </div>
         </div>
 
-        <div class="alert alert--info tech100-index__banner">
-          <div>
-            <strong>Data quality</strong>
-            <span class="muted">
-              {{ imputed_count|default:0 }} tickers flagged as IMPUTED on the latest trade date.
-            </span>
-          </div>
-          <a class="text-link" href="{{ imputed_url }}">View imputed constituents →</a>
-        </div>
-
         <div class="card tech100-index__table-card">
           <div class="card__header card__header--split">
             <div>
               <h2 class="h4">Top constituents</h2>
               <p class="muted">Top 25 by weight for <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
-            </div>
-            <div class="card__actions">
-              <a class="btn btn--ghost btn--sm" href="/tech100/index/export/?kind=constituents">Download CSV</a>
             </div>
           </div>
           <div class="table-wrapper table-wrap">
@@ -175,7 +131,6 @@
                   <th class="text-right">Price</th>
                   <th class="text-right">1D Return (%)</th>
                   <th class="text-right">Contribution (bp)</th>
-                  <th class="text-center">Quality</th>
                 </tr>
               </thead>
               <tbody id="tech100-constituents-body">
@@ -187,15 +142,10 @@
                     <td class="text-right">{{ row.price|default:"—"|floatformat:2 }}</td>
                     <td class="text-right">{% if row.ret_1d_pct or row.ret_1d_pct == 0 %}{{ row.ret_1d_pct|floatformat:2 }}{% else %}—{% endif %}</td>
                     <td class="text-right">{% if row.contribution_bp or row.contribution_bp == 0 %}{{ row.contribution_bp|floatformat:2 }}{% else %}—{% endif %}</td>
-                    <td class="text-center">
-                      <span class="pill pill--soft {% if row.quality == 'IMPUTED' %}pill--warning{% else %}pill--success{% endif %}">
-                        {{ row.quality|default:"—" }}
-                      </span>
-                    </td>
                   </tr>
                 {% empty %}
                   <tr>
-                    <td colspan="7" class="text-center muted">No constituents available.</td>
+                    <td colspan="6" class="text-center muted">No constituents available.</td>
                   </tr>
                 {% endfor %}
               </tbody>
