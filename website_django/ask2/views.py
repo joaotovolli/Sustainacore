@@ -4,6 +4,7 @@ import json
 import time
 from datetime import datetime
 from typing import Any, Dict
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -31,11 +32,35 @@ def ask2_page(request: HttpRequest) -> HttpResponse:
     )
 
 
+def _origin_allowed(value: str) -> bool:
+    if not value:
+        return False
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    if parsed.scheme == "https" and host in {
+        "sustainacore.org",
+        "www.sustainacore.org",
+        "preview.sustainacore.org",
+    }:
+        return True
+    if parsed.scheme == "http" and host in {"127.0.0.1", "localhost"}:
+        return True
+    return False
+
+
 @csrf_exempt
 def ask2_api(request: HttpRequest) -> JsonResponse:
     """Proxy Ask2 chat requests to the VM1 backend."""
     if request.method != "POST":
         return JsonResponse({"error": "method_not_allowed", "message": "Use POST."}, status=405)
+
+    origin = (request.META.get("HTTP_ORIGIN") or "").strip()
+    referer = (request.META.get("HTTP_REFERER") or "").strip()
+    if origin or referer:
+        if not (_origin_allowed(origin) or _origin_allowed(referer)):
+            return JsonResponse({"error": "origin_not_allowed", "message": "Origin not allowed."}, status=403)
 
     start = time.monotonic()
     user_message = ""
