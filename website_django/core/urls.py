@@ -86,6 +86,7 @@ urlpatterns = [
     path("news/", views.news, name="news"),
     path("news/admin/", views.news_admin, name="news_admin"),
     path("news/<str:news_id>/", views.news_detail, name="news_detail"),
+    path("_sc/admin/", include("sc_admin_portal.urls")),
     path("admin/", admin.site.urls),
     path("", include("ask2.urls")),
 ]
