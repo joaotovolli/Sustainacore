@@ -82,6 +82,13 @@ def _mask_email(value: str) -> str:
     return f"{masked}@{domain}"
 
 
+def _client_ip(request) -> str:
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.META.get("REMOTE_ADDR", "") or ""
+
+
 def _redact_email(value: str) -> str:
     if not value or "@" not in value:
         return "***"
@@ -103,9 +110,14 @@ def _log_login_code_event(
     outcome: str,
     error_class: Optional[str] = None,
     backend_status: Optional[int] = None,
+    backend_url: Optional[str] = None,
+    backend_body: Optional[str] = None,
 ) -> None:
+    trimmed_body = (backend_body or "").strip()
+    if len(trimmed_body) > 200:
+        trimmed_body = trimmed_body[:200]
     logger.warning(
-        "[LOGIN_CODE] corr_id=%s email_hash=%s email_redacted=%s step=%s outcome=%s error_class=%s backend_status=%s timestamp=%s",
+        "[LOGIN_CODE] corr_id=%s email_hash=%s email_redacted=%s step=%s outcome=%s error_class=%s backend_status=%s backend_url=%s backend_body=%s timestamp=%s",
         correlation_id,
         _email_hash(email),
         _redact_email(email),
@@ -113,6 +125,8 @@ def _log_login_code_event(
         outcome,
         error_class or "",
         backend_status if backend_status is not None else "",
+        backend_url or "",
+        trimmed_body,
         datetime.utcnow().isoformat(),
     )
 
@@ -215,11 +229,16 @@ def login_email(request):
                     {"notice": notice, "error": error, "next": next_url},
                 )
             payload = {"email": email}
+            headers = {"X-Request-ID": correlation_id}
+            client_ip = _client_ip(request)
+            if client_ip:
+                headers["X-Forwarded-For"] = client_ip
             start = time.monotonic()
             try:
                 response = requests.post(
                     _backend_url("/api/auth/request-code"),
                     json=payload,
+                    headers=headers,
                     timeout=settings.SUSTAINACORE_BACKEND_TIMEOUT,
                 )
                 duration_ms = int((time.monotonic() - start) * 1000)
@@ -238,8 +257,15 @@ def login_email(request):
                     "ok" if response.ok else "fail",
                     None if response.ok else "BackendHTTPError",
                     response.status_code,
+                    _backend_url("/api/auth/request-code"),
+                    response.text,
                 )
-                if not response.ok:
+                data = None
+                try:
+                    data = response.json()
+                except ValueError:
+                    data = None
+                if not response.ok or (isinstance(data, dict) and data.get("ok") is False):
                     error = "We couldn't send the email right now. Please try again later."
                     return render(
                         request,
@@ -262,6 +288,8 @@ def login_email(request):
                     "email_send",
                     "fail",
                     type(exc).__name__,
+                    None,
+                    _backend_url("/api/auth/request-code"),
                 )
                 error = "We couldn't send the email right now. Please try again later."
                 return render(
@@ -367,11 +395,16 @@ def auth_request_code(request):
             status=502,
         )
     if email:
+        headers = {"X-Request-ID": correlation_id}
+        client_ip = _client_ip(request)
+        if client_ip:
+            headers["X-Forwarded-For"] = client_ip
         start = time.monotonic()
         try:
             response = requests.post(
                 _backend_url("/api/auth/request-code"),
                 json={"email": email},
+                headers=headers,
                 timeout=settings.SUSTAINACORE_BACKEND_TIMEOUT,
             )
             duration_ms = int((time.monotonic() - start) * 1000)
@@ -390,15 +423,28 @@ def auth_request_code(request):
                 "ok" if response.ok else "fail",
                 None if response.ok else "BackendHTTPError",
                 response.status_code,
+                _backend_url("/api/auth/request-code"),
+                response.text,
             )
-            if not response.ok:
+            data = None
+            try:
+                data = response.json()
+            except ValueError:
+                data = None
+            if not response.ok or (isinstance(data, dict) and data.get("ok") is False):
+                error_code = None
+                error_message = None
+                if isinstance(data, dict):
+                    error_code = data.get("error")
+                    error_message = data.get("message")
                 return JsonResponse(
                     {
                         "ok": False,
-                        "error": "send_failed",
-                        "message": "We couldn't send the email right now. Please try again later.",
+                        "error": error_code or "send_failed",
+                        "message": error_message
+                        or "We couldn't send the email right now. Please try again later.",
                     },
-                    status=502,
+                    status=response.status_code if response.status_code >= 400 else 502,
                 )
         except requests.RequestException as exc:
             duration_ms = int((time.monotonic() - start) * 1000)
@@ -416,6 +462,8 @@ def auth_request_code(request):
                 "email_send",
                 "fail",
                 type(exc).__name__,
+                None,
+                _backend_url("/api/auth/request-code"),
             )
             return JsonResponse(
                 {

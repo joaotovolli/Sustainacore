@@ -377,6 +377,8 @@
           message = "Please agree to the Terms and Privacy Policy to receive a code.";
         } else if (data?.error === "terms_acceptance_failed") {
           message = "We could not record your acceptance. Please try again.";
+        } else if (data?.error === "rate_limited") {
+          message = "Too many requests. Please wait a bit and try again.";
         } else if (data?.message) {
           message = data.message;
         }
@@ -426,6 +428,8 @@
           message = "Please agree to the Terms and Privacy Policy to receive a code.";
         } else if (data?.error === "terms_acceptance_failed") {
           message = "We could not record your acceptance. Please try again.";
+        } else if (data?.error === "rate_limited") {
+          message = "Too many requests. Please wait a bit and try again.";
         } else if (data?.message) {
           message = data.message;
         }
