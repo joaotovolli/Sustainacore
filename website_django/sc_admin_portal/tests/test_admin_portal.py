@@ -184,8 +184,7 @@ class AdminPortalAccessTests(TestCase):
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval")
-    @mock.patch("sc_admin_portal.views.oracle_proc.get_approval", return_value=None)
-    def test_approve_requires_authorized_user(self, approval_mock, decide_mock):
+    def test_approve_requires_authorized_user(self, decide_mock):
         approve_url = reverse(self.approve_url_name, args=[123])
         response = self.client.post(approve_url, {"decision_notes": "ok"})
         self.assertEqual(response.status_code, 404)
@@ -193,9 +192,9 @@ class AdminPortalAccessTests(TestCase):
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval")
-    @mock.patch("sc_admin_portal.views.oracle_proc.get_approval", return_value={"approval_id": 123})
-    def test_reject_calls_oracle_update(self, approval_mock, decide_mock):
+    def test_reject_calls_oracle_update(self, decide_mock):
         self.client.force_login(self.authorized_user)
+        decide_mock.return_value = 1
         reject_url = reverse(self.reject_url_name, args=[123])
         response = self.client.post(reject_url, {"decision_notes": "no"})
         self.assertEqual(response.status_code, 302)
@@ -208,9 +207,9 @@ class AdminPortalAccessTests(TestCase):
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval")
-    @mock.patch("sc_admin_portal.views.oracle_proc.get_approval", return_value={"approval_id": 456})
-    def test_approve_calls_oracle_update(self, approval_mock, decide_mock):
+    def test_approve_calls_oracle_update(self, decide_mock):
         self.client.force_login(self.authorized_user)
+        decide_mock.return_value = 1
         approve_url = reverse(self.approve_url_name, args=[456])
         response = self.client.post(approve_url, {"decision_notes": "yes"})
         self.assertEqual(response.status_code, 302)
@@ -220,3 +219,13 @@ class AdminPortalAccessTests(TestCase):
             decided_by=ADMIN_EMAIL,
             decision_notes="yes",
         )
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval", return_value=0)
+    def test_decision_already_decided_message(self, decide_mock):
+        self.client.force_login(self.authorized_user)
+        approve_url = reverse(self.approve_url_name, args=[999])
+        response = self.client.post(approve_url, {"decision_notes": "ok"}, follow=True)
+        content = response.content.decode("utf-8")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("already decided or not found", content)

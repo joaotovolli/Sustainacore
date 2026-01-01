@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from django.contrib import messages
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
@@ -120,16 +121,28 @@ def dashboard(request):
 @require_sc_admin
 @require_POST
 def approve_approval(request, approval_id: int):
-    approval = oracle_proc.get_approval(approval_id)
-    if not approval:
-        return portal_not_found()
     decision_notes = (request.POST.get("decision_notes") or "").strip() or None
-    oracle_proc.decide_approval(
-        approval_id=approval_id,
-        status="APPROVED",
-        decided_by=(request.user.email or get_admin_email()),
-        decision_notes=decision_notes,
-    )
+    decided_by = (request.user.email or get_admin_email())
+    try:
+        updated = oracle_proc.decide_approval(
+            approval_id=approval_id,
+            status="APPROVED",
+            decided_by=decided_by,
+            decision_notes=decision_notes,
+        )
+    except Exception:
+        schema = oracle_proc.get_current_schema() or "unknown"
+        logger.exception(
+            "Admin portal decision failed action=approve approval_id=%s schema=%s",
+            approval_id,
+            schema,
+        )
+        messages.error(request, "Approval failed. Please retry or check logs.")
+        return redirect("sc_admin_portal:dashboard")
+    if updated == 0:
+        messages.warning(request, "Approval already decided or not found.")
+    else:
+        messages.success(request, "Approval recorded.")
     return redirect("sc_admin_portal:dashboard")
 
 
@@ -137,16 +150,28 @@ def approve_approval(request, approval_id: int):
 @require_sc_admin
 @require_POST
 def reject_approval(request, approval_id: int):
-    approval = oracle_proc.get_approval(approval_id)
-    if not approval:
-        return portal_not_found()
     decision_notes = (request.POST.get("decision_notes") or "").strip() or None
-    oracle_proc.decide_approval(
-        approval_id=approval_id,
-        status="REJECTED",
-        decided_by=(request.user.email or get_admin_email()),
-        decision_notes=decision_notes,
-    )
+    decided_by = (request.user.email or get_admin_email())
+    try:
+        updated = oracle_proc.decide_approval(
+            approval_id=approval_id,
+            status="REJECTED",
+            decided_by=decided_by,
+            decision_notes=decision_notes,
+        )
+    except Exception:
+        schema = oracle_proc.get_current_schema() or "unknown"
+        logger.exception(
+            "Admin portal decision failed action=reject approval_id=%s schema=%s",
+            approval_id,
+            schema,
+        )
+        messages.error(request, "Rejection failed. Please retry or check logs.")
+        return redirect("sc_admin_portal:dashboard")
+    if updated == 0:
+        messages.warning(request, "Approval already decided or not found.")
+    else:
+        messages.success(request, "Rejection recorded.")
     return redirect("sc_admin_portal:dashboard")
 
 

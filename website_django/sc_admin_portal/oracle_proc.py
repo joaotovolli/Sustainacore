@@ -322,14 +322,19 @@ def decide_approval(
     status: str,
     decided_by: str,
     decision_notes: str | None,
-) -> None:
+) -> int:
     sql = f"""
         UPDATE {APPROVAL_TABLE}
         SET STATUS = :status,
             DECIDED_AT = SYSTIMESTAMP,
             DECIDED_BY = :decided_by,
-            DECISION_NOTES = :decision_notes
+            DECISION_NOTES = CASE
+                WHEN :decision_notes IS NULL THEN DECISION_NOTES
+                WHEN DECISION_NOTES IS NULL THEN :decision_notes
+                ELSE DECISION_NOTES || CHR(10) || :decision_notes
+            END
         WHERE APPROVAL_ID = :approval_id
+          AND UPPER(TRIM(STATUS)) = 'PENDING'
     """
     with get_connection() as conn:
         with conn.cursor() as cursor:
@@ -342,7 +347,9 @@ def decide_approval(
                     "approval_id": approval_id,
                 },
             )
+            updated = cursor.rowcount
         conn.commit()
+    return updated or 0
 
 
 def list_recent_decisions(limit: int = 50) -> list[dict[str, object]]:
