@@ -1,0 +1,18 @@
+[Unit]
+Description=Gemini Jobs Worker
+After=network.target
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/Sustainacore
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/sustainacore/db.env
+EnvironmentFile=-/etc/sustainacore-ai/app.env
+ExecStart=/usr/bin/python3 -m tools.gemini_jobs_worker.run_worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

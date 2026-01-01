@@ -1,0 +1,11 @@
+[Unit]
+Description=Gemini Jobs Worker Timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=3min
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
