@@ -162,7 +162,7 @@ def insert_job(
 
 
 def list_recent_jobs(limit: int = 10, include_handed_off: bool = False) -> list[dict[str, object]]:
-    status_filter = "UPPER(TRIM(j.STATUS)) IN ('PENDING','IN_PROGRESS','WAITING_APPROVAL')"
+    status_filter = "UPPER(TRIM(j.STATUS)) IN ('PENDING','IN_PROGRESS')"
     archive_filter = "(j.RESULT_TEXT IS NULL OR UPPER(j.RESULT_TEXT) NOT LIKE 'ARCHIVED%')"
     approval_join = f"""
         LEFT JOIN {APPROVAL_TABLE} a
@@ -405,7 +405,7 @@ def update_job_superseded(job_id: int, new_job_id: int) -> None:
             END
         WHERE JOB_ID = :job_id
     """
-    note = f"Superseded by job_id={new_job_id}"
+    note = f"SUPERSEDED by job_id={new_job_id}"
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.setinputsizes(note=oracledb.DB_TYPE_CLOB)
@@ -422,7 +422,14 @@ def update_job_superseded(job_id: int, new_job_id: int) -> None:
 def list_recent_decisions(limit: int = 50) -> list[dict[str, object]]:
     sql = f"""
         SELECT * FROM (
-            SELECT APPROVAL_ID, REQUEST_TYPE, TITLE, STATUS, DECIDED_AT, DECIDED_BY
+            SELECT APPROVAL_ID,
+                   REQUEST_TYPE,
+                   TITLE,
+                   STATUS,
+                   DECIDED_AT,
+                   DECIDED_BY,
+                   DBMS_LOB.SUBSTR(DECISION_NOTES, 2000, 1) AS DECISION_NOTES_PREVIEW,
+                   DBMS_LOB.SUBSTR(DETAILS, 2000, 1) AS DETAILS_PREVIEW
             FROM {APPROVAL_TABLE}
             WHERE UPPER(TRIM(STATUS)) IN ('APPROVED', 'REJECTED')
             ORDER BY DECIDED_AT DESC NULLS LAST, CREATED_AT DESC
@@ -436,14 +443,20 @@ def list_recent_decisions(limit: int = 50) -> list[dict[str, object]]:
     except Exception:
         logger.exception("proc_oracle.list_recent_decisions_failed")
         raise
-    return [
-        {
-            "approval_id": row[0],
-            "request_type": row[1],
-            "title": row[2],
-            "status": row[3],
-            "decided_at": row[4],
-            "decided_by": row[5],
-        }
-        for row in rows
-    ]
+    results = []
+    for row in rows:
+        notes_preview = row[6] or ""
+        details_preview = row[7] or ""
+        applied = "APPLIED" in f"{notes_preview} {details_preview}".upper()
+        results.append(
+            {
+                "approval_id": row[0],
+                "request_type": row[1],
+                "title": row[2],
+                "status": row[3],
+                "decided_at": row[4],
+                "decided_by": row[5],
+                "applied": applied,
+            }
+        )
+    return results

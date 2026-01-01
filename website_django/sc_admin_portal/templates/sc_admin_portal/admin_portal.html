@@ -2,6 +2,43 @@
 
 {% block title %}Admin Portal | SustainaCore{% endblock %}
 
+{% block extra_head %}
+<style>
+    .admin-table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+    }
+    .admin-table th,
+    .admin-table td {
+        word-break: break-word;
+        white-space: normal;
+        vertical-align: top;
+    }
+    .admin-actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+    .admin-input {
+        width: 100%;
+        max-width: 320px;
+    }
+    .admin-resubmit textarea {
+        width: 100%;
+        max-width: 520px;
+    }
+    .admin-resubmit summary {
+        cursor: pointer;
+        font-weight: 600;
+    }
+    .admin-resubmit .cancel-link {
+        margin-left: 0.75rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <section class="section section--with-header">
     <div class="shell">
@@ -74,7 +111,7 @@
             </p>
             {% if recent_jobs %}
             <div class="table-wrap">
-                <table class="table">
+                <table class="table admin-table">
                     <thead>
                         <tr class="table__row table__row--head">
                             <th class="table__cell text-left">ID</th>
@@ -111,7 +148,7 @@
         <div class="card">
             <h2>Approvals inbox</h2>
             <div class="table-wrap">
-                <table class="table">
+                <table class="table admin-table">
                     <thead>
                         <tr class="table__row table__row--head">
                             <th class="table__cell text-left">ID</th>
@@ -143,21 +180,27 @@
                             <td class="table__cell">
                                 <form id="approval-form-{{ approval.approval_id }}" method="post" action="{% url 'sc_admin_portal:approve' approval.approval_id %}">
                                     {% csrf_token %}
-                                    <input type="text" name="decision_notes" placeholder="Notes (optional)" />
+                                    <input class="admin-input" type="text" name="decision_notes" placeholder="Notes (optional)" />
                                 </form>
                             </td>
                             <td class="table__cell">
-                                <button class="btn" type="submit" form="approval-form-{{ approval.approval_id }}">Approve</button>
-                                <button class="btn btn--ghost" type="submit" form="approval-form-{{ approval.approval_id }}" formaction="{% url 'sc_admin_portal:reject' approval.approval_id %}">Reject</button>
+                                <div class="admin-actions">
+                                    <button class="btn" type="submit" form="approval-form-{{ approval.approval_id }}">Approve</button>
+                                    <button class="btn btn--ghost" type="submit" form="approval-form-{{ approval.approval_id }}" formaction="{% url 'sc_admin_portal:reject' approval.approval_id %}">Reject</button>
+                                </div>
                             </td>
                             <td class="table__cell">
-                                <form method="post" action="{% url 'sc_admin_portal:resubmit' approval.approval_id %}">
-                                    {% csrf_token %}
-                                    <textarea name="new_instructions" rows="2" placeholder="Edit instructions and resubmit">{{ approval.details_preview }}</textarea>
-                                    <div class="form__actions">
-                                        <button class="btn btn--ghost" type="submit">Edit &amp; Resubmit</button>
-                                    </div>
-                                </form>
+                                <details class="admin-resubmit">
+                                    <summary>Edit &amp; Resubmit</summary>
+                                    <form method="post" action="{% url 'sc_admin_portal:resubmit' approval.approval_id %}">
+                                        {% csrf_token %}
+                                        <textarea name="new_instructions" rows="6" placeholder="Edit instructions and resubmit">{{ approval.details_preview }}</textarea>
+                                        <div class="form__actions">
+                                            <button class="btn btn--ghost" type="submit">Submit resubmission</button>
+                                            <a class="text-link cancel-link" href="#" onclick="this.closest('details').removeAttribute('open'); return false;">Cancel</a>
+                                        </div>
+                                    </form>
+                                </details>
                             </td>
                         </tr>
                         {% empty %}
@@ -219,12 +262,13 @@
             <h3>Recent decisions</h3>
             {% if recent_decisions %}
             <div class="table-wrap">
-                <table class="table">
+                <table class="table admin-table">
                     <thead>
                         <tr class="table__row table__row--head">
                             <th class="table__cell text-left">ID</th>
                             <th class="table__cell text-left">Type</th>
                             <th class="table__cell text-left">Status</th>
+                            <th class="table__cell text-left">Applied</th>
                             <th class="table__cell text-left">Decided</th>
                             <th class="table__cell text-left">Decided by</th>
                         </tr>
@@ -235,6 +279,7 @@
                             <td class="table__cell">{{ decision.approval_id }}</td>
                             <td class="table__cell">{{ decision.request_type }}</td>
                             <td class="table__cell">{{ decision.status }}</td>
+                            <td class="table__cell">{% if decision.applied %}APPLIED{% endif %}</td>
                             <td class="table__cell">{{ decision.decided_at|date:"Y-m-d H:i" }} UTC</td>
                             <td class="table__cell">{{ decision.decided_by }}</td>
                         </tr>
