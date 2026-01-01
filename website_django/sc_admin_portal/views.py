@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
@@ -7,6 +9,8 @@ from django.views.decorators.http import require_POST
 
 from sc_admin_portal.auth import get_admin_email, portal_not_found, require_sc_admin
 from sc_admin_portal import oracle_proc
+
+logger = logging.getLogger(__name__)
 
 ROUTINE_CHOICES = [
     ("NEWS_PUBLISH", "Text to publish news on Sustainacore.org"),
@@ -27,6 +31,8 @@ def _routine_label(code: str) -> str | None:
 def dashboard(request):
     error = ""
     success = ""
+    warning = ""
+    job_id = None
     if request.method == "POST" and request.POST.get("action") == "submit_job":
         routine_code = (request.POST.get("routine_code") or "").strip()
         routine_label = _routine_label(routine_code)
@@ -42,7 +48,7 @@ def dashboard(request):
             error = "Instructions are required."
         else:
             try:
-                oracle_proc.insert_job(
+                job_id = oracle_proc.insert_job(
                     routine_code=routine_code,
                     routine_label=routine_label,
                     content_text=content_text,
@@ -53,10 +59,32 @@ def dashboard(request):
                 )
                 success = "Job submitted."
             except Exception:
+                logger.exception("Admin portal job submit failed for routine=%s", routine_code)
                 error = "Could not submit the job. Please try again."
-    recent_jobs = oracle_proc.list_recent_jobs(limit=10)
-    pending_approvals = oracle_proc.list_pending_approvals(limit=50)
-    recent_decisions = oracle_proc.list_recent_decisions(limit=50)
+    try:
+        recent_jobs = oracle_proc.list_recent_jobs(limit=10)
+    except Exception:
+        if job_id:
+            logger.exception("Admin portal refresh failed after job submit job_id=%s", job_id)
+            warning = "Job created, but page refresh failed. Please reload."
+        else:
+            logger.exception("Admin portal failed to load recent jobs")
+            warning = "Some data failed to load. Please reload."
+        recent_jobs = []
+    try:
+        pending_approvals = oracle_proc.list_pending_approvals(limit=50)
+    except Exception:
+        logger.exception("Admin portal failed to load pending approvals")
+        if not warning:
+            warning = "Some data failed to load. Please reload."
+        pending_approvals = []
+    try:
+        recent_decisions = oracle_proc.list_recent_decisions(limit=50)
+    except Exception:
+        logger.exception("Admin portal failed to load approval history")
+        if not warning:
+            warning = "Some data failed to load. Please reload."
+        recent_decisions = []
     selected_approval = None
     approval_id = request.GET.get("approval_id")
     if approval_id:
@@ -72,6 +100,7 @@ def dashboard(request):
         {
             "error": error,
             "success": success,
+            "warning": warning,
             "routine_choices": ROUTINE_CHOICES,
             "recent_jobs": recent_jobs,
             "pending_approvals": pending_approvals,

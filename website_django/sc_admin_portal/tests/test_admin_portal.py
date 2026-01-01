@@ -92,6 +92,76 @@ class AdminPortalAccessTests(TestCase):
         insert_mock.assert_called_once()
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.insert_job", return_value=42)
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", side_effect=RuntimeError("boom"))
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    def test_submit_job_still_shows_success_on_refresh_error(
+        self, decisions_mock, approvals_mock, jobs_mock, insert_mock
+    ):
+        self.client.force_login(self.authorized_user)
+        response = self.client.post(
+            self.portal_url,
+            {
+                "action": "submit_job",
+                "routine_code": "NEWS_PUBLISH",
+                "content_text": "Some text",
+                "instructions": "Do the thing",
+            },
+        )
+        content = response.content.decode("utf-8")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Job submitted.", content)
+        self.assertIn("page refresh failed", content)
+        self.assertNotIn("Could not submit the job", content)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    def test_approval_list_shows_attachment_link(self, decisions_mock, jobs_mock):
+        self.client.force_login(self.authorized_user)
+        with mock.patch(
+            "sc_admin_portal.views.oracle_proc.list_pending_approvals",
+            return_value=[
+                {
+                    "approval_id": 7,
+                    "request_type": "PUBLISH_NEWS",
+                    "title": "Title",
+                    "created_at": None,
+                    "summary": "Summary",
+                    "file_name": "brief.pdf",
+                }
+            ],
+        ):
+            response = self.client.get(self.portal_url)
+        content = response.content.decode("utf-8")
+        self.assertIn("brief.pdf", content)
+        self.assertIn(reverse("sc_admin_portal:approval_file", args=[7]), content)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.get_approval_file")
+    def test_approval_file_requires_admin(self, get_file_mock):
+        url = reverse("sc_admin_portal:approval_file", args=[8])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+        get_file_mock.assert_not_called()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.get_approval_file")
+    def test_approval_file_download(self, get_file_mock):
+        self.client.force_login(self.authorized_user)
+        get_file_mock.return_value = {
+            "file_name": "note.txt",
+            "file_mime": "text/plain",
+            "file_blob": b"hello",
+        }
+        url = reverse("sc_admin_portal:approval_file", args=[9])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/plain")
+        self.assertIn("note.txt", response["Content-Disposition"])
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval")
     @mock.patch("sc_admin_portal.views.oracle_proc.get_approval", return_value=None)
     def test_approve_requires_authorized_user(self, approval_mock, decide_mock):
@@ -108,7 +178,12 @@ class AdminPortalAccessTests(TestCase):
         reject_url = reverse(self.reject_url_name, args=[123])
         response = self.client.post(reject_url, {"decision_notes": "no"})
         self.assertEqual(response.status_code, 302)
-        decide_mock.assert_called_once()
+        decide_mock.assert_called_once_with(
+            approval_id=123,
+            status="REJECTED",
+            decided_by=ADMIN_EMAIL,
+            decision_notes="no",
+        )
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval")
@@ -118,4 +193,9 @@ class AdminPortalAccessTests(TestCase):
         approve_url = reverse(self.approve_url_name, args=[456])
         response = self.client.post(approve_url, {"decision_notes": "yes"})
         self.assertEqual(response.status_code, 302)
-        decide_mock.assert_called_once()
+        decide_mock.assert_called_once_with(
+            approval_id=456,
+            status="APPROVED",
+            decided_by=ADMIN_EMAIL,
+            decision_notes="yes",
+        )

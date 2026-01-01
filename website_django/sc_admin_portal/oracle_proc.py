@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Iterable, Mapping
-
 import oracledb
 
 from core.oracle_db import get_connection
@@ -20,6 +18,18 @@ def _table_exists(cursor: oracledb.Cursor, table_name: str) -> bool:
     cursor.execute(
         "SELECT COUNT(1) FROM user_tables WHERE table_name = :name",
         {"name": table_name.upper()},
+    )
+    return cursor.fetchone()[0] > 0
+
+
+def _column_exists(cursor: oracledb.Cursor, table_name: str, column_name: str) -> bool:
+    cursor.execute(
+        """
+        SELECT COUNT(1)
+        FROM user_tab_columns
+        WHERE table_name = :table_name AND column_name = :column_name
+        """,
+        {"table_name": table_name.upper(), "column_name": column_name.upper()},
     )
     return cursor.fetchone()[0] > 0
 
@@ -51,6 +61,7 @@ def ensure_proc_tables_exist() -> None:
         TITLE VARCHAR2(512),
         PROPOSED_TEXT CLOB,
         DETAILS CLOB,
+        GEMINI_COMMENTS CLOB,
         FILE_NAME VARCHAR2(512),
         FILE_MIME VARCHAR2(128),
         FILE_BLOB BLOB,
@@ -68,6 +79,8 @@ def ensure_proc_tables_exist() -> None:
                 cursor.execute(ddl_jobs)
             if not _table_exists(cursor, APPROVAL_TABLE):
                 cursor.execute(ddl_approvals)
+            elif not _column_exists(cursor, APPROVAL_TABLE, "GEMINI_COMMENTS"):
+                cursor.execute(f"ALTER TABLE {APPROVAL_TABLE} ADD (GEMINI_COMMENTS CLOB)")
         conn.commit()
 
 
@@ -156,7 +169,7 @@ def list_recent_jobs(limit: int = 10) -> list[dict[str, object]]:
 def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
     sql = f"""
         SELECT * FROM (
-            SELECT APPROVAL_ID, REQUEST_TYPE, TITLE, CREATED_AT, PROPOSED_TEXT, DETAILS
+            SELECT APPROVAL_ID, REQUEST_TYPE, TITLE, CREATED_AT, PROPOSED_TEXT, DETAILS, FILE_NAME
             FROM {APPROVAL_TABLE}
             WHERE STATUS = 'PENDING'
             ORDER BY CREATED_AT DESC
@@ -178,6 +191,7 @@ def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
                 "title": row[2],
                 "created_at": row[3],
                 "summary": summary_source,
+                "file_name": row[6],
             }
         )
     return results
@@ -186,7 +200,7 @@ def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
 def get_approval(approval_id: int) -> dict[str, object] | None:
     sql = f"""
         SELECT APPROVAL_ID, SOURCE_JOB_ID, REQUEST_TYPE, TITLE, PROPOSED_TEXT, DETAILS,
-               FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT, DECIDED_AT,
+               GEMINI_COMMENTS, FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT, DECIDED_AT,
                DECIDED_BY, DECISION_NOTES
         FROM {APPROVAL_TABLE}
         WHERE APPROVAL_ID = :approval_id
@@ -204,14 +218,15 @@ def get_approval(approval_id: int) -> dict[str, object] | None:
         "title": row[3],
         "proposed_text": _to_plain(row[4]),
         "details": _to_plain(row[5]),
-        "file_name": row[6],
-        "file_mime": row[7],
-        "file_blob": row[8],
-        "status": row[9],
-        "created_at": row[10],
-        "decided_at": row[11],
-        "decided_by": row[12],
-        "decision_notes": _to_plain(row[13]),
+        "gemini_comments": _to_plain(row[6]),
+        "file_name": row[7],
+        "file_mime": row[8],
+        "file_blob": row[9],
+        "status": row[10],
+        "created_at": row[11],
+        "decided_at": row[12],
+        "decided_by": row[13],
+        "decision_notes": _to_plain(row[14]),
     }
 
 
