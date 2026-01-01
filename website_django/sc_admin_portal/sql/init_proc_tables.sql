@@ -32,6 +32,7 @@ BEGIN
                 TITLE VARCHAR2(512),
                 PROPOSED_TEXT CLOB,
                 DETAILS CLOB,
+                GEMINI_COMMENTS CLOB,
                 FILE_NAME VARCHAR2(512),
                 FILE_MIME VARCHAR2(128),
                 FILE_BLOB BLOB,
@@ -42,6 +43,14 @@ BEGIN
                 DECISION_NOTES CLOB
             )
         ';
+    END IF;
+
+    SELECT COUNT(1)
+    INTO v_count
+    FROM user_tab_columns
+    WHERE table_name = 'PROC_GEMINI_APPROVALS' AND column_name = 'GEMINI_COMMENTS';
+    IF v_count = 0 THEN
+        EXECUTE IMMEDIATE 'ALTER TABLE PROC_GEMINI_APPROVALS ADD (GEMINI_COMMENTS CLOB)';
     END IF;
 END;
 /

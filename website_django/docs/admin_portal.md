@@ -41,6 +41,11 @@ Joao reviews and approves or rejects them in the portal, which updates:
 - `STATUS` to `APPROVED` or `REJECTED`
 - `DECIDED_AT`, `DECIDED_BY`, and optional `DECISION_NOTES`
 
+To attach files or add Gemini comments for approvals, populate:
+
+- `FILE_NAME`, `FILE_MIME`, `FILE_BLOB` for attachments
+- `GEMINI_COMMENTS` for additional notes shown in the approval detail view
+
 ## Draft cleanup
 
 The legacy SocialDraftPost rows can be removed with:
