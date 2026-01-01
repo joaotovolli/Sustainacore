@@ -338,6 +338,7 @@ def decide_approval(
     """
     with get_connection() as conn:
         with conn.cursor() as cursor:
+            cursor.setinputsizes(decision_notes=oracledb.DB_TYPE_CLOB)
             cursor.execute(
                 sql,
                 {
