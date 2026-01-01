@@ -86,8 +86,15 @@ def _tailor(answer, ctx_titles):
             "ROLE: DRAFTER (Grounded rewrite)\n"
             f"CONTEXT TITLES:\n{ctx_titles}\n\n"
             f"ANSWER:\n{out}\n\n"
-            "Rules: Answer-first sentence; 3–6 short bullets; "
-            "end with 'Why this matters: ...'; no new facts; no URLs."
+            "Rules: Keep facts grounded in the context titles. "
+            "Format exactly as:\n"
+            "**Answer**\n"
+            "1-3 short paragraphs\n\n"
+            "**Key facts (from SustainaCore)**\n"
+            "- max 5 bullets, one sentence each\n\n"
+            "**Evidence**\n"
+            "- 2-5 bullets with short snippets\n"
+            "No new facts; no URLs."
         )
         if t: out = t; passes += 1
 
@@ -96,7 +103,8 @@ def _tailor(answer, ctx_titles):
             "ROLE: VERIFIER\n"
             "Given context titles, check the answer. If fully faithful, "
             "reply exactly <APPROVE>. Otherwise, return a corrected answer "
-            "with the same structure.\n\n"
+            "with the same structure:\n"
+            "**Answer** / **Key facts (from SustainaCore)** / **Evidence**.\n\n"
             f"CONTEXT TITLES:\n{ctx_titles}\n\nANSWER:\n{out}"
         )
         if t and t.strip() != "<APPROVE>":
@@ -106,7 +114,8 @@ def _tailor(answer, ctx_titles):
     if budget_ok():
         t = _ollama(
             "ROLE: POLISHER\n"
-            "Rewrite for clarity and brevity; keep facts; no new facts.\n\n"
+            "Rewrite for clarity and brevity; keep facts; no new facts.\n"
+            "Preserve the structured sections.\n\n"
             f"ANSWER:\n{out}"
         )
         if t and t.strip() not in ("<NOCHANGE>", out):
@@ -116,7 +125,8 @@ def _tailor(answer, ctx_titles):
     while passes < MAX_PASSES and budget_ok():
         t = _ollama(
             "ROLE: REFINER\n"
-            "Improve flow without adding facts. If no improvement, return <NOCHANGE>.\n\n"
+            "Improve flow without adding facts. Keep the structured sections. "
+            "If no improvement, return <NOCHANGE>.\n\n"
             f"ANSWER:\n{out}"
         )
         passes += 1

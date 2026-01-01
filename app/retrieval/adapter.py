@@ -7,7 +7,7 @@ import os
 import time
 from typing import Any, Dict, List, Tuple
 
-from .gemini_gateway import gateway as gemini_gateway
+from .gemini_gateway import gateway as gemini_gateway, _resolve_source_url
 from .oracle_retriever import RetrievalResult, capability_snapshot, retriever
 from .settings import settings
 
@@ -27,7 +27,14 @@ except Exception:  # pragma: no cover - keep legacy path available
     _service_run_pipeline = None
 
 LOGGER = logging.getLogger("app.retrieval.adapter")
-_FALLBACK_ANSWER = "Gemini is momentarily unavailable, but the retrieved Sustainacore contexts are attached."
+_FALLBACK_ANSWER = (
+    "**Answer**\n"
+    "Gemini is momentarily unavailable. The retrieved SustainaCore contexts are attached below.\n\n"
+    "**Key facts**\n"
+    "- Use the Sources section to review the available references.\n\n"
+    "**Sources**\n"
+    "1. SustainaCore — https://sustainacore.org"
+)
 
 
 def _contexts_to_facts(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -56,17 +63,17 @@ def _build_sources_from_contexts(contexts: List[Dict[str, Any]]) -> List[str]:
             continue
         title = str(ctx.get("title") or "").strip()
         url = str(ctx.get("source_url") or "").strip()
-        label = title or url
-        if not label:
+        if url.startswith(("local://", "file://", "internal://")):
+            url = ""
+        url = _resolve_source_url(title, url)
+        if not url:
             continue
+        label = title or "SustainaCore"
         key = (label.lower(), url.lower())
         if key in seen:
             continue
         seen.add(key)
-        if url and url not in label:
-            sources.append(f"{label} - {url}")
-        else:
-            sources.append(label)
+        sources.append(f"{label} — {url}")
         if len(sources) >= settings.retriever_fact_cap:
             break
     return sources
@@ -110,6 +117,9 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
             shaped = payload if isinstance(payload, dict) else {}
             shaped.setdefault("meta", {})
             shaped["meta"].setdefault("routing", "gemini_first")
+            contexts = shaped.get("contexts")
+            if not isinstance(contexts, list) or not contexts:
+                shaped["meta"].setdefault("note", "no_contexts")
             return shaped, 200
         except _ServiceRateLimitError as exc:  # type: ignore[arg-type]
             meta = {

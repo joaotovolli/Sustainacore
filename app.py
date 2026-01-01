@@ -30,6 +30,7 @@ from app.http.compat import (
     SC_RAG_MIN_SCORE,
     normalize_response,
 )
+from app import news_service
 from app.news_service import create_curated_news_item, fetch_news_items
 from app.retrieval.adapter import ask2_pipeline_first
 
@@ -631,6 +632,8 @@ def _ensure_non_empty_answer(value: Optional[str], fallback: Optional[str] = Non
 def _strip_source_sections(text: Optional[str]) -> str:
     if not text:
         return ""
+    if "**Sources**" in text:
+        return text.strip()
 
     banned_prefixes = (
         "sources:",
@@ -2254,12 +2257,15 @@ def ask2():
 
     debug_block = meta_val.setdefault('debug', {})
     if 'capability' not in debug_block:
-        try:
-            from app.retrieval import oracle_retriever as _oracle_module
-
-            debug_block['capability'] = _oracle_module.capability_snapshot()
-        except Exception:  # pragma: no cover - defensive
+        if os.getenv("ASK2_SKIP_CAPABILITY_SNAPSHOT", "0") == "1":
             debug_block['capability'] = {}
+        else:
+            try:
+                from app.retrieval import oracle_retriever as _oracle_module
+
+                debug_block['capability'] = _oracle_module.capability_snapshot()
+            except Exception:  # pragma: no cover - defensive
+                debug_block['capability'] = {}
 
     if deduped_contexts:
         floor_triggered = _below_similarity_floor(top_similarity)
