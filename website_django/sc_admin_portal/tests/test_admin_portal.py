@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
+from core.auth import COOKIE_NAME
 from sc_admin_portal.models import SocialDraftPost
 
 
@@ -41,6 +42,15 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     def test_portal_returns_200_for_authorized_email(self):
         self.client.force_login(self.authorized_user)
+        response = self.client.get(self.portal_url)
+        self.assertEqual(response.status_code, 200)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    def test_portal_allows_session_auth_email(self):
+        session = self.client.session
+        session["auth_email"] = ADMIN_EMAIL
+        session.save()
+        self.client.cookies[COOKIE_NAME] = "token"
         response = self.client.get(self.portal_url)
         self.assertEqual(response.status_code, 200)
 
