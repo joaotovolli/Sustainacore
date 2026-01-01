@@ -232,6 +232,51 @@ class AdminPortalAccessTests(TestCase):
         )
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval")
+    def test_decided_by_uses_session_email(self, decide_mock):
+        user = self.authorized_user
+        user.email = ""
+        user.save(update_fields=["email"])
+        self.client.force_login(user)
+        session = self.client.session
+        session["auth_email"] = ADMIN_EMAIL
+        session.save()
+        self.client.cookies[COOKIE_NAME] = "token"
+        decide_mock.return_value = 1
+        approve_url = reverse(self.approve_url_name, args=[789])
+        response = self.client.post(approve_url, {"decision_notes": "ok"})
+        self.assertEqual(response.status_code, 302)
+        decide_mock.assert_called_once_with(
+            approval_id=789,
+            status="APPROVED",
+            decided_by=ADMIN_EMAIL,
+            decision_notes="ok",
+        )
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
+    def test_decisions_applied_marker(self, approvals_mock, jobs_mock):
+        self.client.force_login(self.authorized_user)
+        with mock.patch(
+            "sc_admin_portal.views.oracle_proc.list_recent_decisions",
+            return_value=[
+                {
+                    "approval_id": 1,
+                    "request_type": "ADD_VECTORS",
+                    "title": "Approval",
+                    "status": "APPROVED",
+                    "decided_at": None,
+                    "decided_by": ADMIN_EMAIL,
+                    "applied": True,
+                }
+            ],
+        ):
+            response = self.client.get(self.portal_url)
+        content = response.content.decode("utf-8")
+        self.assertIn("APPLIED", content)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval", return_value=0)
     def test_decision_already_decided_message(self, decide_mock):
         self.client.force_login(self.authorized_user)

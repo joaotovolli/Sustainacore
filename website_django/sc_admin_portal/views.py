@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 
+from core.auth import get_auth_email
 from sc_admin_portal.auth import get_admin_email, portal_not_found, require_sc_admin
 from sc_admin_portal import oracle_proc
 
@@ -35,6 +36,16 @@ def _routine_code_from_request_type(request_type: str | None) -> str:
     if not request_type:
         return "OTHER"
     return mapping.get(request_type.strip().upper(), "OTHER")
+
+
+def _resolve_decided_by(request) -> str:
+    decided_by = (getattr(request.user, "email", "") or "").strip()
+    if not decided_by:
+        decided_by = (get_auth_email(request) or "").strip()
+    if not decided_by:
+        decided_by = get_admin_email()
+    logger.info("Admin portal decided_by resolved=%s", decided_by)
+    return decided_by
 
 
 @never_cache
@@ -135,7 +146,7 @@ def approve_approval(request, approval_id: int):
     if request.method != "POST":
         return portal_not_found()
     decision_notes = (request.POST.get("decision_notes") or "").strip() or None
-    decided_by = (request.user.email or get_admin_email())
+    decided_by = _resolve_decided_by(request)
     try:
         updated = oracle_proc.decide_approval(
             approval_id=approval_id,
@@ -165,7 +176,7 @@ def reject_approval(request, approval_id: int):
     if request.method != "POST":
         return portal_not_found()
     decision_notes = (request.POST.get("decision_notes") or "").strip() or None
-    decided_by = (request.user.email or get_admin_email())
+    decided_by = _resolve_decided_by(request)
     try:
         updated = oracle_proc.decide_approval(
             approval_id=approval_id,
@@ -222,11 +233,12 @@ def resubmit_approval(request, approval_id: int):
             file_mime=file_mime,
             file_blob=file_blob,
         )
-        note = f"Superseded by new job_id={new_job_id} from approval_id={approval_id}"
+        note = f"Superseded by job_id={new_job_id} (from approval_id={approval_id})"
+        decided_by = _resolve_decided_by(request)
         updated = oracle_proc.decide_approval(
             approval_id=approval_id,
             status="REJECTED",
-            decided_by=(request.user.email or get_admin_email()),
+            decided_by=decided_by,
             decision_notes=note,
         )
         if job and job.get("job_id"):
