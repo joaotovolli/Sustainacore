@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import os
+
 import oracledb
 
 from core.oracle_db import get_connection
@@ -7,9 +10,11 @@ from core.oracle_db import get_connection
 JOB_TABLE = "PROC_GEMINI_JOBS"
 APPROVAL_TABLE = "PROC_GEMINI_APPROVALS"
 
+logger = logging.getLogger(__name__)
 
-def _to_plain(value):
-    if isinstance(value, oracledb.LOB):
+
+def _materialize_value(value):
+    if hasattr(value, "read"):
         return value.read()
     return value
 
@@ -32,6 +37,20 @@ def _column_exists(cursor: oracledb.Cursor, table_name: str, column_name: str) -
         {"table_name": table_name.upper(), "column_name": column_name.upper()},
     )
     return cursor.fetchone()[0] > 0
+
+
+def get_current_schema() -> str | None:
+    if not (os.getenv("DB_USER") or os.getenv("ORACLE_USER")):
+        return None
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT SYS_CONTEXT('USERENV','CURRENT_SCHEMA') FROM dual")
+                row = cursor.fetchone()
+                return row[0] if row else None
+    except Exception:
+        logger.exception("proc_oracle.schema_lookup_failed")
+        return None
 
 
 def ensure_proc_tables_exist() -> None:
@@ -167,66 +186,93 @@ def list_recent_jobs(limit: int = 10) -> list[dict[str, object]]:
 
 
 def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
-    sql = f"""
-        SELECT * FROM (
-            SELECT APPROVAL_ID, REQUEST_TYPE, TITLE, CREATED_AT, PROPOSED_TEXT, DETAILS, FILE_NAME
-            FROM {APPROVAL_TABLE}
-            WHERE STATUS = 'PENDING'
-            ORDER BY CREATED_AT DESC
-        ) WHERE ROWNUM <= :limit
-    """
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(sql, {"limit": limit})
-            rows = cursor.fetchall()
+            has_comments = _column_exists(cursor, APPROVAL_TABLE, "GEMINI_COMMENTS")
+            comments_select = (
+                "DBMS_LOB.SUBSTR(GEMINI_COMMENTS, 2000, 1) AS GEMINI_COMMENTS_PREVIEW"
+                if has_comments
+                else "CAST(NULL AS VARCHAR2(2000)) AS GEMINI_COMMENTS_PREVIEW"
+            )
+            sql = f"""
+                SELECT * FROM (
+                    SELECT APPROVAL_ID,
+                           SOURCE_JOB_ID,
+                           REQUEST_TYPE,
+                           TITLE,
+                           CREATED_AT,
+                           FILE_NAME,
+                           FILE_MIME,
+                           DBMS_LOB.SUBSTR(PROPOSED_TEXT, 2000, 1) AS PROPOSED_TEXT_PREVIEW,
+                           DBMS_LOB.SUBSTR(DETAILS, 2000, 1) AS DETAILS_PREVIEW,
+                           {comments_select}
+                    FROM {APPROVAL_TABLE}
+                    WHERE UPPER(TRIM(STATUS)) = 'PENDING'
+                    ORDER BY CREATED_AT DESC, APPROVAL_ID DESC
+                ) WHERE ROWNUM <= :limit
+            """
+            try:
+                cursor.execute(sql, {"limit": limit})
+                rows = cursor.fetchall()
+            except Exception:
+                logger.exception("proc_oracle.list_pending_approvals_failed")
+                raise
     results = []
     for row in rows:
-        proposed = _to_plain(row[4]) or ""
-        details = _to_plain(row[5]) or ""
-        summary_source = row[2] or proposed or details
+        summary_source = row[3] or row[7] or row[8] or row[9] or ""
         results.append(
             {
                 "approval_id": row[0],
-                "request_type": row[1],
-                "title": row[2],
-                "created_at": row[3],
+                "source_job_id": row[1],
+                "request_type": row[2],
+                "title": row[3],
+                "created_at": row[4],
+                "file_name": row[5],
+                "file_mime": row[6],
+                "proposed_text_preview": row[7] or "",
+                "details_preview": row[8] or "",
+                "gemini_comments_preview": row[9] or "",
                 "summary": summary_source,
-                "file_name": row[6],
             }
         )
     return results
 
 
 def get_approval(approval_id: int) -> dict[str, object] | None:
-    sql = f"""
-        SELECT APPROVAL_ID, SOURCE_JOB_ID, REQUEST_TYPE, TITLE, PROPOSED_TEXT, DETAILS,
-               GEMINI_COMMENTS, FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT, DECIDED_AT,
-               DECIDED_BY, DECISION_NOTES
-        FROM {APPROVAL_TABLE}
-        WHERE APPROVAL_ID = :approval_id
-    """
     with get_connection() as conn:
         with conn.cursor() as cursor:
+            if _column_exists(cursor, APPROVAL_TABLE, "GEMINI_COMMENTS"):
+                comments_select = "GEMINI_COMMENTS"
+            else:
+                comments_select = "CAST(NULL AS CLOB) AS GEMINI_COMMENTS"
+            sql = f"""
+                SELECT APPROVAL_ID, SOURCE_JOB_ID, REQUEST_TYPE, TITLE, PROPOSED_TEXT, DETAILS,
+                       {comments_select}, FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT, DECIDED_AT,
+                       DECIDED_BY, DECISION_NOTES
+                FROM {APPROVAL_TABLE}
+                WHERE APPROVAL_ID = :approval_id
+            """
             cursor.execute(sql, {"approval_id": approval_id})
             row = cursor.fetchone()
-    if not row:
-        return None
+            if not row:
+                return None
+            materialized = [_materialize_value(value) for value in row]
     return {
-        "approval_id": row[0],
-        "source_job_id": row[1],
-        "request_type": row[2],
-        "title": row[3],
-        "proposed_text": _to_plain(row[4]),
-        "details": _to_plain(row[5]),
-        "gemini_comments": _to_plain(row[6]),
-        "file_name": row[7],
-        "file_mime": row[8],
-        "file_blob": row[9],
-        "status": row[10],
-        "created_at": row[11],
-        "decided_at": row[12],
-        "decided_by": row[13],
-        "decision_notes": _to_plain(row[14]),
+        "approval_id": materialized[0],
+        "source_job_id": materialized[1],
+        "request_type": materialized[2],
+        "title": materialized[3],
+        "proposed_text": materialized[4],
+        "details": materialized[5],
+        "gemini_comments": materialized[6],
+        "file_name": materialized[7],
+        "file_mime": materialized[8],
+        "file_blob": materialized[9],
+        "status": materialized[10],
+        "created_at": materialized[11],
+        "decided_at": materialized[12],
+        "decided_by": materialized[13],
+        "decision_notes": materialized[14],
     }
 
 
@@ -240,12 +286,13 @@ def get_job_file(job_id: int) -> dict[str, object] | None:
         with conn.cursor() as cursor:
             cursor.execute(sql, {"job_id": job_id})
             row = cursor.fetchone()
-    if not row or not row[2]:
-        return None
+            if not row or not row[2]:
+                return None
+            materialized = [_materialize_value(value) for value in row]
     return {
-        "file_name": row[0],
-        "file_mime": row[1],
-        "file_blob": _to_plain(row[2]),
+        "file_name": materialized[0],
+        "file_mime": materialized[1],
+        "file_blob": materialized[2],
     }
 
 
@@ -259,12 +306,13 @@ def get_approval_file(approval_id: int) -> dict[str, object] | None:
         with conn.cursor() as cursor:
             cursor.execute(sql, {"approval_id": approval_id})
             row = cursor.fetchone()
-    if not row or not row[2]:
-        return None
+            if not row or not row[2]:
+                return None
+            materialized = [_materialize_value(value) for value in row]
     return {
-        "file_name": row[0],
-        "file_mime": row[1],
-        "file_blob": _to_plain(row[2]),
+        "file_name": materialized[0],
+        "file_mime": materialized[1],
+        "file_blob": materialized[2],
     }
 
 
@@ -302,14 +350,18 @@ def list_recent_decisions(limit: int = 50) -> list[dict[str, object]]:
         SELECT * FROM (
             SELECT APPROVAL_ID, REQUEST_TYPE, TITLE, STATUS, DECIDED_AT, DECIDED_BY
             FROM {APPROVAL_TABLE}
-            WHERE STATUS IN ('APPROVED', 'REJECTED')
-            ORDER BY DECIDED_AT DESC
+            WHERE UPPER(TRIM(STATUS)) IN ('APPROVED', 'REJECTED')
+            ORDER BY DECIDED_AT DESC NULLS LAST, CREATED_AT DESC
         ) WHERE ROWNUM <= :limit
     """
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(sql, {"limit": limit})
-            rows = cursor.fetchall()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, {"limit": limit})
+                rows = cursor.fetchall()
+    except Exception:
+        logger.exception("proc_oracle.list_recent_decisions_failed")
+        raise
     return [
         {
             "approval_id": row[0],

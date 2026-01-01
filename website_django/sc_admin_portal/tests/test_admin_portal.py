@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.auth import COOKIE_NAME
+from sc_admin_portal import oracle_proc
 
 
 ADMIN_EMAIL = "admin@example.com"
@@ -112,7 +113,7 @@ class AdminPortalAccessTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Job submitted.", content)
-        self.assertIn("page refresh failed", content)
+        self.assertIn("jobs refresh failed", content)
         self.assertNotIn("Could not submit the job", content)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
@@ -125,11 +126,16 @@ class AdminPortalAccessTests(TestCase):
             return_value=[
                 {
                     "approval_id": 7,
+                    "source_job_id": None,
                     "request_type": "PUBLISH_NEWS",
                     "title": "Title",
                     "created_at": None,
                     "summary": "Summary",
                     "file_name": "brief.pdf",
+                    "file_mime": "application/pdf",
+                    "proposed_text_preview": "Preview",
+                    "details_preview": "",
+                    "gemini_comments_preview": "",
                 }
             ],
         ):
@@ -137,6 +143,21 @@ class AdminPortalAccessTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("brief.pdf", content)
         self.assertIn(reverse("sc_admin_portal:approval_file", args=[7]), content)
+        self.assertIn(reverse("sc_admin_portal:approve", args=[7]), content)
+        self.assertIn(reverse("sc_admin_portal:reject", args=[7]), content)
+
+    def test_materialize_value_reads_lob(self):
+        class FakeLob:
+            def __init__(self):
+                self.read_count = 0
+
+            def read(self):
+                self.read_count += 1
+                return "payload"
+
+        lob = FakeLob()
+        self.assertEqual(oracle_proc._materialize_value(lob), "payload")
+        self.assertEqual(lob.read_count, 1)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.get_approval_file")
