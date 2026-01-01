@@ -84,6 +84,7 @@ INSTALLED_APPS = [
     'django.contrib.sitemaps',
     'ask2',
     'telemetry',
+    'sc_admin_portal',
 ]
 
 MIDDLEWARE = [

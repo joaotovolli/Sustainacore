@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Portal | SustainaCore{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+    <div class="shell">
+        <div class="section__header">
+            <div>
+                <p class="eyebrow">Admin Portal</p>
+                <h1>Draft approvals</h1>
+                <p class="muted">Review draft social posts and approve or reject them.</p>
+            </div>
+        </div>
+
+        {% if error %}
+        <div class="alert alert--warning">{{ error }}</div>
+        {% endif %}
+
+        <div class="card">
+            <form method="post" class="form">
+                {% csrf_token %}
+                <div class="form__grid">
+                    <label>
+                        Title
+                        <input type="text" name="title" placeholder="Optional title" />
+                    </label>
+                    <label>
+                        Platform
+                        <input type="text" name="platform" value="linkedin_page" />
+                    </label>
+                    <label>
+                        Body text *
+                        <textarea name="body_text" rows="5" placeholder="Write the draft post" required></textarea>
+                    </label>
+                    <label>
+                        Hashtags
+                        <textarea name="hashtags" rows="2" placeholder="#sustainability #ai"></textarea>
+                    </label>
+                </div>
+                <div class="form__actions">
+                    <button class="btn" type="submit">Add draft</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Draft posts</h2>
+            {% if drafts %}
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr class="table__row table__row--head">
+                            <th class="table__cell text-left">Draft</th>
+                            <th class="table__cell text-left">Copy-ready preview</th>
+                            <th class="table__cell table__cell--right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for draft in drafts %}
+                        <tr class="table__row">
+                            <td class="table__cell">
+                                <strong>{{ draft.title|default:"Untitled" }}</strong>
+                                <div class="table__note">{{ draft.platform }}</div>
+                                <div class="table__note">Created {{ draft.created_at|date:"Y-m-d H:i" }} UTC</div>
+                            </td>
+                            <td class="table__cell">
+                                <pre>{{ draft.copy_ready }}</pre>
+                            </td>
+                            <td class="table__cell table__cell--right">
+                                <form method="post" action="{% url 'sc_admin_portal:approve' draft.id %}">
+                                    {% csrf_token %}
+                                    <button class="btn" type="submit">Approve</button>
+                                </form>
+                                <form method="post" action="{% url 'sc_admin_portal:reject' draft.id %}">
+                                    {% csrf_token %}
+                                    <button class="btn btn--ghost" type="submit">Reject</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="muted">No drafts awaiting review.</p>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}
