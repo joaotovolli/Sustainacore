@@ -67,6 +67,7 @@ def test_request_code_stores_hash_not_plaintext(monkeypatch):
 
     def fake_send_login_email(email, code):
         captured["code"] = code
+        return True
 
     monkeypatch.setattr(login_codes, "send_login_email", fake_send_login_email)
 
