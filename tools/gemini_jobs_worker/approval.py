@@ -9,7 +9,8 @@ from .oracle import ApprovalRecord, append_decision_notes
 
 def approval_is_applied(approval: ApprovalRecord) -> bool:
     notes = (approval.decision_notes or "").upper()
-    return "APPLIED" in notes
+    details = (approval.details or "").upper()
+    return "APPLIED" in notes or "APPLIED" in details
 
 
 def approval_is_final(approval: ApprovalRecord) -> bool:

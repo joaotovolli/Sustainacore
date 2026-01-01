@@ -21,11 +21,16 @@ from .oracle import (
     fetch_job,
     fetch_latest_approval,
     fetch_pending_jobs,
+    fetch_recent_approvals,
+    fetch_recent_jobs,
+    find_approvals_by_status,
     get_connection,
     init_env,
     insert_approval,
     pick_job,
     pick_newest_pending_job,
+    status_counts_approvals,
+    status_counts_jobs,
     update_job_status,
 )
 from .routines.rag_ingest import (
@@ -126,6 +131,11 @@ def _ensure_approval(conn, job: JobRecord, *, force_new: bool = False) -> Approv
 
     payload = build_approval_payload(job.job_id, job.file_blob or b"")
     if payload.quality_errors:
+        LOGGER.error(
+            "Approval payload quality failed job_id=%s errors=%s",
+            job.job_id,
+            payload.quality_errors,
+        )
         update_job_status(
             conn,
             job.job_id,
@@ -166,25 +176,28 @@ def _handle_rag_ingest(conn, job: JobRecord, *, dry_run: bool, create_only: bool
     status = (approval.status or "").upper()
 
     if dry_run or create_only:
+        LOGGER.info("Awaiting approval approval_id=%s job_id=%s", approval.approval_id, job.job_id)
         LOGGER.info("Dry-run mode: approval created or confirmed, no insert applied.")
         update_job_status(
             conn,
             job.job_id,
-            "IN_PROGRESS",
+            "WAITING_APPROVAL",
             result_text=f"Awaiting approval {approval.approval_id}.",
         )
         return
 
     if status == "PENDING":
+        LOGGER.info("Approval pending approval_id=%s job_id=%s", approval.approval_id, job.job_id)
         update_job_status(
             conn,
             job.job_id,
-            "IN_PROGRESS",
+            "WAITING_APPROVAL",
             result_text=f"Awaiting approval {approval.approval_id}.",
         )
         return
 
     if status == "REJECTED":
+        LOGGER.info("Approval rejected approval_id=%s job_id=%s", approval.approval_id, job.job_id)
         update_job_status(
             conn,
             job.job_id,
@@ -194,6 +207,12 @@ def _handle_rag_ingest(conn, job: JobRecord, *, dry_run: bool, create_only: bool
         return
 
     if status != "APPROVED":
+        LOGGER.warning(
+            "Approval status unexpected approval_id=%s job_id=%s status=%s",
+            approval.approval_id,
+            job.job_id,
+            status,
+        )
         update_job_status(
             conn,
             job.job_id,
@@ -221,6 +240,13 @@ def _handle_rag_ingest(conn, job: JobRecord, *, dry_run: bool, create_only: bool
         return
 
     try:
+        LOGGER.info("Applying approval approval_id=%s job_id=%s", approval.approval_id, job.job_id)
+        update_job_status(
+            conn,
+            job.job_id,
+            "APPLYING",
+            result_text=f"Applying approval {approval.approval_id}.",
+        )
         stats = apply_payload(conn, approval.file_blob)
     except EmbeddingDimMismatch as exc:
         append_learned_note(
@@ -248,16 +274,23 @@ def _handle_rag_ingest(conn, job: JobRecord, *, dry_run: bool, create_only: bool
                 "status": "PENDING",
             },
         )
-        update_job_status(conn, job.job_id, "FAILED", error_text=mismatch_text)
+        update_job_status(conn, job.job_id, "DONE", result_text=mismatch_text)
         return
     except Exception as exc:
         append_learned_note(
             LearnedNote("Oracle insert failure", context=str(exc)[:200])
         )
-        update_job_status(conn, job.job_id, "FAILED", error_text=str(exc)[:400])
+        update_job_status(conn, job.job_id, "DONE", result_text=str(exc)[:400])
         return
 
     mark_applied(conn, approval)
+    LOGGER.info(
+        "Applied approval approval_id=%s job_id=%s inserted=%s skipped=%s",
+        approval.approval_id,
+        job.job_id,
+        stats.inserted,
+        stats.skipped_existing,
+    )
     update_job_status(
         conn,
         job.job_id,
@@ -269,62 +302,183 @@ def _handle_rag_ingest(conn, job: JobRecord, *, dry_run: bool, create_only: bool
     )
 
 
-def _process_job(conn, job: JobRecord, *, dry_run: bool) -> None:
-    routine_code = _resolve_routine_code(job)
-    if not routine_code:
+def _apply_approval(conn, job: JobRecord, approval: ApprovalRecord) -> None:
+    if approval_is_applied(approval):
         update_job_status(
             conn,
             job.job_id,
-            "FAILED",
+            "DONE",
+            result_text=f"Approval {approval.approval_id} already applied.",
+        )
+        return
+
+    if not approval.file_blob:
+        update_job_status(
+            conn,
+            job.job_id,
+            "DONE",
+            result_text=f"Approval {approval.approval_id} missing payload.",
+        )
+        return
+
+    try:
+        LOGGER.info("Applying approval approval_id=%s job_id=%s", approval.approval_id, job.job_id)
+        update_job_status(
+            conn,
+            job.job_id,
+            "APPLYING",
+            result_text=f"Applying approval {approval.approval_id}.",
+        )
+        stats = apply_payload(conn, approval.file_blob)
+    except EmbeddingDimMismatch as exc:
+        append_learned_note(
+            LearnedNote(
+                "Embedding dimension mismatch during apply",
+                context=f"expected={exc.expected} actual={exc.actual}",
+            )
+        )
+        mismatch_text = (
+            f"Embedding dimension mismatch (expected {exc.expected}, got {exc.actual}). "
+            "No inserts applied."
+        )
+        insert_approval(
+            conn,
+            {
+                "source_job_id": job.job_id,
+                "request_type": "OTHER",
+                "title": f"Embedding dimension mismatch (JOB {job.job_id})",
+                "proposed_text": mismatch_text,
+                "details": mismatch_text,
+                "gemini_comments": mismatch_text,
+                "file_name": approval.file_name,
+                "file_mime": approval.file_mime,
+                "file_blob": approval.file_blob,
+                "status": "PENDING",
+            },
+        )
+        update_job_status(conn, job.job_id, "DONE", result_text=mismatch_text)
+        return
+    except Exception as exc:
+        append_learned_note(
+            LearnedNote("Oracle insert failure", context=str(exc)[:200])
+        )
+        update_job_status(conn, job.job_id, "DONE", result_text=str(exc)[:400])
+        return
+
+    mark_applied(conn, approval)
+    LOGGER.info(
+        "Applied approval approval_id=%s job_id=%s inserted=%s skipped=%s",
+        approval.approval_id,
+        job.job_id,
+        stats.inserted,
+        stats.skipped_existing,
+    )
+    update_job_status(
+        conn,
+        job.job_id,
+        "DONE",
+        result_text=(
+            f"Applied approval {approval.approval_id}: inserted={stats.inserted}, "
+            f"skipped_existing={stats.skipped_existing}."
+        ),
+    )
+
+
+def _process_job(conn, job: JobRecord, *, dry_run: bool, create_only: bool) -> None:
+    routine_code = _resolve_routine_code(job)
+    if not routine_code:
+        LOGGER.warning("skip job_id=%s reason=routine_unresolved", job.job_id)
+        update_job_status(
+            conn,
+            job.job_id,
+            "DONE",
             error_text="Unsupported routine code.",
         )
         return
     if routine_code not in config.SUPPORTED_ROUTINES:
+        LOGGER.warning(
+            "skip job_id=%s reason=routine_unsupported routine=%s",
+            job.job_id,
+            routine_code,
+        )
         update_job_status(
             conn,
             job.job_id,
-            "FAILED",
+            "DONE",
             error_text=f"Routine not supported by worker: {routine_code}.",
         )
         return
 
     if routine_code == "RAG_INGEST":
-        _handle_rag_ingest(conn, job, dry_run=dry_run, create_only=False)
+        _handle_rag_ingest(conn, job, dry_run=dry_run, create_only=create_only)
         return
+
+
+def _process_pending_jobs(conn, *, create_only: bool) -> bool:
+    routine_label = "Text to be transformed and added to RAG Vectors"
+    job = pick_job(conn, "RAG_INGEST", routine_label)
+    if not job:
+        return False
+    if not job.file_blob:
+        LOGGER.warning("skip job_id=%s reason=file_missing", job.job_id)
+        update_job_status(conn, job.job_id, "DONE", result_text="Missing FILE_BLOB attachment.")
+        return True
+    if not job.status or job.status.strip().upper() != "IN_PROGRESS":
+        update_job_status(conn, job.job_id, "IN_PROGRESS", result_text="Claimed by worker.")
+    _process_job(conn, job, dry_run=False, create_only=create_only)
+    return True
+
+
+def _process_approved_approvals(conn) -> None:
+    approvals = find_approvals_by_status(conn, "APPROVED", limit=10)
+    for approval in approvals:
+        if approval_is_applied(approval):
+            continue
+        job = fetch_job(conn, approval.source_job_id)
+        if not job:
+            continue
+        routine = _resolve_routine_code(job)
+        if routine != "RAG_INGEST":
+            continue
+        LOGGER.info("Found approved approval_id=%s job_id=%s", approval.approval_id, job.job_id)
+        _apply_approval(conn, job, approval)
+
+
+def _process_rejected_approvals(conn) -> None:
+    approvals = find_approvals_by_status(conn, "REJECTED", limit=10)
+    for approval in approvals:
+        if approval_is_applied(approval):
+            continue
+        job = fetch_job(conn, approval.source_job_id)
+        if not job:
+            continue
+        update_job_status(
+            conn,
+            job.job_id,
+            "DONE",
+            result_text=f"Rejected approval {approval.approval_id}.",
+        )
 
 
 def run_once(*, job_id: Optional[int], dry_run: bool, create_only: bool) -> bool:
     init_env()
     with get_connection() as conn:
         _log_poll_state(conn)
-        if job_id is not None:
-            job = fetch_job(conn, job_id)
-        else:
-            routine_label = "Text to be transformed and added to RAG Vectors"
-            job = pick_job(conn, "RAG_INGEST", routine_label)
-        if not job:
-            LOGGER.info("No matching jobs found.")
-            return False
-        if not job.file_blob:
-            LOGGER.warning("skip job_id=%s reason=file_missing", job.job_id)
-            update_job_status(
-                conn,
-                job.job_id,
-                "FAILED",
-                error_text="Missing FILE_BLOB attachment.",
-            )
-            return True
-        if create_only:
-            _handle_rag_ingest(conn, job, dry_run=dry_run, create_only=True)
-        else:
-            _process_job(conn, job, dry_run=dry_run)
-        return True
+        return _process_pending_jobs(conn, create_only=create_only)
 
 
 def run_loop(*, interval_seconds: int, job_id: Optional[int], dry_run: bool) -> None:
     idle_seconds = 0
     interval_seconds = config.FAST_POLL_SECONDS
+    last_approval_poll = 0.0
     while True:
+        now = time.time()
+        if now - last_approval_poll >= config.APPROVAL_POLL_SECONDS:
+            with get_connection() as conn:
+                _process_approved_approvals(conn)
+                _process_rejected_approvals(conn)
+            last_approval_poll = now
+
         job_found = run_once(job_id=job_id, dry_run=dry_run, create_only=False)
         if job_found:
             idle_seconds = 0
@@ -354,6 +508,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="Create approval payload and stop (no inserts).",
     )
     parser.add_argument("--kick-job", type=int, help="Claim and process a specific job id.")
+    parser.add_argument("--doctor", action="store_true", help="Print worker diagnostics and exit.")
     parser.add_argument(
         "--supervise-first-run",
         action="store_true",
@@ -392,12 +547,6 @@ def kick_job(job_id: int) -> int:
             return 1
         if normalized == "RAG_INGEST":
             _handle_rag_ingest(conn, job, dry_run=False, create_only=True)
-            update_job_status(
-                conn,
-                job.job_id,
-                "IN_PROGRESS",
-                result_text="Approval created; awaiting decision.",
-            )
             return 0
         update_job_status(
             conn,
@@ -406,6 +555,22 @@ def kick_job(job_id: int) -> int:
             error_text=f"Routine not supported: {normalized or 'UNKNOWN'}",
         )
         return 1
+
+
+def doctor() -> int:
+    init_env()
+    with get_connection() as conn:
+        schema = current_schema(conn)
+        job_counts = status_counts_jobs(conn)
+        approval_counts = status_counts_approvals(conn)
+        recent_jobs = fetch_recent_jobs(conn, limit=5)
+        recent_approvals = fetch_recent_approvals(conn, limit=5)
+    LOGGER.info("doctor schema=%s", schema)
+    LOGGER.info("doctor job_counts=%s", job_counts)
+    LOGGER.info("doctor approval_counts=%s", approval_counts)
+    LOGGER.info("doctor recent_jobs=%s", recent_jobs)
+    LOGGER.info("doctor recent_approvals=%s", recent_approvals)
+    return 0
 
 
 def supervise_first_run() -> int:
@@ -422,8 +587,8 @@ def supervise_first_run() -> int:
         update_job_status(
             conn,
             job.job_id,
-            "IN_PROGRESS",
-            result_text=f"Approval {approval.approval_id} created (dry-run).",
+            "WAITING_APPROVAL",
+            result_text=f"Awaiting approval {approval.approval_id}.",
         )
         LOGGER.info("Dry-run complete: approval_id=%s job_id=%s", approval.approval_id, job.job_id)
 
@@ -462,6 +627,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             LOGGER.error("Choose either --loop or --once.")
             return 2
 
+        if args.doctor:
+            return doctor()
+
         if args.kick_job:
             return kick_job(args.kick_job)
 
@@ -473,7 +641,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 0
 
         if args.once:
-            run_once(job_id=args.job_id, dry_run=args.dry_run, create_only=args.create_approval_only)
+            if args.job_id:
+                return kick_job(args.job_id)
+            run_once(job_id=None, dry_run=args.dry_run, create_only=args.create_approval_only)
             return 0
 
         run_loop(interval_seconds=args.interval, job_id=args.job_id, dry_run=args.dry_run)

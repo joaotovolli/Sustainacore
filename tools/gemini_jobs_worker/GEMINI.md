@@ -65,3 +65,6 @@ Self-improving notes
 ## Learned Notes
 - [2026-01-01 15:29:42Z] Approval table missing GEMINI_COMMENTS column | context=stored in DETAILS instead [note-id:1146c26699ef]
 - [2026-01-01 16:20:00Z] Prior approval rejected due to mid-word chunking and weak traceability; added boundary-aligned chunking and internal URLs [note-id:4a7c3b7c9c7d]
+- [2026-01-01 18:57:13Z] Worker crash | context=ORA-00932: expression ("PROC_GEMINI_APPROVALS"."DECISION_NOTES"||'
+'||:1) is of data type CLOB, which is incompatible with expected data type CHAR
+Help: https://docs.oracle.com/error-help/db/ora-00932 [note-id:f6a2172d98c8]
