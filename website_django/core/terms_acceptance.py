@@ -47,7 +47,7 @@ def _client_ip(request) -> str:
     return request.META.get("REMOTE_ADDR", "") or ""
 
 
-def record_terms_acceptance(email: str, request, context: str) -> bool:
+def _record_terms_acceptance(email: str, request, context: str) -> bool:
     if not email:
         return False
     terms_version = settings.TERMS_VERSION
@@ -55,53 +55,66 @@ def record_terms_acceptance(email: str, request, context: str) -> bool:
     ip_address = _client_ip(request) or None
     user_agent = request.META.get("HTTP_USER_AGENT", "") or None
     accepted_at = now()
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cursor:
-                _ensure_terms_table(cursor)
-                try:
-                    cursor.execute(
-                        f"""
-                        INSERT INTO {TABLE_NAME} (
-                            email,
-                            terms_version,
-                            privacy_version,
-                            accepted_at_utc,
-                            ip_address,
-                            user_agent,
-                            acceptance_context,
-                            accepted
-                        )
-                        VALUES (
-                            :email,
-                            :terms_version,
-                            :privacy_version,
-                            :accepted_at_utc,
-                            :ip_address,
-                            :user_agent,
-                            :acceptance_context,
-                            'Y'
-                        )
-                        """,
-                        {
-                            "email": email,
-                            "terms_version": terms_version,
-                            "privacy_version": privacy_version,
-                            "accepted_at_utc": accepted_at,
-                            "ip_address": ip_address[:64] if ip_address else None,
-                            "user_agent": user_agent[:512] if user_agent else None,
-                            "acceptance_context": (context or "")[:64] if context else None,
-                        },
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            _ensure_terms_table(cursor)
+            try:
+                cursor.execute(
+                    f"""
+                    INSERT INTO {TABLE_NAME} (
+                        email,
+                        terms_version,
+                        privacy_version,
+                        accepted_at_utc,
+                        ip_address,
+                        user_agent,
+                        acceptance_context,
+                        accepted
                     )
-                    conn.commit()
-                except oracledb.DatabaseError as exc:
-                    error = exc.args[0] if exc.args else None
-                    if getattr(error, "code", None) == 1:
-                        return True
-                    raise
-        return True
+                    VALUES (
+                        :email,
+                        :terms_version,
+                        :privacy_version,
+                        :accepted_at_utc,
+                        :ip_address,
+                        :user_agent,
+                        :acceptance_context,
+                        'Y'
+                    )
+                    """,
+                    {
+                        "email": email,
+                        "terms_version": terms_version,
+                        "privacy_version": privacy_version,
+                        "accepted_at_utc": accepted_at,
+                        "ip_address": ip_address[:64] if ip_address else None,
+                        "user_agent": user_agent[:512] if user_agent else None,
+                        "acceptance_context": (context or "")[:64] if context else None,
+                    },
+                )
+                conn.commit()
+            except oracledb.DatabaseError as exc:
+                error = exc.args[0] if exc.args else None
+                if getattr(error, "code", None) == 1:
+                    return True
+                raise
+    return True
+
+
+def record_terms_acceptance(email: str, request, context: str) -> bool:
+    try:
+        return _record_terms_acceptance(email, request, context)
     except Exception:
         return False
+
+
+def record_terms_acceptance_with_error(
+    email: str, request, context: str
+) -> tuple[bool, Optional[str]]:
+    try:
+        return _record_terms_acceptance(email, request, context), None
+    except Exception as exc:
+        return False, type(exc).__name__
 
 
 def has_terms_acceptance(email: str) -> bool:

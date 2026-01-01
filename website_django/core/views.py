@@ -4,6 +4,7 @@ import uuid
 import csv
 import json
 import re
+import hashlib
 from html import escape
 from html.parser import HTMLParser
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -35,7 +36,10 @@ from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
 from core.analytics import EVENT_TYPES, log_event
 from core.downloads import require_login_for_download
 from core.profile_data import get_profile, upsert_profile
-from core.terms_acceptance import has_terms_acceptance, record_terms_acceptance
+from core.terms_acceptance import (
+    has_terms_acceptance,
+    record_terms_acceptance_with_error,
+)
 from core.countries import get_country_lists, resolve_country_name
 from core.tech100_index_data import (
     get_data_mode,
@@ -76,6 +80,41 @@ def _mask_email(value: str) -> str:
     else:
         masked = f"{name[0]}***"
     return f"{masked}@{domain}"
+
+
+def _redact_email(value: str) -> str:
+    if not value or "@" not in value:
+        return "***"
+    name, domain = value.split("@", 1)
+    prefix = name[:2] if len(name) >= 2 else name[:1]
+    return f"{prefix}***@{domain}"
+
+
+def _email_hash(value: str) -> str:
+    if not value:
+        return ""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _log_login_code_event(
+    correlation_id: str,
+    email: str,
+    step: str,
+    outcome: str,
+    error_class: Optional[str] = None,
+    backend_status: Optional[int] = None,
+) -> None:
+    logger.warning(
+        "[LOGIN_CODE] corr_id=%s email_hash=%s email_redacted=%s step=%s outcome=%s error_class=%s backend_status=%s timestamp=%s",
+        correlation_id,
+        _email_hash(email),
+        _redact_email(email),
+        step,
+        outcome,
+        error_class or "",
+        backend_status if backend_status is not None else "",
+        datetime.utcnow().isoformat(),
+    )
 
 
 def _news_fixture_items() -> List[Dict[str, object]]:
@@ -149,6 +188,7 @@ def login_email(request):
     if request.method == "POST":
         email = _normalize_email(request.POST.get("email", ""))
         accepted = request.POST.get("terms_accept") in {"on", "true", "1"}
+        correlation_id = uuid.uuid4().hex
         if not accepted:
             error = "You must agree to the Terms and Privacy Policy to receive a login code."
             return render(
@@ -157,10 +197,16 @@ def login_email(request):
                 {"notice": notice, "error": error, "next": next_url},
             )
         if email:
-            try:
-                recorded = record_terms_acceptance(email, request, "request_code")
-            except Exception:
-                recorded = False
+            recorded, acceptance_error = record_terms_acceptance_with_error(
+                email, request, "request_code"
+            )
+            _log_login_code_event(
+                correlation_id,
+                email,
+                "acceptance_insert",
+                "ok" if recorded else "fail",
+                acceptance_error,
+            )
             if not recorded:
                 error = "We could not record your acceptance. Please try again."
                 return render(
@@ -185,6 +231,21 @@ def login_email(request):
                     duration_ms,
                 )
                 log_event("auth_request_code", request, {"source": "login_page"})
+                _log_login_code_event(
+                    correlation_id,
+                    email,
+                    "email_send",
+                    "ok" if response.ok else "fail",
+                    None if response.ok else "BackendHTTPError",
+                    response.status_code,
+                )
+                if not response.ok:
+                    error = "We couldn't send the email right now. Please try again later."
+                    return render(
+                        request,
+                        "login_email.html",
+                        {"notice": notice, "error": error, "next": next_url},
+                    )
             except requests.RequestException as exc:
                 duration_ms = int((time.monotonic() - start) * 1000)
                 logger.warning(
@@ -195,6 +256,19 @@ def login_email(request):
                     duration_ms,
                 )
                 log_event("auth_request_code", request, {"source": "login_page", "status": "error"})
+                _log_login_code_event(
+                    correlation_id,
+                    email,
+                    "email_send",
+                    "fail",
+                    type(exc).__name__,
+                )
+                error = "We couldn't send the email right now. Please try again later."
+                return render(
+                    request,
+                    "login_email.html",
+                    {"notice": notice, "error": error, "next": next_url},
+                )
         request.session["login_email"] = email
         request.session["login_notice"] = "If that email is eligible, we sent a code."
         if next_url:
@@ -268,16 +342,30 @@ def auth_request_code(request):
         payload = {}
     email = _normalize_email(payload.get("email", ""))
     accepted = bool(payload.get("terms_accepted"))
+    correlation_id = uuid.uuid4().hex
     if not email:
         return JsonResponse({"ok": False, "error": "invalid"}, status=400)
     if not accepted:
         return JsonResponse({"ok": False, "error": "terms_required"}, status=400)
-    try:
-        recorded = record_terms_acceptance(email, request, "request_code")
-    except Exception:
-        recorded = False
+    recorded, acceptance_error = record_terms_acceptance_with_error(
+        email, request, "request_code"
+    )
+    _log_login_code_event(
+        correlation_id,
+        email,
+        "acceptance_insert",
+        "ok" if recorded else "fail",
+        acceptance_error,
+    )
     if not recorded:
-        return JsonResponse({"ok": False, "error": "acceptance_failed"}, status=502)
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "terms_acceptance_failed",
+                "message": "We could not record your acceptance. Please try again.",
+            },
+            status=502,
+        )
     if email:
         start = time.monotonic()
         try:
@@ -295,6 +383,23 @@ def auth_request_code(request):
                 duration_ms,
             )
             log_event("auth_request_code", request, {"source": "modal"})
+            _log_login_code_event(
+                correlation_id,
+                email,
+                "email_send",
+                "ok" if response.ok else "fail",
+                None if response.ok else "BackendHTTPError",
+                response.status_code,
+            )
+            if not response.ok:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": "send_failed",
+                        "message": "We couldn't send the email right now. Please try again later.",
+                    },
+                    status=502,
+                )
         except requests.RequestException as exc:
             duration_ms = int((time.monotonic() - start) * 1000)
             logger.warning(
@@ -305,6 +410,21 @@ def auth_request_code(request):
                 duration_ms,
             )
             log_event("auth_request_code", request, {"source": "modal", "status": "error"})
+            _log_login_code_event(
+                correlation_id,
+                email,
+                "email_send",
+                "fail",
+                type(exc).__name__,
+            )
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "send_failed",
+                    "message": "We couldn't send the email right now. Please try again later.",
+                },
+                status=502,
+            )
     request.session["login_email"] = email
     return JsonResponse({"ok": True})
 
