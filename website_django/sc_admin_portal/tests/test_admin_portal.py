@@ -130,6 +130,7 @@ class AdminPortalAccessTests(TestCase):
                     "created_at": None,
                     "summary": "Summary",
                     "file_name": "brief.pdf",
+                    "source_job_id": None,
                 }
             ],
         ):
@@ -137,6 +138,8 @@ class AdminPortalAccessTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("brief.pdf", content)
         self.assertIn(reverse("sc_admin_portal:approval_file", args=[7]), content)
+        self.assertIn(reverse("sc_admin_portal:approve", args=[7]), content)
+        self.assertIn(reverse("sc_admin_portal:reject", args=[7]), content)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.get_approval_file")
@@ -175,6 +178,7 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.get_approval", return_value={"approval_id": 123})
     def test_reject_calls_oracle_update(self, approval_mock, decide_mock):
         self.client.force_login(self.authorized_user)
+        decide_mock.return_value = 1
         reject_url = reverse(self.reject_url_name, args=[123])
         response = self.client.post(reject_url, {"decision_notes": "no"})
         self.assertEqual(response.status_code, 302)
@@ -190,6 +194,7 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.get_approval", return_value={"approval_id": 456})
     def test_approve_calls_oracle_update(self, approval_mock, decide_mock):
         self.client.force_login(self.authorized_user)
+        decide_mock.return_value = 1
         approve_url = reverse(self.approve_url_name, args=[456])
         response = self.client.post(approve_url, {"decision_notes": "yes"})
         self.assertEqual(response.status_code, 302)

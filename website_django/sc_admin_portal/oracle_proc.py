@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
+import os
+
 import oracledb
 
 from core.oracle_db import get_connection
 
 JOB_TABLE = "PROC_GEMINI_JOBS"
 APPROVAL_TABLE = "PROC_GEMINI_APPROVALS"
+
+logger = logging.getLogger(__name__)
 
 
 def _to_plain(value):
@@ -32,6 +37,20 @@ def _column_exists(cursor: oracledb.Cursor, table_name: str, column_name: str) -
         {"table_name": table_name.upper(), "column_name": column_name.upper()},
     )
     return cursor.fetchone()[0] > 0
+
+
+def get_current_schema() -> str | None:
+    if not (os.getenv("DB_USER") or os.getenv("ORACLE_USER")):
+        return None
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT SYS_CONTEXT('USERENV','CURRENT_SCHEMA') FROM dual")
+                row = cursor.fetchone()
+                return row[0] if row else None
+    except Exception:
+        logger.exception("proc_oracle.schema_lookup_failed")
+        return None
 
 
 def ensure_proc_tables_exist() -> None:
@@ -169,16 +188,20 @@ def list_recent_jobs(limit: int = 10) -> list[dict[str, object]]:
 def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
     sql = f"""
         SELECT * FROM (
-            SELECT APPROVAL_ID, REQUEST_TYPE, TITLE, CREATED_AT, PROPOSED_TEXT, DETAILS, FILE_NAME
+            SELECT APPROVAL_ID, REQUEST_TYPE, TITLE, CREATED_AT, PROPOSED_TEXT, DETAILS, FILE_NAME, SOURCE_JOB_ID
             FROM {APPROVAL_TABLE}
-            WHERE STATUS = 'PENDING'
+            WHERE UPPER(TRIM(STATUS)) = 'PENDING'
             ORDER BY CREATED_AT DESC
         ) WHERE ROWNUM <= :limit
     """
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(sql, {"limit": limit})
-            rows = cursor.fetchall()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, {"limit": limit})
+                rows = cursor.fetchall()
+    except Exception:
+        logger.exception("proc_oracle.list_pending_approvals_failed")
+        raise
     results = []
     for row in rows:
         proposed = _to_plain(row[4]) or ""
@@ -192,21 +215,31 @@ def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
                 "created_at": row[3],
                 "summary": summary_source,
                 "file_name": row[6],
+                "source_job_id": row[7],
             }
         )
     return results
 
 
 def get_approval(approval_id: int) -> dict[str, object] | None:
+    gemini_comments_column = "GEMINI_COMMENTS"
     sql = f"""
         SELECT APPROVAL_ID, SOURCE_JOB_ID, REQUEST_TYPE, TITLE, PROPOSED_TEXT, DETAILS,
-               GEMINI_COMMENTS, FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT, DECIDED_AT,
+               {gemini_comments_column}, FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT, DECIDED_AT,
                DECIDED_BY, DECISION_NOTES
         FROM {APPROVAL_TABLE}
         WHERE APPROVAL_ID = :approval_id
     """
     with get_connection() as conn:
         with conn.cursor() as cursor:
+            if not _column_exists(cursor, APPROVAL_TABLE, gemini_comments_column):
+                sql = f"""
+                    SELECT APPROVAL_ID, SOURCE_JOB_ID, REQUEST_TYPE, TITLE, PROPOSED_TEXT, DETAILS,
+                           NULL AS GEMINI_COMMENTS, FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT, DECIDED_AT,
+                           DECIDED_BY, DECISION_NOTES
+                    FROM {APPROVAL_TABLE}
+                    WHERE APPROVAL_ID = :approval_id
+                """
             cursor.execute(sql, {"approval_id": approval_id})
             row = cursor.fetchone()
     if not row:
@@ -274,14 +307,19 @@ def decide_approval(
     status: str,
     decided_by: str,
     decision_notes: str | None,
-) -> None:
+) -> int:
     sql = f"""
         UPDATE {APPROVAL_TABLE}
         SET STATUS = :status,
             DECIDED_AT = SYSTIMESTAMP,
             DECIDED_BY = :decided_by,
-            DECISION_NOTES = :decision_notes
+            DECISION_NOTES = CASE
+                WHEN :decision_notes IS NULL THEN DECISION_NOTES
+                WHEN DECISION_NOTES IS NULL THEN :decision_notes
+                ELSE DECISION_NOTES || CHR(10) || :decision_notes
+            END
         WHERE APPROVAL_ID = :approval_id
+          AND UPPER(TRIM(STATUS)) = 'PENDING'
     """
     with get_connection() as conn:
         with conn.cursor() as cursor:
@@ -294,7 +332,9 @@ def decide_approval(
                     "approval_id": approval_id,
                 },
             )
+            updated = cursor.rowcount
         conn.commit()
+    return updated or 0
 
 
 def list_recent_decisions(limit: int = 50) -> list[dict[str, object]]:
@@ -302,14 +342,18 @@ def list_recent_decisions(limit: int = 50) -> list[dict[str, object]]:
         SELECT * FROM (
             SELECT APPROVAL_ID, REQUEST_TYPE, TITLE, STATUS, DECIDED_AT, DECIDED_BY
             FROM {APPROVAL_TABLE}
-            WHERE STATUS IN ('APPROVED', 'REJECTED')
-            ORDER BY DECIDED_AT DESC
+            WHERE UPPER(TRIM(STATUS)) IN ('APPROVED', 'REJECTED')
+            ORDER BY DECIDED_AT DESC NULLS LAST, CREATED_AT DESC
         ) WHERE ROWNUM <= :limit
     """
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(sql, {"limit": limit})
-            rows = cursor.fetchall()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, {"limit": limit})
+                rows = cursor.fetchall()
+    except Exception:
+        logger.exception("proc_oracle.list_recent_decisions_failed")
+        raise
     return [
         {
             "approval_id": row[0],
