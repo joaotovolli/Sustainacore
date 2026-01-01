@@ -365,15 +365,20 @@
         },
         body: JSON.stringify({ email, terms_accepted: true }),
       });
-      if (!resp.ok) {
+      let data = null;
+      try {
+        data = await resp.json();
+      } catch (err) {
+        data = null;
+      }
+      if (!resp.ok || data?.ok === false) {
         let message = "We could not send a code right now. Please try again.";
-        try {
-          const data = await resp.json();
-          if (data?.error === "terms_required") {
-            message = "Please agree to the Terms and Privacy Policy to receive a code.";
-          }
-        } catch (err) {
-          // ignore JSON errors
+        if (data?.error === "terms_required") {
+          message = "Please agree to the Terms and Privacy Policy to receive a code.";
+        } else if (data?.error === "terms_acceptance_failed") {
+          message = "We could not record your acceptance. Please try again.";
+        } else if (data?.message) {
+          message = data.message;
         }
         showError(message);
         sendButton.disabled = false;
@@ -400,7 +405,7 @@
     }
     showError("");
     try {
-      await fetch("/auth/request-code/", {
+      const resp = await fetch("/auth/request-code/", {
         method: "POST",
         credentials: "same-origin",
         headers: {
@@ -409,6 +414,23 @@
         },
         body: JSON.stringify({ email, terms_accepted: true }),
       });
+      let data = null;
+      try {
+        data = await resp.json();
+      } catch (err) {
+        data = null;
+      }
+      if (!resp.ok || data?.ok === false) {
+        let message = "We could not resend the code. Please try again.";
+        if (data?.error === "terms_required") {
+          message = "Please agree to the Terms and Privacy Policy to receive a code.";
+        } else if (data?.error === "terms_acceptance_failed") {
+          message = "We could not record your acceptance. Please try again.";
+        } else if (data?.message) {
+          message = data.message;
+        }
+        showError(message);
+      }
     } catch (err) {
       showError("We could not resend the code. Please try again.");
     }
