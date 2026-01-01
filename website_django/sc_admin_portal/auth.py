@@ -43,12 +43,16 @@ def _sync_session_user(request, admin_email: str):
 def require_sc_admin(view_func):
     @wraps(view_func)
     def _wrapped(request, *args, **kwargs):
-        if not getattr(request.user, "is_authenticated", False):
-            _sync_session_user(request, get_admin_email())
-        if not getattr(request.user, "is_authenticated", False):
+        admin_email = get_admin_email()
+        user_authenticated = getattr(request.user, "is_authenticated", False)
+        user_email = (getattr(request.user, "email", "") or "").strip().lower()
+        if (not user_authenticated) or (user_email != admin_email):
+            _sync_session_user(request, admin_email)
+            user_authenticated = getattr(request.user, "is_authenticated", False)
+            user_email = (getattr(request.user, "email", "") or "").strip().lower()
+        if not user_authenticated:
             return portal_not_found()
-        email = (getattr(request.user, "email", "") or "").strip().lower()
-        if email != get_admin_email():
+        if user_email != admin_email:
             return portal_not_found()
         response = view_func(request, *args, **kwargs)
         response["X-Robots-Tag"] = X_ROBOTS_TAG_VALUE

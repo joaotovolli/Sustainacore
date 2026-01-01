@@ -32,6 +32,7 @@ def dashboard(request):
     error = ""
     success = ""
     warning = ""
+    diagnostics: list[str] = []
     job_id = None
     if request.method == "POST" and request.POST.get("action") == "submit_job":
         routine_code = (request.POST.get("routine_code") or "").strip()
@@ -63,27 +64,31 @@ def dashboard(request):
                 error = "Could not submit the job. Please try again."
     try:
         recent_jobs = oracle_proc.list_recent_jobs(limit=10)
-    except Exception:
+    except Exception as exc:
         if job_id:
             logger.exception("Admin portal refresh failed after job submit job_id=%s", job_id)
-            warning = "Job created, but page refresh failed. Please reload."
+            warning = "Job created, but jobs refresh failed. Please reload."
+            diagnostics.append(f"jobs_refresh_failed: {exc}")
         else:
             logger.exception("Admin portal failed to load recent jobs")
-            warning = "Some data failed to load. Please reload."
+            warning = "Jobs failed to load. Please reload."
+            diagnostics.append(f"jobs_load_failed: {exc}")
         recent_jobs = []
     try:
         pending_approvals = oracle_proc.list_pending_approvals(limit=50)
-    except Exception:
+    except Exception as exc:
         logger.exception("Admin portal failed to load pending approvals")
         if not warning:
-            warning = "Some data failed to load. Please reload."
+            warning = "Approvals failed to load. Please reload."
+        diagnostics.append(f"approvals_load_failed: {exc}")
         pending_approvals = []
     try:
         recent_decisions = oracle_proc.list_recent_decisions(limit=50)
-    except Exception:
+    except Exception as exc:
         logger.exception("Admin portal failed to load approval history")
         if not warning:
-            warning = "Some data failed to load. Please reload."
+            warning = "Approval history failed to load. Please reload."
+        diagnostics.append(f"decisions_load_failed: {exc}")
         recent_decisions = []
     selected_approval = None
     approval_id = request.GET.get("approval_id")
@@ -101,6 +106,7 @@ def dashboard(request):
             "error": error,
             "success": success,
             "warning": warning,
+            "diagnostics": diagnostics,
             "routine_choices": ROUTINE_CHOICES,
             "recent_jobs": recent_jobs,
             "pending_approvals": pending_approvals,
