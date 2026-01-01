@@ -161,12 +161,24 @@ def insert_job(
         return int(job_id_var.getvalue())
 
 
-def list_recent_jobs(limit: int = 10) -> list[dict[str, object]]:
+def list_recent_jobs(limit: int = 10, include_handed_off: bool = False) -> list[dict[str, object]]:
+    status_filter = "UPPER(TRIM(j.STATUS)) IN ('PENDING','IN_PROGRESS','WAITING_APPROVAL')"
+    archive_filter = "(j.RESULT_TEXT IS NULL OR UPPER(j.RESULT_TEXT) NOT LIKE 'ARCHIVED%')"
+    approval_join = f"""
+        LEFT JOIN {APPROVAL_TABLE} a
+            ON a.SOURCE_JOB_ID = j.JOB_ID
+            AND UPPER(TRIM(a.STATUS)) IN ('PENDING','APPROVED','REJECTED')
+    """
+    approval_filter = "" if include_handed_off else "AND a.APPROVAL_ID IS NULL"
     sql = f"""
         SELECT * FROM (
-            SELECT JOB_ID, ROUTINE_LABEL, STATUS, CREATED_AT, FILE_NAME
-            FROM {JOB_TABLE}
-            ORDER BY CREATED_AT DESC
+            SELECT j.JOB_ID, j.ROUTINE_LABEL, j.STATUS, j.CREATED_AT, j.FILE_NAME
+            FROM {JOB_TABLE} j
+            {approval_join}
+            WHERE {status_filter}
+              AND {archive_filter}
+              {approval_filter}
+            ORDER BY j.CREATED_AT DESC
         ) WHERE ROWNUM <= :limit
     """
     with get_connection() as conn:
@@ -208,6 +220,7 @@ def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
                            {comments_select}
                     FROM {APPROVAL_TABLE}
                     WHERE UPPER(TRIM(STATUS)) = 'PENDING'
+                      AND (DECISION_NOTES IS NULL OR UPPER(DECISION_NOTES) NOT LIKE 'ARCHIVED%')
                     ORDER BY CREATED_AT DESC, APPROVAL_ID DESC
                 ) WHERE ROWNUM <= :limit
             """
@@ -273,6 +286,34 @@ def get_approval(approval_id: int) -> dict[str, object] | None:
         "decided_at": materialized[12],
         "decided_by": materialized[13],
         "decision_notes": materialized[14],
+    }
+
+
+def get_job(job_id: int) -> dict[str, object] | None:
+    sql = f"""
+        SELECT JOB_ID, ROUTINE_CODE, ROUTINE_LABEL, CONTENT_TEXT, INSTRUCTIONS,
+               FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT
+        FROM {JOB_TABLE}
+        WHERE JOB_ID = :job_id
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, {"job_id": job_id})
+            row = cursor.fetchone()
+            if not row:
+                return None
+            materialized = [_materialize_value(value) for value in row]
+    return {
+        "job_id": materialized[0],
+        "routine_code": materialized[1],
+        "routine_label": materialized[2],
+        "content_text": materialized[3],
+        "instructions": materialized[4],
+        "file_name": materialized[5],
+        "file_mime": materialized[6],
+        "file_blob": materialized[7],
+        "status": materialized[8],
+        "created_at": materialized[9],
     }
 
 
@@ -351,6 +392,31 @@ def decide_approval(
             updated = cursor.rowcount
         conn.commit()
     return updated or 0
+
+
+def update_job_superseded(job_id: int, new_job_id: int) -> None:
+    sql = f"""
+        UPDATE {JOB_TABLE}
+        SET STATUS = 'DONE',
+            UPDATED_AT = SYSTIMESTAMP,
+            RESULT_TEXT = CASE
+                WHEN RESULT_TEXT IS NULL THEN :note
+                ELSE RESULT_TEXT || CHR(10) || :note
+            END
+        WHERE JOB_ID = :job_id
+    """
+    note = f"Superseded by job_id={new_job_id}"
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.setinputsizes(note=oracledb.DB_TYPE_CLOB)
+            cursor.execute(
+                sql,
+                {
+                    "note": note,
+                    "job_id": job_id,
+                },
+            )
+        conn.commit()
 
 
 def list_recent_decisions(limit: int = 50) -> list[dict[str, object]]:
