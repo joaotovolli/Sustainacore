@@ -1,6 +1,7 @@
 
 # SustainaCore app.py — SMART v2
 import base64
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -31,6 +32,13 @@ from app.http.compat import (
     normalize_response,
 )
 from app import news_service
+from app.auth.login_codes import (
+    TOKEN_TTL_SECONDS,
+    is_valid_email,
+    normalize_email,
+    request_login_code_status,
+    verify_login_code,
+)
 from app.news_service import create_curated_news_item, fetch_news_items
 from app.retrieval.adapter import ask2_pipeline_first
 
@@ -166,6 +174,7 @@ _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN") or os.getenv("BACKEND_API_TOKEN")
 _API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN")
 _API_AUTH_WARNED = False
+_AUTH_TOKEN_SIGNING_KEY = os.getenv("AUTH_TOKEN_SIGNING_KEY")
 _METRIC_LOGGER = logging.getLogger("app.ask2.metrics")
 if not _METRIC_LOGGER.handlers:
     _metric_handler = logging.StreamHandler()
@@ -247,6 +256,48 @@ def _api_auth_optional_or_unauthorized():
     if _api_auth_guard():
         return None
     return jsonify({"error": "unauthorized"}), 401
+
+
+def _resolve_client_ip() -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.remote_addr or "unknown"
+
+
+def _login_code_hash(value: str) -> str:
+    if not value:
+        return ""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _login_code_redact(value: str) -> str:
+    if not value or "@" not in value:
+        return "***"
+    name, domain = value.split("@", 1)
+    prefix = name[:2] if len(name) >= 2 else name[:1]
+    return f"{prefix}***@{domain}"
+
+
+def _log_login_code_event(
+    correlation_id: str,
+    email: str,
+    step: str,
+    outcome: str,
+    error_class: Optional[str] = None,
+    backend_status: Optional[int] = None,
+) -> None:
+    _API_LOGGER.warning(
+        "[LOGIN_CODE] corr_id=%s email_hash=%s email_redacted=%s step=%s outcome=%s error_class=%s backend_status=%s timestamp=%s",
+        correlation_id,
+        _login_code_hash(email),
+        _login_code_redact(email),
+        step,
+        outcome,
+        error_class or "",
+        backend_status if backend_status is not None else "",
+        datetime.utcnow().isoformat(),
+    )
 
 
 def _format_date(value: Any):
@@ -1404,6 +1455,197 @@ def readyz():
         extra={"rows": len(rows), "scoping": RETRIEVAL_SCOPING_ENABLED},
     )
     return jsonify({"ok": True, "rows": len(rows)}), 200
+
+
+@app.route("/api/auth/request-code", methods=["POST"])
+def api_auth_request_code():
+    correlation_id = uuid.uuid4().hex
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        _log_login_code_event(
+            correlation_id,
+            "",
+            "code_generate",
+            "fail",
+            "bad_request",
+            400,
+        )
+        return jsonify({"ok": False, "error": "bad_request", "message": "Invalid JSON payload."}), 400
+
+    email_raw = payload.get("email")
+    if not isinstance(email_raw, str):
+        _log_login_code_event(
+            correlation_id,
+            "",
+            "code_generate",
+            "fail",
+            "bad_request",
+            400,
+        )
+        return jsonify({"ok": False, "error": "bad_request", "message": "Email is required."}), 400
+
+    email = email_raw.strip()
+    if not is_valid_email(email):
+        _log_login_code_event(
+            correlation_id,
+            email,
+            "code_generate",
+            "fail",
+            "bad_request",
+            400,
+        )
+        return jsonify({"ok": False, "error": "bad_request", "message": "Invalid email format."}), 400
+
+    email_normalized = normalize_email(email)
+    client_ip = _resolve_client_ip()
+    ok, reason = request_login_code_status(email_normalized, client_ip)
+    if ok:
+        _log_login_code_event(correlation_id, email_normalized, "code_generate", "ok")
+        _log_login_code_event(correlation_id, email_normalized, "email_send", "ok")
+        return jsonify({"ok": True})
+
+    if reason == "rate_limited":
+        _log_login_code_event(
+            correlation_id,
+            email_normalized,
+            "code_generate",
+            "fail",
+            "rate_limited",
+            429,
+        )
+        return (
+            jsonify({"ok": False, "error": "rate_limited", "message": "Too many requests."}),
+            429,
+        )
+
+    if reason == "email_failed":
+        _log_login_code_event(correlation_id, email_normalized, "code_generate", "ok")
+        _log_login_code_event(
+            correlation_id,
+            email_normalized,
+            "email_send",
+            "fail",
+            "email_failed",
+            502,
+        )
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "send_failed",
+                    "message": "We couldn't send the email right now. Please try again later.",
+                }
+            ),
+            502,
+        )
+
+    _log_login_code_event(
+        correlation_id,
+        email_normalized,
+        "code_generate",
+        "fail",
+        "backend_failure",
+        500,
+    )
+    return (
+        jsonify(
+            {
+                "ok": False,
+                "error": "backend_failure",
+                "message": "We couldn't send the email right now. Please try again later.",
+            }
+        ),
+        500,
+    )
+
+
+@app.route("/api/auth/verify-code", methods=["POST"])
+def api_auth_verify_code():
+    correlation_id = uuid.uuid4().hex
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        _log_login_code_event(
+            correlation_id,
+            "",
+            "code_verify",
+            "fail",
+            "bad_request",
+            400,
+        )
+        return jsonify({"ok": False, "error": "bad_request", "message": "Invalid JSON payload."}), 400
+
+    email_raw = payload.get("email")
+    code_raw = payload.get("code")
+    if not isinstance(email_raw, str) or code_raw is None:
+        _log_login_code_event(
+            correlation_id,
+            "",
+            "code_verify",
+            "fail",
+            "invalid_code",
+            400,
+        )
+        return jsonify({"ok": False, "error": "invalid_code", "message": "Invalid code."}), 400
+
+    email = email_raw.strip()
+    if not is_valid_email(email):
+        _log_login_code_event(
+            correlation_id,
+            email,
+            "code_verify",
+            "fail",
+            "invalid_code",
+            400,
+        )
+        return jsonify({"ok": False, "error": "invalid_code", "message": "Invalid code."}), 400
+
+    code = str(code_raw).strip()
+    if not code.isdigit() or len(code) != 6:
+        _log_login_code_event(
+            correlation_id,
+            email,
+            "code_verify",
+            "fail",
+            "invalid_code",
+            400,
+        )
+        return jsonify({"ok": False, "error": "invalid_code", "message": "Invalid code."}), 400
+
+    if not _AUTH_TOKEN_SIGNING_KEY:
+        _log_login_code_event(
+            correlation_id,
+            email,
+            "code_verify",
+            "fail",
+            "missing_signing_key",
+            500,
+        )
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "server_error",
+                    "message": "Auth signing is not configured.",
+                }
+            ),
+            500,
+        )
+
+    email_normalized = normalize_email(email)
+    token = verify_login_code(email_normalized, code, _AUTH_TOKEN_SIGNING_KEY)
+    if not token:
+        _log_login_code_event(
+            correlation_id,
+            email_normalized,
+            "code_verify",
+            "fail",
+            "invalid_code",
+            400,
+        )
+        return jsonify({"ok": False, "error": "invalid_code", "message": "Invalid code."}), 400
+
+    _log_login_code_event(correlation_id, email_normalized, "code_verify", "ok", None, 200)
+    return jsonify({"token": token, "expires_in_seconds": TOKEN_TTL_SECONDS})
 
 
 @app.route("/api/health", methods=["GET"])

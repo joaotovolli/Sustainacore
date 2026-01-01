@@ -14,7 +14,7 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     return value
 
 
-def _send_email_message(mail_to: str, subject: str, body: str, mail_from: Optional[str]) -> None:
+def _send_email_message(mail_to: str, subject: str, body: str, mail_from: Optional[str]) -> bool:
     host = _env("SMTP_HOST", "smtp.ionos.co.uk")
     port_raw = _env("SMTP_PORT", "587")
     try:
@@ -27,7 +27,7 @@ def _send_email_message(mail_to: str, subject: str, body: str, mail_from: Option
     resolved_from = mail_from or _env("MAIL_FROM", user)
 
     if not host or not user or not password or not mail_to or not resolved_from:
-        return
+        return False
 
     msg = EmailMessage()
     msg["From"] = resolved_from
@@ -42,26 +42,28 @@ def _send_email_message(mail_to: str, subject: str, body: str, mail_from: Option
             client.ehlo()
             client.login(user, password)
             client.send_message(msg)
+            return True
     except Exception:
         # Swallow to avoid cascading failures; logging handled by caller.
-        return
+        return False
+    return False
 
 
-def send_email(subject: str, body: str) -> None:
+def send_email(subject: str, body: str) -> bool:
     """Send an email using SMTP STARTTLS. No-op if required env vars are missing."""
 
     mail_to = _env("MAIL_TO")
     if not mail_to:
-        return
-    _send_email_message(mail_to, subject, body, mail_from=None)
+        return False
+    return _send_email_message(mail_to, subject, body, mail_from=None)
 
 
-def send_email_to(mail_to: str, subject: str, body: str, *, mail_from: Optional[str] = None) -> None:
+def send_email_to(mail_to: str, subject: str, body: str, *, mail_from: Optional[str] = None) -> bool:
     """Send an email to the requested recipient using the configured SMTP settings."""
 
     if not mail_to:
-        return
-    _send_email_message(mail_to, subject, body, mail_from=mail_from)
+        return False
+    return _send_email_message(mail_to, subject, body, mail_from=mail_from)
 
 
 __all__ = ["send_email", "send_email_to"]

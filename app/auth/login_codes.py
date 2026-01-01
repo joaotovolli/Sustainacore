@@ -4,6 +4,8 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
+import os
 import re
 import secrets
 from datetime import datetime, timezone
@@ -21,6 +23,8 @@ EMAIL_RATE_LIMIT_MAX = 3
 IP_RATE_LIMIT_MAX = 10
 
 MAIL_FROM_LOGIN = "info@sustainacore.org"
+
+_LOGGER = logging.getLogger("app.auth")
 
 
 def normalize_email(value: str) -> str:
@@ -86,7 +90,23 @@ def _is_expired(expires_at: Optional[object]) -> bool:
     return expires < datetime.now(timezone.utc)
 
 
-def send_login_email(to_email: str, code: str) -> None:
+def _mask_code(code: str) -> str:
+    if not code:
+        return "***"
+    if len(code) <= 2:
+        return "*" * len(code)
+    return f"{'*' * (len(code) - 2)}{code[-2:]}"
+
+
+def _redact_email(value: str) -> str:
+    if not value or "@" not in value:
+        return "***"
+    name, domain = value.split("@", 1)
+    prefix = name[:2] if len(name) >= 2 else name[:1]
+    return f"{prefix}***@{domain}"
+
+
+def send_login_email(to_email: str, code: str) -> bool:
     subject = "Your login code"
     body = "\n".join(
         [
@@ -95,10 +115,18 @@ def send_login_email(to_email: str, code: str) -> None:
             "If you didn't request this, ignore",
         ]
     )
-    send_email_to(to_email, subject, body, mail_from=MAIL_FROM_LOGIN)
+    delivery_mode = os.getenv("EMAIL_DELIVERY_MODE", "").strip().lower()
+    if delivery_mode == "log":
+        _LOGGER.warning(
+            "login_code_delivery=log email=%s code_masked=%s",
+            _redact_email(to_email),
+            _mask_code(code),
+        )
+        return True
+    return send_email_to(to_email, subject, body, mail_from=MAIL_FROM_LOGIN)
 
 
-def request_login_code(email_normalized: str, request_ip: str) -> bool:
+def request_login_code_status(email_normalized: str, request_ip: str) -> tuple[bool, Optional[str]]:
     request_ip = request_ip or "unknown"
     code = generate_code()
     salt = generate_salt()
@@ -129,7 +157,7 @@ def request_login_code(email_normalized: str, request_ip: str) -> bool:
             cur.execute(sql_count_ip, {"request_ip": request_ip})
             ip_count = int((cur.fetchone() or [0])[0] or 0)
             if email_count >= EMAIL_RATE_LIMIT_MAX or ip_count >= IP_RATE_LIMIT_MAX:
-                return False
+                return False, "rate_limited"
             cur.execute(
                 sql_insert,
                 {
@@ -141,10 +169,17 @@ def request_login_code(email_normalized: str, request_ip: str) -> bool:
             )
             conn.commit()
     except Exception:
-        return False
+        return False, "db_error"
 
-    send_login_email(email_normalized, code)
-    return True
+    sent = send_login_email(email_normalized, code)
+    if not sent:
+        return False, "email_failed"
+    return True, None
+
+
+def request_login_code(email_normalized: str, request_ip: str) -> bool:
+    ok, _reason = request_login_code_status(email_normalized, request_ip)
+    return ok
 
 
 def verify_login_code(email_normalized: str, code: str, signing_key: str) -> Optional[str]:
@@ -201,5 +236,6 @@ __all__ = [
     "normalize_email",
     "is_valid_email",
     "request_login_code",
+    "request_login_code_status",
     "verify_login_code",
 ]
