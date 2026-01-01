@@ -229,3 +229,14 @@ class AdminPortalAccessTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertEqual(response.status_code, 200)
         self.assertIn("already decided or not found", content)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval", side_effect=RuntimeError("boom"))
+    def test_reject_exception_shows_banner(self, decide_mock):
+        self.client.force_login(self.authorized_user)
+        reject_url = reverse(self.reject_url_name, args=[1])
+        response = self.client.post(reject_url, {"decision_notes": "no"}, follow=True)
+        content = response.content.decode("utf-8")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Rejection failed", content)
+        self.assertIn("DECIDE_REJECT_ORACLE", content)

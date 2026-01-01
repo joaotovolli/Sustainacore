@@ -6,7 +6,6 @@ from django.contrib import messages
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_POST
 
 from sc_admin_portal.auth import get_admin_email, portal_not_found, require_sc_admin
 from sc_admin_portal import oracle_proc
@@ -119,8 +118,9 @@ def dashboard(request):
 
 @never_cache
 @require_sc_admin
-@require_POST
 def approve_approval(request, approval_id: int):
+    if request.method != "POST":
+        return portal_not_found()
     decision_notes = (request.POST.get("decision_notes") or "").strip() or None
     decided_by = (request.user.email or get_admin_email())
     try:
@@ -137,7 +137,7 @@ def approve_approval(request, approval_id: int):
             approval_id,
             schema,
         )
-        messages.error(request, "Approval failed. Please retry or check logs.")
+        messages.error(request, "Approval failed (code: DECIDE_APPROVE_ORACLE). Check logs.")
         return redirect("sc_admin_portal:dashboard")
     if updated == 0:
         messages.warning(request, "Approval already decided or not found.")
@@ -148,8 +148,9 @@ def approve_approval(request, approval_id: int):
 
 @never_cache
 @require_sc_admin
-@require_POST
 def reject_approval(request, approval_id: int):
+    if request.method != "POST":
+        return portal_not_found()
     decision_notes = (request.POST.get("decision_notes") or "").strip() or None
     decided_by = (request.user.email or get_admin_email())
     try:
@@ -166,7 +167,7 @@ def reject_approval(request, approval_id: int):
             approval_id,
             schema,
         )
-        messages.error(request, "Rejection failed. Please retry or check logs.")
+        messages.error(request, "Rejection failed (code: DECIDE_REJECT_ORACLE). Check logs.")
         return redirect("sc_admin_portal:dashboard")
     if updated == 0:
         messages.warning(request, "Approval already decided or not found.")
