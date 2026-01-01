@@ -26,6 +26,17 @@ def _routine_label(code: str) -> str | None:
     return None
 
 
+def _routine_code_from_request_type(request_type: str | None) -> str:
+    mapping = {
+        "PUBLISH_NEWS": "NEWS_PUBLISH",
+        "ADD_VECTORS": "RAG_INGEST",
+        "APPLY_REBALANCE": "INDEX_REBALANCE",
+    }
+    if not request_type:
+        return "OTHER"
+    return mapping.get(request_type.strip().upper(), "OTHER")
+
+
 @never_cache
 @require_sc_admin
 def dashboard(request):
@@ -62,8 +73,9 @@ def dashboard(request):
             except Exception:
                 logger.exception("Admin portal job submit failed for routine=%s", routine_code)
                 error = "Could not submit the job. Please try again."
+    show_all_jobs = request.GET.get("show_all_jobs") == "1"
     try:
-        recent_jobs = oracle_proc.list_recent_jobs(limit=10)
+        recent_jobs = oracle_proc.list_recent_jobs(limit=10, include_handed_off=show_all_jobs)
     except Exception as exc:
         if job_id:
             logger.exception("Admin portal refresh failed after job submit job_id=%s", job_id)
@@ -109,6 +121,7 @@ def dashboard(request):
             "diagnostics": diagnostics,
             "routine_choices": ROUTINE_CHOICES,
             "recent_jobs": recent_jobs,
+            "show_all_jobs": show_all_jobs,
             "pending_approvals": pending_approvals,
             "recent_decisions": recent_decisions,
             "selected_approval": selected_approval,
@@ -173,6 +186,63 @@ def reject_approval(request, approval_id: int):
         messages.warning(request, "Approval already decided or not found.")
     else:
         messages.success(request, "Rejection recorded.")
+    return redirect("sc_admin_portal:dashboard")
+
+
+@never_cache
+@require_sc_admin
+def resubmit_approval(request, approval_id: int):
+    if request.method != "POST":
+        return portal_not_found()
+    approval = oracle_proc.get_approval(approval_id)
+    if not approval:
+        return portal_not_found()
+    job = None
+    if approval.get("source_job_id"):
+        job = oracle_proc.get_job(int(approval["source_job_id"]))
+    new_instructions = (request.POST.get("new_instructions") or "").strip()
+    if not new_instructions:
+        new_instructions = (job or {}).get("instructions") or approval.get("details") or approval.get("proposed_text") or ""
+    if not new_instructions:
+        messages.error(request, "Instructions are required to resubmit.")
+        return redirect("sc_admin_portal:dashboard")
+    routine_code = (job or {}).get("routine_code") or _routine_code_from_request_type(approval.get("request_type"))
+    routine_label = (job or {}).get("routine_label") or (approval.get("title") or "Gemini approval")
+    content_text = (job or {}).get("content_text") or approval.get("proposed_text")
+    file_name = (job or {}).get("file_name") or approval.get("file_name")
+    file_mime = (job or {}).get("file_mime") or approval.get("file_mime")
+    file_blob = (job or {}).get("file_blob") or approval.get("file_blob")
+    try:
+        new_job_id = oracle_proc.insert_job(
+            routine_code=routine_code or "OTHER",
+            routine_label=routine_label,
+            content_text=content_text,
+            instructions=new_instructions,
+            file_name=file_name,
+            file_mime=file_mime,
+            file_blob=file_blob,
+        )
+        note = f"Superseded by new job_id={new_job_id} from approval_id={approval_id}"
+        updated = oracle_proc.decide_approval(
+            approval_id=approval_id,
+            status="REJECTED",
+            decided_by=(request.user.email or get_admin_email()),
+            decision_notes=note,
+        )
+        if job and job.get("job_id"):
+            oracle_proc.update_job_superseded(job["job_id"], new_job_id)
+        if updated == 0:
+            messages.warning(request, "Approval already decided or not found.")
+        else:
+            messages.success(request, f"Resubmitted as job {new_job_id}.")
+    except Exception:
+        schema = oracle_proc.get_current_schema() or "unknown"
+        logger.exception(
+            "Admin portal resubmit failed approval_id=%s schema=%s",
+            approval_id,
+            schema,
+        )
+        messages.error(request, "Resubmit failed (code: RESUBMIT_APPROVAL). Check logs.")
     return redirect("sc_admin_portal:dashboard")
 
 

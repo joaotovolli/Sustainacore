@@ -50,7 +50,7 @@ class AdminPortalAccessTests(TestCase):
         self.client.force_login(self.authorized_user)
         response = self.client.get(self.portal_url)
         self.assertEqual(response.status_code, 200)
-        jobs_mock.assert_called_once()
+        jobs_mock.assert_called_once_with(limit=10, include_handed_off=False)
         approvals_mock.assert_called_once()
         decisions_mock.assert_called_once()
 
@@ -67,9 +67,19 @@ class AdminPortalAccessTests(TestCase):
         self.client.cookies[COOKIE_NAME] = "token"
         response = self.client.get(self.portal_url)
         self.assertEqual(response.status_code, 200)
-        jobs_mock.assert_called_once()
+        jobs_mock.assert_called_once_with(limit=10, include_handed_off=False)
         approvals_mock.assert_called_once()
         decisions_mock.assert_called_once()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    def test_show_all_jobs_flag(self, decisions_mock, approvals_mock, jobs_mock):
+        self.client.force_login(self.authorized_user)
+        response = self.client.get(f"{self.portal_url}?show_all_jobs=1")
+        self.assertEqual(response.status_code, 200)
+        jobs_mock.assert_called_once_with(limit=10, include_handed_off=True)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.insert_job")
@@ -145,6 +155,7 @@ class AdminPortalAccessTests(TestCase):
         self.assertIn(reverse("sc_admin_portal:approval_file", args=[7]), content)
         self.assertIn(reverse("sc_admin_portal:approve", args=[7]), content)
         self.assertIn(reverse("sc_admin_portal:reject", args=[7]), content)
+        self.assertIn(reverse("sc_admin_portal:resubmit", args=[7]), content)
 
     def test_materialize_value_reads_lob(self):
         class FakeLob:
@@ -240,3 +251,52 @@ class AdminPortalAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Rejection failed", content)
         self.assertIn("DECIDE_REJECT_ORACLE", content)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.update_job_superseded")
+    @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval", return_value=1)
+    @mock.patch("sc_admin_portal.views.oracle_proc.insert_job", return_value=321)
+    @mock.patch("sc_admin_portal.views.oracle_proc.get_job")
+    @mock.patch("sc_admin_portal.views.oracle_proc.get_approval")
+    def test_resubmit_creates_job_and_rejects_approval(
+        self,
+        approval_mock,
+        job_mock,
+        insert_mock,
+        decide_mock,
+        supersede_mock,
+    ):
+        self.client.force_login(self.authorized_user)
+        approval_mock.return_value = {
+            "approval_id": 12,
+            "source_job_id": 55,
+            "request_type": "ADD_VECTORS",
+            "title": "Approval",
+            "details": "Old instructions",
+            "proposed_text": "Body",
+            "file_name": "note.txt",
+            "file_mime": "text/plain",
+            "file_blob": b"file",
+        }
+        job_mock.return_value = {
+            "job_id": 55,
+            "routine_code": "RAG_INGEST",
+            "routine_label": "RAG ingest",
+            "content_text": "Content",
+            "instructions": "Old instructions",
+            "file_name": "note.txt",
+            "file_mime": "text/plain",
+            "file_blob": b"file",
+        }
+        resubmit_url = reverse("sc_admin_portal:resubmit", args=[12])
+        response = self.client.post(resubmit_url, {"new_instructions": "New instructions"})
+        self.assertEqual(response.status_code, 302)
+        insert_mock.assert_called_once()
+        decide_mock.assert_called_once()
+        supersede_mock.assert_called_once_with(55, 321)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    def test_resubmit_requires_admin(self):
+        resubmit_url = reverse("sc_admin_portal:resubmit", args=[12])
+        response = self.client.post(resubmit_url, {"new_instructions": "New instructions"})
+        self.assertEqual(response.status_code, 404)
