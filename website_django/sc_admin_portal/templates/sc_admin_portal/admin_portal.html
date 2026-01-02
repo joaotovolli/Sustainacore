@@ -94,6 +94,7 @@
         {% if diagnostics %}
         <p class="muted">Diagnostics: {{ diagnostics|join:" | " }}</p>
         {% endif %}
+        <p class="muted">Running commit: {{ running_commit }}</p>
 
         <div class="admin-tabs" role="tablist" aria-label="Admin portal tabs" data-default-tab="{{ default_tab }}">
             <button class="admin-tab-button" type="button" role="tab" data-tab="create-research" aria-controls="tab-create-research">Create Research</button>

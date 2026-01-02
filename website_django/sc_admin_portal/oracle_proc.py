@@ -146,6 +146,10 @@ def insert_job(
     with get_connection() as conn:
         with conn.cursor() as cursor:
             job_id_var = cursor.var(oracledb.NUMBER)
+            cursor.setinputsizes(
+                content_text=oracledb.DB_TYPE_CLOB,
+                instructions=oracledb.DB_TYPE_CLOB,
+            )
             cursor.execute(
                 sql,
                 {
@@ -376,8 +380,8 @@ def decide_approval(
             DECIDED_BY = :decided_by,
             DECISION_NOTES = CASE
                 WHEN :decision_notes IS NULL THEN DECISION_NOTES
-                WHEN DECISION_NOTES IS NULL THEN TO_CLOB(:decision_notes)
-                ELSE DECISION_NOTES || CHR(10) || TO_CLOB(:decision_notes)
+                WHEN DECISION_NOTES IS NULL THEN :decision_notes
+                ELSE DECISION_NOTES || CHR(10) || :decision_notes
             END
         WHERE APPROVAL_ID = :approval_id
           AND UPPER(TRIM(STATUS)) = 'PENDING'
@@ -507,6 +511,7 @@ def create_research_request(
     with get_connection() as conn:
         with conn.cursor() as cursor:
             request_id_var = cursor.var(oracledb.NUMBER)
+            cursor.setinputsizes(editor_notes=oracledb.DB_TYPE_CLOB)
             cursor.execute(
                 sql,
                 {

@@ -1,4 +1,5 @@
 import os
+import contextlib
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -613,3 +614,39 @@ class AdminPortalAccessTests(TestCase):
         resubmit_url = reverse("sc_admin_portal:resubmit", args=[12])
         response = self.client.post(resubmit_url, {"new_instructions": "New instructions"})
         self.assertEqual(response.status_code, 404)
+
+    def test_decide_approval_sets_clob_inputsize(self):
+        calls = {}
+
+        class DummyCursor:
+            rowcount = 1
+
+            def setinputsizes(self, **kwargs):
+                calls.update(kwargs)
+
+            def execute(self, sql, params):
+                return None
+
+        class DummyConn:
+            def cursor(self):
+                @contextlib.contextmanager
+                def _cursor():
+                    yield DummyCursor()
+
+                return _cursor()
+
+            def commit(self):
+                return None
+
+        @contextlib.contextmanager
+        def fake_conn():
+            yield DummyConn()
+
+        with mock.patch("sc_admin_portal.oracle_proc.get_connection", fake_conn):
+            oracle_proc.decide_approval(
+                approval_id=1,
+                status="REJECTED",
+                decided_by="admin@example.com",
+                decision_notes="note",
+            )
+        self.assertEqual(calls.get("decision_notes"), oracle_proc.oracledb.DB_TYPE_CLOB)
