@@ -376,8 +376,8 @@ def decide_approval(
             DECIDED_BY = :decided_by,
             DECISION_NOTES = CASE
                 WHEN :decision_notes IS NULL THEN DECISION_NOTES
-                WHEN DECISION_NOTES IS NULL THEN :decision_notes
-                ELSE DECISION_NOTES || CHR(10) || :decision_notes
+                WHEN DECISION_NOTES IS NULL THEN TO_CLOB(:decision_notes)
+                ELSE DECISION_NOTES || CHR(10) || TO_CLOB(:decision_notes)
             END
         WHERE APPROVAL_ID = :approval_id
           AND UPPER(TRIM(STATUS)) = 'PENDING'

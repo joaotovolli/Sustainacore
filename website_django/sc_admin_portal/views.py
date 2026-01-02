@@ -284,13 +284,20 @@ def reject_approval(request, approval_id: int):
 @require_sc_admin
 def resubmit_approval(request, approval_id: int):
     if request.method != "POST":
-        return portal_not_found()
+        messages.warning(request, "Resubmit requires a POST. No changes were made.")
+        return redirect("sc_admin_portal:dashboard")
     approval = oracle_proc.get_approval(approval_id)
     if not approval:
         return portal_not_found()
     request_type = (approval.get("request_type") or "").strip().upper()
     if request_type.startswith("RESEARCH"):
         editor_notes = (request.POST.get("new_instructions") or "").strip() or None
+        logger.info(
+            "Admin portal resubmit action=resubmit approval_id=%s request_type=%s method=%s",
+            approval_id,
+            request_type,
+            request.method,
+        )
         try:
             decided_by = _resolve_decided_by(request)
             report_type = _research_request_type(approval.get("details"))
@@ -310,6 +317,12 @@ def resubmit_approval(request, approval_id: int):
                 decided_by=decided_by,
                 decision_notes=note,
             )
+            logger.info(
+                "Admin portal resubmit action=created approval_id=%s request_type=%s request_id=%s",
+                approval_id,
+                request_type,
+                request_id,
+            )
             messages.success(
                 request,
                 f"Resubmitted: created research request {request_id}. A new draft will appear shortly.",
@@ -319,8 +332,9 @@ def resubmit_approval(request, approval_id: int):
         except Exception:
             schema = oracle_proc.get_current_schema() or "unknown"
             logger.exception(
-                "Admin portal research resubmit failed approval_id=%s schema=%s",
+                "Admin portal resubmit failed action=resubmit approval_id=%s request_type=%s schema=%s",
                 approval_id,
+                request_type,
                 schema,
             )
             messages.error(request, "Resubmit failed (code: RESUBMIT_RESEARCH). Check logs.")
