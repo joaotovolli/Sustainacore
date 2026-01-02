@@ -95,6 +95,13 @@
         <p class="muted">Diagnostics: {{ diagnostics|join:" | " }}</p>
         {% endif %}
         <p class="muted">Running commit: {{ running_commit }}</p>
+        {% if pending_count != None %}
+        <p class="muted">
+            Pending approvals: RESEARCH_POST={{ pending_type_counts.RESEARCH_POST|default:"0" }},
+            ADD_VECTORS={{ pending_type_counts.ADD_VECTORS|default:"0" }},
+            newest={{ newest_pending_id|default:"n/a" }}
+        </p>
+        {% endif %}
 
         <div class="admin-tabs" role="tablist" aria-label="Admin portal tabs" data-default-tab="{{ default_tab }}">
             <button class="admin-tab-button" type="button" role="tab" data-tab="create-research" aria-controls="tab-create-research">Create Research</button>

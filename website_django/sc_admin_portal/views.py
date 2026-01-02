@@ -191,6 +191,11 @@ def dashboard(request):
     try:
         pending_approvals = oracle_proc.list_pending_approvals(limit=50)
         pending_count = len(pending_approvals)
+        pending_type_counts = {}
+        for approval in pending_approvals:
+            request_type = (approval.get("request_type") or "UNKNOWN").strip()
+            pending_type_counts[request_type] = pending_type_counts.get(request_type, 0) + 1
+        newest_pending_id = pending_approvals[0]["approval_id"] if pending_approvals else None
     except Exception as exc:
         logger.exception("Admin portal failed to load pending approvals")
         if not warning:
@@ -198,6 +203,8 @@ def dashboard(request):
         diagnostics.append(f"approvals_load_failed: {exc}")
         pending_approvals = []
         pending_count = None
+        pending_type_counts = {}
+        newest_pending_id = None
     try:
         recent_decisions = oracle_proc.list_recent_decisions(limit=50)
     except Exception as exc:
@@ -238,6 +245,8 @@ def dashboard(request):
             "show_all_jobs": show_all_jobs,
             "pending_approvals": pending_approvals,
             "pending_count": pending_count,
+            "pending_type_counts": pending_type_counts,
+            "newest_pending_id": newest_pending_id,
             "recent_decisions": recent_decisions,
             "recent_research_requests": recent_research_requests,
             "default_tab": default_tab,
