@@ -22,6 +22,12 @@ def _materialize_value(value):
     return value
 
 
+def _normalize_oracle_scalar(value):
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value
+
+
 def _table_exists(cursor: oracledb.Cursor, table_name: str) -> bool:
     cursor.execute(
         "SELECT COUNT(1) FROM user_tables WHERE table_name = :name",
@@ -165,7 +171,7 @@ def insert_job(
                 },
             )
         conn.commit()
-        return int(job_id_var.getvalue())
+        return int(_normalize_oracle_scalar(job_id_var.getvalue()))
 
 
 def list_recent_jobs(limit: int = 10, include_handed_off: bool = False) -> list[dict[str, object]]:
@@ -538,7 +544,7 @@ def create_research_request(
                 },
             )
         conn.commit()
-        return int(request_id_var.getvalue())
+        return int(_normalize_oracle_scalar(request_id_var.getvalue()))
 
 
 def list_recent_research_requests(limit: int = 10) -> list[dict[str, object]]:

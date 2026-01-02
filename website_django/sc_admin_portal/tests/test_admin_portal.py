@@ -226,6 +226,10 @@ class AdminPortalAccessTests(TestCase):
         self.assertEqual(oracle_proc._materialize_value(lob), "payload")
         self.assertEqual(lob.read_count, 1)
 
+    def test_normalize_oracle_scalar_handles_list(self):
+        self.assertEqual(oracle_proc._normalize_oracle_scalar([123]), 123)
+        self.assertIsNone(oracle_proc._normalize_oracle_scalar([]))
+
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.get_approval_file")
     def test_approval_file_requires_admin(self, get_file_mock):
