@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+from datetime import datetime
 
 import oracledb
 
@@ -9,6 +11,7 @@ from core.oracle_db import get_connection
 
 JOB_TABLE = "PROC_GEMINI_JOBS"
 APPROVAL_TABLE = "PROC_GEMINI_APPROVALS"
+RESEARCH_REQUEST_TABLE = "PROC_RESEARCH_REQUESTS"
 
 logger = logging.getLogger(__name__)
 
@@ -459,6 +462,94 @@ def list_recent_decisions(limit: int = 50) -> list[dict[str, object]]:
                 "decided_at": row[4],
                 "decided_by": row[5],
                 "applied": applied,
+            }
+        )
+    return results
+
+
+def create_research_request(
+    *,
+    request_type: str,
+    company_ticker: str | None,
+    window_start: datetime | None,
+    window_end: datetime | None,
+    editor_notes: str | None,
+    created_by: str,
+) -> int:
+    sql = f"""
+        INSERT INTO {RESEARCH_REQUEST_TABLE} (
+            STATUS,
+            REQUEST_TYPE,
+            COMPANY_TICKER,
+            WINDOW_START,
+            WINDOW_END,
+            EDITOR_NOTES,
+            CREATED_BY,
+            CREATED_AT,
+            UPDATED_AT
+        )
+        VALUES (
+            :status,
+            :request_type,
+            :company_ticker,
+            :window_start,
+            :window_end,
+            :editor_notes,
+            :created_by,
+            SYSTIMESTAMP,
+            SYSTIMESTAMP
+        )
+        RETURNING REQUEST_ID INTO :request_id
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            request_id_var = cursor.var(oracledb.NUMBER)
+            cursor.execute(
+                sql,
+                {
+                    "status": "PENDING",
+                    "request_type": request_type,
+                    "company_ticker": company_ticker,
+                    "window_start": window_start,
+                    "window_end": window_end,
+                    "editor_notes": editor_notes,
+                    "created_by": created_by,
+                    "request_id": request_id_var,
+                },
+            )
+        conn.commit()
+        return int(request_id_var.getvalue())
+
+
+def list_recent_research_requests(limit: int = 10) -> list[dict[str, object]]:
+    sql = f"""
+        SELECT * FROM (
+            SELECT REQUEST_ID,
+                   REQUEST_TYPE,
+                   STATUS,
+                   CREATED_AT,
+                   DBMS_LOB.SUBSTR(RESULT_TEXT, 500, 1) AS RESULT_PREVIEW
+            FROM {RESEARCH_REQUEST_TABLE}
+            ORDER BY CREATED_AT DESC
+        ) WHERE ROWNUM <= :limit
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, {"limit": limit})
+            rows = cursor.fetchall()
+    results = []
+    for row in rows:
+        result_preview = row[4] or ""
+        match = re.search(r"Approval created:\s*(\d+)", result_preview, re.IGNORECASE)
+        approval_id = int(match.group(1)) if match else None
+        results.append(
+            {
+                "request_id": row[0],
+                "request_type": row[1],
+                "status": row[2],
+                "created_at": row[3],
+                "result_preview": result_preview,
+                "approval_id": approval_id,
             }
         )
     return results

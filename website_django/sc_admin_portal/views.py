@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time
 
 from django.contrib import messages
 from django.http import HttpResponse
@@ -17,6 +18,14 @@ ROUTINE_CHOICES = [
     ("NEWS_PUBLISH", "Text to publish news on Sustainacore.org"),
     ("RAG_INGEST", "Text to be transformed and added to RAG Vectors"),
     ("INDEX_REBALANCE", "Data to be added to Index Rebalance"),
+]
+
+RESEARCH_REQUEST_CHOICES = [
+    ("REBALANCE", "REBALANCE"),
+    ("WEEKLY", "WEEKLY"),
+    ("PERIOD_CLOSE", "PERIOD_CLOSE"),
+    ("ANOMALY", "ANOMALY"),
+    ("COMPANY_SPOTLIGHT", "COMPANY_SPOTLIGHT"),
 ]
 
 
@@ -48,6 +57,18 @@ def _resolve_decided_by(request) -> str:
     return decided_by
 
 
+def _parse_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.time() == time.min:
+        return parsed
+    return parsed
+
+
 @never_cache
 @require_sc_admin
 def dashboard(request):
@@ -56,6 +77,9 @@ def dashboard(request):
     warning = ""
     diagnostics: list[str] = []
     job_id = None
+    created_request_id = request.GET.get("created_request_id")
+    if created_request_id:
+        success = f"Research request created: {created_request_id}."
     if request.method == "POST" and request.POST.get("action") == "submit_job":
         routine_code = (request.POST.get("routine_code") or "").strip()
         routine_label = _routine_label(routine_code)
@@ -84,6 +108,29 @@ def dashboard(request):
             except Exception:
                 logger.exception("Admin portal job submit failed for routine=%s", routine_code)
                 error = "Could not submit the job. Please try again."
+    if request.method == "POST" and request.POST.get("action") == "create_research_request":
+        request_type = (request.POST.get("request_type") or "").strip().upper()
+        company_ticker = (request.POST.get("company_ticker") or "").strip() or None
+        window_start = _parse_date(request.POST.get("window_start"))
+        window_end = _parse_date(request.POST.get("window_end"))
+        editor_notes = (request.POST.get("editor_notes") or "").strip() or None
+        if request_type not in {choice[0] for choice in RESEARCH_REQUEST_CHOICES}:
+            error = "Please select a valid research request type."
+        else:
+            try:
+                created_by = _resolve_decided_by(request)
+                request_id = oracle_proc.create_research_request(
+                    request_type=request_type,
+                    company_ticker=company_ticker,
+                    window_start=window_start,
+                    window_end=window_end,
+                    editor_notes=editor_notes,
+                    created_by=created_by,
+                )
+                return redirect(f"{request.path}?created_request_id={request_id}")
+            except Exception:
+                logger.exception("Admin portal research request create failed type=%s", request_type)
+                error = "Could not create research request. Please try again."
     show_all_jobs = request.GET.get("show_all_jobs") == "1"
     try:
         recent_jobs = oracle_proc.list_recent_jobs(limit=10, include_handed_off=show_all_jobs)
@@ -113,6 +160,14 @@ def dashboard(request):
             warning = "Approval history failed to load. Please reload."
         diagnostics.append(f"decisions_load_failed: {exc}")
         recent_decisions = []
+    try:
+        recent_research_requests = oracle_proc.list_recent_research_requests(limit=10)
+    except Exception as exc:
+        logger.exception("Admin portal failed to load research requests")
+        if not warning:
+            warning = "Research requests failed to load. Please reload."
+        diagnostics.append(f"research_requests_load_failed: {exc}")
+        recent_research_requests = []
     selected_approval = None
     approval_id = request.GET.get("approval_id")
     if approval_id:
@@ -131,10 +186,12 @@ def dashboard(request):
             "warning": warning,
             "diagnostics": diagnostics,
             "routine_choices": ROUTINE_CHOICES,
+            "research_request_choices": RESEARCH_REQUEST_CHOICES,
             "recent_jobs": recent_jobs,
             "show_all_jobs": show_all_jobs,
             "pending_approvals": pending_approvals,
             "recent_decisions": recent_decisions,
+            "recent_research_requests": recent_research_requests,
             "selected_approval": selected_approval,
         },
     )
