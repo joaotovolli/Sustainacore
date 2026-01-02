@@ -195,6 +195,23 @@ class AdminPortalAccessTests(TestCase):
         self.assertIn("RESEARCH_POST", content)
         self.assertIn("Preview", content)
 
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
+    def test_approvals_count_in_tab_label(self, research_mock, decisions_mock, jobs_mock):
+        self.client.force_login(self.authorized_user)
+        with mock.patch(
+            "sc_admin_portal.views.oracle_proc.list_pending_approvals",
+            return_value=[
+                {"approval_id": 1},
+                {"approval_id": 2},
+            ],
+        ):
+            response = self.client.get(self.portal_url)
+        content = response.content.decode("utf-8")
+        self.assertIn("Approvals inbox (2)", content)
+
     def test_materialize_value_reads_lob(self):
         class FakeLob:
             def __init__(self):

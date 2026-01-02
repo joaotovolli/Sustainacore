@@ -41,6 +41,30 @@
     .admin-resubmit .cancel-link {
         margin-left: 0.75rem;
     }
+    .admin-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin: 1.5rem 0;
+    }
+    .admin-tab-button {
+        border: 1px solid #d1d5db;
+        border-radius: 999px;
+        padding: 0.4rem 0.9rem;
+        background: #ffffff;
+        cursor: pointer;
+    }
+    .admin-tab-button[aria-selected="true"] {
+        background: #111827;
+        border-color: #111827;
+        color: #ffffff;
+    }
+    .admin-tab-panel {
+        display: none;
+    }
+    .admin-tab-panel.is-active {
+        display: block;
+    }
 </style>
 {% endblock %}
 
@@ -71,310 +95,371 @@
         <p class="muted">Diagnostics: {{ diagnostics|join:" | " }}</p>
         {% endif %}
 
-        <div class="card">
-            <h2>Generate research now</h2>
-            <form method="post" class="form">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="create_research_request" />
-                <div class="form__grid">
-                    <label>
-                        Request type
-                        <select name="request_type" required>
-                            <option value="">Select type</option>
-                            {% for code, label in research_request_choices %}
-                            <option value="{{ code }}">{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </label>
-                    <label>
-                        Company ticker
-                        <input type="text" name="company_ticker" placeholder="Optional (COMPANY_SPOTLIGHT only)" />
-                    </label>
-                    <label>
-                        Window start
-                        <input type="date" name="window_start" />
-                    </label>
-                    <label>
-                        Window end
-                        <input type="date" name="window_end" />
-                    </label>
-                    <label>
-                        Editor notes
-                        <textarea name="editor_notes" rows="4" placeholder="Optional notes for the generator"></textarea>
-                    </label>
-                </div>
-                <div class="form__actions">
-                    <button class="btn" type="submit">Create research request</button>
-                </div>
-            </form>
-
-            <h3>Recent manual requests</h3>
-            {% if recent_research_requests %}
-            <div class="table-wrap">
-                <table class="table admin-table">
-                    <thead>
-                        <tr class="table__row table__row--head">
-                            <th class="table__cell text-left">Request ID</th>
-                            <th class="table__cell text-left">Type</th>
-                            <th class="table__cell text-left">Status</th>
-                            <th class="table__cell text-left">Created</th>
-                            <th class="table__cell text-left">Result</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for request in recent_research_requests %}
-                        <tr class="table__row">
-                            <td class="table__cell">{{ request.request_id }}</td>
-                            <td class="table__cell">{{ request.request_type }}</td>
-                            <td class="table__cell">{{ request.status }}</td>
-                            <td class="table__cell">{{ request.created_at|date:"Y-m-d H:i" }} UTC</td>
-                            <td class="table__cell">
-                                <div>{{ request.result_preview|default:"(no result yet)"|truncatechars:160 }}</div>
-                                {% if request.approval_id %}
-                                <div class="muted">Approval: {{ request.approval_id }}</div>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <p class="muted">No manual research requests yet.</p>
-            {% endif %}
+        <div class="admin-tabs" role="tablist" aria-label="Admin portal tabs" data-default-tab="{{ default_tab }}">
+            <button class="admin-tab-button" type="button" role="tab" data-tab="create-research" aria-controls="tab-create-research">Create Research</button>
+            <button class="admin-tab-button" type="button" role="tab" data-tab="create-ai-routine" aria-controls="tab-create-ai-routine">Create AI Routine</button>
+            <button class="admin-tab-button" type="button" role="tab" data-tab="manual-requests" aria-controls="tab-manual-requests">Recent manual requests</button>
+            <button class="admin-tab-button" type="button" role="tab" data-tab="approvals" aria-controls="tab-approvals">
+                Approvals inbox{% if pending_count != None %} ({{ pending_count }}){% endif %}
+            </button>
+            <button class="admin-tab-button" type="button" role="tab" data-tab="recent-decisions" aria-controls="tab-recent-decisions">Recent decisions</button>
         </div>
 
-        <div class="card">
-            <h2>Send to Gemini CLI</h2>
-            <form method="post" class="form" enctype="multipart/form-data">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="submit_job" />
-                <div class="form__grid">
-                    <label>
-                        Routine
-                        <select name="routine_code" required>
-                            <option value="">Select a routine</option>
-                            {% for code, label in routine_choices %}
-                            <option value="{{ code }}">{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </label>
-                    <label>
-                        Content text
-                        <textarea name="content_text" rows="4" placeholder="Optional text to process"></textarea>
-                    </label>
-                    <label>
-                        Instructions *
-                        <textarea name="instructions" rows="4" required placeholder="Describe exactly what Gemini should do"></textarea>
-                    </label>
-                    <label>
-                        File (optional)
-                        <input type="file" name="file" />
-                    </label>
+        <div class="admin-tab-panels">
+            <div class="admin-tab-panel" role="tabpanel" id="tab-create-research" data-tab-panel="create-research">
+                <div class="card">
+                    <h2>Generate research now</h2>
+                    <form method="post" class="form">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_research_request" />
+                        <div class="form__grid">
+                            <label>
+                                Request type
+                                <select name="request_type" required>
+                                    <option value="">Select type</option>
+                                    {% for code, label in research_request_choices %}
+                                    <option value="{{ code }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <label>
+                                Company ticker
+                                <input type="text" name="company_ticker" placeholder="Optional (COMPANY_SPOTLIGHT only)" />
+                            </label>
+                            <label>
+                                Window start
+                                <input type="date" name="window_start" />
+                            </label>
+                            <label>
+                                Window end
+                                <input type="date" name="window_end" />
+                            </label>
+                            <label>
+                                Editor notes
+                                <textarea name="editor_notes" rows="4" placeholder="Optional notes for the generator"></textarea>
+                            </label>
+                        </div>
+                        <div class="form__actions">
+                            <button class="btn" type="submit">Create research request</button>
+                        </div>
+                    </form>
                 </div>
-                <div class="form__actions">
-                    <button class="btn" type="submit">Submit job</button>
-                </div>
-            </form>
-
-            <h3>Recent jobs</h3>
-            <p class="muted">
-                {% if show_all_jobs %}
-                Showing all jobs.
-                <a class="text-link" href="/_sc/admin/">Hide handed-off jobs</a>
-                {% else %}
-                Showing jobs without approvals.
-                <a class="text-link" href="/_sc/admin/?show_all_jobs=1">Show all jobs</a>
-                {% endif %}
-            </p>
-            {% if recent_jobs %}
-            <div class="table-wrap">
-                <table class="table admin-table">
-                    <thead>
-                        <tr class="table__row table__row--head">
-                            <th class="table__cell text-left">ID</th>
-                            <th class="table__cell text-left">Routine</th>
-                            <th class="table__cell text-left">Status</th>
-                            <th class="table__cell text-left">Created</th>
-                            <th class="table__cell text-left">Attachment</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for job in recent_jobs %}
-                        <tr class="table__row">
-                            <td class="table__cell">{{ job.job_id }}</td>
-                            <td class="table__cell">{{ job.routine_label }}</td>
-                            <td class="table__cell">{{ job.status }}</td>
-                            <td class="table__cell">{{ job.created_at|date:"Y-m-d H:i" }} UTC</td>
-                            <td class="table__cell">
-                                {% if job.file_name %}
-                                <a class="text-link" href="{% url 'sc_admin_portal:job_file' job.job_id %}">{{ job.file_name }}</a>
-                                {% else %}
-                                <span class="muted">None</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
             </div>
-            {% else %}
-            <p class="muted">No jobs yet.</p>
-            {% endif %}
-        </div>
 
-        <div class="card">
-            <h2>Approvals inbox</h2>
-            <div class="table-wrap">
-                <table class="table admin-table">
-                    <thead>
-                        <tr class="table__row table__row--head">
-                            <th class="table__cell text-left">ID</th>
-                            <th class="table__cell text-left">Type</th>
-                            <th class="table__cell text-left">Summary</th>
-                            <th class="table__cell text-left">Created</th>
-                            <th class="table__cell text-left">Attachment</th>
-                            <th class="table__cell text-left">Notes</th>
-                            <th class="table__cell text-left">Actions</th>
-                            <th class="table__cell text-left">Resubmit</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for approval in pending_approvals %}
-                        <tr class="table__row">
-                            <td class="table__cell">{{ approval.approval_id }}</td>
-                            <td class="table__cell">{{ approval.request_type }}</td>
-                            <td class="table__cell">
-                                <span>{{ approval.summary|default:"(no summary)"|truncatechars:120 }}</span>
-                                {% if approval.request_type == "RESEARCH_POST" and approval.details_preview %}
-                                <details class="admin-preview">
-                                    <summary>Preview</summary>
-                                    <div class="muted">{{ approval.details_preview|linebreaksbr }}</div>
-                                </details>
-                                {% endif %}
-                            </td>
-                            <td class="table__cell">{{ approval.created_at|date:"Y-m-d H:i" }} UTC</td>
-                            <td class="table__cell">
-                                {% if approval.file_name %}
-                                <a class="text-link" href="{% url 'sc_admin_portal:approval_file' approval.approval_id %}">{{ approval.file_name }}</a>
-                                {% else %}
-                                <span class="muted">None</span>
-                                {% endif %}
-                            </td>
-                            <td class="table__cell">
-                                <form id="approval-form-{{ approval.approval_id }}" method="post" action="{% url 'sc_admin_portal:approve' approval.approval_id %}">
-                                    {% csrf_token %}
-                                    <input class="admin-input" type="text" name="decision_notes" placeholder="Notes (optional)" />
-                                </form>
-                            </td>
-                            <td class="table__cell">
-                                <div class="admin-actions">
-                                    <button class="btn" type="submit" form="approval-form-{{ approval.approval_id }}">Approve</button>
-                                    <button class="btn btn--ghost" type="submit" form="approval-form-{{ approval.approval_id }}" formaction="{% url 'sc_admin_portal:reject' approval.approval_id %}">Reject</button>
-                                </div>
-                            </td>
-                            <td class="table__cell">
-                                <details class="admin-resubmit">
-                                    <summary>Edit &amp; Resubmit</summary>
-                                    <form method="post" action="{% url 'sc_admin_portal:resubmit' approval.approval_id %}">
-                                        {% csrf_token %}
-                                        <textarea name="new_instructions" rows="6" placeholder="Edit instructions and resubmit">{{ approval.details_preview }}</textarea>
-                                        <div class="form__actions">
-                                            <button class="btn btn--ghost" type="submit">Submit resubmission</button>
-                                            <a class="text-link cancel-link" href="#" onclick="this.closest('details').removeAttribute('open'); return false;">Cancel</a>
+            <div class="admin-tab-panel" role="tabpanel" id="tab-create-ai-routine" data-tab-panel="create-ai-routine">
+                <div class="card">
+                    <h2>Create AI Routine</h2>
+                    <form method="post" class="form" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="submit_job" />
+                        <div class="form__grid">
+                            <label>
+                                Routine
+                                <select name="routine_code" required>
+                                    <option value="">Select a routine</option>
+                                    {% for code, label in routine_choices %}
+                                    <option value="{{ code }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <label>
+                                Content text
+                                <textarea name="content_text" rows="4" placeholder="Optional text to process"></textarea>
+                            </label>
+                            <label>
+                                Instructions *
+                                <textarea name="instructions" rows="4" required placeholder="Describe exactly what Gemini should do"></textarea>
+                            </label>
+                            <label>
+                                File (optional)
+                                <input type="file" name="file" />
+                            </label>
+                        </div>
+                        <div class="form__actions">
+                            <button class="btn" type="submit">Submit job</button>
+                        </div>
+                    </form>
+
+                    <h3>Recent jobs</h3>
+                    <p class="muted">
+                        {% if show_all_jobs %}
+                        Showing all jobs.
+                        <a class="text-link" href="/_sc/admin/">Hide handed-off jobs</a>
+                        {% else %}
+                        Showing jobs without approvals.
+                        <a class="text-link" href="/_sc/admin/?show_all_jobs=1">Show all jobs</a>
+                        {% endif %}
+                    </p>
+                    {% if recent_jobs %}
+                    <div class="table-wrap">
+                        <table class="table admin-table">
+                            <thead>
+                                <tr class="table__row table__row--head">
+                                    <th class="table__cell text-left">ID</th>
+                                    <th class="table__cell text-left">Routine</th>
+                                    <th class="table__cell text-left">Status</th>
+                                    <th class="table__cell text-left">Created</th>
+                                    <th class="table__cell text-left">Attachment</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for job in recent_jobs %}
+                                <tr class="table__row">
+                                    <td class="table__cell">{{ job.job_id }}</td>
+                                    <td class="table__cell">{{ job.routine_label }}</td>
+                                    <td class="table__cell">{{ job.status }}</td>
+                                    <td class="table__cell">{{ job.created_at|date:"Y-m-d H:i" }} UTC</td>
+                                    <td class="table__cell">
+                                        {% if job.file_name %}
+                                        <a class="text-link" href="{% url 'sc_admin_portal:job_file' job.job_id %}">{{ job.file_name }}</a>
+                                        {% else %}
+                                        <span class="muted">None</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="muted">No jobs yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="admin-tab-panel" role="tabpanel" id="tab-manual-requests" data-tab-panel="manual-requests">
+                <div class="card">
+                    <h2>Recent manual requests</h2>
+                    {% if recent_research_requests %}
+                    <div class="table-wrap">
+                        <table class="table admin-table">
+                            <thead>
+                                <tr class="table__row table__row--head">
+                                    <th class="table__cell text-left">Request ID</th>
+                                    <th class="table__cell text-left">Type</th>
+                                    <th class="table__cell text-left">Status</th>
+                                    <th class="table__cell text-left">Created</th>
+                                    <th class="table__cell text-left">Result</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for request in recent_research_requests %}
+                                <tr class="table__row">
+                                    <td class="table__cell">{{ request.request_id }}</td>
+                                    <td class="table__cell">{{ request.request_type }}</td>
+                                    <td class="table__cell">{{ request.status }}</td>
+                                    <td class="table__cell">{{ request.created_at|date:"Y-m-d H:i" }} UTC</td>
+                                    <td class="table__cell">
+                                        <div>{{ request.result_preview|default:"(no result yet)"|truncatechars:160 }}</div>
+                                        {% if request.approval_id %}
+                                        <div class="muted">Approval: {{ request.approval_id }}</div>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="muted">No manual research requests yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="admin-tab-panel" role="tabpanel" id="tab-approvals" data-tab-panel="approvals">
+                <div class="card">
+                    <h2>Approvals inbox</h2>
+                    <div class="table-wrap">
+                        <table class="table admin-table">
+                            <thead>
+                                <tr class="table__row table__row--head">
+                                    <th class="table__cell text-left">ID</th>
+                                    <th class="table__cell text-left">Type</th>
+                                    <th class="table__cell text-left">Summary</th>
+                                    <th class="table__cell text-left">Created</th>
+                                    <th class="table__cell text-left">Attachment</th>
+                                    <th class="table__cell text-left">Notes</th>
+                                    <th class="table__cell text-left">Actions</th>
+                                    <th class="table__cell text-left">Resubmit</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for approval in pending_approvals %}
+                                <tr class="table__row">
+                                    <td class="table__cell">{{ approval.approval_id }}</td>
+                                    <td class="table__cell">{{ approval.request_type }}</td>
+                                    <td class="table__cell">
+                                        <span>{{ approval.summary|default:"(no summary)"|truncatechars:120 }}</span>
+                                        {% if approval.request_type == "RESEARCH_POST" and approval.details_preview %}
+                                        <details class="admin-preview">
+                                            <summary>Preview</summary>
+                                            <div class="muted">{{ approval.details_preview|linebreaksbr }}</div>
+                                        </details>
+                                        {% endif %}
+                                    </td>
+                                    <td class="table__cell">{{ approval.created_at|date:"Y-m-d H:i" }} UTC</td>
+                                    <td class="table__cell">
+                                        {% if approval.file_name %}
+                                        <a class="text-link" href="{% url 'sc_admin_portal:approval_file' approval.approval_id %}">{{ approval.file_name }}</a>
+                                        {% else %}
+                                        <span class="muted">None</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="table__cell">
+                                        <form id="approval-form-{{ approval.approval_id }}" method="post" action="{% url 'sc_admin_portal:approve' approval.approval_id %}">
+                                            {% csrf_token %}
+                                            <input class="admin-input" type="text" name="decision_notes" placeholder="Notes (optional)" />
+                                        </form>
+                                    </td>
+                                    <td class="table__cell">
+                                        <div class="admin-actions">
+                                            <button class="btn" type="submit" form="approval-form-{{ approval.approval_id }}">Approve</button>
+                                            <button class="btn btn--ghost" type="submit" form="approval-form-{{ approval.approval_id }}" formaction="{% url 'sc_admin_portal:reject' approval.approval_id %}">Reject</button>
                                         </div>
-                                    </form>
-                                </details>
-                            </td>
-                        </tr>
-                        {% empty %}
-                        <tr class="table__row">
-                            <td class="table__cell" colspan="8">No pending approvals.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                                    </td>
+                                    <td class="table__cell">
+                                        <details class="admin-resubmit">
+                                            <summary>Edit &amp; Resubmit</summary>
+                                            <form method="post" action="{% url 'sc_admin_portal:resubmit' approval.approval_id %}">
+                                                {% csrf_token %}
+                                                <textarea name="new_instructions" rows="6" placeholder="Edit instructions and resubmit">{{ approval.details_preview }}</textarea>
+                                                <div class="form__actions">
+                                                    <button class="btn btn--ghost" type="submit">Submit resubmission</button>
+                                                    <a class="text-link cancel-link" href="#" onclick="this.closest('details').removeAttribute('open'); return false;">Cancel</a>
+                                                </div>
+                                            </form>
+                                        </details>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr class="table__row">
+                                    <td class="table__cell" colspan="8">No pending approvals.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {% if selected_approval %}
+                    <div class="card card--lined">
+                        <h3>Approval #{{ selected_approval.approval_id }}</h3>
+                        <p class="muted">Type: {{ selected_approval.request_type }}</p>
+                        {% if selected_approval.title %}
+                        <p><strong>{{ selected_approval.title }}</strong></p>
+                        {% endif %}
+                        {% if selected_approval.proposed_text %}
+                        <h4>Proposed text</h4>
+                        <pre>{{ selected_approval.proposed_text }}</pre>
+                        {% endif %}
+                        {% if selected_approval.details %}
+                        <h4>Details</h4>
+                        <pre>{{ selected_approval.details }}</pre>
+                        {% endif %}
+                        {% if selected_approval.gemini_comments %}
+                        <h4>Gemini comments</h4>
+                        <pre>{{ selected_approval.gemini_comments }}</pre>
+                        {% endif %}
+                        {% if selected_approval.file_name %}
+                        <p>
+                            Attachment: <a class="text-link" href="{% url 'sc_admin_portal:approval_file' selected_approval.approval_id %}">{{ selected_approval.file_name }}</a>
+                        </p>
+                        {% endif %}
+                        <form method="post" action="{% url 'sc_admin_portal:approve' selected_approval.approval_id %}">
+                            {% csrf_token %}
+                            <label>
+                                Decision notes (optional)
+                                <textarea name="decision_notes" rows="3"></textarea>
+                            </label>
+                            <div class="form__actions">
+                                <button class="btn" type="submit">Approve</button>
+                            </div>
+                        </form>
+                        <form method="post" action="{% url 'sc_admin_portal:reject' selected_approval.approval_id %}">
+                            {% csrf_token %}
+                            <label>
+                                Decision notes (optional)
+                                <textarea name="decision_notes" rows="3"></textarea>
+                            </label>
+                            <div class="form__actions">
+                                <button class="btn btn--ghost" type="submit">Reject</button>
+                            </div>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
             </div>
 
-            {% if selected_approval %}
-            <div class="card card--lined">
-                <h3>Approval #{{ selected_approval.approval_id }}</h3>
-                <p class="muted">Type: {{ selected_approval.request_type }}</p>
-                {% if selected_approval.title %}
-                <p><strong>{{ selected_approval.title }}</strong></p>
-                {% endif %}
-                {% if selected_approval.proposed_text %}
-                <h4>Proposed text</h4>
-                <pre>{{ selected_approval.proposed_text }}</pre>
-                {% endif %}
-                {% if selected_approval.details %}
-                <h4>Details</h4>
-                <pre>{{ selected_approval.details }}</pre>
-                {% endif %}
-                {% if selected_approval.gemini_comments %}
-                <h4>Gemini comments</h4>
-                <pre>{{ selected_approval.gemini_comments }}</pre>
-                {% endif %}
-                {% if selected_approval.file_name %}
-                <p>
-                    Attachment: <a class="text-link" href="{% url 'sc_admin_portal:approval_file' selected_approval.approval_id %}">{{ selected_approval.file_name }}</a>
-                </p>
-                {% endif %}
-                <form method="post" action="{% url 'sc_admin_portal:approve' selected_approval.approval_id %}">
-                    {% csrf_token %}
-                    <label>
-                        Decision notes (optional)
-                        <textarea name="decision_notes" rows="3"></textarea>
-                    </label>
-                    <div class="form__actions">
-                        <button class="btn" type="submit">Approve</button>
+            <div class="admin-tab-panel" role="tabpanel" id="tab-recent-decisions" data-tab-panel="recent-decisions">
+                <div class="card">
+                    <h2>Recent decisions</h2>
+                    {% if recent_decisions %}
+                    <div class="table-wrap">
+                        <table class="table admin-table">
+                            <thead>
+                                <tr class="table__row table__row--head">
+                                    <th class="table__cell text-left">ID</th>
+                                    <th class="table__cell text-left">Type</th>
+                                    <th class="table__cell text-left">Status</th>
+                                    <th class="table__cell text-left">Applied</th>
+                                    <th class="table__cell text-left">Decided</th>
+                                    <th class="table__cell text-left">Decided by</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for decision in recent_decisions %}
+                                <tr class="table__row">
+                                    <td class="table__cell">{{ decision.approval_id }}</td>
+                                    <td class="table__cell">{{ decision.request_type }}</td>
+                                    <td class="table__cell">{{ decision.status }}</td>
+                                    <td class="table__cell">{% if decision.applied %}APPLIED{% endif %}</td>
+                                    <td class="table__cell">{{ decision.decided_at|date:"Y-m-d H:i" }} UTC</td>
+                                    <td class="table__cell">{{ decision.decided_by }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
-                </form>
-                <form method="post" action="{% url 'sc_admin_portal:reject' selected_approval.approval_id %}">
-                    {% csrf_token %}
-                    <label>
-                        Decision notes (optional)
-                        <textarea name="decision_notes" rows="3"></textarea>
-                    </label>
-                    <div class="form__actions">
-                        <button class="btn btn--ghost" type="submit">Reject</button>
-                    </div>
-                </form>
+                    {% else %}
+                    <p class="muted">No approvals decided yet.</p>
+                    {% endif %}
+                </div>
             </div>
-            {% endif %}
-
-            <h3>Recent decisions</h3>
-            {% if recent_decisions %}
-            <div class="table-wrap">
-                <table class="table admin-table">
-                    <thead>
-                        <tr class="table__row table__row--head">
-                            <th class="table__cell text-left">ID</th>
-                            <th class="table__cell text-left">Type</th>
-                            <th class="table__cell text-left">Status</th>
-                            <th class="table__cell text-left">Applied</th>
-                            <th class="table__cell text-left">Decided</th>
-                            <th class="table__cell text-left">Decided by</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for decision in recent_decisions %}
-                        <tr class="table__row">
-                            <td class="table__cell">{{ decision.approval_id }}</td>
-                            <td class="table__cell">{{ decision.request_type }}</td>
-                            <td class="table__cell">{{ decision.status }}</td>
-                            <td class="table__cell">{% if decision.applied %}APPLIED{% endif %}</td>
-                            <td class="table__cell">{{ decision.decided_at|date:"Y-m-d H:i" }} UTC</td>
-                            <td class="table__cell">{{ decision.decided_by }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <p class="muted">No approvals decided yet.</p>
-            {% endif %}
         </div>
     </div>
 </section>
+<script>
+(() => {
+    const tabList = document.querySelector(".admin-tabs");
+    if (!tabList) {
+        return;
+    }
+    const buttons = Array.from(tabList.querySelectorAll("[role='tab']"));
+    const panels = Array.from(document.querySelectorAll(".admin-tab-panel"));
+    const panelByTab = new Map(panels.map((panel) => [panel.dataset.tabPanel, panel]));
+    const setActive = (tabId, pushHash) => {
+        buttons.forEach((button) => {
+            const isActive = button.dataset.tab === tabId;
+            button.setAttribute("aria-selected", isActive ? "true" : "false");
+            button.setAttribute("tabindex", isActive ? "0" : "-1");
+        });
+        panels.forEach((panel) => {
+            const isActive = panel.dataset.tabPanel === tabId;
+            panel.classList.toggle("is-active", isActive);
+            panel.hidden = !isActive;
+        });
+        if (pushHash) {
+            history.replaceState(null, "", `#${tabId}`);
+        }
+    };
+    const defaultTab = tabList.dataset.defaultTab || "create-research";
+    const hashTab = window.location.hash ? window.location.hash.replace("#", "") : "";
+    const initialTab = panelByTab.has(hashTab) ? hashTab : defaultTab;
+    setActive(initialTab, false);
+    buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+            setActive(button.dataset.tab, true);
+        });
+    });
+})();
+</script>
 {% endblock %}
