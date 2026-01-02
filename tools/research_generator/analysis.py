@@ -322,6 +322,75 @@ def build_period_close_bundle(stats_window: List[Dict[str, Any]], levels_window:
     return bundle
 
 
+def build_company_spotlight_bundle(
+    latest_date: dt.date,
+    latest_rows: List[Dict[str, Any]],
+    ticker: str,
+) -> AnalysisBundle:
+    ticker_upper = ticker.upper()
+    target = None
+    scores = []
+    for row in latest_rows:
+        if row.get("ticker"):
+            scores.append(row.get("aiges"))
+        if row.get("ticker") and row.get("ticker").upper() == ticker_upper:
+            target = row
+    avg_score = None
+    valid_scores = [float(x) for x in scores if x is not None]
+    if valid_scores:
+        avg_score = sum(valid_scores) / len(valid_scores)
+
+    table_rows = []
+    if target:
+        table_rows.append(
+            {
+                "Company": target.get("company"),
+                "Ticker": target.get("ticker"),
+                "Sector": target.get("sector"),
+                "Weight": round(float(target.get("weight") or 0), 4),
+                "AIGES": round(float(target.get("aiges") or 0), 2),
+            }
+        )
+
+    chart_data = {
+        "type": "bar",
+        "title": "Company vs index average AIGES",
+        "x": ["Company", "Index Avg"],
+        "y": [
+            round(float(target.get("aiges") or 0), 2) if target else 0,
+            round(float(avg_score or 0), 2),
+        ],
+    }
+
+    safe_snippets = []
+    if target and target.get("summary"):
+        safe_snippets.append(f"public source summary field: {target.get('summary').strip()}")
+
+    bundle = AnalysisBundle(
+        report_type="COMPANY_SPOTLIGHT",
+        window_start=latest_date.strftime("%Y-%m-%d"),
+        window_end=latest_date.strftime("%Y-%m-%d"),
+        key_numbers={
+            "company": target.get("company") if target else ticker_upper,
+            "company_aiges": round(float(target.get("aiges") or 0), 2) if target else None,
+            "index_avg_aiges": round(float(avg_score or 0), 2),
+        },
+        top_lists={},
+        table_rows=table_rows,
+        chart_data=chart_data,
+        chart_caption_draft="Company AIGES compared with index average.",
+        table_caption_draft="Company snapshot for the latest rebalance.",
+        methodology_url=config.REPORT_METHOD_URL,
+        safe_source_snippets=safe_snippets,
+        constraints={
+            "no_prices": True,
+            "no_advice": True,
+            "tone": "research/education",
+        },
+    )
+    return bundle
+
+
 def build_anomaly_inputs(conn) -> Tuple[Optional[AnalysisBundle], Optional[str]]:
     stats = fetch_stats_latest(conn)
     if not stats:

@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Tuple
 from . import config
 from .analysis import (
     build_anomaly_inputs,
+    build_company_spotlight_bundle,
     build_period_close_inputs,
     build_rebalance_bundle,
     build_weekly_inputs,
@@ -18,14 +19,19 @@ from .analysis import (
 from .docx_builder import build_docx
 from .gemini_cli import log_startup_config
 from .oracle import (
+    ResearchRequest,
+    claim_request,
     count_pending_approvals,
     current_schema,
     ensure_proc_reports,
+    fetch_pending_requests,
     fetch_rebalance_rows,
     get_connection,
     init_env,
     insert_approval,
+    insert_research_request,
     set_report_value,
+    update_request_status,
 )
 from .ping_pong import draft_with_ping_pong
 from .detectors import detect_anomaly, detect_period_close, detect_rebalance, detect_weekly
@@ -45,7 +51,13 @@ def _preview_table_markdown(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _build_details(bundle: Dict[str, Any], draft: Dict[str, Any], chart_name: str) -> str:
+def _build_details(
+    bundle: Dict[str, Any],
+    draft: Dict[str, Any],
+    chart_name: str,
+    *,
+    regenerated_from: Optional[int] = None,
+) -> str:
     details = {
         "report_type": bundle.get("report_type"),
         "window": bundle.get("window"),
@@ -62,6 +74,8 @@ def _build_details(bundle: Dict[str, Any], draft: Dict[str, Any], chart_name: st
             "SC_IDX_CONTRIBUTION_DAILY",
         ],
     }
+    if regenerated_from:
+        details["regenerated_from_approval_id"] = regenerated_from
     return json.dumps(details, sort_keys=True)
 
 
@@ -118,7 +132,12 @@ def _determine_trigger(now: dt.datetime, force: Optional[str]) -> Tuple[Optional
     return None, None, {}
 
 
-def _build_bundle(report_type: str, label: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def _build_bundle(
+    report_type: str,
+    label: Optional[str],
+    *,
+    company_ticker: Optional[str] = None,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     try:
         with get_connection() as conn:
             if report_type == "REBALANCE":
@@ -136,16 +155,36 @@ def _build_bundle(report_type: str, label: Optional[str]) -> Tuple[Optional[Dict
             if report_type == "PERIOD_CLOSE":
                 bundle, err = build_period_close_inputs(conn, label or "Period close")
                 return bundle.to_dict() if bundle else None, err
+            if report_type == "COMPANY_SPOTLIGHT":
+                if not company_ticker:
+                    return None, "Missing company_ticker"
+                _, latest_date, _ = detect_rebalance(conn)
+                if not latest_date:
+                    return None, "Missing rebalance data"
+                latest_rows = fetch_rebalance_rows(conn, latest_date)
+                bundle = build_company_spotlight_bundle(latest_date, latest_rows, company_ticker)
+                return bundle.to_dict(), None
     except Exception as exc:
         return None, f"Data fetch failed: {exc}"[:200]
     return None, "Unsupported report type"
 
 
-def _create_approval(bundle: Dict[str, Any], draft: Dict[str, Any], report_key: str) -> int:
+def _create_approval(
+    bundle: Dict[str, Any],
+    draft: Dict[str, Any],
+    report_key: str,
+    *,
+    regenerated_from: Optional[int] = None,
+) -> int:
     output_dir = config.DEFAULT_OUTPUT_DIR
     docx_payload = build_docx(draft, bundle, report_key, output_dir)
     summary = _summary_from_draft(draft)
-    details = _build_details(bundle, draft, os.path.basename(docx_payload["chart_path"]))
+    details = _build_details(
+        bundle,
+        draft,
+        os.path.basename(docx_payload["chart_path"]),
+        regenerated_from=regenerated_from,
+    )
 
     payload = {
         "source_job_id": None,
@@ -203,6 +242,80 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
     return 0
 
 
+def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int]:
+    report_type = (request.request_type or "").upper()
+    bundle, err = _build_bundle(
+        report_type,
+        None,
+        company_ticker=request.company_ticker,
+    )
+    if err or not bundle:
+        raise RuntimeError(err or "bundle_error")
+
+    draft, issues = draft_with_ping_pong(bundle, editor_notes=request.editor_notes)
+    if not draft:
+        raise RuntimeError("draft_failed: " + "; ".join(issues))
+
+    report_key = f"manual_{report_type.lower()}_{request.request_id}"
+    if dry_run:
+        return None
+
+    approval_id = _create_approval(
+        bundle,
+        draft,
+        report_key,
+        regenerated_from=request.source_approval_id,
+    )
+    return approval_id
+
+
+def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Optional[int]) -> int:
+    init_env()
+    processed = 0
+    with get_connection() as conn:
+        requests = fetch_pending_requests(conn, limit=limit)
+    if request_id:
+        requests = [req for req in requests if req.request_id == request_id]
+    if not requests:
+        LOGGER.info("No pending manual requests.")
+        return 0
+
+    for request in requests:
+        with get_connection() as conn:
+            claimed = claim_request(conn, request.request_id)
+        if not claimed:
+            continue
+        try:
+            approval_id = _process_request(request, dry_run=dry_run)
+            if dry_run:
+                with get_connection() as conn:
+                    update_request_status(
+                        conn,
+                        request.request_id,
+                        "DONE",
+                        result_text="Dry-run complete; no approval created.",
+                    )
+            else:
+                with get_connection() as conn:
+                    update_request_status(
+                        conn,
+                        request.request_id,
+                        "DONE",
+                        result_text=f"Approval created: {approval_id}",
+                    )
+            processed += 1
+        except Exception as exc:
+            with get_connection() as conn:
+                update_request_status(
+                    conn,
+                    request.request_id,
+                    "FAILED",
+                    result_text=str(exc)[:400],
+                )
+    LOGGER.info("Manual requests processed=%s", processed)
+    return 0
+
+
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Scheduled Research Generator")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
@@ -211,6 +324,17 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--force",
         choices=["rebalance", "weekly", "period", "anomaly"],
         help="Force a specific report type",
+    )
+    parser.add_argument(
+        "--process-manual",
+        action="store_true",
+        help="Process pending manual research requests",
+    )
+    parser.add_argument("--request-id", type=int, help="Process a single request id")
+    parser.add_argument(
+        "--seed-request",
+        action="store_true",
+        help="Insert a sample manual request (for verification)",
     )
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args(argv)
@@ -231,6 +355,21 @@ def main(argv: Optional[list[str]] = None) -> int:
             force = "PERIOD_CLOSE"
         elif args.force == "anomaly":
             force = "ANOMALY"
+
+    if args.seed_request:
+        init_env()
+        with get_connection() as conn:
+            request_id = insert_research_request(
+                conn,
+                "REBALANCE",
+                created_by="system",
+                editor_notes="Manual request seed for verification.",
+            )
+        LOGGER.info("Seeded manual request request_id=%s", request_id)
+        return 0
+
+    if args.process_manual:
+        return process_pending_manual_requests(5, dry_run=args.dry_run, request_id=args.request_id)
 
     return run_once(force=force, dry_run=args.dry_run)
 

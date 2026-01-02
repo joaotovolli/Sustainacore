@@ -7,10 +7,14 @@ Purpose
 CLI
 - `python3 -m tools.research_generator.run_generator --once --dry-run`
 - `python3 -m tools.research_generator.run_generator --once --force rebalance|weekly|period|anomaly`
+- `python3 -m tools.research_generator.run_generator --process-manual --once`
+- `python3 -m tools.research_generator.run_generator --process-manual --request-id <id> --once`
 
 Setup
 - Initialize PROC_REPORTS:
   - `python3 tools/research_generator/init_proc_reports.py`
+- Initialize PROC_RESEARCH_REQUESTS:
+  - `python3 tools/research_generator/init_proc_research_requests.py`
 - Install systemd timer + venv:
   - `bash tools/research_generator/systemd/install_systemd.sh`
 

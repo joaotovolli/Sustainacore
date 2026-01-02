@@ -29,7 +29,7 @@ def _parse_json_block(text: str) -> Dict[str, Any]:
         raise DraftingError("json_decode_failed") from exc
 
 
-def run_writer(bundle: Dict[str, Any]) -> Dict[str, Any]:
+def run_writer(bundle: Dict[str, Any], editor_notes: Optional[str] = None) -> Dict[str, Any]:
     schema = {
         "headline": "8-14 words",
         "paragraphs": ["2-4 short paragraphs"],
@@ -38,6 +38,7 @@ def run_writer(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "tags": ["ai-governance", "ethics"],
         "compliance_checklist": {"no_prices": True, "no_advice": True, "tone_ok": True},
     }
+    notes = editor_notes.strip() if editor_notes else ""
     prompt = (
         "You are the WRITER. Output JSON only, no markdown. "
         "Use neutral research tone focused on AI governance & ethics. "
@@ -46,17 +47,24 @@ def run_writer(bundle: Dict[str, Any]) -> Dict[str, Any]:
         + json.dumps(schema)
         + "\nBundle:\n"
         + json.dumps(bundle)
+        + ("\nEditor instructions:\n" + notes if notes else "")
     )
     response = run_gemini(prompt, timeout=60.0)
     return _parse_json_block(response)
 
 
-def run_critic(bundle: Dict[str, Any], writer: Dict[str, Any], issues: list[str]) -> Dict[str, Any]:
+def run_critic(
+    bundle: Dict[str, Any],
+    writer: Dict[str, Any],
+    issues: list[str],
+    editor_notes: Optional[str] = None,
+) -> Dict[str, Any]:
     payload = {
         "bundle": bundle,
         "writer": writer,
         "issues": issues,
     }
+    notes = editor_notes.strip() if editor_notes else ""
     prompt = (
         "You are the CRITIC. Output JSON only, no markdown. "
         "Focus on compliance, clarity, AI governance framing. "
@@ -73,13 +81,19 @@ def run_critic(bundle: Dict[str, Any], writer: Dict[str, Any], issues: list[str]
         )
         + "\nPayload:\n"
         + json.dumps(payload)
+        + ("\nEditor instructions:\n" + notes if notes else "")
     )
     response = run_gemini(prompt, timeout=60.0)
     return _parse_json_block(response)
 
 
-def run_revise(bundle: Dict[str, Any], critic: Dict[str, Any]) -> Dict[str, Any]:
+def run_revise(
+    bundle: Dict[str, Any],
+    critic: Dict[str, Any],
+    editor_notes: Optional[str] = None,
+) -> Dict[str, Any]:
     payload = {"bundle": bundle, "critic": critic}
+    notes = editor_notes.strip() if editor_notes else ""
     prompt = (
         "You are the REVISE step. Output JSON only, no markdown. "
         "Apply critic improvements, keep compliance. "
@@ -96,14 +110,19 @@ def run_revise(bundle: Dict[str, Any], critic: Dict[str, Any]) -> Dict[str, Any]
         )
         + "\nPayload:\n"
         + json.dumps(payload)
+        + ("\nEditor instructions:\n" + notes if notes else "")
     )
     response = run_gemini(prompt, timeout=60.0)
     return _parse_json_block(response)
 
 
-def draft_with_ping_pong(bundle: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], list[str]]:
+def draft_with_ping_pong(
+    bundle: Dict[str, Any],
+    *,
+    editor_notes: Optional[str] = None,
+) -> Tuple[Optional[Dict[str, Any]], list[str]]:
     try:
-        writer = run_writer(bundle)
+        writer = run_writer(bundle, editor_notes=editor_notes)
     except (GeminiCLIError, DraftingError) as exc:
         return None, [str(exc)]
 
@@ -113,7 +132,7 @@ def draft_with_ping_pong(bundle: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any
     LOGGER.warning("writer_output_invalid issues=%s output=%s", issues, writer)
 
     try:
-        critic = run_critic(bundle, writer, issues)
+        critic = run_critic(bundle, writer, issues, editor_notes=editor_notes)
     except (GeminiCLIError, DraftingError) as exc:
         return None, issues + [str(exc)]
 
@@ -133,7 +152,7 @@ def draft_with_ping_pong(bundle: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any
         return improved, []
 
     try:
-        revised = run_revise(bundle, critic)
+        revised = run_revise(bundle, critic, editor_notes=editor_notes)
     except (GeminiCLIError, DraftingError) as exc:
         return None, issues + [str(exc)]
 
