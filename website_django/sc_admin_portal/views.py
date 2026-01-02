@@ -146,12 +146,14 @@ def dashboard(request):
         recent_jobs = []
     try:
         pending_approvals = oracle_proc.list_pending_approvals(limit=50)
+        pending_count = len(pending_approvals)
     except Exception as exc:
         logger.exception("Admin portal failed to load pending approvals")
         if not warning:
             warning = "Approvals failed to load. Please reload."
         diagnostics.append(f"approvals_load_failed: {exc}")
         pending_approvals = []
+        pending_count = None
     try:
         recent_decisions = oracle_proc.list_recent_decisions(limit=50)
     except Exception as exc:
@@ -168,6 +170,7 @@ def dashboard(request):
             warning = "Research requests failed to load. Please reload."
         diagnostics.append(f"research_requests_load_failed: {exc}")
         recent_research_requests = []
+    default_tab = "approvals" if pending_count and pending_count > 0 else "create-research"
     selected_approval = None
     approval_id = request.GET.get("approval_id")
     if approval_id:
@@ -190,8 +193,10 @@ def dashboard(request):
             "recent_jobs": recent_jobs,
             "show_all_jobs": show_all_jobs,
             "pending_approvals": pending_approvals,
+            "pending_count": pending_count,
             "recent_decisions": recent_decisions,
             "recent_research_requests": recent_research_requests,
+            "default_tab": default_tab,
             "selected_approval": selected_approval,
         },
     )
