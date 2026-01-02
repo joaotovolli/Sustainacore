@@ -217,7 +217,8 @@ def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
                            FILE_MIME,
                            DBMS_LOB.SUBSTR(PROPOSED_TEXT, 2000, 1) AS PROPOSED_TEXT_PREVIEW,
                            DBMS_LOB.SUBSTR(DETAILS, 2000, 1) AS DETAILS_PREVIEW,
-                           {comments_select}
+                           {comments_select},
+                           DBMS_LOB.SUBSTR(DECISION_NOTES, 2000, 1) AS DECISION_NOTES_PREVIEW
                     FROM {APPROVAL_TABLE}
                     WHERE UPPER(TRIM(STATUS)) = 'PENDING'
                       AND (DECISION_NOTES IS NULL OR UPPER(DECISION_NOTES) NOT LIKE 'ARCHIVED%')
@@ -232,7 +233,7 @@ def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
                 raise
     results = []
     for row in rows:
-        summary_source = row[3] or row[7] or row[8] or row[9] or ""
+        summary_source = row[3] or row[7] or row[8] or row[9] or row[10] or ""
         results.append(
             {
                 "approval_id": row[0],
@@ -245,6 +246,7 @@ def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
                 "proposed_text_preview": row[7] or "",
                 "details_preview": row[8] or "",
                 "gemini_comments_preview": row[9] or "",
+                "decision_notes_preview": row[10] or "",
                 "summary": summary_source,
             }
         )

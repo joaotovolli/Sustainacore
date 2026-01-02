@@ -33,6 +33,11 @@
         cursor: pointer;
         font-weight: 600;
     }
+    .admin-preview summary {
+        cursor: pointer;
+        font-weight: 600;
+        margin-top: 0.5rem;
+    }
     .admin-resubmit .cancel-link {
         margin-left: 0.75rem;
     }
@@ -168,6 +173,12 @@
                             <td class="table__cell">{{ approval.request_type }}</td>
                             <td class="table__cell">
                                 <span>{{ approval.summary|default:"(no summary)"|truncatechars:120 }}</span>
+                                {% if approval.request_type == "RESEARCH_POST" and approval.details_preview %}
+                                <details class="admin-preview">
+                                    <summary>Preview</summary>
+                                    <div class="muted">{{ approval.details_preview|linebreaksbr }}</div>
+                                </details>
+                                {% endif %}
                             </td>
                             <td class="table__cell">{{ approval.created_at|date:"Y-m-d H:i" }} UTC</td>
                             <td class="table__cell">
