@@ -5,7 +5,7 @@ import datetime as dt
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import db_helper
 from tools.oracle.env_bootstrap import load_env_files
@@ -24,6 +24,22 @@ class ReportState:
     report_key: str
     report_value: Optional[str]
     updated_at: Optional[dt.datetime]
+
+
+@dataclass
+class ResearchRequest:
+    request_id: int
+    status: str
+    request_type: str
+    company_ticker: Optional[str]
+    window_start: Optional[dt.datetime]
+    window_end: Optional[dt.datetime]
+    editor_notes: Optional[str]
+    source_approval_id: Optional[int]
+    created_by: Optional[str]
+    created_at: Optional[dt.datetime]
+    updated_at: Optional[dt.datetime]
+    result_text: Optional[str]
 
 
 def init_env() -> None:
@@ -154,6 +170,127 @@ def count_pending_approvals(conn) -> int:
     )
     row = cur.fetchone()
     return int(row[0]) if row else 0
+
+
+def fetch_pending_requests(conn, limit: int = 5) -> List[ResearchRequest]:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT request_id, status, request_type, company_ticker,
+               window_start, window_end, editor_notes, source_approval_id,
+               created_by, created_at, updated_at, result_text
+          FROM proc_research_requests
+         WHERE UPPER(TRIM(status)) = 'PENDING'
+         ORDER BY created_at ASC, request_id ASC
+         FETCH FIRST :limit ROWS ONLY
+        """,
+        {"limit": limit},
+    )
+    rows = cur.fetchall()
+    payload = []
+    for row in rows:
+        payload.append(
+            ResearchRequest(
+                request_id=int(row[0]),
+                status=row[1],
+                request_type=row[2],
+                company_ticker=row[3],
+                window_start=row[4],
+                window_end=row[5],
+                editor_notes=_read_lob(row[6]),
+                source_approval_id=row[7],
+                created_by=row[8],
+                created_at=row[9],
+                updated_at=row[10],
+                result_text=_read_lob(row[11]),
+            )
+        )
+    return payload
+
+
+def claim_request(conn, request_id: int) -> bool:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE proc_research_requests
+           SET status = 'IN_PROGRESS',
+               updated_at = SYSTIMESTAMP
+         WHERE request_id = :request_id
+           AND UPPER(TRIM(status)) = 'PENDING'
+        """,
+        {"request_id": request_id},
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        return False
+    conn.commit()
+    return True
+
+
+def update_request_status(
+    conn,
+    request_id: int,
+    status: str,
+    *,
+    result_text: Optional[str] = None,
+) -> None:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE proc_research_requests
+           SET status = :status,
+               result_text = :result_text,
+               updated_at = SYSTIMESTAMP
+         WHERE request_id = :request_id
+        """,
+        {
+            "status": status,
+            "result_text": result_text,
+            "request_id": request_id,
+        },
+    )
+    conn.commit()
+
+
+def insert_research_request(
+    conn,
+    request_type: str,
+    *,
+    created_by: str,
+    company_ticker: Optional[str] = None,
+    editor_notes: Optional[str] = None,
+    window_start: Optional[dt.datetime] = None,
+    window_end: Optional[dt.datetime] = None,
+    source_approval_id: Optional[int] = None,
+) -> int:
+    cur = conn.cursor()
+    request_id = cur.var(int)
+    cur.execute(
+        """
+        INSERT INTO proc_research_requests (
+            status, request_type, company_ticker, window_start, window_end,
+            editor_notes, source_approval_id, created_by, created_at, updated_at
+        ) VALUES (
+            'PENDING', :request_type, :company_ticker, :window_start, :window_end,
+            :editor_notes, :source_approval_id, :created_by, SYSTIMESTAMP, SYSTIMESTAMP
+        ) RETURNING request_id INTO :request_id
+        """,
+        {
+            "request_type": request_type,
+            "company_ticker": company_ticker,
+            "window_start": window_start,
+            "window_end": window_end,
+            "editor_notes": editor_notes,
+            "source_approval_id": source_approval_id,
+            "created_by": created_by,
+            "request_id": request_id,
+        },
+    )
+    conn.commit()
+    value = request_id.getvalue()
+    if isinstance(value, list) and value:
+        value = value[0]
+    return int(value)
 
 
 def fetch_latest_port_dates(conn, limit: int = 2) -> List[dt.date]:

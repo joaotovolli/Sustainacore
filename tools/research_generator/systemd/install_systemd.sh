@@ -14,6 +14,10 @@ fi
 
 sudo cp "$WORKER_DIR/systemd/research-generator.service" /etc/systemd/system/research-generator.service
 sudo cp "$WORKER_DIR/systemd/research-generator.timer" /etc/systemd/system/research-generator.timer
+sudo cp "$WORKER_DIR/systemd/research-generator-manual.service" /etc/systemd/system/research-generator-manual.service
+sudo cp "$WORKER_DIR/systemd/research-generator-manual.timer" /etc/systemd/system/research-generator-manual.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now research-generator.timer
+sudo systemctl enable --now research-generator-manual.timer
 sudo systemctl status research-generator.timer --no-pager
+sudo systemctl status research-generator-manual.timer --no-pager

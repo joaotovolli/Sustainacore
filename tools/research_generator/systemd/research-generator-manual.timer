@@ -1,0 +1,10 @@
+[Unit]
+Description=Scheduled Research Generator Manual Polling
+
+[Timer]
+OnCalendar=*:0/2
+Persistent=true
+Unit=research-generator-manual.service
+
+[Install]
+WantedBy=timers.target
