@@ -263,14 +263,27 @@ def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
 def get_approval(approval_id: int) -> dict[str, object] | None:
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            if _column_exists(cursor, APPROVAL_TABLE, "GEMINI_COMMENTS"):
-                comments_select = "GEMINI_COMMENTS"
-            else:
-                comments_select = "CAST(NULL AS CLOB) AS GEMINI_COMMENTS"
+            has_comments = _column_exists(cursor, APPROVAL_TABLE, "GEMINI_COMMENTS")
+            comments_select = (
+                "DBMS_LOB.SUBSTR(GEMINI_COMMENTS, 4000, 1) AS GEMINI_COMMENTS"
+                if has_comments
+                else "CAST(NULL AS VARCHAR2(4000)) AS GEMINI_COMMENTS"
+            )
             sql = f"""
-                SELECT APPROVAL_ID, SOURCE_JOB_ID, REQUEST_TYPE, TITLE, PROPOSED_TEXT, DETAILS,
-                       {comments_select}, FILE_NAME, FILE_MIME, FILE_BLOB, STATUS, CREATED_AT, DECIDED_AT,
-                       DECIDED_BY, DECISION_NOTES
+                SELECT APPROVAL_ID,
+                       SOURCE_JOB_ID,
+                       REQUEST_TYPE,
+                       TITLE,
+                       DBMS_LOB.SUBSTR(PROPOSED_TEXT, 4000, 1) AS PROPOSED_TEXT,
+                       DBMS_LOB.SUBSTR(DETAILS, 4000, 1) AS DETAILS,
+                       {comments_select},
+                       FILE_NAME,
+                       FILE_MIME,
+                       STATUS,
+                       CREATED_AT,
+                       DECIDED_AT,
+                       DECIDED_BY,
+                       DBMS_LOB.SUBSTR(DECISION_NOTES, 4000, 1) AS DECISION_NOTES
                 FROM {APPROVAL_TABLE}
                 WHERE APPROVAL_ID = :approval_id
             """
@@ -278,23 +291,21 @@ def get_approval(approval_id: int) -> dict[str, object] | None:
             row = cursor.fetchone()
             if not row:
                 return None
-            materialized = [_materialize_value(value) for value in row]
     return {
-        "approval_id": materialized[0],
-        "source_job_id": materialized[1],
-        "request_type": materialized[2],
-        "title": materialized[3],
-        "proposed_text": materialized[4],
-        "details": materialized[5],
-        "gemini_comments": materialized[6],
-        "file_name": materialized[7],
-        "file_mime": materialized[8],
-        "file_blob": materialized[9],
-        "status": materialized[10],
-        "created_at": materialized[11],
-        "decided_at": materialized[12],
-        "decided_by": materialized[13],
-        "decision_notes": materialized[14],
+        "approval_id": row[0],
+        "source_job_id": row[1],
+        "request_type": row[2],
+        "title": row[3],
+        "proposed_text": row[4],
+        "details": row[5],
+        "gemini_comments": row[6],
+        "file_name": row[7],
+        "file_mime": row[8],
+        "status": row[9],
+        "created_at": row[10],
+        "decided_at": row[11],
+        "decided_by": row[12],
+        "decision_notes": row[13],
     }
 
 
