@@ -12,6 +12,8 @@ urlpatterns = [
     path("approvals/<int:approval_id>/reject", views.reject_approval, name="reject_no_slash"),
     path("approvals/<int:approval_id>/resubmit/", views.resubmit_approval, name="resubmit"),
     path("approvals/<int:approval_id>/resubmit", views.resubmit_approval, name="resubmit_no_slash"),
+    path("research/requests/<int:request_id>/retry-now/", views.retry_research_request, name="retry_research_now"),
+    path("research/requests/<int:request_id>/retry-now", views.retry_research_request, name="retry_research_now_no_slash"),
     path("jobs/<int:job_id>/file/", views.job_file, name="job_file"),
     path("approval/<int:approval_id>/file/", views.approval_file, name="approval_file"),
 ]

@@ -230,6 +230,35 @@ class AdminPortalAccessTests(TestCase):
         self.assertEqual(oracle_proc._normalize_oracle_scalar([123]), 123)
         self.assertIsNone(oracle_proc._normalize_oracle_scalar([]))
 
+    def test_list_recent_research_requests_missing_retry_columns(self):
+        class DummyCursor:
+            def execute(self, sql, params):
+                self.sql = sql
+
+            def fetchall(self):
+                return [
+                    (7, "REBALANCE", "PENDING", None, "result", None, None),
+                ]
+
+        class DummyConn:
+            def cursor(self):
+                @contextlib.contextmanager
+                def _cursor():
+                    yield DummyCursor()
+
+                return _cursor()
+
+        @contextlib.contextmanager
+        def fake_conn():
+            yield DummyConn()
+
+        with mock.patch("sc_admin_portal.oracle_proc.get_connection", fake_conn), mock.patch(
+            "sc_admin_portal.oracle_proc._column_exists", return_value=False
+        ):
+            rows = oracle_proc.list_recent_research_requests()
+        self.assertEqual(rows[0]["retry_count"], None)
+        self.assertEqual(rows[0]["next_retry_at"], None)
+
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.get_approval_file")
     def test_approval_file_requires_admin(self, get_file_mock):
@@ -577,6 +606,8 @@ class AdminPortalAccessTests(TestCase):
                     "status": "PENDING",
                     "created_at": None,
                     "result_preview": "Approval created: 22",
+                    "retry_count": 2,
+                    "next_retry_at": None,
                     "approval_id": 22,
                 }
             ],
@@ -584,6 +615,7 @@ class AdminPortalAccessTests(TestCase):
             response = self.client.get(self.portal_url)
         content = response.content.decode("utf-8")
         self.assertIn("Approval: 22", content)
+        self.assertIn("2", content)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
@@ -621,6 +653,36 @@ class AdminPortalAccessTests(TestCase):
         resubmit_url = reverse("sc_admin_portal:resubmit", args=[12])
         response = self.client.post(resubmit_url, {"new_instructions": "New instructions"})
         self.assertEqual(response.status_code, 404)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.retry_research_request", return_value="updated")
+    def test_retry_now_post(self, retry_mock):
+        self.client.force_login(self.authorized_user)
+        retry_url = reverse("sc_admin_portal:retry_research_now", args=[55])
+        response = self.client.post(retry_url, follow=True)
+        content = response.content.decode("utf-8")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Retry scheduled for request 55", content)
+        retry_mock.assert_called_once()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.retry_research_request", return_value="already_ready")
+    def test_retry_now_already_ready(self, retry_mock):
+        self.client.force_login(self.authorized_user)
+        retry_url = reverse("sc_admin_portal:retry_research_now", args=[55])
+        response = self.client.post(retry_url, follow=True)
+        content = response.content.decode("utf-8")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Already eligible", content)
+        retry_mock.assert_called_once()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.retry_research_request")
+    def test_retry_now_requires_admin(self, retry_mock):
+        retry_url = reverse("sc_admin_portal:retry_research_now", args=[55])
+        response = self.client.post(retry_url)
+        self.assertEqual(response.status_code, 404)
+        retry_mock.assert_not_called()
 
     def test_decide_approval_sets_clob_inputsize(self):
         calls = {}
