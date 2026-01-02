@@ -3,8 +3,11 @@ Description=Scheduled Research Generator
 
 [Service]
 Type=oneshot
+User=opc
+Group=opc
 WorkingDirectory=/home/opc/Sustainacore
-ExecStart=/home/opc/Sustainacore/tools/research_generator/.venv/bin/python -m tools.research_generator.run_generator --once
+Environment=PYTHONPATH=/home/opc/Sustainacore:/home/opc/.local/lib/python3.9/site-packages:/home/opc/Sustainacore/tools/research_generator/.venv/lib/python3.9/site-packages
+ExecStart=/usr/bin/python3 -m tools.research_generator.run_generator --once
 
 [Install]
 WantedBy=multi-user.target

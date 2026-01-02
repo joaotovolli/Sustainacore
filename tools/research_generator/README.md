@@ -21,3 +21,8 @@ Setup
 Notes
 - Model pinned to `gemini-2.5-flash`.
 - No price data or investment advice; derived metrics only.
+
+Systemd Doctor
+- `systemctl status research-generator.service --no-pager`
+- `systemctl status research-generator-manual.service --no-pager`
+- `journalctl -u research-generator-manual.service -n 200 --no-pager`
