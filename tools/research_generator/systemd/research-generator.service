@@ -1,0 +1,10 @@
+[Unit]
+Description=Scheduled Research Generator
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/opc/Sustainacore
+ExecStart=/home/opc/Sustainacore/tools/research_generator/.venv/bin/python -m tools.research_generator.run_generator --once
+
+[Install]
+WantedBy=multi-user.target
