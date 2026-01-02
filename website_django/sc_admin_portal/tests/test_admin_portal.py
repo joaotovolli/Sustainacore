@@ -427,6 +427,44 @@ class AdminPortalAccessTests(TestCase):
         supersede_mock.assert_called_once_with(55, 321)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval", return_value=1)
+    @mock.patch("sc_admin_portal.views.oracle_proc.create_research_request", return_value=123)
+    @mock.patch("sc_admin_portal.views.oracle_proc.insert_job")
+    @mock.patch("sc_admin_portal.views.oracle_proc.get_approval")
+    def test_resubmit_research_creates_request(
+        self,
+        approval_mock,
+        insert_job_mock,
+        create_request_mock,
+        decide_mock,
+    ):
+        self.client.force_login(self.authorized_user)
+        approval_mock.return_value = {
+            "approval_id": 14,
+            "source_job_id": None,
+            "request_type": "RESEARCH_POST",
+            "details": "{\"report_type\": \"WEEKLY\"}",
+            "proposed_text": "",
+            "file_name": "report.docx",
+            "file_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "file_blob": b"docx",
+        }
+        resubmit_url = reverse("sc_admin_portal:resubmit", args=[14])
+        response = self.client.post(resubmit_url, {"new_instructions": "redo"})
+        self.assertEqual(response.status_code, 302)
+        create_request_mock.assert_called_once_with(
+            request_type="WEEKLY",
+            company_ticker=None,
+            window_start=None,
+            window_end=None,
+            editor_notes="redo",
+            source_approval_id=14,
+            created_by=ADMIN_EMAIL,
+        )
+        decide_mock.assert_called_once()
+        insert_job_mock.assert_not_called()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.create_research_request", return_value=101)
     def test_create_research_request_prg(self, create_mock):
         self.client.force_login(self.authorized_user)

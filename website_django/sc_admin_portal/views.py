@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, time
 
@@ -69,6 +70,22 @@ def _parse_date(value: str | None) -> datetime | None:
     return parsed
 
 
+def _research_request_type(details: str | None) -> str:
+    if not details:
+        return "REBALANCE"
+    raw = details.strip()
+    if not raw.startswith("{"):
+        return "REBALANCE"
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return "REBALANCE"
+    report_type = str(payload.get("report_type") or payload.get("request_type") or "").strip()
+    if not report_type:
+        return "REBALANCE"
+    return report_type.upper()
+
+
 @never_cache
 @require_sc_admin
 def dashboard(request):
@@ -125,6 +142,7 @@ def dashboard(request):
                     window_start=window_start,
                     window_end=window_end,
                     editor_notes=editor_notes,
+                    source_approval_id=None,
                     created_by=created_by,
                 )
                 return redirect(f"{request.path}?created_request_id={request_id}")
@@ -270,6 +288,43 @@ def resubmit_approval(request, approval_id: int):
     approval = oracle_proc.get_approval(approval_id)
     if not approval:
         return portal_not_found()
+    request_type = (approval.get("request_type") or "").strip().upper()
+    if request_type.startswith("RESEARCH"):
+        editor_notes = (request.POST.get("new_instructions") or "").strip() or None
+        try:
+            decided_by = _resolve_decided_by(request)
+            report_type = _research_request_type(approval.get("details"))
+            request_id = oracle_proc.create_research_request(
+                request_type=report_type,
+                company_ticker=None,
+                window_start=None,
+                window_end=None,
+                editor_notes=editor_notes,
+                source_approval_id=approval_id,
+                created_by=decided_by,
+            )
+            note = f"Superseded by request_id={request_id}"
+            updated = oracle_proc.decide_approval(
+                approval_id=approval_id,
+                status="REJECTED",
+                decided_by=decided_by,
+                decision_notes=note,
+            )
+            messages.success(
+                request,
+                f"Resubmitted: created research request {request_id}. A new draft will appear shortly.",
+            )
+            if updated == 0:
+                messages.warning(request, "Approval already decided or not found.")
+        except Exception:
+            schema = oracle_proc.get_current_schema() or "unknown"
+            logger.exception(
+                "Admin portal research resubmit failed approval_id=%s schema=%s",
+                approval_id,
+                schema,
+            )
+            messages.error(request, "Resubmit failed (code: RESUBMIT_RESEARCH). Check logs.")
+        return redirect("sc_admin_portal:dashboard")
     job = None
     if approval.get("source_job_id"):
         job = oracle_proc.get_job(int(approval["source_job_id"]))
