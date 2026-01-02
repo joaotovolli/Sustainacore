@@ -305,12 +305,23 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
                     )
             processed += 1
         except Exception as exc:
+            message = str(exc)
+            if "429" in message or "rate limit" in message.lower():
+                with get_connection() as conn:
+                    update_request_status(
+                        conn,
+                        request.request_id,
+                        "PENDING",
+                        result_text=f"retryable: {message[:400]}",
+                    )
+                LOGGER.warning("Manual request rate-limited request_id=%s", request.request_id)
+                continue
             with get_connection() as conn:
                 update_request_status(
                     conn,
                     request.request_id,
                     "FAILED",
-                    result_text=str(exc)[:400],
+                    result_text=message[:400],
                 )
     LOGGER.info("Manual requests processed=%s", processed)
     return 0
