@@ -1,0 +1,10 @@
+[Unit]
+Description=Scheduled Research Generator Timer
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+Unit=research-generator.service
+
+[Install]
+WantedBy=timers.target
