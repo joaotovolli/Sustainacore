@@ -388,12 +388,14 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.update_job_superseded")
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval", return_value=1)
     @mock.patch("sc_admin_portal.views.oracle_proc.insert_job", return_value=321)
+    @mock.patch("sc_admin_portal.views.oracle_proc.get_approval_file")
     @mock.patch("sc_admin_portal.views.oracle_proc.get_job")
     @mock.patch("sc_admin_portal.views.oracle_proc.get_approval")
     def test_resubmit_creates_job_and_rejects_approval(
         self,
         approval_mock,
         job_mock,
+        approval_file_mock,
         insert_mock,
         decide_mock,
         supersede_mock,
@@ -420,6 +422,7 @@ class AdminPortalAccessTests(TestCase):
             "file_mime": "text/plain",
             "file_blob": b"file",
         }
+        approval_file_mock.return_value = None
         resubmit_url = reverse("sc_admin_portal:resubmit", args=[12])
         response = self.client.post(resubmit_url, {"new_instructions": "New instructions"})
         self.assertEqual(response.status_code, 302)

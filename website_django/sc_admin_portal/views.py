@@ -375,12 +375,15 @@ def resubmit_approval(request, approval_id: int):
     if not new_instructions:
         messages.error(request, "Instructions are required to resubmit.")
         return redirect("sc_admin_portal:dashboard")
+    approval_file = None
+    if not (job or {}).get("file_blob"):
+        approval_file = oracle_proc.get_approval_file(approval_id)
     routine_code = (job or {}).get("routine_code") or _routine_code_from_request_type(approval.get("request_type"))
     routine_label = (job or {}).get("routine_label") or (approval.get("title") or "Gemini approval")
     content_text = (job or {}).get("content_text") or approval.get("proposed_text")
-    file_name = (job or {}).get("file_name") or approval.get("file_name")
-    file_mime = (job or {}).get("file_mime") or approval.get("file_mime")
-    file_blob = (job or {}).get("file_blob") or approval.get("file_blob")
+    file_name = (job or {}).get("file_name") or (approval_file or {}).get("file_name") or approval.get("file_name")
+    file_mime = (job or {}).get("file_mime") or (approval_file or {}).get("file_mime") or approval.get("file_mime")
+    file_blob = (job or {}).get("file_blob") or (approval_file or {}).get("file_blob")
     try:
         new_job_id = oracle_proc.insert_job(
             routine_code=routine_code or "OTHER",
