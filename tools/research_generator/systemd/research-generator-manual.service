@@ -6,7 +6,10 @@ Type=oneshot
 User=opc
 Group=opc
 WorkingDirectory=/home/opc/Sustainacore
+Environment=HOME=/home/opc
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONPATH=/home/opc/Sustainacore:/home/opc/.local/lib/python3.9/site-packages:/home/opc/Sustainacore/tools/research_generator/.venv/lib/python3.9/site-packages
+EnvironmentFile=-/etc/sustainacore/gemini.env
 ExecStart=/usr/bin/python3 -m tools.research_generator.run_generator --process-manual --once
 
 [Install]
