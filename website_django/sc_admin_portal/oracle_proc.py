@@ -548,19 +548,27 @@ def create_research_request(
 
 
 def list_recent_research_requests(limit: int = 10) -> list[dict[str, object]]:
-    sql = f"""
-        SELECT * FROM (
-            SELECT REQUEST_ID,
-                   REQUEST_TYPE,
-                   STATUS,
-                   CREATED_AT,
-                   DBMS_LOB.SUBSTR(RESULT_TEXT, 500, 1) AS RESULT_PREVIEW
-            FROM {RESEARCH_REQUEST_TABLE}
-            ORDER BY CREATED_AT DESC
-        ) WHERE ROWNUM <= :limit
-    """
     with get_connection() as conn:
         with conn.cursor() as cursor:
+            has_retry_count = _column_exists(cursor, RESEARCH_REQUEST_TABLE, "RETRY_COUNT")
+            has_next_retry_at = _column_exists(cursor, RESEARCH_REQUEST_TABLE, "NEXT_RETRY_AT")
+            retry_count_select = "RETRY_COUNT" if has_retry_count else "CAST(NULL AS NUMBER) AS RETRY_COUNT"
+            next_retry_select = (
+                "NEXT_RETRY_AT" if has_next_retry_at else "CAST(NULL AS TIMESTAMP) AS NEXT_RETRY_AT"
+            )
+            sql = f"""
+                SELECT * FROM (
+                    SELECT REQUEST_ID,
+                           REQUEST_TYPE,
+                           STATUS,
+                           CREATED_AT,
+                           DBMS_LOB.SUBSTR(RESULT_TEXT, 500, 1) AS RESULT_PREVIEW,
+                           {retry_count_select},
+                           {next_retry_select}
+                    FROM {RESEARCH_REQUEST_TABLE}
+                    ORDER BY CREATED_AT DESC
+                ) WHERE ROWNUM <= :limit
+            """
             cursor.execute(sql, {"limit": limit})
             rows = cursor.fetchall()
     results = []
@@ -575,7 +583,49 @@ def list_recent_research_requests(limit: int = 10) -> list[dict[str, object]]:
                 "status": row[2],
                 "created_at": row[3],
                 "result_preview": result_preview,
+                "retry_count": row[5],
+                "next_retry_at": row[6],
                 "approval_id": approval_id,
             }
         )
     return results
+
+
+def retry_research_request(request_id: int, note: str | None) -> str:
+    update_sql = f"""
+        UPDATE {RESEARCH_REQUEST_TABLE}
+        SET NEXT_RETRY_AT = NULL,
+            UPDATED_AT = SYSTIMESTAMP,
+            RESULT_TEXT = CASE
+                WHEN :note IS NULL THEN RESULT_TEXT
+                WHEN RESULT_TEXT IS NULL THEN :note
+                ELSE RESULT_TEXT || CHR(10) || :note
+            END
+        WHERE REQUEST_ID = :request_id
+          AND UPPER(TRIM(STATUS)) = 'PENDING'
+          AND NEXT_RETRY_AT IS NOT NULL
+    """
+    select_sql = f"""
+        SELECT STATUS, NEXT_RETRY_AT
+        FROM {RESEARCH_REQUEST_TABLE}
+        WHERE REQUEST_ID = :request_id
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.setinputsizes(note=oracledb.DB_TYPE_CLOB)
+            cursor.execute(update_sql, {"note": note, "request_id": request_id})
+            updated = cursor.rowcount or 0
+            if updated:
+                conn.commit()
+                return "updated"
+            cursor.execute(select_sql, {"request_id": request_id})
+            row = cursor.fetchone()
+            conn.commit()
+            if not row:
+                return "not_found"
+            status, next_retry_at = row
+            if not status or str(status).strip().upper() != "PENDING":
+                return "not_pending"
+            if not next_retry_at:
+                return "already_ready"
+            return "not_updated"

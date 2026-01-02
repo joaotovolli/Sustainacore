@@ -238,6 +238,9 @@
             <div class="admin-tab-panel" role="tabpanel" id="tab-manual-requests" data-tab-panel="manual-requests">
                 <div class="card">
                     <h2>Recent manual requests</h2>
+                    {% if research_requests_error %}
+                    <p class="muted">{{ research_requests_error }}</p>
+                    {% endif %}
                     {% if recent_research_requests %}
                     <div class="table-wrap">
                         <table class="table admin-table">
@@ -246,8 +249,12 @@
                                     <th class="table__cell text-left">Request ID</th>
                                     <th class="table__cell text-left">Type</th>
                                     <th class="table__cell text-left">Status</th>
+                                    <th class="table__cell text-left">Retry count</th>
+                                    <th class="table__cell text-left">Next retry (UTC)</th>
+                                    <th class="table__cell text-left">State</th>
                                     <th class="table__cell text-left">Created</th>
                                     <th class="table__cell text-left">Result</th>
+                                    <th class="table__cell text-left">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -256,12 +263,49 @@
                                     <td class="table__cell">{{ request.request_id }}</td>
                                     <td class="table__cell">{{ request.request_type }}</td>
                                     <td class="table__cell">{{ request.status }}</td>
+                                    <td class="table__cell">{{ request.retry_count|default:"0" }}</td>
+                                    <td class="table__cell">
+                                        {% if request.next_retry_at %}
+                                        {{ request.next_retry_at|date:"Y-m-d H:i" }} UTC
+                                        {% else %}
+                                        <span class="muted">n/a</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="table__cell">
+                                        {% if request.status|upper == "PENDING" and request.next_retry_at and request.next_retry_at > now_utc %}
+                                        <span class="badge">COOLDOWN until {{ request.next_retry_at|date:"Y-m-d H:i" }} UTC</span>
+                                        {% elif request.status|upper == "PENDING" %}
+                                        <span class="badge">READY</span>
+                                        {% elif request.status|upper == "DONE" %}
+                                        <span class="badge">DONE</span>
+                                        {% elif request.status|upper == "FAILED" %}
+                                        <span class="badge">FAILED</span>
+                                        {% else %}
+                                        <span class="badge">{{ request.status }}</span>
+                                        {% endif %}
+                                    </td>
                                     <td class="table__cell">{{ request.created_at|date:"Y-m-d H:i" }} UTC</td>
                                     <td class="table__cell">
-                                        <div>{{ request.result_preview|default:"(no result yet)"|truncatechars:160 }}</div>
+                                        <div>{{ request.result_preview|default:"(no result yet)"|truncatechars:120 }}</div>
+                                        {% if request.result_preview %}
+                                        <details>
+                                            <summary>Show</summary>
+                                            <pre>{{ request.result_preview }}</pre>
+                                        </details>
+                                        {% endif %}
                                         {% if request.approval_id %}
                                         <div class="muted">Approval: {{ request.approval_id }}</div>
                                         {% endif %}
+                                    </td>
+                                    <td class="table__cell">
+                                        <form method="post" action="{% url 'sc_admin_portal:retry_research_now' request.request_id %}">
+                                            {% csrf_token %}
+                                            {% if request.status|upper == "PENDING" and request.next_retry_at and request.next_retry_at > now_utc %}
+                                            <button class="btn btn--ghost" type="submit">Retry now</button>
+                                            {% else %}
+                                            <button class="btn btn--ghost" type="submit" disabled>Retry now</button>
+                                            {% endif %}
+                                        </form>
                                     </td>
                                 </tr>
                                 {% endfor %}

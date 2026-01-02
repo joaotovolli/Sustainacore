@@ -33,6 +33,16 @@ The portal relies on two Oracle tables:
 Submit jobs via the portal form. Each job inserts a row into `PROC_GEMINI_JOBS`
 with status `PENDING` and any optional attachment stored as a BLOB.
 
+### Manual research requests
+
+Manual research requests are inserted into `PROC_RESEARCH_REQUESTS` with status
+`PENDING` and an optional `SOURCE_APPROVAL_ID` when resubmitting approvals.
+
+If VM1 applied the retry schema changes, the portal shows `retry_count` and
+`next_retry_at` cooldowns. The “Retry now” button clears `next_retry_at` and
+appends `admin_retry_now <timestamp>` to `RESULT_TEXT` so the manual timer can
+pick it up.
+
 ### Gemini CLI -> Joao
 
 Gemini/VM1 inserts rows into `PROC_GEMINI_APPROVALS` with status `PENDING`.

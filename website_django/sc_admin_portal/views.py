@@ -215,12 +215,14 @@ def dashboard(request):
         recent_decisions = []
     try:
         recent_research_requests = oracle_proc.list_recent_research_requests(limit=10)
+        research_requests_error = ""
     except Exception as exc:
         logger.exception("Admin portal failed to load research requests")
         if not warning:
             warning = "Research requests failed to load. Please reload."
         diagnostics.append(f"research_requests_load_failed: {exc}")
         recent_research_requests = []
+        research_requests_error = "Manual requests failed to load."
     default_tab = "approvals" if pending_count and pending_count > 0 else "create-research"
     selected_approval = None
     approval_id = request.GET.get("approval_id")
@@ -249,8 +251,10 @@ def dashboard(request):
             "newest_pending_id": newest_pending_id,
             "recent_decisions": recent_decisions,
             "recent_research_requests": recent_research_requests,
+            "research_requests_error": research_requests_error,
             "default_tab": default_tab,
             "running_commit": _load_running_commit(),
+            "now_utc": datetime.utcnow(),
             "selected_approval": selected_approval,
         },
     )
@@ -450,3 +454,28 @@ def approval_file(request, approval_id: int):
     filename = payload["file_name"] or f"approval-{approval_id}"
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
+
+
+@never_cache
+@require_sc_admin
+def retry_research_request(request, request_id: int):
+    if request.method != "POST":
+        return portal_not_found()
+    note = f"admin_retry_now {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+    try:
+        outcome = oracle_proc.retry_research_request(request_id, note)
+    except Exception:
+        logger.exception("Admin portal retry-now failed request_id=%s", request_id)
+        messages.error(request, "Retry now failed (code: RETRY_NOW). Check logs.")
+        return redirect("sc_admin_portal:dashboard")
+    if outcome == "updated":
+        messages.success(request, f"Retry scheduled for request {request_id}.")
+    elif outcome == "already_ready":
+        messages.info(request, "Already eligible to run.")
+    elif outcome == "not_pending":
+        messages.warning(request, "Request is not pending.")
+    elif outcome == "not_found":
+        messages.warning(request, "Request not found.")
+    else:
+        messages.warning(request, "Retry not applied.")
+    return redirect("sc_admin_portal:dashboard")
