@@ -319,10 +319,19 @@
                                     </td>
                                     <td class="table__cell">
                                         <details class="admin-resubmit">
+                                            {% if approval.request_type == "RESEARCH_POST" %}
+                                            <summary>Regenerate</summary>
+                                            {% else %}
                                             <summary>Edit &amp; Resubmit</summary>
+                                            {% endif %}
                                             <form method="post" action="{% url 'sc_admin_portal:resubmit' approval.approval_id %}">
                                                 {% csrf_token %}
+                                                {% if approval.request_type == "RESEARCH_POST" %}
+                                                <p class="muted">Creates a new research request and supersedes this draft.</p>
+                                                <textarea name="new_instructions" rows="6" placeholder="Editor notes (optional)"></textarea>
+                                                {% else %}
                                                 <textarea name="new_instructions" rows="6" placeholder="Edit instructions and resubmit">{{ approval.details_preview }}</textarea>
+                                                {% endif %}
                                                 <div class="form__actions">
                                                     <button class="btn btn--ghost" type="submit">Submit resubmission</button>
                                                     <a class="text-link cancel-link" href="#" onclick="this.closest('details').removeAttribute('open'); return false;">Cancel</a>

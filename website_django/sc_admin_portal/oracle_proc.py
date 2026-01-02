@@ -474,6 +474,7 @@ def create_research_request(
     window_start: datetime | None,
     window_end: datetime | None,
     editor_notes: str | None,
+    source_approval_id: int | None,
     created_by: str,
 ) -> int:
     sql = f"""
@@ -484,6 +485,7 @@ def create_research_request(
             WINDOW_START,
             WINDOW_END,
             EDITOR_NOTES,
+            SOURCE_APPROVAL_ID,
             CREATED_BY,
             CREATED_AT,
             UPDATED_AT
@@ -495,6 +497,7 @@ def create_research_request(
             :window_start,
             :window_end,
             :editor_notes,
+            :source_approval_id,
             :created_by,
             SYSTIMESTAMP,
             SYSTIMESTAMP
@@ -513,6 +516,7 @@ def create_research_request(
                     "window_start": window_start,
                     "window_end": window_end,
                     "editor_notes": editor_notes,
+                    "source_approval_id": source_approval_id,
                     "created_by": created_by,
                     "request_id": request_id_var,
                 },
