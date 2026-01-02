@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, time
 
 from django.contrib import messages
@@ -14,6 +15,7 @@ from sc_admin_portal.auth import get_admin_email, portal_not_found, require_sc_a
 from sc_admin_portal import oracle_proc
 
 logger = logging.getLogger(__name__)
+_RUNNING_COMMIT: str | None = None
 
 ROUTINE_CHOICES = [
     ("NEWS_PUBLISH", "Text to publish news on Sustainacore.org"),
@@ -68,6 +70,30 @@ def _parse_date(value: str | None) -> datetime | None:
     if parsed.time() == time.min:
         return parsed
     return parsed
+
+
+def _load_running_commit() -> str:
+    global _RUNNING_COMMIT
+    if _RUNNING_COMMIT:
+        return _RUNNING_COMMIT
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    git_dir = os.path.join(os.path.dirname(repo_root), ".git")
+    head_path = os.path.join(git_dir, "HEAD")
+    commit = "unknown"
+    try:
+        with open(head_path, "r", encoding="utf-8") as handle:
+            head = handle.read().strip()
+        if head.startswith("ref:"):
+            ref_path = head.split(" ", 1)[1].strip()
+            ref_file = os.path.join(git_dir, ref_path)
+            with open(ref_file, "r", encoding="utf-8") as handle:
+                commit = handle.read().strip()
+        else:
+            commit = head
+    except OSError:
+        commit = "unknown"
+    _RUNNING_COMMIT = commit
+    return commit
 
 
 def _research_request_type(details: str | None) -> str:
@@ -215,6 +241,7 @@ def dashboard(request):
             "recent_decisions": recent_decisions,
             "recent_research_requests": recent_research_requests,
             "default_tab": default_tab,
+            "running_commit": _load_running_commit(),
             "selected_approval": selected_approval,
         },
     )
