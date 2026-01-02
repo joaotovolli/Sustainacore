@@ -44,8 +44,9 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
     def test_portal_returns_200_for_authorized_email(
-        self, decisions_mock, approvals_mock, jobs_mock
+        self, research_mock, decisions_mock, approvals_mock, jobs_mock
     ):
         self.client.force_login(self.authorized_user)
         response = self.client.get(self.portal_url)
@@ -53,13 +54,15 @@ class AdminPortalAccessTests(TestCase):
         jobs_mock.assert_called_once_with(limit=10, include_handed_off=False)
         approvals_mock.assert_called_once()
         decisions_mock.assert_called_once()
+        research_mock.assert_called_once()
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
     def test_portal_allows_session_auth_email(
-        self, decisions_mock, approvals_mock, jobs_mock
+        self, research_mock, decisions_mock, approvals_mock, jobs_mock
     ):
         session = self.client.session
         session["auth_email"] = ADMIN_EMAIL
@@ -70,12 +73,14 @@ class AdminPortalAccessTests(TestCase):
         jobs_mock.assert_called_once_with(limit=10, include_handed_off=False)
         approvals_mock.assert_called_once()
         decisions_mock.assert_called_once()
+        research_mock.assert_called_once()
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
-    def test_show_all_jobs_flag(self, decisions_mock, approvals_mock, jobs_mock):
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
+    def test_show_all_jobs_flag(self, research_mock, decisions_mock, approvals_mock, jobs_mock):
         self.client.force_login(self.authorized_user)
         response = self.client.get(f"{self.portal_url}?show_all_jobs=1")
         self.assertEqual(response.status_code, 200)
@@ -86,8 +91,9 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
     def test_submit_job_calls_oracle_insert(
-        self, decisions_mock, approvals_mock, jobs_mock, insert_mock
+        self, research_mock, decisions_mock, approvals_mock, jobs_mock, insert_mock
     ):
         self.client.force_login(self.authorized_user)
         response = self.client.post(
@@ -107,8 +113,9 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", side_effect=RuntimeError("boom"))
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
     def test_submit_job_still_shows_success_on_refresh_error(
-        self, decisions_mock, approvals_mock, jobs_mock, insert_mock
+        self, research_mock, decisions_mock, approvals_mock, jobs_mock, insert_mock
     ):
         self.client.force_login(self.authorized_user)
         response = self.client.post(
@@ -129,7 +136,8 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
-    def test_approval_list_shows_attachment_link(self, decisions_mock, jobs_mock):
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
+    def test_approval_list_shows_attachment_link(self, research_mock, decisions_mock, jobs_mock):
         self.client.force_login(self.authorized_user)
         with mock.patch(
             "sc_admin_portal.views.oracle_proc.list_pending_approvals",
@@ -160,7 +168,8 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
-    def test_research_post_preview_toggle(self, decisions_mock, jobs_mock):
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
+    def test_research_post_preview_toggle(self, research_mock, decisions_mock, jobs_mock):
         self.client.force_login(self.authorized_user)
         with mock.patch(
             "sc_admin_portal.views.oracle_proc.list_pending_approvals",
@@ -303,7 +312,8 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
-    def test_decisions_applied_marker(self, approvals_mock, jobs_mock):
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
+    def test_decisions_applied_marker(self, research_mock, approvals_mock, jobs_mock):
         self.client.force_login(self.authorized_user)
         with mock.patch(
             "sc_admin_portal.views.oracle_proc.list_recent_decisions",
@@ -327,9 +337,10 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval", return_value=0)
     def test_decision_already_decided_message(
-        self, decide_mock, decisions_mock, approvals_mock, jobs_mock
+        self, decide_mock, research_mock, decisions_mock, approvals_mock, jobs_mock
     ):
         self.client.force_login(self.authorized_user)
         approve_url = reverse(self.approve_url_name, args=[999])
@@ -342,9 +353,10 @@ class AdminPortalAccessTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.decide_approval", side_effect=RuntimeError("boom"))
     def test_reject_exception_shows_banner(
-        self, decide_mock, decisions_mock, approvals_mock, jobs_mock
+        self, decide_mock, research_mock, decisions_mock, approvals_mock, jobs_mock
     ):
         self.client.force_login(self.authorized_user)
         reject_url = reverse(self.reject_url_name, args=[1])
@@ -396,6 +408,75 @@ class AdminPortalAccessTests(TestCase):
         insert_mock.assert_called_once()
         decide_mock.assert_called_once()
         supersede_mock.assert_called_once_with(55, 321)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.create_research_request", return_value=101)
+    def test_create_research_request_prg(self, create_mock):
+        self.client.force_login(self.authorized_user)
+        response = self.client.post(
+            self.portal_url,
+            {
+                "action": "create_research_request",
+                "request_type": "REBALANCE",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("created_request_id=101", response["Location"])
+        create_mock.assert_called_once()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    def test_manual_requests_list_renders(self, decisions_mock, approvals_mock, jobs_mock):
+        self.client.force_login(self.authorized_user)
+        with mock.patch(
+            "sc_admin_portal.views.oracle_proc.list_recent_research_requests",
+            return_value=[
+                {
+                    "request_id": 5,
+                    "request_type": "WEEKLY",
+                    "status": "PENDING",
+                    "created_at": None,
+                    "result_preview": "Approval created: 22",
+                    "approval_id": 22,
+                }
+            ],
+        ):
+            response = self.client.get(self.portal_url)
+        content = response.content.decode("utf-8")
+        self.assertIn("Approval: 22", content)
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    def test_approvals_render_if_research_requests_fail(self, decisions_mock, jobs_mock):
+        self.client.force_login(self.authorized_user)
+        with mock.patch(
+            "sc_admin_portal.views.oracle_proc.list_pending_approvals",
+            return_value=[
+                {
+                    "approval_id": 8,
+                    "source_job_id": None,
+                    "request_type": "RESEARCH_POST",
+                    "title": "Research Post",
+                    "created_at": None,
+                    "summary": "Summary",
+                    "file_name": "report.docx",
+                    "file_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "proposed_text_preview": "",
+                    "details_preview": "Draft insights",
+                    "gemini_comments_preview": "",
+                    "decision_notes_preview": "",
+                }
+            ],
+        ), mock.patch(
+            "sc_admin_portal.views.oracle_proc.list_recent_research_requests",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.get(self.portal_url)
+        content = response.content.decode("utf-8")
+        self.assertIn("report.docx", content)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     def test_resubmit_requires_admin(self):
