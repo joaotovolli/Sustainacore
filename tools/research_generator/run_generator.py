@@ -51,6 +51,22 @@ def _preview_table_markdown(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _retry_delay_seconds(retry_count: int) -> int:
+    if retry_count <= 0:
+        return 120
+    if retry_count == 1:
+        return 300
+    if retry_count == 2:
+        return 900
+    if retry_count == 3:
+        return 1800
+    return 3600
+
+
+def _next_retry_at(retry_count: int) -> dt.datetime:
+    return dt.datetime.utcnow() + dt.timedelta(seconds=_retry_delay_seconds(retry_count))
+
+
 def _build_details(
     bundle: Dict[str, Any],
     draft: Dict[str, Any],
@@ -281,6 +297,13 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
         return 0
 
     for request in requests:
+        if request.next_retry_at and request.next_retry_at > dt.datetime.utcnow():
+            LOGGER.info(
+                "cooldown_active request_id=%s next_retry_at=%s",
+                request.request_id,
+                request.next_retry_at,
+            )
+            continue
         with get_connection() as conn:
             claimed = claim_request(conn, request.request_id)
         if not claimed:
@@ -307,12 +330,20 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
         except Exception as exc:
             message = str(exc)
             if "429" in message or "rate limit" in message.lower():
+                current_retry = int(request.retry_count or 0)
+                new_retry = current_retry + 1
+                next_retry = _next_retry_at(new_retry)
                 with get_connection() as conn:
                     update_request_status(
                         conn,
                         request.request_id,
                         "PENDING",
-                        result_text=f"retryable: {message[:400]}",
+                        result_text=(
+                            f"retryable: rate_limited next_retry_at={next_retry.isoformat()} "
+                            f"retry_count={new_retry} {message[:200]}"
+                        )[:400],
+                        retry_count=new_retry,
+                        next_retry_at=next_retry,
                     )
                 LOGGER.warning("Manual request rate-limited request_id=%s", request.request_id)
                 continue

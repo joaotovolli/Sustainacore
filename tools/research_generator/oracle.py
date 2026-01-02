@@ -36,6 +36,8 @@ class ResearchRequest:
     window_end: Optional[dt.datetime]
     editor_notes: Optional[str]
     source_approval_id: Optional[int]
+    retry_count: Optional[int]
+    next_retry_at: Optional[dt.datetime]
     created_by: Optional[str]
     created_at: Optional[dt.datetime]
     updated_at: Optional[dt.datetime]
@@ -178,9 +180,11 @@ def fetch_pending_requests(conn, limit: int = 5) -> List[ResearchRequest]:
         """
         SELECT request_id, status, request_type, company_ticker,
                window_start, window_end, editor_notes, source_approval_id,
+               retry_count, next_retry_at,
                created_by, created_at, updated_at, result_text
           FROM proc_research_requests
          WHERE UPPER(TRIM(status)) = 'PENDING'
+           AND (next_retry_at IS NULL OR next_retry_at <= SYSTIMESTAMP)
          ORDER BY created_at ASC, request_id ASC
          FETCH FIRST :limit ROWS ONLY
         """,
@@ -199,10 +203,12 @@ def fetch_pending_requests(conn, limit: int = 5) -> List[ResearchRequest]:
                 window_end=row[5],
                 editor_notes=_read_lob(row[6]),
                 source_approval_id=row[7],
-                created_by=row[8],
-                created_at=row[9],
-                updated_at=row[10],
-                result_text=_read_lob(row[11]),
+                retry_count=row[8],
+                next_retry_at=row[9],
+                created_by=row[10],
+                created_at=row[11],
+                updated_at=row[12],
+                result_text=_read_lob(row[13]),
             )
         )
     return payload
@@ -233,6 +239,8 @@ def update_request_status(
     status: str,
     *,
     result_text: Optional[str] = None,
+    retry_count: Optional[int] = None,
+    next_retry_at: Optional[dt.datetime] = None,
 ) -> None:
     cur = conn.cursor()
     cur.execute(
@@ -240,12 +248,16 @@ def update_request_status(
         UPDATE proc_research_requests
            SET status = :status,
                result_text = :result_text,
+               retry_count = COALESCE(:retry_count, retry_count),
+               next_retry_at = :next_retry_at,
                updated_at = SYSTIMESTAMP
          WHERE request_id = :request_id
         """,
         {
             "status": status,
             "result_text": result_text,
+            "retry_count": retry_count,
+            "next_retry_at": next_retry_at,
             "request_id": request_id,
         },
     )
