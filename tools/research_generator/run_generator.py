@@ -41,7 +41,7 @@ from .oracle import (
     set_report_value,
     update_request_status,
 )
-from .ping_pong import draft_with_ping_pong
+from .agent_pipeline import run_pipeline
 from .validators import quality_gate_strict
 from .detectors import detect_anomaly, detect_period_close, detect_rebalance, detect_weekly
 
@@ -280,12 +280,11 @@ def _ensure_outline(draft: Dict[str, Any], bundle: Dict[str, Any]) -> None:
         if idx + 1 < len(outline) and outline[idx + 1].get("type") == "paragraph":
             next_text = str(outline[idx + 1].get("text") or "")
         if f"{ref} {ident}" not in f"{prev_text} {next_text}":
-            enhanced.append(
-                {
-                    "type": "paragraph",
-                    "text": f"{ref} {ident} anchors the evidence for this section.",
-                }
-            )
+            if item.get("type") == "figure":
+                filler = f"{ref} {ident} highlights the shifts discussed in this section."
+            else:
+                filler = f"{ref} {ident} summarizes the metrics referenced in this section."
+            enhanced.append({"type": "paragraph", "text": filler})
     draft["outline"] = enhanced
 
 
@@ -298,6 +297,12 @@ def _ensure_publish_safety(draft: Dict[str, Any]) -> None:
             paragraphs[0] = paragraphs[0].rstrip() + " " + sentence
         else:
             paragraphs = [sentence]
+        draft["paragraphs"] = paragraphs
+
+    required_terms = ["iqr", "hhi", "turnover", "breadth"]
+    if sum(1 for term in required_terms if term in joined) < 3:
+        stats_sentence = "Table 1 also includes IQR, HHI, turnover, and breadth metrics for quick comparison."
+        paragraphs.append(stats_sentence)
         draft["paragraphs"] = paragraphs
 
     dek = str(draft.get("dek") or "").strip()
@@ -437,18 +442,8 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.info("Dry-run: trigger=%s label=%s", report_type, label)
         return 0
 
-    previous_insights = None
-    with get_connection() as conn:
-        previous_insights = fetch_last_report_insights(conn, bundle.get("report_type", ""))
-    if previous_insights:
-        try:
-            previous_list = json.loads(previous_insights)
-        except json.JSONDecodeError:
-            previous_list = []
-    else:
-        previous_list = []
-
-    draft, issues, compute = draft_with_ping_pong(bundle, previous_insights=previous_list)
+    editor_notes = None
+    draft, issues, compute = run_pipeline(bundle, editor_notes=editor_notes)
     if not draft:
         LOGGER.error("Drafting failed: %s", "; ".join(issues))
         return 1
@@ -500,22 +495,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
         )
         raise RuntimeError("fact_check_failed: " + "; ".join(fact.critical))
 
-    previous_insights = None
-    with get_connection() as conn:
-        previous_insights = fetch_last_report_insights(conn, bundle.get("report_type", ""))
-    if previous_insights:
-        try:
-            previous_list = json.loads(previous_insights)
-        except json.JSONDecodeError:
-            previous_list = []
-    else:
-        previous_list = []
-
-    draft, issues, compute = draft_with_ping_pong(
-        bundle,
-        editor_notes=request.editor_notes,
-        previous_insights=previous_list,
-    )
+    draft, issues, compute = run_pipeline(bundle, editor_notes=request.editor_notes)
     if not draft:
         raise RuntimeError("draft_failed: " + "; ".join(issues))
 

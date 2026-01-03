@@ -21,3 +21,13 @@ def test_linearize_strips_filler_and_inserts_markers():
     assert "provides the detailed breakdown" not in text.lower()
     assert "[INSERT FIGURE 1" in text
     assert "[INSERT TABLE 1" in text
+
+
+def test_pipeline_rewrite_loop_on_blocker():
+    from tools.research_generator.agent_pipeline import _has_blocker
+
+    issues = [
+        {"severity": "WARN", "issue": "ok"},
+        {"severity": "BLOCKER", "issue": "bad"},
+    ]
+    assert _has_blocker(issues)

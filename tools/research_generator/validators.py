@@ -149,10 +149,14 @@ def quality_gate_strict(
         "key takeaways",
         "needs review",
         "provides the detailed breakdown",
+        "anchors the evidence",
     ]
     for phrase in forbidden:
         if phrase in paragraphs or phrase in headline.lower() or phrase in dek.lower():
             issues.append(f"forbidden_phrase:{phrase}")
+
+    if re.search(r"\d+\.\s+\d+", body_text):
+        issues.append("spaced_decimal")
 
     if dek:
         words = _word_count(dek)
