@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
 import db_helper
+from . import config
 from tools.oracle.env_bootstrap import load_env_files
 
 LOGGER = logging.getLogger("research_generator.oracle")
@@ -82,6 +83,20 @@ def table_exists(conn, table_name: str) -> bool:
     )
     row = cur.fetchone()
     return bool(row and row[0])
+
+
+def _get_table_columns(conn, table_name: str) -> set[str]:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT column_name
+          FROM all_tab_columns
+         WHERE table_name = :table_name
+           AND owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
+        """,
+        {"table_name": table_name.upper()},
+    )
+    return {row[0].lower() for row in cur.fetchall()}
 
 
 def ensure_proc_reports(conn) -> None:
@@ -322,6 +337,9 @@ def fetch_latest_port_dates(conn, limit: int = 2) -> List[dt.date]:
 
 def fetch_rebalance_rows(conn, port_date: dt.date) -> List[Dict[str, Any]]:
     cur = conn.cursor()
+    columns = _get_table_columns(conn, "TECH11_AI_GOV_ETH_INDEX")
+    optional_cols = [col for col in config.PILLAR_COLUMNS if col in columns]
+    optional_select = "".join([f", {col}" for col in optional_cols])
     cur.execute(
         """
         SELECT company_name,
@@ -331,15 +349,20 @@ def fetch_rebalance_rows(conn, port_date: dt.date) -> List[Dict[str, Any]]:
                aiges_composite_average,
                summary,
                source_links
+               {optional_select}
           FROM tech11_ai_gov_eth_index
          WHERE port_date = :port_date
          ORDER BY port_weight DESC
-        """,
+        """.format(optional_select=optional_select),
         {"port_date": port_date},
     )
     rows = cur.fetchall()
     payload = []
     for row in rows:
+        offset = 7
+        pillar_values: Dict[str, Any] = {}
+        for idx, col in enumerate(optional_cols):
+            pillar_values[col] = row[offset + idx]
         payload.append(
             {
                 "company": row[0],
@@ -349,6 +372,7 @@ def fetch_rebalance_rows(conn, port_date: dt.date) -> List[Dict[str, Any]]:
                 "aiges": row[4],
                 "summary": _read_lob(row[5]),
                 "sources": _read_lob(row[6]),
+                **pillar_values,
             }
         )
     return payload

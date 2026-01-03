@@ -73,6 +73,7 @@ def _build_details(
     chart_name: str,
     *,
     regenerated_from: Optional[int] = None,
+    analysis_notes: Optional[list[str]] = None,
 ) -> str:
     details = {
         "report_type": bundle.get("report_type"),
@@ -83,6 +84,9 @@ def _build_details(
         },
         "chart_filename": chart_name,
         "preview_table": _preview_table_markdown(bundle.get("table_rows", [])),
+        "metrics": bundle.get("metrics"),
+        "analysis_notes": analysis_notes or [],
+        "csv_extracts": bundle.get("csv_extracts"),
         "provenance": [
             "TECH11_AI_GOV_ETH_INDEX",
             "SC_IDX_LEVELS",
@@ -191,6 +195,7 @@ def _create_approval(
     report_key: str,
     *,
     regenerated_from: Optional[int] = None,
+    analysis_notes: Optional[list[str]] = None,
 ) -> int:
     output_dir = config.DEFAULT_OUTPUT_DIR
     docx_payload = build_docx(draft, bundle, report_key, output_dir)
@@ -200,6 +205,7 @@ def _create_approval(
         draft,
         os.path.basename(docx_payload["chart_path"]),
         regenerated_from=regenerated_from,
+        analysis_notes=analysis_notes,
     )
 
     payload = {
@@ -246,12 +252,12 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.info("Dry-run: trigger=%s label=%s", report_type, label)
         return 0
 
-    draft, issues = draft_with_ping_pong(bundle)
+    draft, issues, compute = draft_with_ping_pong(bundle)
     if not draft:
         LOGGER.error("Drafting failed: %s", "; ".join(issues))
         return 1
 
-    approval_id = _create_approval(bundle, draft, report_key)
+    approval_id = _create_approval(bundle, draft, report_key, analysis_notes=(compute or {}).get("analysis_notes"))
     if approval_id:
         store_value = label or (bundle.get("window") or {}).get("end") or now.strftime("%Y-%m-%d")
         _store_report_state(report_type, store_value)
@@ -268,7 +274,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
     if err or not bundle:
         raise RuntimeError(err or "bundle_error")
 
-    draft, issues = draft_with_ping_pong(bundle, editor_notes=request.editor_notes)
+    draft, issues, compute = draft_with_ping_pong(bundle, editor_notes=request.editor_notes)
     if not draft:
         raise RuntimeError("draft_failed: " + "; ".join(issues))
 
@@ -281,6 +287,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
         draft,
         report_key,
         regenerated_from=request.source_approval_id,
+        analysis_notes=(compute or {}).get("analysis_notes"),
     )
     return approval_id
 
