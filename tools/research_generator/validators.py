@@ -154,7 +154,7 @@ def quality_gate_strict(
                     break
             if sector_table:
                 for row in sector_table.get("rows", []):
-                    if row.get("Sector") in flagged and row.get("Coverage Count Delta") != "FLAG":
+                    if row.get("Sector") in flagged and row.get("Coverage Count Delta") != "Not comparable":
                         issues.append("sector_delta_flag_missing")
                         break
 

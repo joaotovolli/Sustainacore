@@ -1,6 +1,7 @@
 import datetime as dt
 
 from tools.research_generator import analysis
+from tools.research_generator import ping_pong
 from tools.research_generator.validators import quality_gate_strict
 
 
@@ -54,3 +55,20 @@ def test_quality_gate_requires_coverage_mean():
     ok, issues = quality_gate_strict(bundle.to_dict(), writer, {"validation_flags": {}}, {"table_style_applied": True})
     assert not ok
     assert "coverage_mean_missing" in issues
+
+
+def test_weight_delta_pp_units():
+    latest = [
+        _row("Alpha", "AAA", 0.02, "Tech", 80),
+    ]
+    prev = [
+        _row("Alpha", "AAA", 0.04, "Tech", 78),
+    ]
+    movers = analysis._build_movers(latest, prev)
+    incumbent = movers["incumbent_weight"][0]
+    delta_pp = round(incumbent["delta_weight"] * 100, 2)
+    assert delta_pp == -2.0
+
+
+def test_sanitize_removes_needs_review():
+    assert "needs review" not in ping_pong._sanitize_text("Needs review: automated checks flagged")

@@ -270,49 +270,106 @@ def _fmt_score(value: Optional[float], digits: int = 2) -> str:
     return f"{value:.{digits}f}"
 
 
-def _build_top_movers(
+def _fmt_delta_pp(value: Optional[float], digits: int = 1) -> str:
+    if value is None:
+        return ""
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{value:.{digits}f}pp"
+
+
+def _truncate_text(text: str, limit: int = 160) -> str:
+    payload = (text or "").strip()
+    if len(payload) <= limit:
+        return payload
+    trimmed = payload[: limit + 1].rsplit(" ", 1)[0]
+    if not trimmed:
+        trimmed = payload[:limit]
+    return trimmed.rstrip() + "..."
+
+
+def _build_movers(
     latest: List[Dict[str, Any]],
     previous: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+) -> Dict[str, List[Dict[str, Any]]]:
     prev_by_ticker = {row.get("ticker"): row for row in previous if row.get("ticker")}
     latest_by_ticker = {row.get("ticker"): row for row in latest if row.get("ticker")}
     all_tickers = set(prev_by_ticker) | set(latest_by_ticker)
-    weight_moves: List[Dict[str, Any]] = []
-    score_moves: List[Dict[str, Any]] = []
+
+    entrants: List[Dict[str, Any]] = []
+    exits: List[Dict[str, Any]] = []
+    incumbent_score: List[Dict[str, Any]] = []
+    incumbent_weight: List[Dict[str, Any]] = []
+
     for ticker in all_tickers:
-        row = latest_by_ticker.get(ticker) or prev_by_ticker.get(ticker) or {}
         prev = prev_by_ticker.get(ticker)
         latest_row = latest_by_ticker.get(ticker)
-        weight_old = _safe_float(prev.get("weight")) if prev else 0.0
-        weight_new = _safe_float(latest_row.get("weight") if latest_row else 0.0)
-        score_old = _safe_float(prev.get("aiges")) if prev else 0.0
-        score_new = _safe_float(latest_row.get("aiges") if latest_row else 0.0)
-        weight_moves.append(
-            {
-                "ticker": ticker,
-                "company": row.get("company"),
-                "sector": row.get("sector") or "Unknown",
-                "delta_weight": round(weight_new - weight_old, 6),
-                "weight_prev": round(weight_old, 6),
-                "weight_new": round(weight_new, 6),
-                "summary": row.get("summary") or "",
-            }
-        )
-        if row.get("aiges") is not None:
-            score_moves.append(
+        prev_weight = _safe_float(prev.get("weight")) if prev else 0.0
+        new_weight = _safe_float(latest_row.get("weight") if latest_row else 0.0)
+        prev_score = _safe_float(prev.get("aiges")) if prev else None
+        new_score = _safe_float(latest_row.get("aiges")) if latest_row else None
+        row = latest_row or prev or {}
+        summary = _truncate_text(row.get("summary") or "")
+
+        if prev_weight <= config.CORE_WEIGHT_THRESHOLD and new_weight > config.CORE_WEIGHT_THRESHOLD:
+            entrants.append(
                 {
                     "ticker": ticker,
                     "company": row.get("company"),
                     "sector": row.get("sector") or "Unknown",
-                    "delta_aiges": round(score_new - score_old, 2),
-                    "aiges_prev": round(score_old, 2),
-                    "aiges_new": round(score_new, 2),
-                    "summary": row.get("summary") or "",
+                    "weight_new": new_weight,
+                    "aiges_new": new_score,
+                    "summary": summary,
                 }
             )
-    weight_moves.sort(key=lambda r: abs(_safe_float(r.get("delta_weight"))), reverse=True)
-    score_moves.sort(key=lambda r: abs(_safe_float(r.get("delta_aiges"))), reverse=True)
-    return weight_moves[:10], score_moves[:10]
+            continue
+        if prev_weight > config.CORE_WEIGHT_THRESHOLD and new_weight <= config.CORE_WEIGHT_THRESHOLD:
+            exits.append(
+                {
+                    "ticker": ticker,
+                    "company": row.get("company"),
+                    "sector": row.get("sector") or "Unknown",
+                    "weight_prev": prev_weight,
+                    "aiges_prev": prev_score,
+                    "summary": summary,
+                }
+            )
+            continue
+
+        if prev_weight > config.CORE_WEIGHT_THRESHOLD and new_weight > config.CORE_WEIGHT_THRESHOLD:
+            if new_score is not None and prev_score is not None:
+                incumbent_score.append(
+                    {
+                        "ticker": ticker,
+                        "company": row.get("company"),
+                        "sector": row.get("sector") or "Unknown",
+                        "delta_aiges": round(new_score - prev_score, 2),
+                        "aiges_prev": round(prev_score, 2),
+                        "aiges_new": round(new_score, 2),
+                        "summary": summary,
+                    }
+                )
+            incumbent_weight.append(
+                {
+                    "ticker": ticker,
+                    "company": row.get("company"),
+                    "sector": row.get("sector") or "Unknown",
+                    "delta_weight": round(new_weight - prev_weight, 6),
+                    "weight_prev": round(prev_weight, 6),
+                    "weight_new": round(new_weight, 6),
+                    "summary": summary,
+                }
+            )
+
+    entrants.sort(key=lambda r: r.get("weight_new") or 0.0, reverse=True)
+    exits.sort(key=lambda r: r.get("weight_prev") or 0.0, reverse=True)
+    incumbent_score.sort(key=lambda r: abs(_safe_float(r.get("delta_aiges"))), reverse=True)
+    incumbent_weight.sort(key=lambda r: abs(_safe_float(r.get("delta_weight"))), reverse=True)
+    return {
+        "entrants": entrants[:10],
+        "exits": exits[:10],
+        "incumbent_score": incumbent_score[:10],
+        "incumbent_weight": incumbent_weight[:10],
+    }
 
 
 def build_rebalance_bundle(
@@ -378,7 +435,7 @@ def build_rebalance_bundle(
     breadth_pct = _compute_breadth(latest_core, prev_core)
     turnover = _compute_turnover(latest_core, prev_core)
 
-    weight_moves, score_moves = _build_top_movers(latest_core, prev_core)
+    movers = _build_movers(latest_core, prev_core)
 
     avg_aiges = weighted_mean_core
     mean_gap = round(weighted_mean_core - stats_cov["mean"], 2) if stats_cov["mean"] is not None else None
@@ -455,7 +512,7 @@ def build_rebalance_bundle(
         count_delta = coverage_count_delta.get(sector, 0.0)
         count_delta_display = round(count_delta, 2)
         if sector in inconsistent_sectors:
-            count_delta_display = "FLAG"
+            count_delta_display = "Not comparable"
         sector_rows.append(
             {
                 "Sector": sector,
@@ -481,35 +538,52 @@ def build_rebalance_bundle(
     notable_sector_moves = sector_move_candidates[:3]
     notable_sector_divergence = divergence_candidates[:3]
 
-    movers_rows = []
-    for idx, row in enumerate(score_moves, start=1):
-        support = row.get("summary", "")
-        movers_rows.append(
-            {
-                "Type": "Score",
-                "Rank": idx,
-                "Ticker": row.get("ticker"),
-                "Company": row.get("company"),
-                "Sector": row.get("sector"),
-                "Delta Score": row.get("delta_aiges"),
-                "Delta Weight %": None,
-                "Support Short": support[:120] if idx <= 3 and support else "",
-            }
-        )
-    for idx, row in enumerate(weight_moves, start=1):
-        support = row.get("summary", "")
-        movers_rows.append(
-            {
-                "Type": "Weight",
-                "Rank": idx,
-                "Ticker": row.get("ticker"),
-                "Company": row.get("company"),
-                "Sector": row.get("sector"),
-                "Delta Score": None,
-                "Delta Weight %": round((_safe_float(row.get("delta_weight")) * 100), 2),
-                "Support Short": support[:120] if idx <= 3 and support else "",
-            }
-        )
+    entrants_rows = [
+        {
+            "Company": row.get("company"),
+            "Ticker": row.get("ticker"),
+            "Sector": row.get("sector"),
+            "New Weight %": round((_safe_float(row.get("weight_new")) * 100), 2),
+            "Composite Score": row.get("aiges_new"),
+            "Support Short": row.get("summary") or "",
+        }
+        for row in movers["entrants"]
+    ]
+    exits_rows = [
+        {
+            "Company": row.get("company"),
+            "Ticker": row.get("ticker"),
+            "Sector": row.get("sector"),
+            "Prev Weight %": round((_safe_float(row.get("weight_prev")) * 100), 2),
+            "Composite Score": row.get("aiges_prev"),
+            "Support Short": row.get("summary") or "",
+        }
+        for row in movers["exits"]
+    ]
+    incumbent_score_rows = [
+        {
+            "Company": row.get("company"),
+            "Ticker": row.get("ticker"),
+            "Sector": row.get("sector"),
+            "Delta Score": row.get("delta_aiges"),
+            "Prev Score": row.get("aiges_prev"),
+            "New Score": row.get("aiges_new"),
+            "Support Short": row.get("summary") or "",
+        }
+        for row in movers["incumbent_score"]
+    ]
+    incumbent_weight_rows = [
+        {
+            "Company": row.get("company"),
+            "Ticker": row.get("ticker"),
+            "Sector": row.get("sector"),
+            "Delta Weight (pp)": round((_safe_float(row.get("delta_weight")) * 100), 2),
+            "Prev Weight %": round((_safe_float(row.get("weight_prev")) * 100), 2),
+            "New Weight %": round((_safe_float(row.get("weight_new")) * 100), 2),
+            "Support Short": row.get("summary") or "",
+        }
+        for row in movers["incumbent_weight"]
+    ]
 
     core_mean = round(weighted_mean_core, 2)
     cov_mean = round(stats_cov["mean"], 2) if stats_cov["mean"] is not None else None
@@ -540,15 +614,15 @@ def build_rebalance_bundle(
         )
 
     movers_callouts = []
-    for row in score_moves[:3]:
+    for row in movers["incumbent_score"][:3]:
         delta_score = row.get("delta_aiges")
         delta_score_str = f"{delta_score:+.2f}" if isinstance(delta_score, (int, float)) else ""
         movers_callouts.append(
             f"Score mover {row.get('ticker')} ({row.get('sector')}): {delta_score_str} vs prior."
         )
-    for row in weight_moves[:3]:
+    for row in movers["incumbent_weight"][:3]:
         movers_callouts.append(
-            f"Weight mover {row.get('ticker')} ({row.get('sector')}): {_fmt_delta_pct((row.get('delta_weight') or 0) * 100, 2)}."
+            f"Weight mover {row.get('ticker')} ({row.get('sector')}): {_fmt_delta_pp((row.get('delta_weight') or 0) * 100, 1)}."
         )
 
     chart_sector = {
@@ -630,15 +704,20 @@ def build_rebalance_bundle(
             "notable_divergence": notable_sector_divergence,
         },
         "top_movers": {
-            "weight": weight_moves,
-            "score": score_moves,
+            "entrants": movers["entrants"],
+            "exits": movers["exits"],
+            "incumbent_score": movers["incumbent_score"],
+            "incumbent_weight": movers["incumbent_weight"],
         },
         "core_rank_by_aiges": _rank_core_by_aiges(latest_core),
     }
 
     csv_extracts = {
         "sector_exposure": _rows_to_csv(sector_rows),
-        "top_movers": _rows_to_csv(movers_rows),
+        "core_entrants": _rows_to_csv(entrants_rows),
+        "core_exits": _rows_to_csv(exits_rows),
+        "incumbent_score_movers": _rows_to_csv(incumbent_score_rows),
+        "incumbent_weight_movers": _rows_to_csv(incumbent_weight_rows),
         "summary": _rows_to_csv(summary_table),
     }
 
@@ -675,19 +754,31 @@ def build_rebalance_bundle(
         "Coverage Count New %": 1.1,
         "Coverage Count Delta": 1.1,
     }
-    movers_formats = {
+    entrants_formats = {"New Weight %": "pct", "Composite Score": "score"}
+    exits_formats = {"Prev Weight %": "pct", "Composite Score": "score"}
+    incumbent_score_formats = {
         "Delta Score": "score_signed",
-        "Delta Weight %": "delta_pct",
+        "Prev Score": "score",
+        "New Score": "score",
+    }
+    incumbent_weight_formats = {
+        "Delta Weight (pp)": "delta_pp",
+        "Prev Weight %": "pct",
+        "New Weight %": "pct",
     }
     movers_widths = {
-        "Type": 0.7,
-        "Rank": 0.5,
-        "Ticker": 0.7,
         "Company": 1.6,
+        "Ticker": 0.7,
         "Sector": 1.0,
         "Delta Score": 0.9,
-        "Delta Weight %": 0.9,
-        "Support Short": 2.4,
+        "Prev Score": 0.8,
+        "New Score": 0.8,
+        "Delta Weight (pp)": 0.9,
+        "Prev Weight %": 0.9,
+        "New Weight %": 0.9,
+        "New Weight %": 0.9,
+        "Composite Score": 0.9,
+        "Support Short": 2.2,
     }
 
     bundle = AnalysisBundle(
@@ -729,17 +820,41 @@ def build_rebalance_bundle(
                 "callouts": sector_callouts,
                 "highlight_rules": [
                     {"column": "Core Weighted Delta", "abs_gte": 4.0, "color": "FFF2CC"},
-                    {"column": "Coverage Count Delta", "column_value": "FLAG", "color": "F8D7DA"},
+                    {"column": "Coverage Count Delta", "column_value": "Not comparable", "color": "F8D7DA"},
                 ],
             },
             {
-                "title": "Top Movers",
-                "rows": movers_rows,
-                "formats": movers_formats,
+                "title": "Core Entrants (New to core)",
+                "rows": entrants_rows,
+                "formats": entrants_formats,
                 "column_widths": movers_widths,
-                "callouts": movers_callouts,
+                "callouts": movers_callouts[:3],
+            },
+            {
+                "title": "Core Exits (Removed from core)",
+                "rows": exits_rows,
+                "formats": exits_formats,
+                "column_widths": movers_widths,
+                "callouts": movers_callouts[:3],
+            },
+            {
+                "title": "Incumbent Score Movers (Comparable)",
+                "rows": incumbent_score_rows,
+                "formats": incumbent_score_formats,
+                "column_widths": movers_widths,
+                "callouts": movers_callouts[:3],
                 "highlight_rules": [
-                    {"column": "Rank", "lte": 3, "color": "E2F0D9"},
+                    {"column": "Delta Score", "abs_gte": 10.0, "color": "E2F0D9"},
+                ],
+            },
+            {
+                "title": "Incumbent Weight Movers (Comparable)",
+                "rows": incumbent_weight_rows,
+                "formats": incumbent_weight_formats,
+                "column_widths": movers_widths,
+                "callouts": movers_callouts[:3],
+                "highlight_rules": [
+                    {"column": "Delta Weight (pp)", "abs_gte": 4.0, "color": "FFF2CC"},
                 ],
             },
         ],
