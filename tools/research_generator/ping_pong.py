@@ -43,7 +43,12 @@ def _bundle_context(bundle: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def run_gpt_compute(bundle: Dict[str, Any], editor_notes: Optional[str] = None) -> Dict[str, Any]:
+def run_gpt_compute(
+    bundle: Dict[str, Any],
+    editor_notes: Optional[str] = None,
+    *,
+    avoid_insights: Optional[list[str]] = None,
+) -> Dict[str, Any]:
     schema = {
         "analysis_notes": ["bullet insights with numbers"],
         "table_caption": "string",
@@ -52,16 +57,23 @@ def run_gpt_compute(bundle: Dict[str, Any], editor_notes: Optional[str] = None) 
         "narrative_table": "markdown",
         "table_callouts": {"Table Name": ["callouts"]},
         "figure_callouts": {"Figure Name": ["callouts"]},
+        "selected_insights": ["titles"],
+        "outline": [{"type": "paragraph|figure|table", "id": 1, "text": "string"}],
     }
     notes = editor_notes.strip() if editor_notes else ""
+    avoid = avoid_insights or []
     prompt = (
         "You are the COMPUTE step. Use only the bundle data. Output JSON only. "
         "Generate analysis_notes with concrete stats (IQR, HHI, turnover, breadth). "
         "Flag sector delta inconsistencies if present. "
+        "Select 6-8 insights from the candidate list and avoid repeating prior insights. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nBundle:\n"
         + json.dumps(_bundle_context(bundle))
+        + "\nInsight candidates:\n"
+        + json.dumps(bundle.get("insight_candidates") or [])
+        + ("\nAvoid insights:\n" + json.dumps(avoid) if avoid else "")
         + ("\nEditor instructions:\n" + notes if notes else "")
     )
     messages = [{"role": "user", "content": prompt}]
@@ -201,11 +213,49 @@ def _remove_external_claims(text: str) -> str:
     return ". ".join(kept) + ("." if kept else "")
 
 
+def _sanitize_forbidden_phrases(text: str) -> str:
+    replacements = {
+        "chart above": "Figure 1",
+        "table above": "Table 1",
+        "figure below": "Figure 1",
+        "table below": "Table 1",
+        "what it shows": "summary",
+    }
+    value = text or ""
+    for phrase, replacement in replacements.items():
+        value = value.replace(phrase, replacement)
+        value = value.replace(phrase.title(), replacement)
+        value = value.replace(phrase.upper(), replacement)
+    return value
+
+
+def _outline_has_artifacts(outline: list[dict[str, Any]], *, figures: int, tables: int) -> bool:
+    if not outline:
+        return False
+    def _valid_id(item: dict[str, Any], max_id: int) -> bool:
+        try:
+            value = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            return False
+        return 1 <= value <= max_id
+
+    has_fig = any(item.get("type") == "figure" and _valid_id(item, figures) for item in outline)
+    has_tbl = any(item.get("type") == "table" and _valid_id(item, tables) for item in outline)
+    if figures > 0 and not has_fig:
+        return False
+    if tables > 0 and not has_tbl:
+        return False
+    return True
+
+
 def _sanitize_writer(writer: Dict[str, Any]) -> Dict[str, Any]:
-    writer["headline"] = _sanitize_text(writer.get("headline") or "")
+    writer["headline"] = _sanitize_forbidden_phrases(_sanitize_text(writer.get("headline") or ""))
     paragraphs = [_sanitize_text(str(p)) for p in (writer.get("paragraphs") or []) if p]
     paragraphs = [_remove_external_claims(p) for p in paragraphs if p]
+    paragraphs = [_sanitize_forbidden_phrases(p) for p in paragraphs if p]
     writer["paragraphs"] = _inject_definitions(paragraphs)
+    if writer.get("standfirst"):
+        writer["standfirst"] = _sanitize_forbidden_phrases(str(writer.get("standfirst")))
     return writer
 
 
@@ -243,8 +293,9 @@ def _inject_definitions(paragraphs: list[str]) -> list[str]:
             for p in paragraphs
         ]
     elif "the Coverage set (the full 100-name monitoring universe, including zero-weight names)" not in joined:
-        paragraphs.append(
-            "The Coverage set (the full 100-name monitoring universe, including zero-weight names) provides the broader benchmark."
+        paragraphs[0] = (
+            paragraphs[0]
+            + " The Coverage set (the full 100-name monitoring universe, including zero-weight names) provides the broader benchmark."
         )
     if "the quarterly rebalance (composition/weights refresh)" not in joined and re.search(r"\brebalance\b", joined, re.IGNORECASE):
         paragraphs = [
@@ -268,6 +319,7 @@ def run_publisher(bundle: Dict[str, Any], compute: Dict[str, Any], draft: Dict[s
         "paragraphs": ["2-4 paragraphs"],
         "table_caption": "string",
         "chart_caption": "string",
+        "outline": [{"type": "paragraph|figure|table", "id": 1, "text": "string"}],
     }
     prompt = (
         "You are the SENIOR PUBLISHER. Output JSON only. "
@@ -280,10 +332,11 @@ def run_publisher(bundle: Dict[str, Any], compute: Dict[str, Any], draft: Dict[s
         "When rebalance appears first time, write 'the quarterly rebalance (composition/weights refresh)'. "
         "Use this structure: headline, standfirst, key takeaways (3 bullets), paragraph 1 (what changed), "
         "paragraph 2 (sector shifts referencing Figure 1), paragraph 3 (distribution/dispersion referencing Figure 2), "
-        "paragraph 4 (movers referencing the mover tables), closing method note (1-2 sentences). "
+        "paragraph 4 (membership/sector turnover and mover tables), closing method note (1-2 sentences). "
         "Include at least 2 figure references and 2 table references and at least 8 numeric values. "
         "Add a short 'why it matters' line tied to governance/regulatory readiness, using only computed metrics. "
         "Explicitly mention Coverage at least once. "
+        "Forbidden phrases: 'chart above', 'table above', 'what it shows', 'key takeaways'. "
         "No investment advice, no stock prices, no external claims. "
         "Schema:\n"
         + json.dumps(schema)
@@ -300,16 +353,44 @@ def run_publisher(bundle: Dict[str, Any], compute: Dict[str, Any], draft: Dict[s
     return run_gpt_json(messages, timeout=70.0)
 
 
+def _default_outline(paragraphs: list[str], *, figures: int, tables: int) -> list[dict[str, Any]]:
+    outline: list[dict[str, Any]] = []
+    fig_id = 1
+    tbl_id = 1
+    for idx, para in enumerate(paragraphs):
+        outline.append({"type": "paragraph", "text": para})
+        if idx == 1 and fig_id <= figures:
+            outline.append({"type": "figure", "id": fig_id})
+            fig_id += 1
+        if idx == 2 and tbl_id <= tables:
+            outline.append({"type": "table", "id": tbl_id})
+            tbl_id += 1
+        if idx == 3 and tbl_id <= tables:
+            outline.append({"type": "table", "id": tbl_id})
+            tbl_id += 1
+    while fig_id <= figures:
+        outline.append({"type": "figure", "id": fig_id})
+        fig_id += 1
+    while tbl_id <= tables:
+        outline.append({"type": "table", "id": tbl_id})
+        tbl_id += 1
+    return outline
+
+
 def draft_with_ping_pong(
     bundle: Dict[str, Any],
     *,
     editor_notes: Optional[str] = None,
+    previous_insights: Optional[list[str]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], list[str], Optional[Dict[str, Any]]]:
     issues: list[str] = []
     compute: Dict[str, Any] = {}
 
+    def _compute_with_avoid(avoid: Optional[list[str]] = None) -> Dict[str, Any]:
+        return run_gpt_compute(bundle, editor_notes=editor_notes, avoid_insights=avoid)
+
     try:
-        compute = run_gpt_compute(bundle, editor_notes=editor_notes)
+        compute = _compute_with_avoid()
     except GPTClientError as exc:
         append_note(failure_type="gpt_compute_failed", fix_hint=str(exc)[:120], report_type=bundle.get("report_type", ""))
         compute = {
@@ -329,6 +410,19 @@ def draft_with_ping_pong(
     if "sector_delta_inconsistent" not in compute["validation_flags"]:
         flags = (bundle.get("metrics") or {}).get("sector_exposure", {}).get("core_count_delta_flags") or []
         compute["validation_flags"]["sector_delta_inconsistent"] = bool(flags)
+    if "selected_insights" not in compute:
+        compute["selected_insights"] = [item.get("title") for item in (bundle.get("insight_candidates") or [])][:6]
+
+    prev = previous_insights or []
+    if prev:
+        overlap = len(set(compute.get("selected_insights", [])) & set(prev)) / max(
+            len(compute.get("selected_insights", [])), 1
+        )
+        if overlap > 0.7:
+            try:
+                compute = _compute_with_avoid(prev)
+            except GPTClientError:
+                pass
 
     retries = 0
     last_writer: Optional[Dict[str, Any]] = None
@@ -384,7 +478,24 @@ def draft_with_ping_pong(
                     "table_caption": published.get("table_caption") or writer.get("table_caption"),
                     "chart_caption": published.get("chart_caption") or writer.get("chart_caption"),
                     "compliance_checklist": writer.get("compliance_checklist") or {},
+                    "outline": published.get("outline"),
                 }
+                if not final_writer.get("outline"):
+                    final_writer["outline"] = _default_outline(
+                        final_writer["paragraphs"],
+                        figures=len(bundle.get("docx_charts") or []),
+                        tables=len(bundle.get("docx_tables") or []),
+                    )
+                if not _outline_has_artifacts(
+                    final_writer.get("outline") or [],
+                    figures=len(bundle.get("docx_charts") or []),
+                    tables=len(bundle.get("docx_tables") or []),
+                ):
+                    final_writer["outline"] = _default_outline(
+                        final_writer["paragraphs"],
+                        figures=len(bundle.get("docx_charts") or []),
+                        tables=len(bundle.get("docx_tables") or []),
+                    )
                 return _sanitize_writer(final_writer), [], compute
             except GPTClientError as exc:
                 append_note(

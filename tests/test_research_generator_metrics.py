@@ -3,6 +3,7 @@ import datetime as dt
 from tools.research_generator import analysis
 from tools.research_generator import ping_pong
 from tools.research_generator.validators import quality_gate_strict
+from tools.research_generator.validators import quality_gate_strict
 
 
 def _row(company, ticker, weight, sector, aiges):
@@ -78,3 +79,14 @@ def test_remove_external_claims():
     text = "Industry reports indicate progress. Core metrics show change."
     cleaned = ping_pong._remove_external_claims(text)
     assert "Industry reports" not in cleaned
+
+
+def test_quality_gate_forbids_phrases():
+    bundle = {"report_type": "REBALANCE", "docx_tables": [], "metrics": {"coverage": {"mean_aiges": 1}}}
+    writer = {
+        "paragraphs": ["The chart above shows results. Table above lists metrics."],
+        "outline": [],
+    }
+    ok, issues = quality_gate_strict(bundle, writer, {"validation_flags": {}}, {"table_style_applied": True})
+    assert not ok
+    assert any("forbidden_phrase" in issue for issue in issues)

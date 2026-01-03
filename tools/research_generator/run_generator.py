@@ -19,6 +19,7 @@ from .analysis import (
     build_weekly_inputs,
 )
 from .docx_builder import build_docx
+from .insight_miner import mine_insights
 from .fact_check import run_fact_check
 from .alerting import send_email
 from .gemini_cli import log_startup_config
@@ -34,6 +35,8 @@ from .oracle import (
     init_env,
     insert_approval,
     insert_alert,
+    insert_report_insights,
+    fetch_last_report_insights,
     insert_research_request,
     set_report_value,
     update_request_status,
@@ -208,6 +211,68 @@ def _build_docx_payload(
     return build_docx(draft, bundle, report_key, output_dir)
 
 
+def _ensure_outline(draft: Dict[str, Any], bundle: Dict[str, Any]) -> None:
+    figures = len(bundle.get("docx_charts") or [])
+    tables = len(bundle.get("docx_tables") or [])
+    outline = draft.get("outline") or []
+
+    def _valid_id(item: Dict[str, Any], max_id: int) -> bool:
+        try:
+            value = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            return False
+        return 1 <= value <= max_id
+
+    has_fig = any(item.get("type") == "figure" and _valid_id(item, figures) for item in outline)
+    has_tbl = any(item.get("type") == "table" and _valid_id(item, tables) for item in outline)
+    if (figures and not has_fig) or (tables and not has_tbl) or not outline:
+        paragraphs = draft.get("paragraphs") or []
+        new_outline: list[dict[str, Any]] = []
+        fig_id = 1
+        tbl_id = 1
+        for idx, para in enumerate(paragraphs):
+            new_outline.append({"type": "paragraph", "text": para})
+            if idx == 1 and fig_id <= figures:
+                new_outline.append({"type": "figure", "id": fig_id})
+                fig_id += 1
+            if idx == 2 and tbl_id <= tables:
+                new_outline.append({"type": "table", "id": tbl_id})
+                tbl_id += 1
+            if idx == 3 and tbl_id <= tables:
+                new_outline.append({"type": "table", "id": tbl_id})
+                tbl_id += 1
+        while fig_id <= figures:
+            new_outline.append({"type": "figure", "id": fig_id})
+            fig_id += 1
+        while tbl_id <= tables:
+            new_outline.append({"type": "table", "id": tbl_id})
+            tbl_id += 1
+        outline = new_outline
+
+    # Ensure each artifact is referenced by an adjacent paragraph.
+    enhanced: list[dict[str, Any]] = []
+    for idx, item in enumerate(outline):
+        enhanced.append(item)
+        if item.get("type") not in ("figure", "table"):
+            continue
+        ref = "Figure" if item.get("type") == "figure" else "Table"
+        ident = item.get("id") or 1
+        prev_text = ""
+        next_text = ""
+        if idx > 0 and outline[idx - 1].get("type") == "paragraph":
+            prev_text = str(outline[idx - 1].get("text") or "")
+        if idx + 1 < len(outline) and outline[idx + 1].get("type") == "paragraph":
+            next_text = str(outline[idx + 1].get("text") or "")
+        if f"{ref} {ident}" not in f"{prev_text} {next_text}":
+            enhanced.append(
+                {
+                    "type": "paragraph",
+                    "text": f"{ref} {ident} provides the detailed breakdown for this section.",
+                }
+            )
+    draft["outline"] = enhanced
+
+
 def _create_approval(
     bundle: Dict[str, Any],
     draft: Dict[str, Any],
@@ -310,6 +375,8 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.error("Bundle build failed: %s", err)
         return 1
 
+    bundle["insight_candidates"] = mine_insights(bundle)
+
     fact = run_fact_check(bundle)
     if not fact.ok():
         _emit_alerts(
@@ -329,11 +396,23 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.info("Dry-run: trigger=%s label=%s", report_type, label)
         return 0
 
-    draft, issues, compute = draft_with_ping_pong(bundle)
+    previous_insights = None
+    with get_connection() as conn:
+        previous_insights = fetch_last_report_insights(conn, bundle.get("report_type", ""))
+    if previous_insights:
+        try:
+            previous_list = json.loads(previous_insights)
+        except json.JSONDecodeError:
+            previous_list = []
+    else:
+        previous_list = []
+
+    draft, issues, compute = draft_with_ping_pong(bundle, previous_insights=previous_list)
     if not draft:
         LOGGER.error("Drafting failed: %s", "; ".join(issues))
         return 1
 
+    _ensure_outline(draft, bundle)
     docx_payload = _build_docx_payload(bundle, draft, report_key)
     ok, gate_issues = quality_gate_strict(bundle, draft, compute or {}, docx_payload)
     if not ok:
@@ -348,6 +427,9 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         fact_warnings=fact.warnings,
     )
     if approval_id:
+        with get_connection() as conn:
+            insights_payload = json.dumps((compute or {}).get("selected_insights") or [], sort_keys=True)
+            insert_report_insights(conn, bundle.get("report_type", ""), insights_payload)
         store_value = label or (bundle.get("window") or {}).get("end") or now.strftime("%Y-%m-%d")
         _store_report_state(report_type, store_value)
     return 0
@@ -363,6 +445,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
     if err or not bundle:
         raise RuntimeError(err or "bundle_error")
 
+    bundle["insight_candidates"] = mine_insights(bundle)
     fact = run_fact_check(bundle)
     if not fact.ok():
         _emit_alerts(
@@ -375,7 +458,22 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
         )
         raise RuntimeError("fact_check_failed: " + "; ".join(fact.critical))
 
-    draft, issues, compute = draft_with_ping_pong(bundle, editor_notes=request.editor_notes)
+    previous_insights = None
+    with get_connection() as conn:
+        previous_insights = fetch_last_report_insights(conn, bundle.get("report_type", ""))
+    if previous_insights:
+        try:
+            previous_list = json.loads(previous_insights)
+        except json.JSONDecodeError:
+            previous_list = []
+    else:
+        previous_list = []
+
+    draft, issues, compute = draft_with_ping_pong(
+        bundle,
+        editor_notes=request.editor_notes,
+        previous_insights=previous_list,
+    )
     if not draft:
         raise RuntimeError("draft_failed: " + "; ".join(issues))
 
@@ -383,6 +481,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
     if dry_run:
         return None
 
+    _ensure_outline(draft, bundle)
     docx_payload = _build_docx_payload(bundle, draft, report_key)
     ok, gate_issues = quality_gate_strict(bundle, draft, compute or {}, docx_payload)
     if not ok:
@@ -396,6 +495,9 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
         analysis_notes=(compute or {}).get("analysis_notes"),
         fact_warnings=fact.warnings,
     )
+    with get_connection() as conn:
+        insights_payload = json.dumps((compute or {}).get("selected_insights") or [], sort_keys=True)
+        insert_report_insights(conn, bundle.get("report_type", ""), insights_payload)
     return approval_id
 
 

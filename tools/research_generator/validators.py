@@ -135,6 +135,11 @@ def quality_gate_strict(
     if "table" not in paragraphs:
         issues.append("missing_table_reference")
 
+    forbidden = ["chart above", "table above", "what it shows", "key takeaways"]
+    for phrase in forbidden:
+        if phrase in paragraphs:
+            issues.append(f"forbidden_phrase:{phrase}")
+
     numeric_refs = len(_NUMBER_RE.findall(" ".join(writer.get("paragraphs") or [])))
     if numeric_refs < 6:
         issues.append("insufficient_numeric_references")
@@ -144,6 +149,11 @@ def quality_gate_strict(
         stat_hits = sum(1 for term in required_terms if term in paragraphs)
         if stat_hits < 3:
             issues.append("missing_non_trivial_stats")
+
+        for table in bundle.get("docx_tables") or []:
+            if "Weight Movers" in str(table.get("title") or ""):
+                issues.append("weight_movers_not_allowed")
+                break
 
         flagged = (metrics.get("sector_exposure") or {}).get("core_count_delta_flags") or []
         if flagged:
@@ -157,6 +167,21 @@ def quality_gate_strict(
                     if row.get("Sector") in flagged and row.get("Coverage Count Delta") != "Not comparable":
                         issues.append("sector_delta_flag_missing")
                         break
+
+    outline = writer.get("outline") or []
+    if outline:
+        for idx, item in enumerate(outline):
+            if item.get("type") not in ("figure", "table"):
+                continue
+            ref = "Figure" if item.get("type") == "figure" else "Table"
+            ident = item.get("id")
+            neighbor_text = ""
+            for j in (idx - 1, idx + 1):
+                if 0 <= j < len(outline) and outline[j].get("type") == "paragraph":
+                    neighbor_text += " " + str(outline[j].get("text") or "")
+            if f"{ref} {ident}" not in neighbor_text:
+                issues.append("artifact_not_referenced")
+                break
 
     if not docx_meta.get("table_style_applied"):
         issues.append("table_style_missing")

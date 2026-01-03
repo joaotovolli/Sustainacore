@@ -227,6 +227,50 @@ def insert_alert(
     return int(value)
 
 
+def insert_report_insights(conn, report_type: str, insights_json: str) -> int:
+    cur = conn.cursor()
+    report_id = cur.var(int)
+    cur.execute(
+        """
+        INSERT INTO proc_report_insights (
+            report_type,
+            generated_at,
+            insights_json
+        ) VALUES (
+            :report_type,
+            SYSTIMESTAMP,
+            :insights_json
+        ) RETURNING report_id INTO :report_id
+        """,
+        {
+            "report_type": report_type,
+            "insights_json": insights_json,
+            "report_id": report_id,
+        },
+    )
+    conn.commit()
+    value = report_id.getvalue()
+    if isinstance(value, list) and value:
+        value = value[0]
+    return int(value)
+
+
+def fetch_last_report_insights(conn, report_type: str) -> Optional[str]:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT insights_json
+          FROM proc_report_insights
+         WHERE report_type = :report_type
+         ORDER BY generated_at DESC, report_id DESC
+         FETCH FIRST 1 ROWS ONLY
+        """,
+        {"report_type": report_type},
+    )
+    row = cur.fetchone()
+    return _read_lob(row[0]) if row else None
+
+
 def count_pending_approvals(conn) -> int:
     cur = conn.cursor()
     cur.execute(

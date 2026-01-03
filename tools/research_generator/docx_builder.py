@@ -134,13 +134,59 @@ def _render_table(
                     if color:
                         _set_cell_shading(cells[col_idx], color)
 
-    if callouts:
-        document.add_paragraph(f"Table {table_index} — Key takeaways")
-        for note in callouts[:6]:
-            para = document.add_paragraph(note, style="List Bullet")
-            para.paragraph_format.space_after = Pt(2)
-
     return True
+
+
+def _render_outline(document, outline: List[Dict[str, Any]], charts: List[Dict[str, Any]], tables: List[Dict[str, Any]], output_dir: str, report_key: str) -> Dict[str, Any]:
+    from docx.shared import Inches
+
+    chart_paths: Dict[int, str] = {}
+    for idx, chart in enumerate(charts, start=1):
+        chart_paths[idx] = _render_chart(chart, output_dir, f"{report_key}_{idx}")
+
+    table_style_applied = False
+    figure_count = 0
+    table_count = 0
+
+    for item in outline:
+        if item.get("type") == "paragraph":
+            text = item.get("text") or ""
+            if text.strip().startswith("- "):
+                document.add_paragraph(text.strip()[2:], style="List Bullet")
+            else:
+                document.add_paragraph(text)
+        elif item.get("type") == "figure":
+            fig_id = int(item.get("id") or 0)
+            chart = charts[fig_id - 1] if 0 < fig_id <= len(charts) else None
+            if chart:
+                document.add_paragraph(chart.get("caption") or "")
+                path = chart_paths.get(fig_id)
+                if path and os.path.exists(path):
+                    document.add_picture(path, width=Inches(6.5))
+                figure_count += 1
+        elif item.get("type") == "table":
+            tbl_id = int(item.get("id") or 0)
+            table = tables[tbl_id - 1] if 0 < tbl_id <= len(tables) else None
+            if table and table.get("rows"):
+                title = table.get("title") or f"Table {tbl_id}"
+                document.add_heading(title, level=2)
+                table_style_applied = _render_table(
+                    document,
+                    title=title,
+                    rows=table.get("rows", []),
+                    formats=table.get("formats"),
+                    column_widths=table.get("column_widths"),
+                    callouts=None,
+                    highlight_rules=table.get("highlight_rules"),
+                    table_index=tbl_id,
+                ) or table_style_applied
+                table_count += 1
+
+    return {
+        "table_style_applied": table_style_applied,
+        "table_count": table_count,
+        "figure_count": figure_count,
+    }
 
 
 def _render_chart(chart_data: Dict[str, Any], output_dir: str, report_key: str) -> str:
@@ -217,64 +263,13 @@ def build_docx(
     except Exception as exc:
         raise RuntimeError("python_docx_missing") from exc
 
-    chart_paths: List[str] = []
-    chart_blocks = bundle.get("docx_charts") or []
-    if chart_blocks:
-        for idx, chart in enumerate(chart_blocks):
-            chart_paths.append(_render_chart(chart, output_dir, f"{report_key}_{idx}"))
-    else:
-        chart_paths.append(_render_chart(bundle.get("chart_data", {}), output_dir, report_key))
-
     document = Document()
     document.add_heading(draft.get("headline") or "Research Update", level=0)
-
-    for paragraph in draft.get("paragraphs", []):
-        text = str(paragraph)
-        if text.strip().startswith("- "):
-            document.add_paragraph(text.strip()[2:], style="List Bullet")
-        else:
-            document.add_paragraph(text)
-
-    table_style_applied = False
-
-    if chart_blocks:
-        for idx, chart in enumerate(chart_blocks, start=1):
-            document.add_paragraph(chart.get("caption") or draft.get("chart_caption") or "")
-            path = chart_paths[idx - 1]
-            if os.path.exists(path):
-                document.add_picture(path, width=Inches(6.5))
-            callouts = chart.get("callouts") or []
-            if callouts:
-                document.add_paragraph(f"Figure {idx} — What it shows")
-                for note in callouts[:6]:
-                    document.add_paragraph(note, style="List Bullet")
-    else:
-        document.add_paragraph(draft.get("chart_caption") or "")
-        if os.path.exists(chart_paths[0]):
-            document.add_picture(chart_paths[0], width=Inches(6.5))
-
+    chart_blocks = bundle.get("docx_charts") or []
     tables = bundle.get("docx_tables") or []
-    if tables:
-        for idx, table in enumerate(tables, start=1):
-            table_style_applied = _render_table(
-                document,
-                title=table.get("title") or f"Table {idx}",
-                rows=table.get("rows", []),
-                formats=table.get("formats"),
-                column_widths=table.get("column_widths"),
-                callouts=table.get("callouts"),
-                highlight_rules=table.get("highlight_rules"),
-                table_index=idx,
-            ) or table_style_applied
-    else:
-        document.add_paragraph(draft.get("table_caption") or "")
-        if bundle.get("table_rows"):
-            table_style_applied = _render_table(
-                document,
-                title="Table",
-                rows=bundle.get("table_rows", []),
-                table_index=1,
-            )
+    outline = draft.get("outline") or []
+    render_meta = _render_outline(document, outline, chart_blocks, tables, output_dir, report_key)
+    table_style_applied = render_meta.get("table_style_applied", False)
 
     document.add_paragraph("Disclaimer: Research and education only; not investment advice.")
     document.add_paragraph(f"Methodology: {bundle.get('methodology_url')}")
@@ -289,8 +284,8 @@ def build_docx(
     return {
         "docx_bytes": docx_bytes,
         "docx_name": output_name,
-        "chart_path": chart_paths[0] if chart_paths else "",
+        "chart_path": "",
         "table_style_applied": table_style_applied,
-        "table_count": len(tables) if tables else (1 if bundle.get("table_rows") else 0),
-        "figure_count": len(chart_blocks) if chart_blocks else (1 if chart_paths else 0),
+        "table_count": render_meta.get("table_count", 0),
+        "figure_count": render_meta.get("figure_count", 0),
     }
