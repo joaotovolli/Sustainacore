@@ -33,3 +33,5 @@ Rules
 - Use only bundle data; do not invent facts.
 - Ensure AI governance & ethics framing appears in headline or first paragraph.
 - Keep paragraphs concise.
+- For rebalance reports, explicitly reference core (Top 25) vs coverage (All 100).
+- Use association-not-causation language when referencing performance.

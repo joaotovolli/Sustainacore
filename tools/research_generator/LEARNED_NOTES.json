@@ -1,0 +1,18 @@
+{
+  "notes": [
+    {
+      "note_id": "64fbc740ce5c",
+      "timestamp": "2026-01-03T09:07:55Z",
+      "failure_type": "gpt_compute_failed",
+      "fix_hint": "openai_api_key_missing",
+      "report_type": "REBALANCE"
+    },
+    {
+      "note_id": "da508edd24ce",
+      "timestamp": "2026-01-03T09:08:04Z",
+      "failure_type": "gpt_critic_failed",
+      "fix_hint": "openai_api_key_missing",
+      "report_type": "REBALANCE"
+    }
+  ]
+}

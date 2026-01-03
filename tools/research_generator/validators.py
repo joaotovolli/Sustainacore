@@ -88,3 +88,27 @@ def _check_banned(text: str, issues: List[str]) -> None:
             issues.append(f"banned_phrase:{phrase}")
     if _CURRENCY_RE.search(text):
         issues.append("currency_symbol")
+
+
+def validate_quality_gate(
+    bundle: Dict[str, Any],
+    writer: Dict[str, Any],
+    compute: Dict[str, Any],
+) -> Tuple[bool, List[str]]:
+    issues: List[str] = []
+    paragraphs = " ".join(writer.get("paragraphs") or []).lower()
+    report_type = (bundle.get("report_type") or "").upper()
+
+    if report_type == "REBALANCE":
+        if "core" not in paragraphs or "coverage" not in paragraphs:
+            issues.append("missing_core_coverage")
+        required_terms = ["iqr", "hhi", "turnover", "breadth"]
+        stat_hits = sum(1 for term in required_terms if term in paragraphs)
+        if stat_hits < 3:
+            issues.append("missing_non_trivial_stats")
+
+        flags = (compute.get("validation_flags") or {}).get("sector_delta_inconsistent")
+        if flags and "flag" not in paragraphs and "inconsistent" not in paragraphs:
+            issues.append("sector_delta_not_flagged")
+
+    return (len(issues) == 0), issues

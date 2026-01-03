@@ -7,6 +7,11 @@ MODEL_NAME = "gemini-2.5-flash"
 GEMINI_BIN = os.getenv("GEMINI_BIN", "gemini")
 WORKER_CWD = os.path.abspath(os.path.dirname(__file__))
 
+GPT_MODEL_NAME = os.getenv("RESEARCH_GPT_MODEL", "gpt-5.2")
+GPT_API_URL = os.getenv("RESEARCH_GPT_API_URL", "https://api.openai.com/v1/chat/completions")
+GPT_MAX_TOKENS = int(os.getenv("RESEARCH_GPT_MAX_TOKENS", "1200"))
+GPT_TEMPERATURE = float(os.getenv("RESEARCH_GPT_TEMPERATURE", "0.2"))
+
 DEFAULT_OUTPUT_DIR = os.path.join(WORKER_CWD, "output")
 DEFAULT_STATE_DIR = os.path.join(WORKER_CWD, ".state")
 
@@ -35,3 +40,12 @@ MAX_TABLE_ROWS = 12
 MAX_COLUMN_NAME_LENGTH = 30
 
 FAST_POLL_SLEEP = 2
+
+CORE_WEIGHT_THRESHOLD = 0.0
+
+PILLAR_COLUMNS = [
+    "aiges_pillar_policy",
+    "aiges_pillar_transparency",
+    "aiges_pillar_accountability",
+    "aiges_pillar_safety",
+]
