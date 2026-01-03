@@ -265,6 +265,11 @@ def build_docx(
 
     document = Document()
     document.add_heading(draft.get("headline") or "Research Update", level=0)
+    dek = draft.get("dek")
+    if dek:
+        para = document.add_paragraph(str(dek))
+        if para.runs:
+            para.runs[0].italic = True
     chart_blocks = bundle.get("docx_charts") or []
     tables = bundle.get("docx_tables") or []
     outline = draft.get("outline") or []
