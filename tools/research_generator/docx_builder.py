@@ -48,6 +48,10 @@ def _format_value(value: Any, fmt: Optional[str]) -> str:
         num = float(value)
         sign = "+" if num >= 0 else ""
         return f"{sign}{num:.1f}%"
+    if fmt == "delta_pp":
+        num = float(value)
+        sign = "+" if num >= 0 else ""
+        return f"{sign}{num:.1f}pp"
     if fmt == "score":
         return f"{float(value):.2f}"
     if fmt == "score_signed":
@@ -225,7 +229,11 @@ def build_docx(
     document.add_heading(draft.get("headline") or "Research Update", level=0)
 
     for paragraph in draft.get("paragraphs", []):
-        document.add_paragraph(paragraph)
+        text = str(paragraph)
+        if text.strip().startswith("- "):
+            document.add_paragraph(text.strip()[2:], style="List Bullet")
+        else:
+            document.add_paragraph(text)
 
     table_style_applied = False
 

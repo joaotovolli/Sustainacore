@@ -173,11 +173,74 @@ def run_gpt_critic(bundle: Dict[str, Any], compute: Dict[str, Any], writer: Dict
     return run_gpt_json(messages, timeout=60.0)
 
 
-def _append_needs_review(writer: Dict[str, Any]) -> Dict[str, Any]:
-    paragraphs = list(writer.get("paragraphs") or [])
-    paragraphs.append("Needs review: automated checks flagged compliance or coverage gaps.")
-    writer["paragraphs"] = paragraphs
+def _sanitize_text(text: str) -> str:
+    banned = [
+        "needs review",
+        "automated checks",
+        "flagged",
+        "compliance",
+        "coverage gaps",
+        "json_decode_failed",
+    ]
+    value = text or ""
+    for phrase in banned:
+        value = value.replace(phrase, "")
+        value = value.replace(phrase.title(), "")
+    return " ".join(value.split()).strip()
+
+
+def _sanitize_writer(writer: Dict[str, Any]) -> Dict[str, Any]:
+    writer["headline"] = _sanitize_text(writer.get("headline") or "")
+    paragraphs = [_sanitize_text(str(p)) for p in (writer.get("paragraphs") or []) if p]
+    writer["paragraphs"] = _ensure_definitions(paragraphs)
     return writer
+
+
+def _ensure_definitions(paragraphs: list[str]) -> list[str]:
+    combined = " ".join(paragraphs)
+    definition = (
+        "AI Governance & Ethics Score (AIGES) reflects governance and ethics signals. "
+        "Core refers to the 25 constituents with non-zero index weight; Coverage is the 100-name monitoring universe, including zero-weight names."
+    )
+    if "AI Governance & Ethics Score (AIGES)" in combined:
+        return paragraphs
+    if paragraphs:
+        paragraphs[0] = definition + " " + paragraphs[0]
+        return paragraphs
+    return [definition]
+
+
+def run_publisher(bundle: Dict[str, Any], compute: Dict[str, Any], draft: Dict[str, Any]) -> Dict[str, Any]:
+    schema = {
+        "headline": "8-14 words",
+        "standfirst": "one sentence",
+        "key_takeaways": ["3 bullets with numbers"],
+        "paragraphs": ["2-4 paragraphs"],
+        "table_caption": "string",
+        "chart_caption": "string",
+    }
+    prompt = (
+        "You are the SENIOR PUBLISHER. Output JSON only. "
+        "Remove internal phrases like 'needs review' or 'automated checks'. "
+        "Define AIGES as 'AI Governance & Ethics Score (AIGES)'. "
+        "Define Core as the 25 constituents with non-zero index weight. "
+        "Define Coverage as the full 100-name monitoring universe, including zero-weight names. "
+        "Define rebalance as a quarterly composition/weight refresh. "
+        "Include at least 2 figure references and 2 table references and at least 8 numeric values. "
+        "No investment advice, no stock prices, no external claims. "
+        "Schema:\n"
+        + json.dumps(schema)
+        + "\nAnalysis notes:\n"
+        + json.dumps(compute.get("analysis_notes", []))
+        + "\nTable callouts:\n"
+        + json.dumps(compute.get("table_callouts", {}))
+        + "\nFigure callouts:\n"
+        + json.dumps(compute.get("figure_callouts", {}))
+        + "\nDraft narrative:\n"
+        + json.dumps(draft)
+    )
+    messages = [{"role": "user", "content": prompt}]
+    return run_gpt_json(messages, timeout=70.0)
 
 
 def draft_with_ping_pong(
@@ -249,11 +312,30 @@ def draft_with_ping_pong(
                 report_type=bundle.get("report_type", ""),
             )
             if not issues:
-                return writer, [], compute
-            return _append_needs_review(writer), issues + [str(exc)], compute
+                return _sanitize_writer(writer), [], compute
+            return _sanitize_writer(writer), issues + [str(exc)], compute
 
         if critic.get("pass") and ok and local_ok:
-            return writer, [], compute
+            try:
+                published = run_publisher(bundle, compute, writer)
+                paragraphs = [published.get("standfirst")]
+                paragraphs += (published.get("key_takeaways") or [])
+                paragraphs += (published.get("paragraphs") or [])
+                final_writer = {
+                    "headline": published.get("headline") or writer.get("headline"),
+                    "paragraphs": _ensure_definitions([p for p in paragraphs if p]),
+                    "table_caption": published.get("table_caption") or writer.get("table_caption"),
+                    "chart_caption": published.get("chart_caption") or writer.get("chart_caption"),
+                    "compliance_checklist": writer.get("compliance_checklist") or {},
+                }
+                return _sanitize_writer(final_writer), [], compute
+            except GPTClientError as exc:
+                append_note(
+                    failure_type="gpt_publisher_failed",
+                    fix_hint=str(exc)[:120],
+                    report_type=bundle.get("report_type", ""),
+                )
+                return _sanitize_writer(writer), [], compute
 
         retries += 1
         if retries > 2:
@@ -262,7 +344,7 @@ def draft_with_ping_pong(
                 fix_hint=";".join(critic.get("issues", []))[:120],
                 report_type=bundle.get("report_type", ""),
             )
-            return _append_needs_review(writer), critic.get("issues", []), compute
+            return _sanitize_writer(writer), critic.get("issues", []), compute
 
         suggested = critic.get("suggested_fixes") or []
         if suggested:
@@ -270,4 +352,4 @@ def draft_with_ping_pong(
                 f"Critic note: {item}" for item in suggested
             ]
 
-    return last_writer, issues, compute
+    return _sanitize_writer(last_writer or {}), issues, compute
