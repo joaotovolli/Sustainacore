@@ -113,6 +113,14 @@ def _stats_summary(values: List[float]) -> Dict[str, Optional[float]]:
     }
 
 
+def _std_dev(values: List[float]) -> Optional[float]:
+    if not values:
+        return None
+    avg = mean(values)
+    variance = sum((v - avg) ** 2 for v in values) / len(values)
+    return math.sqrt(variance)
+
+
 def _split_core_coverage(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     core = [row for row in rows if _weight_fraction(row.get("weight")) > config.CORE_WEIGHT_THRESHOLD]
     return core, rows
@@ -229,8 +237,8 @@ def _compute_breadth(current: List[Dict[str, Any]], previous: List[Dict[str, Any
 
 
 def _compute_turnover(current: List[Dict[str, Any]], previous: List[Dict[str, Any]]) -> Optional[float]:
-    current_weights = {row.get("ticker"): _safe_float(row.get("weight")) for row in current if row.get("ticker")}
-    prev_weights = {row.get("ticker"): _safe_float(row.get("weight")) for row in previous if row.get("ticker")}
+    current_weights = {row.get("ticker"): _weight_fraction(row.get("weight")) for row in current if row.get("ticker")}
+    prev_weights = {row.get("ticker"): _weight_fraction(row.get("weight")) for row in previous if row.get("ticker")}
     current_total = sum(current_weights.values())
     prev_total = sum(prev_weights.values())
     if current_total == 0 or prev_total == 0:
@@ -242,6 +250,52 @@ def _compute_turnover(current: List[Dict[str, Any]], previous: List[Dict[str, An
         w_old = prev_weights.get(ticker, 0.0) / prev_total
         turnover += abs(w_new - w_old)
     return round(0.5 * turnover, 4)
+
+
+def _membership_turnover(prev_core: List[Dict[str, Any]], latest_core: List[Dict[str, Any]]) -> float:
+    prev_tickers = {row.get("ticker") for row in prev_core if row.get("ticker")}
+    latest_tickers = {row.get("ticker") for row in latest_core if row.get("ticker")}
+    if not prev_tickers:
+        return 0.0
+    entrants = len(latest_tickers - prev_tickers)
+    exits = len(prev_tickers - latest_tickers)
+    return round(((entrants + exits) / max(len(prev_tickers), 1)) * 100, 2)
+
+
+def _top_quintile_threshold(values: List[float]) -> Optional[float]:
+    return _percentile(values, 80)
+
+
+def _sector_turnover(prev_core: List[Dict[str, Any]], latest_core: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    prev_tickers = {row.get("ticker") for row in prev_core if row.get("ticker")}
+    latest_tickers = {row.get("ticker") for row in latest_core if row.get("ticker")}
+    entrants = latest_tickers - prev_tickers
+    exits = prev_tickers - latest_tickers
+
+    def _sector_counts(rows: List[Dict[str, Any]], tickers: set[str]) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for row in rows:
+            ticker = row.get("ticker")
+            if ticker not in tickers:
+                continue
+            sector = row.get("sector") or "Unknown"
+            counts[sector] = counts.get(sector, 0) + 1
+        return counts
+
+    entrant_counts = _sector_counts(latest_core, entrants)
+    exit_counts = _sector_counts(prev_core, exits)
+    sectors = sorted(set(entrant_counts) | set(exit_counts))
+    rows = []
+    for sector in sectors:
+        rows.append(
+            {
+                "Sector": sector,
+                "Entrants": entrant_counts.get(sector, 0),
+                "Exits": exit_counts.get(sector, 0),
+                "Net Change": entrant_counts.get(sector, 0) - exit_counts.get(sector, 0),
+            }
+        )
+    return rows
 
 
 def _rows_to_csv(rows: List[Dict[str, Any]]) -> str:
@@ -441,6 +495,16 @@ def build_rebalance_bundle(
 
     breadth_pct = _compute_breadth(latest_core, prev_core)
     turnover = _compute_turnover(latest_core, prev_core)
+    membership_turnover = _membership_turnover(prev_core, latest_core)
+    std_core = _std_dev(scores_core_float)
+    std_cov = _std_dev(scores_cov_float)
+    top_quintile = _top_quintile_threshold(scores_cov_float)
+    core_in_top_quintile = None
+    if top_quintile is not None and scores_core_float:
+        core_in_top_quintile = round(
+            (sum(1 for v in scores_core_float if v >= top_quintile) / len(scores_core_float)) * 100,
+            2,
+        )
 
     movers = _build_movers(latest_core, prev_core)
 
@@ -461,6 +525,7 @@ def build_rebalance_bundle(
         "entrants": len(entrants),
         "exits": len(exits),
         "turnover": turnover,
+        "membership_turnover": membership_turnover,
     }
 
     table_rows = []
@@ -490,6 +555,7 @@ def build_rebalance_bundle(
             "Mean Composite": round(weighted_mean_core, 2),
             "Median Composite": round(stats_core["median"], 2) if stats_core["median"] is not None else None,
             "IQR Composite": round(stats_core["iqr"], 2) if stats_core["iqr"] is not None else None,
+            "Std Dev": round(std_core, 2) if std_core is not None else None,
             "Top5 Weight Share": round((top5_weight_share or 0) * 100, 2) if top5_weight_share is not None else None,
             "HHI": hhi,
         },
@@ -499,6 +565,7 @@ def build_rebalance_bundle(
             "Mean Composite": round(stats_cov["mean"], 2) if stats_cov["mean"] is not None else None,
             "Median Composite": round(stats_cov["median"], 2) if stats_cov["median"] is not None else None,
             "IQR Composite": round(stats_cov["iqr"], 2) if stats_cov["iqr"] is not None else None,
+            "Std Dev": round(std_cov, 2) if std_cov is not None else None,
             "Top5 Weight Share": None,
             "HHI": None,
         },
@@ -596,11 +663,20 @@ def build_rebalance_bundle(
     cov_mean = round(stats_cov["mean"], 2) if stats_cov["mean"] is not None else None
     zero_mean = round(stats_zero["mean"], 2) if stats_zero["mean"] is not None else None
 
+    diagnostics_rows = [
+        {"Metric": "Membership turnover", "Value": membership_turnover},
+        {"Metric": "Breadth (incumbents improving)", "Value": breadth_pct},
+        {"Metric": "Core top-quintile share", "Value": core_in_top_quintile},
+        {"Metric": "Core-weighted turnover", "Value": (turnover or 0) * 100},
+    ]
+    diagnostics_formats = {"Value": "pct"}
+    diagnostics_widths = {"Metric": 2.2, "Value": 1.0}
+
     summary_callouts = [
         f"Core weighted mean composite is {_fmt_score(core_mean)} vs coverage mean {_fmt_score(cov_mean)} (gap {mean_gap:+.2f}).",
         f"Core IQR {_fmt_score(stats_core['iqr'])} vs coverage IQR {_fmt_score(stats_cov['iqr'])}.",
         f"Top5 weight share {_fmt_pct((top5_weight_share or 0) * 100)} and HHI {_fmt_score(hhi)} indicate concentration.",
-        f"Breadth is {_fmt_pct(breadth_pct)} of core names with positive score changes; turnover is {_fmt_delta_pct((turnover or 0) * 100, 2)}.",
+        f"Breadth is {_fmt_pct(breadth_pct)} of incumbents improving; membership turnover is {_fmt_pct(membership_turnover)}.",
     ]
     if zero_mean is not None:
         summary_callouts.append(
@@ -636,11 +712,6 @@ def build_rebalance_bundle(
         delta_score_str = f"{delta_score:+.2f}" if isinstance(delta_score, (int, float)) else ""
         inc_score_callouts.append(
             f"Score mover {row.get('ticker')} ({row.get('sector')}): {delta_score_str} vs prior."
-        )
-    inc_weight_callouts = []
-    for row in movers["incumbent_weight"][:3]:
-        inc_weight_callouts.append(
-            f"Weight mover {row.get('ticker')} ({row.get('sector')}): {_fmt_delta_pp((row.get('delta_weight') or 0) * 100, 1)}."
         )
 
     chart_sector = {
@@ -685,9 +756,12 @@ def build_rebalance_bundle(
             "mean_weighted_aiges": round(weighted_mean_core, 2) if weighted_mean_core else None,
             "median_aiges": round(median(scores_core_float), 2) if scores_core_float else None,
             "iqr_aiges": round(_iqr(scores_core_float), 2) if scores_core_float else None,
+            "std_aiges": round(std_core, 2) if std_core is not None else None,
             "top5_weight_share": top5_weight_share,
             "hhi": hhi,
             "breadth_pct": breadth_pct,
+            "membership_turnover_pct": membership_turnover,
+            "top_quintile_share_pct": core_in_top_quintile,
             "weights_raw": [row.get("weight") for row in latest_core],
             "weights_sum": round(sum(weights_core), 6),
         },
@@ -696,6 +770,7 @@ def build_rebalance_bundle(
             "mean_aiges": round(stats_cov["mean"], 2) if stats_cov["mean"] is not None else None,
             "median_aiges": round(stats_cov["median"], 2) if stats_cov["median"] is not None else None,
             "iqr_aiges": round(stats_cov["iqr"], 2) if stats_cov["iqr"] is not None else None,
+            "std_aiges": round(std_cov, 2) if std_cov is not None else None,
         },
         "zero_weight_slice": {
             "n": len(zero_weight_rows),
@@ -713,6 +788,7 @@ def build_rebalance_bundle(
             "turnover": turnover,
             "entrants": entrants[:10],
             "exits": exits[:10],
+            "membership_turnover_pct": membership_turnover,
         },
         "sector_exposure": {
             "core_weighted_latest": weighted_sector_latest,
@@ -722,6 +798,7 @@ def build_rebalance_bundle(
             "core_count_delta_flags": inconsistent_sectors,
             "notable_moves": notable_sector_moves,
             "notable_divergence": notable_sector_divergence,
+            "sector_turnover": _sector_turnover(prev_core, latest_core),
         },
         "top_movers": {
             "entrants": movers["entrants"],
@@ -745,6 +822,7 @@ def build_rebalance_bundle(
         "Mean Composite": "score",
         "Median Composite": "score",
         "IQR Composite": "score",
+        "Std Dev": "score",
         "Top5 Weight Share": "pct",
         "HHI": "ratio",
     }
@@ -754,6 +832,7 @@ def build_rebalance_bundle(
         "Mean Composite": 1.1,
         "Median Composite": 1.0,
         "IQR Composite": 0.9,
+        "Std Dev": 0.9,
         "Top5 Weight Share": 0.9,
         "HHI": 0.7,
     }
@@ -781,11 +860,6 @@ def build_rebalance_bundle(
         "Prev Score": "score",
         "New Score": "score",
     }
-    incumbent_weight_formats = {
-        "Delta Weight (pp)": "delta_pp",
-        "Prev Weight %": "pct",
-        "New Weight %": "pct",
-    }
     movers_widths = {
         "Company": 1.6,
         "Ticker": 0.7,
@@ -793,9 +867,7 @@ def build_rebalance_bundle(
         "Delta Score": 0.9,
         "Prev Score": 0.8,
         "New Score": 0.8,
-        "Delta Weight (pp)": 0.9,
         "Prev Weight %": 0.9,
-        "New Weight %": 0.9,
         "New Weight %": 0.9,
         "Composite Score": 0.9,
         "Support Short": 2.2,
@@ -844,6 +916,16 @@ def build_rebalance_bundle(
                 ],
             },
             {
+                "title": "Core Diagnostics (Equal-weight)",
+                "rows": diagnostics_rows,
+                "formats": diagnostics_formats,
+                "column_widths": diagnostics_widths,
+                "callouts": [
+                    f"Membership turnover is {_fmt_pct(membership_turnover)} of the Core.",
+                    f"Core top-quintile share is {_fmt_pct(core_in_top_quintile)}.",
+                ],
+            },
+            {
                 "title": "Core Entrants (New to core)",
                 "rows": entrants_rows,
                 "formats": entrants_formats,
@@ -865,16 +947,6 @@ def build_rebalance_bundle(
                 "callouts": inc_score_callouts,
                 "highlight_rules": [
                     {"column": "Delta Score", "abs_gte": 10.0, "color": "E2F0D9"},
-                ],
-            },
-            {
-                "title": "Incumbent Weight Movers (Comparable)",
-                "rows": incumbent_weight_rows,
-                "formats": incumbent_weight_formats,
-                "column_widths": movers_widths,
-                "callouts": inc_weight_callouts,
-                "highlight_rules": [
-                    {"column": "Delta Weight (pp)", "abs_gte": 4.0, "color": "FFF2CC"},
                 ],
             },
         ],
