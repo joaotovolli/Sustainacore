@@ -129,18 +129,39 @@ def quality_gate_strict(
     if coverage_mean in (None, ""):
         issues.append("coverage_mean_missing")
 
-    paragraphs = " ".join(writer.get("paragraphs") or []).lower()
+    headline = str(writer.get("headline") or "")
+    dek = str(writer.get("dek") or "")
+    body_text = " ".join(writer.get("paragraphs") or [])
+    paragraphs = body_text.lower()
     if "chart" not in paragraphs and "figure" not in paragraphs:
         issues.append("missing_chart_reference")
     if "table" not in paragraphs:
         issues.append("missing_table_reference")
+    if "figure 1" not in paragraphs:
+        issues.append("missing_figure_1_reference")
+    if "table 1" not in paragraphs:
+        issues.append("missing_table_1_reference")
 
-    forbidden = ["chart above", "table above", "what it shows", "key takeaways"]
+    forbidden = [
+        "chart above",
+        "table above",
+        "what it shows",
+        "key takeaways",
+        "needs review",
+        "provides the detailed breakdown",
+    ]
     for phrase in forbidden:
-        if phrase in paragraphs:
+        if phrase in paragraphs or phrase in headline.lower() or phrase in dek.lower():
             issues.append(f"forbidden_phrase:{phrase}")
 
-    numeric_refs = len(_NUMBER_RE.findall(" ".join(writer.get("paragraphs") or [])))
+    if dek:
+        words = _word_count(dek)
+        if words < 15 or words > 25:
+            issues.append("dek_word_count")
+    else:
+        issues.append("missing_dek")
+
+    numeric_refs = len(_NUMBER_RE.findall(body_text))
     if numeric_refs < 6:
         issues.append("insufficient_numeric_references")
 

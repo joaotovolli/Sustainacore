@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from .gemini_cli import GeminiCLIError, is_quota_near_limit, run_gemini
 from .gpt_client import GPTClientError, run_gpt_json
+from .publish_pass import linearize_draft, publisher_in_chief_rewrite
 from .learned_notes import append_note
 from .validators import validate_quality_gate, validate_writer_output
 
@@ -220,6 +221,7 @@ def _sanitize_forbidden_phrases(text: str) -> str:
         "figure below": "Figure 1",
         "table below": "Table 1",
         "what it shows": "summary",
+        "provides the detailed breakdown": "summarizes the details",
     }
     value = text or ""
     for phrase, replacement in replacements.items():
@@ -256,7 +258,49 @@ def _sanitize_writer(writer: Dict[str, Any]) -> Dict[str, Any]:
     writer["paragraphs"] = _inject_definitions(paragraphs)
     if writer.get("standfirst"):
         writer["standfirst"] = _sanitize_forbidden_phrases(str(writer.get("standfirst")))
+    if writer.get("dek"):
+        writer["dek"] = _sanitize_forbidden_phrases(str(writer.get("dek")))
     return writer
+
+
+def _apply_body_to_outline(outline: list[dict[str, Any]], body: list[str]) -> list[dict[str, Any]]:
+    updated: list[dict[str, Any]] = []
+    body_iter = iter(body)
+    for item in outline:
+        if item.get("type") == "paragraph":
+            text = next(body_iter, item.get("text") or "")
+            updated.append({**item, "text": text})
+        else:
+            updated.append(item)
+    for remainder in body_iter:
+        updated.append({"type": "paragraph", "text": remainder})
+    return updated
+
+
+def _ensure_dek(paragraphs: list[str], dek: str | None) -> str:
+    if dek:
+        words = [w for w in dek.strip().split() if w]
+        if 15 <= len(words) <= 25:
+            return dek.strip()
+    combined = " ".join([p.strip() for p in paragraphs if p]).strip()
+    words = [w for w in combined.split() if w]
+    if not words:
+        return "Core and coverage shifts frame the quarterly signal for governance and ethics scores and sector balance."
+    snippet = " ".join(words[:20]).strip()
+    return f"{snippet}."
+
+
+def _ensure_artifact_mentions(paragraphs: list[str]) -> list[str]:
+    joined = " ".join(paragraphs).lower()
+    needs_figure = "figure 1" not in joined
+    needs_table = "table 1" not in joined
+    if not needs_figure and not needs_table:
+        return paragraphs
+    sentence = "Figure 1 highlights the sector exposure shifts and Table 1 summarizes the core versus coverage metrics."
+    if not paragraphs:
+        return [sentence]
+    paragraphs[0] = paragraphs[0].rstrip() + " " + sentence
+    return paragraphs
 
 
 def _inject_definitions(paragraphs: list[str]) -> list[str]:
@@ -492,10 +536,51 @@ def draft_with_ping_pong(
                     tables=len(bundle.get("docx_tables") or []),
                 ):
                     final_writer["outline"] = _default_outline(
-                        final_writer["paragraphs"],
+                        final_writer.get("paragraphs"),
                         figures=len(bundle.get("docx_charts") or []),
                         tables=len(bundle.get("docx_tables") or []),
                     )
+                linear = linearize_draft(
+                    headline=final_writer.get("headline") or "",
+                    paragraphs=final_writer.get("paragraphs") or [],
+                    outline=final_writer.get("outline") or [],
+                    charts=bundle.get("docx_charts") or [],
+                    tables=bundle.get("docx_tables") or [],
+                )
+                constraints = {
+                    "no_prices": True,
+                    "no_advice": True,
+                    "tone": "research/education",
+                }
+                try:
+                    final_pass = publisher_in_chief_rewrite(linear, constraints=constraints)
+                    body = final_pass.get("body") or final_writer.get("paragraphs") or []
+                    if not body:
+                        body = final_writer.get("paragraphs") or []
+                    body = _ensure_artifact_mentions(body)
+                    final_writer.update(
+                        {
+                            "headline": final_pass.get("headline") or final_writer.get("headline"),
+                            "dek": _ensure_dek(body, final_pass.get("dek")),
+                            "paragraphs": body,
+                        }
+                    )
+                except GPTClientError as exc:
+                    append_note(
+                        failure_type="gpt_publisher_in_chief_failed",
+                        fix_hint=str(exc)[:120],
+                        report_type=bundle.get("report_type", ""),
+                    )
+                    body = _ensure_artifact_mentions(final_writer.get("paragraphs") or [])
+                    final_writer.update(
+                        {
+                            "dek": _ensure_dek(body, final_writer.get("dek")),
+                            "paragraphs": body,
+                        }
+                    )
+                final_writer["outline"] = _apply_body_to_outline(
+                    final_writer.get("outline") or [], final_writer.get("paragraphs") or []
+                )
                 return _sanitize_writer(final_writer), [], compute
             except GPTClientError as exc:
                 append_note(

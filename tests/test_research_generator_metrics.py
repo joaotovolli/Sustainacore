@@ -46,8 +46,9 @@ def test_quality_gate_requires_coverage_mean():
     bundle.metrics["coverage"]["mean_aiges"] = None
     writer = {
         "headline": "Core and coverage metrics in AI governance",
+        "dek": "Core and coverage shifts frame the quarterly signal for governance and ethics scores and sector balance.",
         "paragraphs": [
-            "The chart above shows core and coverage metrics. The table below highlights IQR, HHI, turnover, and breadth with values 1 2 3 4 5 6.",
+            "Figure 1 shows core and coverage metrics. Table 1 highlights IQR, HHI, turnover, and breadth with values 1 2 3 4 5 6.",
         ],
         "table_caption": "Summary",
         "chart_caption": "Chart",
@@ -84,9 +85,24 @@ def test_remove_external_claims():
 def test_quality_gate_forbids_phrases():
     bundle = {"report_type": "REBALANCE", "docx_tables": [], "metrics": {"coverage": {"mean_aiges": 1}}}
     writer = {
+        "headline": "Core governance check",
+        "dek": "Core and coverage shifts frame the quarterly signal for governance and ethics scores and sector balance.",
         "paragraphs": ["The chart above shows results. Table above lists metrics."],
         "outline": [],
     }
     ok, issues = quality_gate_strict(bundle, writer, {"validation_flags": {}}, {"table_style_applied": True})
     assert not ok
     assert any("forbidden_phrase" in issue for issue in issues)
+
+
+def test_quality_gate_requires_dek_word_count():
+    bundle = {"report_type": "REBALANCE", "docx_tables": [], "metrics": {"coverage": {"mean_aiges": 1}}}
+    writer = {
+        "headline": "Core governance check",
+        "dek": "Too short.",
+        "paragraphs": ["Figure 1 shows results. Table 1 lists metrics 1 2 3 4 5 6."],
+        "outline": [],
+    }
+    ok, issues = quality_gate_strict(bundle, writer, {"validation_flags": {}}, {"table_style_applied": True})
+    assert not ok
+    assert "dek_word_count" in issues
