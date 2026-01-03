@@ -189,25 +189,75 @@ def _sanitize_text(text: str) -> str:
     return " ".join(value.split()).strip()
 
 
+def _remove_external_claims(text: str) -> str:
+    triggers = ["industry reports", "academic research", "studies", "external research"]
+    sentences = [s.strip() for s in text.split(".") if s.strip()]
+    kept = []
+    for sentence in sentences:
+        lower = sentence.lower()
+        if any(t in lower for t in triggers):
+            continue
+        kept.append(sentence)
+    return ". ".join(kept) + ("." if kept else "")
+
+
 def _sanitize_writer(writer: Dict[str, Any]) -> Dict[str, Any]:
     writer["headline"] = _sanitize_text(writer.get("headline") or "")
     paragraphs = [_sanitize_text(str(p)) for p in (writer.get("paragraphs") or []) if p]
-    writer["paragraphs"] = _ensure_definitions(paragraphs)
+    paragraphs = [_remove_external_claims(p) for p in paragraphs if p]
+    writer["paragraphs"] = _inject_definitions(paragraphs)
     return writer
 
 
-def _ensure_definitions(paragraphs: list[str]) -> list[str]:
-    combined = " ".join(paragraphs)
-    definition = (
-        "AI Governance & Ethics Score (AIGES) reflects governance and ethics signals. "
-        "Core refers to the 25 constituents with non-zero index weight; Coverage is the 100-name monitoring universe, including zero-weight names."
-    )
-    if "AI Governance & Ethics Score (AIGES)" in combined:
+def _inject_definitions(paragraphs: list[str]) -> list[str]:
+    if not paragraphs:
         return paragraphs
-    if paragraphs:
-        paragraphs[0] = definition + " " + paragraphs[0]
-        return paragraphs
-    return [definition]
+    import re
+
+    joined = "\n".join(paragraphs)
+    if "AI Governance & Ethics Score (AIGES)" not in joined and re.search(r"\bAIGES\b", joined):
+        paragraphs = [re.sub(r"\bAIGES\b", "AI Governance & Ethics Score (AIGES)", p, count=1) for p in paragraphs]
+    if "the Core (the 25 non-zero-weight constituents)" not in joined and re.search(r"\bcore\b", joined, re.IGNORECASE):
+        paragraphs = [
+            re.sub(
+                r"\bcore\b",
+                "the Core (the 25 non-zero-weight constituents)",
+                p,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            for p in paragraphs
+        ]
+    if (
+        "the Coverage set (the full 100-name monitoring universe, including zero-weight names)" not in joined
+        and re.search(r"\bcoverage\b", joined, re.IGNORECASE)
+    ):
+        paragraphs = [
+            re.sub(
+                r"\bcoverage\b",
+                "the Coverage set (the full 100-name monitoring universe, including zero-weight names)",
+                p,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            for p in paragraphs
+        ]
+    elif "the Coverage set (the full 100-name monitoring universe, including zero-weight names)" not in joined:
+        paragraphs.append(
+            "The Coverage set (the full 100-name monitoring universe, including zero-weight names) provides the broader benchmark."
+        )
+    if "the quarterly rebalance (composition/weights refresh)" not in joined and re.search(r"\brebalance\b", joined, re.IGNORECASE):
+        paragraphs = [
+            re.sub(
+                r"\brebalance\b",
+                "the quarterly rebalance (composition/weights refresh)",
+                p,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            for p in paragraphs
+        ]
+    return paragraphs
 
 
 def run_publisher(bundle: Dict[str, Any], compute: Dict[str, Any], draft: Dict[str, Any]) -> Dict[str, Any]:
@@ -222,11 +272,18 @@ def run_publisher(bundle: Dict[str, Any], compute: Dict[str, Any], draft: Dict[s
     prompt = (
         "You are the SENIOR PUBLISHER. Output JSON only. "
         "Remove internal phrases like 'needs review' or 'automated checks'. "
-        "Define AIGES as 'AI Governance & Ethics Score (AIGES)'. "
-        "Define Core as the 25 constituents with non-zero index weight. "
-        "Define Coverage as the full 100-name monitoring universe, including zero-weight names. "
-        "Define rebalance as a quarterly composition/weight refresh. "
+        "Generate three headline candidates internally and output only the best one. "
+        "Define terms inline at first mention only. "
+        "When AIGES appears first time, write 'AI Governance & Ethics Score (AIGES)' and continue. "
+        "When Core appears first time, write 'the Core (the 25 non-zero-weight constituents)'. "
+        "When Coverage appears first time, write 'the Coverage set (the full 100-name monitoring universe, including zero-weight names)'. "
+        "When rebalance appears first time, write 'the quarterly rebalance (composition/weights refresh)'. "
+        "Use this structure: headline, standfirst, key takeaways (3 bullets), paragraph 1 (what changed), "
+        "paragraph 2 (sector shifts referencing Figure 1), paragraph 3 (distribution/dispersion referencing Figure 2), "
+        "paragraph 4 (movers referencing the mover tables), closing method note (1-2 sentences). "
         "Include at least 2 figure references and 2 table references and at least 8 numeric values. "
+        "Add a short 'why it matters' line tied to governance/regulatory readiness, using only computed metrics. "
+        "Explicitly mention Coverage at least once. "
         "No investment advice, no stock prices, no external claims. "
         "Schema:\n"
         + json.dumps(schema)
@@ -323,7 +380,7 @@ def draft_with_ping_pong(
                 paragraphs += (published.get("paragraphs") or [])
                 final_writer = {
                     "headline": published.get("headline") or writer.get("headline"),
-                    "paragraphs": _ensure_definitions([p for p in paragraphs if p]),
+                    "paragraphs": [p for p in paragraphs if p],
                     "table_caption": published.get("table_caption") or writer.get("table_caption"),
                     "chart_caption": published.get("chart_caption") or writer.get("chart_caption"),
                     "compliance_checklist": writer.get("compliance_checklist") or {},

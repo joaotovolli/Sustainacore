@@ -72,3 +72,9 @@ def test_weight_delta_pp_units():
 
 def test_sanitize_removes_needs_review():
     assert "needs review" not in ping_pong._sanitize_text("Needs review: automated checks flagged")
+
+
+def test_remove_external_claims():
+    text = "Industry reports indicate progress. Core metrics show change."
+    cleaned = ping_pong._remove_external_claims(text)
+    assert "Industry reports" not in cleaned

@@ -23,8 +23,8 @@ def validate_writer_output(bundle: Dict[str, Any], writer: Dict[str, Any]) -> Tu
     issues: List[str] = []
     headline = (writer.get("headline") or "").strip()
     paragraphs = writer.get("paragraphs") or []
-    table_caption = (writer.get("table_caption") or "").strip()
-    chart_caption = (writer.get("chart_caption") or "").strip()
+    table_caption = str(writer.get("table_caption") or "").strip()
+    chart_caption = str(writer.get("chart_caption") or "").strip()
     compliance = writer.get("compliance_checklist") or {}
 
     if not headline:

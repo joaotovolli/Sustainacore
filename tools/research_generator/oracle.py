@@ -45,6 +45,14 @@ class ResearchRequest:
     result_text: Optional[str]
 
 
+@dataclass
+class ResearchAlert:
+    alert_id: int
+    severity: str
+    title: str
+    details: Optional[str]
+
+
 def init_env() -> None:
     load_env_files()
 
@@ -171,6 +179,51 @@ def insert_approval(conn, payload: Dict[str, Any]) -> int:
     )
     conn.commit()
     value = approval_id.getvalue()
+    if isinstance(value, list) and value:
+        value = value[0]
+    return int(value)
+
+
+def insert_alert(
+    conn,
+    *,
+    request_id: Optional[int],
+    approval_id: Optional[int],
+    severity: str,
+    title: str,
+    details: str,
+) -> int:
+    cur = conn.cursor()
+    alert_id = cur.var(int)
+    cur.execute(
+        """
+        INSERT INTO proc_research_alerts (
+            created_at,
+            request_id,
+            approval_id,
+            severity,
+            title,
+            details
+        ) VALUES (
+            SYSTIMESTAMP,
+            :request_id,
+            :approval_id,
+            :severity,
+            :title,
+            :details
+        ) RETURNING alert_id INTO :alert_id
+        """,
+        {
+            "request_id": request_id,
+            "approval_id": approval_id,
+            "severity": severity,
+            "title": title,
+            "details": details,
+            "alert_id": alert_id,
+        },
+    )
+    conn.commit()
+    value = alert_id.getvalue()
     if isinstance(value, list) and value:
         value = value[0]
     return int(value)

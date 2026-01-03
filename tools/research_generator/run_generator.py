@@ -19,6 +19,8 @@ from .analysis import (
     build_weekly_inputs,
 )
 from .docx_builder import build_docx
+from .fact_check import run_fact_check
+from .alerting import send_email
 from .gemini_cli import log_startup_config
 from .oracle import (
     ResearchRequest,
@@ -31,6 +33,7 @@ from .oracle import (
     get_connection,
     init_env,
     insert_approval,
+    insert_alert,
     insert_research_request,
     set_report_value,
     update_request_status,
@@ -77,6 +80,7 @@ def _build_details(
     *,
     regenerated_from: Optional[int] = None,
     analysis_notes: Optional[list[str]] = None,
+    fact_warnings: Optional[list[str]] = None,
 ) -> str:
     details = {
         "report_type": bundle.get("report_type"),
@@ -92,6 +96,7 @@ def _build_details(
         "csv_extracts": bundle.get("csv_extracts"),
         "table_callouts": {t.get("title"): t.get("callouts") for t in (bundle.get("docx_tables") or [])},
         "figure_callouts": {c.get("title"): c.get("callouts") for c in (bundle.get("docx_charts") or [])},
+        "fact_check_warnings": fact_warnings or [],
         "provenance": [
             "TECH11_AI_GOV_ETH_INDEX",
             "SC_IDX_LEVELS",
@@ -226,6 +231,7 @@ def _create_approval(
     *,
     regenerated_from: Optional[int] = None,
     analysis_notes: Optional[list[str]] = None,
+    fact_warnings: Optional[list[str]] = None,
 ) -> int:
     summary = _summary_from_draft(draft)
     details = _build_details(
@@ -234,6 +240,7 @@ def _create_approval(
         os.path.basename(docx_payload["chart_path"]),
         regenerated_from=regenerated_from,
         analysis_notes=analysis_notes,
+        fact_warnings=fact_warnings,
     )
 
     payload = {
@@ -254,6 +261,51 @@ def _create_approval(
     return approval_id
 
 
+def _emit_alerts(
+    *,
+    request_id: Optional[int],
+    approval_id: Optional[int],
+    report_type: str,
+    critical: list[str],
+    warnings: list[str],
+    details: list[str],
+) -> None:
+    summary = []
+    if critical:
+        summary.append("CRITICAL issues:")
+        summary.extend(f"- {item}" for item in critical)
+    if warnings:
+        summary.append("WARNINGS:")
+        summary.extend(f"- {item}" for item in warnings)
+    if details:
+        summary.append("DETAILS:")
+        summary.extend(f"- {item}" for item in details[:10])
+    body = "\n".join(summary)
+    subject = f"Research data quality report ({report_type})"
+
+    with get_connection() as conn:
+        if critical:
+            insert_alert(
+                conn,
+                request_id=request_id,
+                approval_id=approval_id,
+                severity="CRITICAL",
+                title=f"Fact check failed: {report_type}",
+                details=body[:2000],
+            )
+        if warnings:
+            insert_alert(
+                conn,
+                request_id=request_id,
+                approval_id=approval_id,
+                severity="WARN",
+                title=f"Fact check warnings: {report_type}",
+                details=body[:2000],
+            )
+
+    send_email(subject, body)
+
+
 def run_once(force: Optional[str], dry_run: bool) -> int:
     init_env()
     now = dt.datetime.utcnow()
@@ -272,6 +324,19 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
     bundle, err = _build_bundle(report_type, label)
     if err or not bundle:
         LOGGER.error("Bundle build failed: %s", err)
+        return 1
+
+    fact = run_fact_check(bundle)
+    if not fact.ok():
+        _emit_alerts(
+            request_id=None,
+            approval_id=None,
+            report_type=bundle.get("report_type", "UNKNOWN"),
+            critical=fact.critical,
+            warnings=fact.warnings,
+            details=fact.details,
+        )
+        LOGGER.error("Fact check failed: %s", "; ".join(fact.critical))
         return 1
 
     report_key = f"{report_type.lower()}_{now.strftime('%Y%m%d_%H%M%S')}"
@@ -296,6 +361,7 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         draft,
         docx_payload,
         analysis_notes=(compute or {}).get("analysis_notes"),
+        fact_warnings=fact.warnings,
     )
     if approval_id:
         store_value = label or (bundle.get("window") or {}).get("end") or now.strftime("%Y-%m-%d")
@@ -312,6 +378,18 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
     )
     if err or not bundle:
         raise RuntimeError(err or "bundle_error")
+
+    fact = run_fact_check(bundle)
+    if not fact.ok():
+        _emit_alerts(
+            request_id=request.request_id,
+            approval_id=None,
+            report_type=bundle.get("report_type", "UNKNOWN"),
+            critical=fact.critical,
+            warnings=fact.warnings,
+            details=fact.details,
+        )
+        raise RuntimeError("fact_check_failed: " + "; ".join(fact.critical))
 
     draft, issues, compute = draft_with_ping_pong(bundle, editor_notes=request.editor_notes)
     if not draft:
@@ -332,6 +410,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
         docx_payload,
         regenerated_from=request.source_approval_id,
         analysis_notes=(compute or {}).get("analysis_notes"),
+        fact_warnings=fact.warnings,
     )
     return approval_id
 

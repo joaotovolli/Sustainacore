@@ -70,6 +70,13 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
+def _weight_fraction(value: Any) -> float:
+    raw = _safe_float(value)
+    if abs(raw) > 1.5:
+        return raw / 100.0
+    return raw
+
+
 def _percentile(values: List[float], pct: float) -> Optional[float]:
     if not values:
         return None
@@ -107,7 +114,7 @@ def _stats_summary(values: List[float]) -> Dict[str, Optional[float]]:
 
 
 def _split_core_coverage(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    core = [row for row in rows if _safe_float(row.get("weight")) > config.CORE_WEIGHT_THRESHOLD]
+    core = [row for row in rows if _weight_fraction(row.get("weight")) > config.CORE_WEIGHT_THRESHOLD]
     return core, rows
 
 
@@ -115,7 +122,7 @@ def _compute_sector_exposure(rows: List[Dict[str, Any]], *, weight_key: str) -> 
     exposure: Dict[str, float] = {}
     for row in rows:
         sector = row.get("sector") or "Unknown"
-        weight = _safe_float(row.get(weight_key))
+        weight = _weight_fraction(row.get(weight_key))
         exposure[sector] = exposure.get(sector, 0.0) + weight
     return exposure
 
@@ -303,8 +310,8 @@ def _build_movers(
     for ticker in all_tickers:
         prev = prev_by_ticker.get(ticker)
         latest_row = latest_by_ticker.get(ticker)
-        prev_weight = _safe_float(prev.get("weight")) if prev else 0.0
-        new_weight = _safe_float(latest_row.get("weight") if latest_row else 0.0)
+        prev_weight = _weight_fraction(prev.get("weight")) if prev else 0.0
+        new_weight = _weight_fraction(latest_row.get("weight") if latest_row else 0.0)
         prev_score = _safe_float(prev.get("aiges")) if prev else None
         new_score = _safe_float(latest_row.get("aiges")) if latest_row else None
         row = latest_row or prev or {}
@@ -408,13 +415,13 @@ def build_rebalance_bundle(
     scores_core_float = [_safe_float(x) for x in scores_core]
     scores_cov_float = [_safe_float(x) for x in scores_cov]
 
-    weights_core = [_safe_float(row.get("weight")) for row in latest_core]
+    weights_core = [_weight_fraction(row.get("weight")) for row in latest_core]
     weighted_mean_core = _weighted_mean(scores_core_float, weights_core)
     stats_core = _stats_summary(scores_core_float)
     stats_cov = _stats_summary(scores_cov_float)
 
     zero_weight_rows = [
-        row for row in latest_cov if _safe_float(row.get("weight")) <= config.CORE_WEIGHT_THRESHOLD
+        row for row in latest_cov if _weight_fraction(row.get("weight")) <= config.CORE_WEIGHT_THRESHOLD
     ]
     scores_zero_float = [
         _safe_float(row.get("aiges")) for row in zero_weight_rows if row.get("aiges") is not None
@@ -463,7 +470,7 @@ def build_rebalance_bundle(
                 "Company": row.get("company"),
                 "Ticker": row.get("ticker"),
                 "Sector": row.get("sector"),
-                "Weight": round(_safe_float(row.get("weight")), 4),
+                "Weight %": round(_weight_fraction(row.get("weight")) * 100, 2),
                 "AIGES": round(_safe_float(row.get("aiges")), 2),
             }
         )
@@ -613,15 +620,26 @@ def build_rebalance_bundle(
             f"{sector} divergence: core {_fmt_delta_pct(delta_weighted)} vs coverage {_fmt_delta_pct(coverage_delta)}."
         )
 
-    movers_callouts = []
+    entrants_callouts = []
+    for row in movers["entrants"][:3]:
+        entrants_callouts.append(
+            f"Entrant {row.get('ticker')} ({row.get('sector')}): {_fmt_pct(_weight_fraction(row.get('weight_new')) * 100)} weight, score {_fmt_score(row.get('aiges_new'))}."
+        )
+    exits_callouts = []
+    for row in movers["exits"][:3]:
+        exits_callouts.append(
+            f"Exit {row.get('ticker')} ({row.get('sector')}): prev {_fmt_pct(_weight_fraction(row.get('weight_prev')) * 100)} weight, score {_fmt_score(row.get('aiges_prev'))}."
+        )
+    inc_score_callouts = []
     for row in movers["incumbent_score"][:3]:
         delta_score = row.get("delta_aiges")
         delta_score_str = f"{delta_score:+.2f}" if isinstance(delta_score, (int, float)) else ""
-        movers_callouts.append(
+        inc_score_callouts.append(
             f"Score mover {row.get('ticker')} ({row.get('sector')}): {delta_score_str} vs prior."
         )
+    inc_weight_callouts = []
     for row in movers["incumbent_weight"][:3]:
-        movers_callouts.append(
+        inc_weight_callouts.append(
             f"Weight mover {row.get('ticker')} ({row.get('sector')}): {_fmt_delta_pp((row.get('delta_weight') or 0) * 100, 1)}."
         )
 
@@ -670,6 +688,8 @@ def build_rebalance_bundle(
             "top5_weight_share": top5_weight_share,
             "hhi": hhi,
             "breadth_pct": breadth_pct,
+            "weights_raw": [row.get("weight") for row in latest_core],
+            "weights_sum": round(sum(weights_core), 6),
         },
         "coverage": {
             "n": len(latest_cov),
@@ -828,21 +848,21 @@ def build_rebalance_bundle(
                 "rows": entrants_rows,
                 "formats": entrants_formats,
                 "column_widths": movers_widths,
-                "callouts": movers_callouts[:3],
+                "callouts": entrants_callouts,
             },
             {
                 "title": "Core Exits (Removed from core)",
                 "rows": exits_rows,
                 "formats": exits_formats,
                 "column_widths": movers_widths,
-                "callouts": movers_callouts[:3],
+                "callouts": exits_callouts,
             },
             {
                 "title": "Incumbent Score Movers (Comparable)",
                 "rows": incumbent_score_rows,
                 "formats": incumbent_score_formats,
                 "column_widths": movers_widths,
-                "callouts": movers_callouts[:3],
+                "callouts": inc_score_callouts,
                 "highlight_rules": [
                     {"column": "Delta Score", "abs_gte": 10.0, "color": "E2F0D9"},
                 ],
@@ -852,7 +872,7 @@ def build_rebalance_bundle(
                 "rows": incumbent_weight_rows,
                 "formats": incumbent_weight_formats,
                 "column_widths": movers_widths,
-                "callouts": movers_callouts[:3],
+                "callouts": inc_weight_callouts,
                 "highlight_rules": [
                     {"column": "Delta Weight (pp)", "abs_gte": 4.0, "color": "FFF2CC"},
                 ],
@@ -1184,7 +1204,7 @@ def build_company_spotlight_bundle(
                 "Company": target.get("company"),
                 "Ticker": target.get("ticker"),
                 "Sector": target.get("sector"),
-                "Weight": round(_safe_float(target.get("weight")), 4),
+                "Weight %": round(_weight_fraction(target.get("weight")) * 100, 2),
                 "AIGES": round(_safe_float(target.get("aiges")), 2),
             }
         )
