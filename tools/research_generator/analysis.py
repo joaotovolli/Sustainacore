@@ -96,6 +96,16 @@ def _iqr(values: List[float]) -> Optional[float]:
     return p75 - p25
 
 
+def _stats_summary(values: List[float]) -> Dict[str, Optional[float]]:
+    if not values:
+        return {"mean": None, "median": None, "iqr": None}
+    return {
+        "mean": mean(values),
+        "median": median(values),
+        "iqr": _iqr(values),
+    }
+
+
 def _split_core_coverage(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     core = [row for row in rows if _safe_float(row.get("weight")) > config.CORE_WEIGHT_THRESHOLD]
     return core, rows
@@ -241,6 +251,25 @@ def _rows_to_csv(rows: List[Dict[str, Any]]) -> str:
     return stream.getvalue().strip()
 
 
+def _fmt_pct(value: Optional[float], digits: int = 1) -> str:
+    if value is None:
+        return ""
+    return f"{value:.{digits}f}%"
+
+
+def _fmt_delta_pct(value: Optional[float], digits: int = 1) -> str:
+    if value is None:
+        return ""
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{value:.{digits}f}%"
+
+
+def _fmt_score(value: Optional[float], digits: int = 2) -> str:
+    if value is None:
+        return ""
+    return f"{value:.{digits}f}"
+
+
 def _build_top_movers(
     latest: List[Dict[str, Any]],
     previous: List[Dict[str, Any]],
@@ -324,6 +353,19 @@ def build_rebalance_bundle(
 
     weights_core = [_safe_float(row.get("weight")) for row in latest_core]
     weighted_mean_core = _weighted_mean(scores_core_float, weights_core)
+    stats_core = _stats_summary(scores_core_float)
+    stats_cov = _stats_summary(scores_cov_float)
+
+    zero_weight_rows = [
+        row for row in latest_cov if _safe_float(row.get("weight")) <= config.CORE_WEIGHT_THRESHOLD
+    ]
+    scores_zero_float = [
+        _safe_float(row.get("aiges")) for row in zero_weight_rows if row.get("aiges") is not None
+    ]
+    stats_zero = _stats_summary(scores_zero_float)
+
+    if weighted_mean_core is None or stats_cov["mean"] is None:
+        raise ValueError("coverage_mean_missing")
 
     top5_weight_share = None
     hhi = None
@@ -339,6 +381,15 @@ def build_rebalance_bundle(
     weight_moves, score_moves = _build_top_movers(latest_core, prev_core)
 
     avg_aiges = weighted_mean_core
+    mean_gap = round(weighted_mean_core - stats_cov["mean"], 2) if stats_cov["mean"] is not None else None
+    zero_gap = (
+        round(weighted_mean_core - stats_zero["mean"], 2)
+        if stats_zero["mean"] is not None
+        else None
+    )
+    core_max_sector = max(weighted_sector_latest.values()) * 100 if weighted_sector_latest else 0.0
+    coverage_max_sector = max(coverage_count_latest.values()) if coverage_count_latest else 0.0
+    sector_concentration_gap = round(core_max_sector - coverage_max_sector, 2)
     key_numbers = {
         "core_constituents": len(latest_core),
         "coverage_constituents": len(latest_cov),
@@ -372,20 +423,29 @@ def build_rebalance_bundle(
         {
             "Segment": "Core (Top 25)",
             "N": len(latest_core),
-            "Mean Composite (weighted)": round(weighted_mean_core, 2) if weighted_mean_core else "",
-            "Median Composite": round(median(scores_core_float), 2) if scores_core_float else "",
-            "IQR Composite": round(_iqr(scores_core_float), 2) if scores_core_float else "",
-            "Top5 Weight Share": top5_weight_share if top5_weight_share is not None else "",
-            "HHI": hhi if hhi is not None else "",
+            "Mean Composite": round(weighted_mean_core, 2),
+            "Median Composite": round(stats_core["median"], 2) if stats_core["median"] is not None else None,
+            "IQR Composite": round(stats_core["iqr"], 2) if stats_core["iqr"] is not None else None,
+            "Top5 Weight Share": round((top5_weight_share or 0) * 100, 2) if top5_weight_share is not None else None,
+            "HHI": hhi,
         },
         {
             "Segment": "Coverage (All 100)",
             "N": len(latest_cov),
-            "Mean Composite (unweighted)": round(mean(scores_cov_float), 2) if scores_cov_float else "",
-            "Median Composite": round(median(scores_cov_float), 2) if scores_cov_float else "",
-            "IQR Composite": round(_iqr(scores_cov_float), 2) if scores_cov_float else "",
-            "Top5 Weight Share": "",
-            "HHI": "",
+            "Mean Composite": round(stats_cov["mean"], 2) if stats_cov["mean"] is not None else None,
+            "Median Composite": round(stats_cov["median"], 2) if stats_cov["median"] is not None else None,
+            "IQR Composite": round(stats_cov["iqr"], 2) if stats_cov["iqr"] is not None else None,
+            "Top5 Weight Share": None,
+            "HHI": None,
+        },
+        {
+            "Segment": "Zero-Weight Slice (75)",
+            "N": len(zero_weight_rows),
+            "Mean Composite": round(stats_zero["mean"], 2) if stats_zero["mean"] is not None else None,
+            "Median Composite": round(stats_zero["median"], 2) if stats_zero["median"] is not None else None,
+            "IQR Composite": round(stats_zero["iqr"], 2) if stats_zero["iqr"] is not None else None,
+            "Top5 Weight Share": None,
+            "HHI": None,
         },
     ]
 
@@ -408,6 +468,19 @@ def build_rebalance_bundle(
             }
         )
 
+    sector_move_candidates = []
+    divergence_candidates = []
+    for sector in sectors:
+        delta_weighted = weighted_sector_delta.get(sector, 0.0) * 100
+        if abs(delta_weighted) > 0:
+            sector_move_candidates.append((sector, delta_weighted))
+        divergence = abs(delta_weighted - coverage_count_delta.get(sector, 0.0))
+        divergence_candidates.append((sector, divergence, delta_weighted))
+    sector_move_candidates.sort(key=lambda item: abs(item[1]), reverse=True)
+    divergence_candidates.sort(key=lambda item: item[1], reverse=True)
+    notable_sector_moves = sector_move_candidates[:3]
+    notable_sector_divergence = divergence_candidates[:3]
+
     movers_rows = []
     for idx, row in enumerate(score_moves, start=1):
         support = row.get("summary", "")
@@ -418,8 +491,9 @@ def build_rebalance_bundle(
                 "Ticker": row.get("ticker"),
                 "Company": row.get("company"),
                 "Sector": row.get("sector"),
-                "Delta": row.get("delta_aiges"),
-                "Support": support[:120] if idx <= 3 and support else "",
+                "Delta Score": row.get("delta_aiges"),
+                "Delta Weight %": None,
+                "Support Short": support[:120] if idx <= 3 and support else "",
             }
         )
     for idx, row in enumerate(weight_moves, start=1):
@@ -431,9 +505,50 @@ def build_rebalance_bundle(
                 "Ticker": row.get("ticker"),
                 "Company": row.get("company"),
                 "Sector": row.get("sector"),
-                "Delta": row.get("delta_weight"),
-                "Support": support[:120] if idx <= 3 and support else "",
+                "Delta Score": None,
+                "Delta Weight %": round((_safe_float(row.get("delta_weight")) * 100), 2),
+                "Support Short": support[:120] if idx <= 3 and support else "",
             }
+        )
+
+    core_mean = round(weighted_mean_core, 2)
+    cov_mean = round(stats_cov["mean"], 2) if stats_cov["mean"] is not None else None
+    zero_mean = round(stats_zero["mean"], 2) if stats_zero["mean"] is not None else None
+
+    summary_callouts = [
+        f"Core weighted mean composite is {_fmt_score(core_mean)} vs coverage mean {_fmt_score(cov_mean)} (gap {mean_gap:+.2f}).",
+        f"Core IQR {_fmt_score(stats_core['iqr'])} vs coverage IQR {_fmt_score(stats_cov['iqr'])}.",
+        f"Top5 weight share {_fmt_pct((top5_weight_share or 0) * 100)} and HHI {_fmt_score(hhi)} indicate concentration.",
+        f"Breadth is {_fmt_pct(breadth_pct)} of core names with positive score changes; turnover is {_fmt_delta_pct((turnover or 0) * 100, 2)}.",
+    ]
+    if zero_mean is not None:
+        summary_callouts.append(
+            f"Zero-weight slice mean {_fmt_score(zero_mean)} vs core mean {_fmt_score(core_mean)} (gap {zero_gap:+.2f})."
+        )
+
+    sector_callouts = []
+    for sector, delta in notable_sector_moves:
+        prev_val = weighted_sector_prev.get(sector, 0.0) * 100
+        new_val = weighted_sector_latest.get(sector, 0.0) * 100
+        sector_callouts.append(
+            f"{sector} moved from {_fmt_pct(prev_val)} to {_fmt_pct(new_val)} ({_fmt_delta_pct(delta)})."
+        )
+    for sector, divergence, delta_weighted in notable_sector_divergence:
+        coverage_delta = coverage_count_delta.get(sector, 0.0)
+        sector_callouts.append(
+            f"{sector} divergence: core {_fmt_delta_pct(delta_weighted)} vs coverage {_fmt_delta_pct(coverage_delta)}."
+        )
+
+    movers_callouts = []
+    for row in score_moves[:3]:
+        delta_score = row.get("delta_aiges")
+        delta_score_str = f"{delta_score:+.2f}" if isinstance(delta_score, (int, float)) else ""
+        movers_callouts.append(
+            f"Score mover {row.get('ticker')} ({row.get('sector')}): {delta_score_str} vs prior."
+        )
+    for row in weight_moves[:3]:
+        movers_callouts.append(
+            f"Weight mover {row.get('ticker')} ({row.get('sector')}): {_fmt_delta_pct((row.get('delta_weight') or 0) * 100, 2)}."
         )
 
     chart_sector = {
@@ -484,9 +599,20 @@ def build_rebalance_bundle(
         },
         "coverage": {
             "n": len(latest_cov),
-            "mean_aiges": round(mean(scores_cov_float), 2) if scores_cov_float else None,
-            "median_aiges": round(median(scores_cov_float), 2) if scores_cov_float else None,
-            "iqr_aiges": round(_iqr(scores_cov_float), 2) if scores_cov_float else None,
+            "mean_aiges": round(stats_cov["mean"], 2) if stats_cov["mean"] is not None else None,
+            "median_aiges": round(stats_cov["median"], 2) if stats_cov["median"] is not None else None,
+            "iqr_aiges": round(stats_cov["iqr"], 2) if stats_cov["iqr"] is not None else None,
+        },
+        "zero_weight_slice": {
+            "n": len(zero_weight_rows),
+            "mean_aiges": round(stats_zero["mean"], 2) if stats_zero["mean"] is not None else None,
+            "median_aiges": round(stats_zero["median"], 2) if stats_zero["median"] is not None else None,
+            "iqr_aiges": round(stats_zero["iqr"], 2) if stats_zero["iqr"] is not None else None,
+        },
+        "gaps": {
+            "mean_gap_core_vs_coverage": mean_gap,
+            "mean_gap_core_vs_zero": zero_gap,
+            "sector_concentration_gap": sector_concentration_gap,
         },
         "pillars": _pillar_stats(latest_cov),
         "rebalance": {
@@ -500,6 +626,8 @@ def build_rebalance_bundle(
             "coverage_count_latest": coverage_count_latest,
             "coverage_count_prev": coverage_count_prev,
             "core_count_delta_flags": inconsistent_sectors,
+            "notable_moves": notable_sector_moves,
+            "notable_divergence": notable_sector_divergence,
         },
         "top_movers": {
             "weight": weight_moves,
@@ -512,6 +640,54 @@ def build_rebalance_bundle(
         "sector_exposure": _rows_to_csv(sector_rows),
         "top_movers": _rows_to_csv(movers_rows),
         "summary": _rows_to_csv(summary_table),
+    }
+
+    summary_formats = {
+        "Mean Composite": "score",
+        "Median Composite": "score",
+        "IQR Composite": "score",
+        "Top5 Weight Share": "pct",
+        "HHI": "ratio",
+    }
+    summary_widths = {
+        "Segment": 1.7,
+        "N": 0.6,
+        "Mean Composite": 1.1,
+        "Median Composite": 1.0,
+        "IQR Composite": 0.9,
+        "Top5 Weight Share": 0.9,
+        "HHI": 0.7,
+    }
+    sector_formats = {
+        "Core Weighted Prev": "pct",
+        "Core Weighted New": "pct",
+        "Core Weighted Delta": "delta_pct",
+        "Coverage Count Prev %": "pct",
+        "Coverage Count New %": "pct",
+        "Coverage Count Delta": "delta_pct",
+    }
+    sector_widths = {
+        "Sector": 1.6,
+        "Core Weighted Prev": 1.1,
+        "Core Weighted New": 1.1,
+        "Core Weighted Delta": 1.1,
+        "Coverage Count Prev %": 1.1,
+        "Coverage Count New %": 1.1,
+        "Coverage Count Delta": 1.1,
+    }
+    movers_formats = {
+        "Delta Score": "score_signed",
+        "Delta Weight %": "delta_pct",
+    }
+    movers_widths = {
+        "Type": 0.7,
+        "Rank": 0.5,
+        "Ticker": 0.7,
+        "Company": 1.6,
+        "Sector": 1.0,
+        "Delta Score": 0.9,
+        "Delta Weight %": 0.9,
+        "Support Short": 2.4,
     }
 
     bundle = AnalysisBundle(
@@ -538,14 +714,126 @@ def build_rebalance_bundle(
         },
         metrics=metrics,
         docx_tables=[
-            {"title": "Core vs Coverage Summary", "rows": summary_table},
-            {"title": "Sector Exposure Comparison", "rows": sector_rows},
-            {"title": "Top Movers", "rows": movers_rows},
+            {
+                "title": "Core vs Coverage Summary",
+                "rows": summary_table,
+                "formats": summary_formats,
+                "column_widths": summary_widths,
+                "callouts": summary_callouts,
+            },
+            {
+                "title": "Sector Exposure Comparison",
+                "rows": sector_rows,
+                "formats": sector_formats,
+                "column_widths": sector_widths,
+                "callouts": sector_callouts,
+                "highlight_rules": [
+                    {"column": "Core Weighted Delta", "abs_gte": 4.0, "color": "FFF2CC"},
+                    {"column": "Coverage Count Delta", "column_value": "FLAG", "color": "F8D7DA"},
+                ],
+            },
+            {
+                "title": "Top Movers",
+                "rows": movers_rows,
+                "formats": movers_formats,
+                "column_widths": movers_widths,
+                "callouts": movers_callouts,
+                "highlight_rules": [
+                    {"column": "Rank", "lte": 3, "color": "E2F0D9"},
+                ],
+            },
         ],
-        docx_charts=[chart_sector, chart_aiges, chart_breadth],
+        docx_charts=[
+            {**chart_sector, "callouts": sector_callouts[:3]},
+            {**chart_aiges, "callouts": summary_callouts[:2]},
+            {**chart_breadth, "callouts": summary_callouts[2:]},
+        ],
         csv_extracts=csv_extracts,
     )
     return bundle
+
+
+def build_core_vs_coverage_gap_bundle(
+    latest_date: dt.date,
+    previous_date: Optional[dt.date],
+    latest_rows: List[Dict[str, Any]],
+    previous_rows: List[Dict[str, Any]],
+) -> AnalysisBundle:
+    base = build_rebalance_bundle(latest_date, previous_date, latest_rows, previous_rows)
+    metrics = base.metrics or {}
+    gaps = metrics.get("gaps") or {}
+
+    gap_rows = [
+        {"Metric": "Mean gap (core - coverage)", "Value": gaps.get("mean_gap_core_vs_coverage")},
+        {"Metric": "Mean gap (core - zero)", "Value": gaps.get("mean_gap_core_vs_zero")},
+        {"Metric": "Sector concentration gap", "Value": gaps.get("sector_concentration_gap")},
+        {"Metric": "Breadth", "Value": metrics.get("core", {}).get("breadth_pct")},
+        {"Metric": "Turnover", "Value": metrics.get("rebalance", {}).get("turnover")},
+    ]
+
+    gap_formats = {"Value": "score_signed"}
+    gap_widths = {"Metric": 2.5, "Value": 1.2}
+    gap_callouts = [
+        f"Core vs coverage mean gap is {gaps.get('mean_gap_core_vs_coverage')} points.",
+        f"Core vs zero-weight gap is {gaps.get('mean_gap_core_vs_zero')} points.",
+        f"Sector concentration gap is {gaps.get('sector_concentration_gap')} percentage points.",
+    ]
+
+    return AnalysisBundle(
+        report_type="CORE_VS_COVERAGE_GAP",
+        window_start=base.window_start,
+        window_end=base.window_end,
+        key_numbers=base.key_numbers,
+        top_lists=base.top_lists,
+        table_rows=base.table_rows,
+        chart_data=base.chart_data,
+        chart_caption_draft=base.chart_caption_draft,
+        table_caption_draft="Core vs coverage gap metrics.",
+        methodology_url=base.methodology_url,
+        safe_source_snippets=base.safe_source_snippets,
+        constraints=base.constraints,
+        metrics=base.metrics,
+        docx_tables=[
+            base.docx_tables[0],
+            {
+                "title": "Core vs Coverage Gaps",
+                "rows": gap_rows,
+                "formats": gap_formats,
+                "column_widths": gap_widths,
+                "callouts": gap_callouts,
+            },
+            base.docx_tables[1],
+        ],
+        docx_charts=[base.docx_charts[1], base.docx_charts[0]],
+        csv_extracts=base.csv_extracts,
+    )
+
+
+def build_top25_movers_bundle(
+    latest_date: dt.date,
+    previous_date: Optional[dt.date],
+    latest_rows: List[Dict[str, Any]],
+    previous_rows: List[Dict[str, Any]],
+) -> AnalysisBundle:
+    base = build_rebalance_bundle(latest_date, previous_date, latest_rows, previous_rows)
+    return AnalysisBundle(
+        report_type="TOP25_MOVERS_ONLY",
+        window_start=base.window_start,
+        window_end=base.window_end,
+        key_numbers=base.key_numbers,
+        top_lists=base.top_lists,
+        table_rows=base.table_rows,
+        chart_data=base.chart_data,
+        chart_caption_draft="Top movers and sector shifts within the core index.",
+        table_caption_draft="Top movers by score and weight.",
+        methodology_url=base.methodology_url,
+        safe_source_snippets=base.safe_source_snippets,
+        constraints=base.constraints,
+        metrics=base.metrics,
+        docx_tables=[base.docx_tables[2], base.docx_tables[1]],
+        docx_charts=[base.docx_charts[0], base.docx_charts[2]],
+        csv_extracts=base.csv_extracts,
+    )
 
 
 def build_anomaly_bundle(stats: Dict[str, Any], contributions: List[Dict[str, Any]]) -> AnalysisBundle:

@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from .gemini_cli import GeminiCLIError, run_gemini
+from .gemini_cli import GeminiCLIError, is_quota_near_limit, run_gemini
 from .gpt_client import GPTClientError, run_gpt_json
 from .learned_notes import append_note
 from .validators import validate_quality_gate, validate_writer_output
@@ -37,6 +37,8 @@ def _bundle_context(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "window": bundle.get("window"),
         "metrics": bundle.get("metrics"),
         "csv_extracts": bundle.get("csv_extracts"),
+        "table_callouts": {t.get("title"): t.get("callouts") for t in (bundle.get("docx_tables") or [])},
+        "figure_callouts": {c.get("title"): c.get("callouts") for c in (bundle.get("docx_charts") or [])},
         "constraints": bundle.get("constraints"),
     }
 
@@ -48,6 +50,8 @@ def run_gpt_compute(bundle: Dict[str, Any], editor_notes: Optional[str] = None) 
         "chart_captions": ["strings"],
         "validation_flags": {"sector_delta_inconsistent": False, "missing_fields": []},
         "narrative_table": "markdown",
+        "table_callouts": {"Table Name": ["callouts"]},
+        "figure_callouts": {"Figure Name": ["callouts"]},
     }
     notes = editor_notes.strip() if editor_notes else ""
     prompt = (
@@ -80,10 +84,16 @@ def run_gemini_writer(bundle: Dict[str, Any], compute: Dict[str, Any]) -> Dict[s
         "Narrative must be based on computed metrics only. "
         "Use association-not-causation language when referencing performance. "
         "Use only 1-2 short support lines from public source summaries. "
+        "Explicitly reference the figure and table callouts (e.g., 'The chart above shows...'). "
+        "Include at least 6 numeric references across the narrative. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nAnalysis notes:\n"
         + json.dumps(compute.get("analysis_notes", []))
+        + "\nTable callouts:\n"
+        + json.dumps(compute.get("table_callouts", {}))
+        + "\nFigure callouts:\n"
+        + json.dumps(compute.get("figure_callouts", {}))
         + "\nCaptions:\n"
         + json.dumps(
             {
@@ -112,10 +122,16 @@ def run_gpt_writer(bundle: Dict[str, Any], compute: Dict[str, Any]) -> Dict[str,
         "Use the analysis_notes as the factual base. "
         "Use association-not-causation language when referencing performance. "
         "Use only 1-2 short support lines from public source summaries. "
+        "Explicitly reference the figure and table callouts (e.g., 'The chart above shows...'). "
+        "Include at least 6 numeric references across the narrative. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nAnalysis notes:\n"
         + json.dumps(compute.get("analysis_notes", []))
+        + "\nTable callouts:\n"
+        + json.dumps(compute.get("table_callouts", {}))
+        + "\nFigure callouts:\n"
+        + json.dumps(compute.get("figure_callouts", {}))
         + "\nCaptions:\n"
         + json.dumps(
             {
@@ -182,13 +198,24 @@ def draft_with_ping_pong(
             "chart_captions": [bundle.get("chart_caption_draft")],
             "validation_flags": {"sector_delta_inconsistent": False, "missing_fields": []},
             "narrative_table": "",
+            "table_callouts": {t.get("title"): t.get("callouts") for t in (bundle.get("docx_tables") or [])},
+            "figure_callouts": {c.get("title"): c.get("callouts") for c in (bundle.get("docx_charts") or [])},
         }
         issues.append(str(exc))
+    compute.setdefault("table_callouts", {t.get("title"): t.get("callouts") for t in (bundle.get("docx_tables") or [])})
+    compute.setdefault("figure_callouts", {c.get("title"): c.get("callouts") for c in (bundle.get("docx_charts") or [])})
+    if "validation_flags" not in compute:
+        compute["validation_flags"] = {}
+    if "sector_delta_inconsistent" not in compute["validation_flags"]:
+        flags = (bundle.get("metrics") or {}).get("sector_exposure", {}).get("core_count_delta_flags") or []
+        compute["validation_flags"]["sector_delta_inconsistent"] = bool(flags)
 
     retries = 0
     last_writer: Optional[Dict[str, Any]] = None
     while retries <= 2:
         try:
+            if is_quota_near_limit():
+                raise GeminiCLIError("gemini_quota_near_limit")
             writer = run_gemini_writer(bundle, compute)
         except GeminiCLIError as exc:
             append_note(

@@ -104,6 +104,10 @@ def run_gemini(prompt: str, *, timeout: float = 60.0) -> str:
     return ""
 
 
+def is_quota_near_limit() -> bool:
+    return _GUARD.near_limit()
+
+
 def log_startup_config() -> None:
     LOGGER.info("gemini_cli_model=%s", config.MODEL_NAME)
     LOGGER.info(

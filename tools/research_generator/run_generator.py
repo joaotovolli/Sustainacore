@@ -12,8 +12,10 @@ from . import config
 from .analysis import (
     build_anomaly_inputs,
     build_company_spotlight_bundle,
+    build_core_vs_coverage_gap_bundle,
     build_period_close_inputs,
     build_rebalance_bundle,
+    build_top25_movers_bundle,
     build_weekly_inputs,
 )
 from .docx_builder import build_docx
@@ -34,6 +36,7 @@ from .oracle import (
     update_request_status,
 )
 from .ping_pong import draft_with_ping_pong
+from .validators import quality_gate_strict
 from .detectors import detect_anomaly, detect_period_close, detect_rebalance, detect_weekly
 
 LOGGER = logging.getLogger("research_generator")
@@ -87,6 +90,8 @@ def _build_details(
         "metrics": bundle.get("metrics"),
         "analysis_notes": analysis_notes or [],
         "csv_extracts": bundle.get("csv_extracts"),
+        "table_callouts": {t.get("title"): t.get("callouts") for t in (bundle.get("docx_tables") or [])},
+        "figure_callouts": {c.get("title"): c.get("callouts") for c in (bundle.get("docx_charts") or [])},
         "provenance": [
             "TECH11_AI_GOV_ETH_INDEX",
             "SC_IDX_LEVELS",
@@ -166,6 +171,22 @@ def _build_bundle(
                     return None, "Missing rebalance data"
                 bundle = _build_rebalance_bundle(conn, latest_date, previous_date)
                 return bundle.to_dict(), None
+            if report_type == "CORE_VS_COVERAGE_GAP":
+                _, latest_date, previous_date = detect_rebalance(conn)
+                if not latest_date:
+                    return None, "Missing rebalance data"
+                latest_rows = fetch_rebalance_rows(conn, latest_date)
+                prev_rows = fetch_rebalance_rows(conn, previous_date) if previous_date else []
+                bundle = build_core_vs_coverage_gap_bundle(latest_date, previous_date, latest_rows, prev_rows)
+                return bundle.to_dict(), None
+            if report_type == "TOP25_MOVERS_ONLY":
+                _, latest_date, previous_date = detect_rebalance(conn)
+                if not latest_date:
+                    return None, "Missing rebalance data"
+                latest_rows = fetch_rebalance_rows(conn, latest_date)
+                prev_rows = fetch_rebalance_rows(conn, previous_date) if previous_date else []
+                bundle = build_top25_movers_bundle(latest_date, previous_date, latest_rows, prev_rows)
+                return bundle.to_dict(), None
             if report_type == "ANOMALY":
                 bundle, err = build_anomaly_inputs(conn)
                 return bundle.to_dict() if bundle else None, err
@@ -189,16 +210,23 @@ def _build_bundle(
     return None, "Unsupported report type"
 
 
-def _create_approval(
+def _build_docx_payload(
     bundle: Dict[str, Any],
     draft: Dict[str, Any],
     report_key: str,
+) -> Dict[str, Any]:
+    output_dir = config.DEFAULT_OUTPUT_DIR
+    return build_docx(draft, bundle, report_key, output_dir)
+
+
+def _create_approval(
+    bundle: Dict[str, Any],
+    draft: Dict[str, Any],
+    docx_payload: Dict[str, Any],
     *,
     regenerated_from: Optional[int] = None,
     analysis_notes: Optional[list[str]] = None,
 ) -> int:
-    output_dir = config.DEFAULT_OUTPUT_DIR
-    docx_payload = build_docx(draft, bundle, report_key, output_dir)
     summary = _summary_from_draft(draft)
     details = _build_details(
         bundle,
@@ -257,7 +285,18 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.error("Drafting failed: %s", "; ".join(issues))
         return 1
 
-    approval_id = _create_approval(bundle, draft, report_key, analysis_notes=(compute or {}).get("analysis_notes"))
+    docx_payload = _build_docx_payload(bundle, draft, report_key)
+    ok, gate_issues = quality_gate_strict(bundle, draft, compute or {}, docx_payload)
+    if not ok:
+        LOGGER.error("Quality gate failed: %s", "; ".join(gate_issues))
+        return 1
+
+    approval_id = _create_approval(
+        bundle,
+        draft,
+        docx_payload,
+        analysis_notes=(compute or {}).get("analysis_notes"),
+    )
     if approval_id:
         store_value = label or (bundle.get("window") or {}).get("end") or now.strftime("%Y-%m-%d")
         _store_report_state(report_type, store_value)
@@ -282,10 +321,15 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
     if dry_run:
         return None
 
+    docx_payload = _build_docx_payload(bundle, draft, report_key)
+    ok, gate_issues = quality_gate_strict(bundle, draft, compute or {}, docx_payload)
+    if not ok:
+        raise RuntimeError("quality_gate_failed: " + "; ".join(gate_issues))
+
     approval_id = _create_approval(
         bundle,
         draft,
-        report_key,
+        docx_payload,
         regenerated_from=request.source_approval_id,
         analysis_notes=(compute or {}).get("analysis_notes"),
     )
@@ -371,7 +415,14 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Skip approval creation")
     parser.add_argument(
         "--force",
-        choices=["rebalance", "weekly", "period", "anomaly"],
+        choices=[
+            "rebalance",
+            "weekly",
+            "period",
+            "anomaly",
+            "core_vs_coverage_gap",
+            "top25_movers_only",
+        ],
         help="Force a specific report type",
     )
     parser.add_argument(
@@ -404,6 +455,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             force = "PERIOD_CLOSE"
         elif args.force == "anomaly":
             force = "ANOMALY"
+        elif args.force == "core_vs_coverage_gap":
+            force = "CORE_VS_COVERAGE_GAP"
+        elif args.force == "top25_movers_only":
+            force = "TOP25_MOVERS_ONLY"
 
     if args.seed_request:
         init_env()
