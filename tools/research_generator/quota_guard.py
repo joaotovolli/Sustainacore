@@ -117,3 +117,18 @@ class QuotaGuard:
         today = now.strftime("%Y-%m-%d")
         self.state.daily_counts[today] = int(self.state.daily_counts.get(today, 0)) + 1
         self.persist()
+
+    def current_counts(self) -> Dict[str, int]:
+        self._ensure_loaded()
+        self._prune_minute_calls()
+        today = self._now().strftime("%Y-%m-%d")
+        return {
+            "minute": len(self.state.minute_calls),
+            "daily": int(self.state.daily_counts.get(today, 0)),
+        }
+
+    def near_limit(self) -> bool:
+        counts = self.current_counts()
+        return counts["minute"] >= (config.MAX_CALLS_PER_MINUTE - 2) or counts["daily"] >= (
+            config.MAX_CALLS_PER_DAY - 5
+        )

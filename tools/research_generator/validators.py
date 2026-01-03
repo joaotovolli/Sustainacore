@@ -12,6 +12,7 @@ class ValidationError(Exception):
 
 
 _CURRENCY_RE = re.compile(r"[\$€£¥]")
+_NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
 
 
 def _word_count(text: str) -> int:
@@ -62,7 +63,8 @@ def validate_writer_output(bundle: Dict[str, Any], writer: Dict[str, Any]) -> Tu
         issues.append("table_rows_exceed_limit")
 
     chart = bundle.get("chart_data") or {}
-    if not chart.get("x") or not chart.get("y"):
+    has_series = bool(chart.get("series"))
+    if not chart.get("x") or not (chart.get("y") or has_series):
         issues.append("missing_chart_data")
 
     if not _table_columns_ok(table_rows, issues):
@@ -112,3 +114,52 @@ def validate_quality_gate(
             issues.append("sector_delta_not_flagged")
 
     return (len(issues) == 0), issues
+
+
+def quality_gate_strict(
+    bundle: Dict[str, Any],
+    writer: Dict[str, Any],
+    compute: Dict[str, Any],
+    docx_meta: Dict[str, Any],
+) -> Tuple[bool, List[str]]:
+    issues: List[str] = []
+    report_type = (bundle.get("report_type") or "").upper()
+    metrics = bundle.get("metrics") or {}
+    coverage_mean = (metrics.get("coverage") or {}).get("mean_aiges")
+    if coverage_mean in (None, ""):
+        issues.append("coverage_mean_missing")
+
+    paragraphs = " ".join(writer.get("paragraphs") or []).lower()
+    if "chart" not in paragraphs and "figure" not in paragraphs:
+        issues.append("missing_chart_reference")
+    if "table" not in paragraphs:
+        issues.append("missing_table_reference")
+
+    numeric_refs = len(_NUMBER_RE.findall(" ".join(writer.get("paragraphs") or [])))
+    if numeric_refs < 6:
+        issues.append("insufficient_numeric_references")
+
+    if report_type == "REBALANCE":
+        required_terms = ["iqr", "hhi", "turnover", "breadth"]
+        stat_hits = sum(1 for term in required_terms if term in paragraphs)
+        if stat_hits < 3:
+            issues.append("missing_non_trivial_stats")
+
+        flagged = (metrics.get("sector_exposure") or {}).get("core_count_delta_flags") or []
+        if flagged:
+            sector_table = None
+            for table in bundle.get("docx_tables") or []:
+                if table.get("title") == "Sector Exposure Comparison":
+                    sector_table = table
+                    break
+            if sector_table:
+                for row in sector_table.get("rows", []):
+                    if row.get("Sector") in flagged and row.get("Coverage Count Delta") != "FLAG":
+                        issues.append("sector_delta_flag_missing")
+                        break
+
+    if not docx_meta.get("table_style_applied"):
+        issues.append("table_style_missing")
+
+    ok = len(issues) == 0
+    return ok, issues

@@ -3,6 +3,7 @@
 ## Core vs Coverage
 - Core Index (Top 25): rows with `port_weight > 0`
 - Coverage Universe (All 100): all rows for the latest `port_date`
+- Zero-weight slice: rows with `port_weight = 0` within Coverage
 
 ## Sector Exposure
 - Core weighted exposure: normalize weights to sum 1, then sum by sector
@@ -33,3 +34,4 @@
 ## Notes
 - No stock prices are used; index levels are aggregate-only.
 - Narrative must remain research/education and avoid investment advice.
+- Report types include REBALANCE, CORE_VS_COVERAGE_GAP, TOP25_MOVERS_ONLY, WEEKLY, PERIOD_CLOSE, ANOMALY, COMPANY_SPOTLIGHT.

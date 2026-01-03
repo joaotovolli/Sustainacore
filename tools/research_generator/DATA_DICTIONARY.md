@@ -17,6 +17,11 @@
   - aiges_pillar_accountability
   - aiges_pillar_safety
 
+Notes:
+- Core Index = rows with port_weight > 0
+- Coverage Universe = all rows for a port_date
+- Zero-weight slice = rows with port_weight = 0
+
 ### SC_IDX_STATS_DAILY
 - trade_date (DATE)
 - ret_1d (NUMBER)
