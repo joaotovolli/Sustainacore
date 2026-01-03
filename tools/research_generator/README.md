@@ -22,6 +22,16 @@ Notes
 - Model pinned to `gemini-2.5-flash`.
 - No price data or investment advice; derived metrics only.
 
+Cleanup (research-only)
+- Dry run (counts only):
+  - `python3 -m tools.research_generator.cleanup --dry-run`
+- Delete research rows + local artifacts:
+  - `python3 -m tools.research_generator.cleanup --yes`
+  - `bash tools/research_generator/scripts/cleanup_research.sh --yes`
+- Deletes only `REQUEST_TYPE='RESEARCH_POST'` from `PROC_GEMINI_APPROVALS`.
+- Clears research-only tables (`PROC_RESEARCH_REQUESTS`, `PROC_REPORTS`, `PROC_RESEARCH_REPORTS`, `PROC_RESEARCH_ALERTS`) if present.
+- Removes files under `tools/research_generator/output/` and keeps `quota_state.json`.
+
 Systemd Doctor
 - `systemctl status research-generator.service --no-pager`
 - `systemctl status research-generator-manual.service --no-pager`
