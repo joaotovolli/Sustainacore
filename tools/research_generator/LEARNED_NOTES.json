@@ -13,6 +13,41 @@
       "failure_type": "gpt_critic_failed",
       "fix_hint": "openai_api_key_missing",
       "report_type": "REBALANCE"
+    },
+    {
+      "note_id": "2813ad06d923",
+      "timestamp": "2026-01-03T12:20:31Z",
+      "failure_type": "analyst_failed",
+      "fix_hint": "openai_api_key_missing",
+      "report_type": "REBALANCE"
+    },
+    {
+      "note_id": "5bb328a43d38",
+      "timestamp": "2026-01-03T12:20:31Z",
+      "failure_type": "editor_failed",
+      "fix_hint": "openai_api_key_missing",
+      "report_type": "REBALANCE"
+    },
+    {
+      "note_id": "cb161f3a8ba9",
+      "timestamp": "2026-01-03T12:20:41Z",
+      "failure_type": "copyeditor_failed",
+      "fix_hint": "openai_api_key_missing",
+      "report_type": "REBALANCE"
+    },
+    {
+      "note_id": "728d4a924ebe",
+      "timestamp": "2026-01-03T12:20:41Z",
+      "failure_type": "factcheck_failed",
+      "fix_hint": "openai_api_key_missing",
+      "report_type": "REBALANCE"
+    },
+    {
+      "note_id": "1aa265e0b564",
+      "timestamp": "2026-01-03T12:20:41Z",
+      "failure_type": "publisher_failed",
+      "fix_hint": "openai_api_key_missing",
+      "report_type": "REBALANCE"
     }
   ]
 }

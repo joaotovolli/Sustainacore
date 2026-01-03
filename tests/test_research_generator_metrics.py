@@ -106,3 +106,16 @@ def test_quality_gate_requires_dek_word_count():
     ok, issues = quality_gate_strict(bundle, writer, {"validation_flags": {}}, {"table_style_applied": True})
     assert not ok
     assert "dek_word_count" in issues
+
+
+def test_validator_forbidden_scaffolding():
+    bundle = {"report_type": "REBALANCE", "docx_tables": [], "metrics": {"coverage": {"mean_aiges": 1}}}
+    writer = {
+        "headline": "Core governance check",
+        "dek": "Core and coverage shifts frame the quarterly signal for governance and ethics scores and sector balance.",
+        "paragraphs": ["Figure 1 anchors the evidence for this section. Table 1 provides the detailed breakdown."],
+        "outline": [],
+    }
+    ok, issues = quality_gate_strict(bundle, writer, {"validation_flags": {}}, {"table_style_applied": True})
+    assert not ok
+    assert any("forbidden_phrase" in issue for issue in issues)
