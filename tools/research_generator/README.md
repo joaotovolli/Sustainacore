@@ -21,6 +21,8 @@ Setup
 Notes
 - Uses OpenAI/Codex models only (no Gemini in research generator).
 - No price data or investment advice; derived metrics only.
+- Oracle connectivity relies on `TNS_ADMIN` pointing at the VM wallet directory (current default: `/opt/adb_wallet_tp_sso`).
+- The generator services load `/etc/sustainacore/llm.env` for `OPENAI_API_KEY`.
 
 Cleanup (research-only)
 - Dry run (counts only):
