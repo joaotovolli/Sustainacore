@@ -12,6 +12,7 @@ class ValidationError(Exception):
 
 
 _CURRENCY_RE = re.compile(r"[\$€£¥]")
+_NUMBER_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
 
 def _word_count(text: str) -> int:
@@ -118,6 +119,8 @@ def quality_gate_strict(bundle: Dict[str, Any], draft: Dict[str, Any]) -> Tuple[
 
     if "core" not in lower or "rest" not in lower:
         issues.append("missing_core_vs_rest_mentions")
+    if "prior" not in lower and "previous" not in lower:
+        issues.append("missing_prior_comparison")
 
     if len(bundle.get("docx_charts") or []) < 2:
         issues.append("insufficient_charts")
@@ -133,5 +136,20 @@ def quality_gate_strict(bundle: Dict[str, Any], draft: Dict[str, Any]) -> Tuple[
     metric_pool = bundle.get("metric_pool") or []
     if len(metric_pool) < 100:
         issues.append("metric_pool_too_small")
+
+    selected_angle = bundle.get("selected_angle") or {}
+    callouts = selected_angle.get("callouts") or []
+    if len(callouts) < 8:
+        issues.append("insufficient_angle_callouts")
+
+    total_numbers = len(_NUMBER_RE.findall(text))
+    if total_numbers < 8:
+        issues.append("insufficient_numeric_insights")
+
+    # Each paragraph should include at least two numeric references.
+    for paragraph in draft.get("paragraphs") or []:
+        if len(_NUMBER_RE.findall(paragraph)) < 2:
+            issues.append("insufficient_paragraph_numbers")
+            break
 
     return (len(issues) == 0), issues

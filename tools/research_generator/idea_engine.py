@@ -114,6 +114,26 @@ def build_metric_pool(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
         turnover = len(curr_tickers - prev_tickers) / max(len(curr_tickers), 1)
         metrics.append({"name": "core.turnover.membership", "value": turnover})
 
+        prev_vals = _to_floats(row.get("aiges") for row in prev_core)
+        curr_vals = _to_floats(row.get("aiges") for row in core)
+        if prev_vals and curr_vals:
+            metrics.append(
+                {
+                    "name": "delta.core.aiges.mean",
+                    "value": (sum(curr_vals) / len(curr_vals)) - (sum(prev_vals) / len(prev_vals)),
+                }
+            )
+
+    # Core weight concentration metrics (equal-weight should be stable)
+    weights = _to_floats(row.get("weight") for row in core)
+    if weights:
+        total = sum(weights)
+        top5 = sum(sorted(weights, reverse=True)[:5])
+        hhi = sum((w / total) ** 2 for w in weights if total)
+        metrics.append({"name": "core.weight.sum", "value": total})
+        metrics.append({"name": "core.weight.top5_share", "value": top5 / total if total else 0.0})
+        metrics.append({"name": "core.weight.hhi", "value": hhi})
+
     # Ensure 100+ metrics by adding filler buckets
     if len(metrics) < 100:
         for idx in range(100 - len(metrics)):
@@ -139,6 +159,17 @@ def build_chart_bank(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) 
                 "caption": "Figure 1. Core vs Rest distribution of AIGES.",
             }
         )
+        charts.append(
+            {
+                "type": "hist",
+                "title": "AIGES distribution density",
+                "series": [
+                    {"name": "Core", "values": _to_floats(core_scores)},
+                    {"name": "Rest", "values": _to_floats(rest_scores)},
+                ],
+                "caption": "Figure 2. Density of AIGES scores across Core and Rest.",
+            }
+        )
     # Sector exposure chart (core)
     sector_counts: Dict[str, int] = {}
     for row in (bundle.get("core_latest_rows") or []):
@@ -151,7 +182,32 @@ def build_chart_bank(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) 
                 "title": "Core sector composition",
                 "x": list(sector_counts.keys()),
                 "series": [{"name": "Core count", "values": list(sector_counts.values())}],
-                "caption": "Figure 2. Core sector counts (equal-weight membership).",
+                "caption": "Figure 3. Core sector counts (equal-weight membership).",
+            }
+        )
+    # Pillar comparison chart
+    pillars = ["aiges_pillar_policy", "aiges_pillar_transparency", "aiges_pillar_accountability", "aiges_pillar_safety"]
+    core_means = []
+    rest_means = []
+    labels = []
+    for pillar in pillars:
+        core_vals = _to_floats(row.get(pillar) for row in (bundle.get("core_latest_rows") or []))
+        rest_vals = _to_floats(row.get(pillar) for row in (bundle.get("rest_latest_rows") or []))
+        if core_vals and rest_vals:
+            labels.append(pillar.replace("aiges_pillar_", "").title())
+            core_means.append(sum(core_vals) / len(core_vals))
+            rest_means.append(sum(rest_vals) / len(rest_vals))
+    if labels:
+        charts.append(
+            {
+                "type": "bar",
+                "title": "Pillar means: Core vs Rest",
+                "x": labels,
+                "series": [
+                    {"name": "Core", "values": core_means},
+                    {"name": "Rest", "values": rest_means},
+                ],
+                "caption": "Figure 4. Pillar mean comparison between Core and Rest.",
             }
         )
     return charts[:10]
@@ -176,6 +232,7 @@ def generate_angles(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) -
                 "thesis": "string",
                 "callouts": ["quantified callouts"],
                 "artifacts": {"figures": [1, 2], "tables": [1, 2]},
+                "categories": ["turnover|dispersion|pillar|sector_normalized|concentration"],
                 "metrics_used": ["metric names"],
             }
         ]
@@ -183,7 +240,9 @@ def generate_angles(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) -
     prompt = (
         "You are the Insight Miner. Output JSON only. "
         "Generate 5 distinct angles with clear thesis and quantified callouts. "
-        "Include at least 6 callouts per angle. "
+        "Each angle must include at least 8 callouts and at least two of: "
+        "turnover/entrants-exits, dispersion shift, pillar attribution, sector-normalized comparison, concentration metrics. "
+        "At least one angle must include a 'what changed vs previous rebalance' insight. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nMetric pool:\n"
@@ -209,8 +268,14 @@ def ensure_angle_count(angles: List[Dict[str, Any]], *, minimum: int = 5) -> Lis
                     "Core vs Rest AIGES mean gap",
                     "Core vs Rest dispersion",
                     "Sector composition contrast",
+                    "Membership turnover rate",
+                    "Pillar attribution split",
+                    "Prior rebalance delta",
+                    "Concentration metrics",
+                    "Coverage percentile gap",
                 ],
                 "artifacts": {"figures": [1], "tables": [1, 2]},
+                "categories": ["dispersion", "pillar", "concentration"],
                 "metrics_used": ["core.aiges.mean", "rest.aiges.mean"],
             }
         )
@@ -239,8 +304,12 @@ def rank_angles(
         fingerprint = _angle_fingerprint(angle)
         if fingerprint in prior:
             novelty = 5
-        evidence = min(len(angle.get("callouts") or []), 10) * 3
+        callouts = angle.get("callouts") or []
+        evidence = min(len(callouts), 12) * 3
+        categories = angle.get("categories") or []
         clarity = 20 if len((angle.get("artifacts") or {}).get("tables", [])) <= 4 else 10
+        if len(categories) < 2:
+            clarity -= 5
         safety = 20
         score = novelty + evidence + clarity + safety
         angle["score"] = score

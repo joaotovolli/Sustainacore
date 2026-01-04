@@ -6,7 +6,7 @@ import datetime as dt
 import json
 import logging
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
 from .analysis import (
@@ -17,6 +17,7 @@ from .analysis import (
     build_weekly_inputs,
 )
 from .docx_builder import build_docx
+from .data_integrity import run_integrity
 from .gpt_client import log_startup_config
 from .validators import quality_gate_strict
 from .oracle import (
@@ -30,6 +31,7 @@ from .oracle import (
     get_connection,
     init_env,
     insert_approval,
+    insert_alert,
     insert_research_request,
     set_report_value,
     update_request_status,
@@ -38,6 +40,23 @@ from .agent_pipeline import build_pipeline
 from .detectors import detect_anomaly, detect_period_close, detect_rebalance, detect_weekly
 
 LOGGER = logging.getLogger("research_generator")
+
+
+def _is_retryable_issue(issues: List[str]) -> bool:
+    for issue in issues:
+        lower = str(issue).lower()
+        if "gpt_http_error" in lower or "gpt_network_error" in lower:
+            return True
+        if "openai_api_key_missing" in lower:
+            return True
+    return False
+
+
+def _next_retry(retry_count: int) -> dt.datetime:
+    steps = [dt.timedelta(minutes=2), dt.timedelta(minutes=5), dt.timedelta(minutes=15), dt.timedelta(minutes=30)]
+    if retry_count < len(steps):
+        return dt.datetime.utcnow() + steps[retry_count]
+    return dt.datetime.utcnow() + dt.timedelta(minutes=60)
 
 
 def _preview_table_markdown(rows: list[dict[str, Any]]) -> str:
@@ -231,9 +250,37 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.info("Dry-run: trigger=%s label=%s", report_type, label)
         return 0
 
+    integrity = run_integrity(bundle)
+    bundle["integrity"] = integrity
+    if integrity.get("issues"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=None,
+                approval_id=None,
+                severity="CRITICAL",
+                title="Data integrity failure",
+                details=json.dumps(integrity, sort_keys=True),
+            )
+        LOGGER.error("Integrity check failed: %s", "; ".join(integrity.get("issues") or []))
+        return 1
+    if integrity.get("warnings"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=None,
+                approval_id=None,
+                severity="WARN",
+                title="Data integrity warning",
+                details=json.dumps(integrity, sort_keys=True),
+            )
+
     draft, issues = build_pipeline(bundle, output_dir=config.DEFAULT_OUTPUT_DIR)
     if not draft:
         LOGGER.error("Drafting failed: %s", "; ".join(issues))
+        return 1
+    if _is_retryable_issue(issues):
+        LOGGER.warning("Drafting retryable issues: %s", "; ".join(issues))
         return 1
 
     ok, gate_issues = quality_gate_strict(bundle, draft)
@@ -258,6 +305,30 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
     if err or not bundle:
         raise RuntimeError(err or "bundle_error")
 
+    integrity = run_integrity(bundle)
+    bundle["integrity"] = integrity
+    if integrity.get("issues"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=request.request_id,
+                approval_id=None,
+                severity="CRITICAL",
+                title="Data integrity failure",
+                details=json.dumps(integrity, sort_keys=True),
+            )
+        raise RuntimeError("integrity_failed: " + "; ".join(integrity.get("issues") or []))
+    if integrity.get("warnings"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=request.request_id,
+                approval_id=None,
+                severity="WARN",
+                title="Data integrity warning",
+                details=json.dumps(integrity, sort_keys=True),
+            )
+
     draft, issues = build_pipeline(
         bundle,
         output_dir=config.DEFAULT_OUTPUT_DIR,
@@ -265,6 +336,8 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
     )
     if not draft:
         raise RuntimeError("draft_failed: " + "; ".join(issues))
+    if _is_retryable_issue(issues):
+        raise RuntimeError("retryable: " + "; ".join(issues))
 
     report_key = f"manual_{report_type.lower()}_{request.request_id}"
     if dry_run:
@@ -321,13 +394,21 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
             processed += 1
         except Exception as exc:
             message = str(exc)
+            retryable = message.lower().startswith("retryable") or _is_retryable_issue([message])
             if "429" in message or "rate limit" in message.lower():
+                retryable = True
+            if retryable:
+                current_retry = request.retry_count or 0
+                next_retry_at = _next_retry(current_retry)
+                new_retry = current_retry + 1
                 with get_connection() as conn:
                     update_request_status(
                         conn,
                         request.request_id,
                         "PENDING",
                         result_text=f"retryable: {message[:400]}",
+                        retry_count=new_retry,
+                        next_retry_at=next_retry_at,
                     )
                 LOGGER.warning("Manual request rate-limited request_id=%s", request.request_id)
                 continue

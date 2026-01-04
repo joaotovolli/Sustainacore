@@ -8,6 +8,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from .gpt_client import GPTClientError, run_gpt_json
+from .data_integrity import run_integrity
 from .idea_engine import build_chart_bank, build_metric_pool, ensure_angle_count, generate_angles, rank_angles
 from .oracle import get_connection
 from .sanitize import sanitize_text_blocks
@@ -76,6 +77,26 @@ def _ensure_core_rest_mentions(paragraphs: List[str], metric_pool: List[Dict[str
     return paragraphs
 
 
+def _inject_integrity_note(paragraphs: List[str], integrity: Dict[str, Any]) -> List[str]:
+    warnings = integrity.get("warnings") or []
+    if not warnings:
+        return paragraphs
+    if "rest_aiges_low_due_to_missing" in warnings:
+        note = (
+            "Data note: the Rest cohort shows higher missingness in parts of the score data, so the report emphasizes dispersion and sector composition rather than absolute level comparisons."
+            " This keeps the narrative grounded in the most reliable signals."
+        )
+    else:
+        note = (
+            "Data note: some fields show elevated missingness, so the narrative prioritizes dispersion and composition signals over absolute level comparisons."
+        )
+    if paragraphs:
+        paragraphs.insert(1, note)
+    else:
+        paragraphs = [note]
+    return paragraphs
+
+
 def _sector_table(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
     core = bundle.get("core_latest_rows") or []
     rest = bundle.get("rest_latest_rows") or []
@@ -103,6 +124,7 @@ def run_data_investigator(bundle: Dict[str, Any], metric_pool: List[Dict[str, An
     prompt = (
         "You are the Data Investigator. Output JSON only. "
         "Use only metrics provided. Generate at least 8 candidates including non-obvious insights. "
+        "Each candidate must include metric + direction + magnitude + why it matters. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nMetric pool:\n"
@@ -124,6 +146,7 @@ def run_editor(bundle: Dict[str, Any], angles: List[Dict[str, Any]]) -> Dict[str
     prompt = (
         "You are the Story Architect. Output JSON only. "
         "Pick the top angle and produce a concise outline with insertion points. "
+        "Ensure the outline includes at least one paragraph for Core vs Rest differences and one for change vs prior rebalance. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nAngles:\n"
@@ -142,8 +165,11 @@ def run_writer(angle: Dict[str, Any], outline: List[Dict[str, Any]]) -> Dict[str
     prompt = (
         "You are the Writer. Output JSON only. "
         "Write a cohesive narrative using the outline. "
+        "Each paragraph must include at least two numeric facts. "
+        "Include at least 8 distinct insights with metric, direction, and magnitude. "
+        "Include at least one 'change vs prior rebalance' insight. "
         "Reference artifacts inline as 'Figure 1' or 'Table 1'. "
-        "No scaffolding phrases like 'what it shows'. "
+        "Avoid scaffolding phrases like 'what it shows' or 'provides the detailed breakdown'. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nAngle:\n"
@@ -160,6 +186,7 @@ def run_copyeditor(paragraphs: List[str]) -> Dict[str, Any]:
     prompt = (
         "You are the Copyeditor. Output JSON only. "
         "Improve flow, remove repetition, keep numbers unchanged. "
+        "Remove templated phrasing and any scaffolding language. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nParagraphs:\n"
@@ -192,7 +219,9 @@ def run_publisher(angle: Dict[str, Any], paragraphs: List[str]) -> Dict[str, Any
         "You are the Editor-in-Chief. Output JSON only. "
         "Rewrite for publish-ready tone. "
         "Include a 15-25 word dek. "
-        "No scaffolding phrases or advice. "
+        "Ensure each paragraph includes at least two numeric facts and one interpretation. "
+        "Avoid scaffolding phrases like 'Figure X provides the detailed breakdown' or 'anchors the evidence'. "
+        "No advice. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nAngle:\n"
@@ -208,6 +237,8 @@ def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Opt
     issues: List[str] = []
 
     metric_pool = build_metric_pool(bundle)
+    integrity = bundle.get("integrity") or run_integrity(bundle)
+    bundle["integrity"] = integrity
     charts = build_chart_bank(bundle, metric_pool)
     tables = [
         {"title": "Core vs Rest summary", "rows": _core_vs_rest_table(bundle, metric_pool)},
@@ -216,6 +247,10 @@ def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Opt
     bundle["metric_pool"] = metric_pool
     bundle["docx_charts"] = charts
     bundle["docx_tables"] = tables
+    if integrity.get("issues"):
+        issues.extend(integrity.get("issues"))
+    if integrity.get("warnings"):
+        issues.extend(integrity.get("warnings"))
     _write_debug(output_dir, "metrics", {"metric_pool": metric_pool, "charts": charts, "tables": tables})
 
     try:
@@ -229,6 +264,13 @@ def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Opt
     with get_connection() as conn:  # type: ignore[name-defined]
         ranked = rank_angles(angles, report_type=bundle.get("report_type", ""), conn=conn)
     top = ranked[0] if ranked else {"angle_title": "Core vs Rest overview", "callouts": []}
+    for candidate in ranked:
+        categories = candidate.get("categories") or []
+        if "core vs rest" in str(candidate.get("angle_title", "")).lower() and len(categories) < 2:
+            continue
+        top = candidate
+        break
+    bundle["selected_angle"] = top
     _write_debug(output_dir, "angles", {"ranked": ranked})
 
     try:
@@ -251,7 +293,7 @@ def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Opt
     if not paragraphs:
         paragraphs = [
             "This report summarizes governance signals using the Core vs Rest lens.",
-            "Figure 1 and Table 1 provide the supporting evidence for the score distributions and sector composition.",
+            "Figure 1 and Table 1 summarize the score distributions and sector composition referenced in the narrative.",
         ]
     try:
         copyedited = run_copyeditor(paragraphs)
@@ -267,6 +309,7 @@ def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Opt
     except GPTClientError as exc:
         issues.append(str(exc))
 
+    paragraphs = _inject_integrity_note(paragraphs, integrity)
     paragraphs = _ensure_core_rest_mentions(paragraphs, metric_pool)
     try:
         published = run_publisher(top, paragraphs)
