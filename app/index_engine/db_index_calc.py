@@ -230,6 +230,35 @@ def fetch_prices(
     return result
 
 
+def fetch_latest_price_before(
+    trade_date: _dt.date,
+    ticker: str,
+    *,
+    allow_close: bool,
+) -> tuple[_dt.date, float] | None:
+    sql = (
+        "SELECT trade_date, canon_adj_close_px, canon_close_px "
+        "FROM SC_IDX_PRICES_CANON "
+        "WHERE ticker = :ticker "
+        "AND trade_date < :trade_date "
+        "AND (canon_adj_close_px IS NOT NULL OR canon_close_px IS NOT NULL) "
+        "ORDER BY trade_date DESC FETCH FIRST 1 ROWS ONLY"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"ticker": ticker, "trade_date": trade_date})
+        row = cur.fetchone()
+        if not row:
+            return None
+        prev_date, adj_close, close_px = row
+        if isinstance(prev_date, _dt.datetime):
+            prev_date = prev_date.date()
+        price = adj_close if adj_close is not None else (close_px if allow_close else None)
+        if price is None:
+            return None
+        return prev_date, float(price)
+
+
 def fetch_existing_levels(start: _dt.date, end: _dt.date) -> dict[_dt.date, float]:
     sql = (
         "SELECT trade_date, level_tr "
@@ -283,6 +312,82 @@ def fetch_divisor_for_date(date: _dt.date) -> float | None:
         if not row or row[0] is None:
             return None
         return float(row[0])
+
+
+def fetch_level_for_date(date: _dt.date) -> float | None:
+    sql = (
+        "SELECT level_tr "
+        "FROM SC_IDX_LEVELS "
+        "WHERE index_code = :index_code "
+        "AND trade_date = :trade_date"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"index_code": INDEX_CODE, "trade_date": date})
+        row = cur.fetchone()
+        if not row or row[0] is None:
+            return None
+        return float(row[0])
+
+
+def fetch_latest_rebalance_date(before_date: _dt.date) -> _dt.date | None:
+    sql = (
+        "SELECT MAX(rebalance_date) "
+        "FROM SC_IDX_HOLDINGS "
+        "WHERE index_code = :index_code "
+        "AND rebalance_date <= :rebalance_date"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"index_code": INDEX_CODE, "rebalance_date": before_date})
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
+def fetch_holdings_for_rebalance(rebalance_date: _dt.date) -> dict[str, float]:
+    sql = (
+        "SELECT ticker, shares "
+        "FROM SC_IDX_HOLDINGS "
+        "WHERE index_code = :index_code "
+        "AND rebalance_date = :rebalance_date"
+    )
+    rows: dict[str, float] = {}
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"index_code": INDEX_CODE, "rebalance_date": rebalance_date})
+        for ticker, shares in cur.fetchall():
+            if ticker is None or shares is None:
+                continue
+            cleaned = str(ticker).strip().upper()
+            if cleaned:
+                rows[cleaned] = float(shares)
+    return rows
+
+
+def fetch_trading_days_before(start: _dt.date, limit: int) -> list[_dt.date]:
+    sql = (
+        "SELECT trade_date FROM ("
+        "  SELECT trade_date "
+        "  FROM SC_IDX_TRADING_DAYS "
+        "  WHERE trade_date < :start_date "
+        "  ORDER BY trade_date DESC"
+        ") WHERE ROWNUM <= :limit"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"start_date": start, "limit": limit})
+        rows = []
+        for (trade_date,) in cur.fetchall():
+            if isinstance(trade_date, _dt.datetime):
+                trade_date = trade_date.date()
+            if isinstance(trade_date, _dt.date):
+                rows.append(trade_date)
+        return list(reversed(rows))
 
 
 def upsert_holdings(rebalance_date: _dt.date, rows: list[dict]) -> None:
@@ -538,9 +643,14 @@ __all__ = [
     "fetch_port_dates",
     "fetch_universe",
     "fetch_prices",
+    "fetch_latest_price_before",
     "fetch_existing_levels",
     "fetch_last_level_before",
     "fetch_divisor_for_date",
+    "fetch_level_for_date",
+    "fetch_latest_rebalance_date",
+    "fetch_holdings_for_rebalance",
+    "fetch_trading_days_before",
     "upsert_holdings",
     "upsert_divisor",
     "upsert_levels",

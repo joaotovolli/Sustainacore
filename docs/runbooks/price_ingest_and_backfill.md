@@ -36,6 +36,14 @@ python3 tools/index_engine/backfill_prices.py --start 2026-01-02 --end 2026-01-0
 python3 tools/index_engine/backfill_prices.py --start 2026-01-02 --end 2026-01-06 --missing-only
 ```
 
+## Recompute index levels/stats for a single day (no price ingest)
+Use this when levels/stats are wrong but prices are already present:
+
+```bash
+PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/calc_index.py \
+  --start 2026-01-02 --end 2026-01-02 --rebuild --no-preflight-self-heal
+```
+
 ## Trading day calendar refresh
 ```bash
 python3 tools/index_engine/update_trading_days.py --auto --debug

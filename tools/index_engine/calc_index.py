@@ -48,6 +48,67 @@ def _next_trading_day(trading_days: List[_dt.date], date: _dt.date) -> _dt.date 
     return None
 
 
+def _compute_returns_1d_from_levels(
+    ordered_days: List[_dt.date],
+    levels: Dict[_dt.date, float],
+) -> Dict[_dt.date, float]:
+    returns: Dict[_dt.date, float] = {}
+    for idx in range(1, len(ordered_days)):
+        prev_date = ordered_days[idx - 1]
+        trade_date = ordered_days[idx]
+        prev_level = levels.get(prev_date)
+        current_level = levels.get(trade_date)
+        if prev_level is None or current_level is None or prev_level == 0:
+            continue
+        returns[trade_date] = current_level / prev_level - 1.0
+    return returns
+
+
+def _seed_prior_state(
+    *,
+    start_date: _dt.date,
+    allow_close: bool,
+) -> tuple[_dt.date | None, _dt.date | None, _dt.date | None, Dict[_dt.date, Dict[str, float]], Dict[_dt.date, float], Dict[_dt.date, float]]:
+    prev_trade, prev_level = db.fetch_last_level_before(start_date)
+    holdings_by_reb: Dict[_dt.date, Dict[str, float]] = {}
+    divisors_by_reb: Dict[_dt.date, float] = {}
+    levels: Dict[_dt.date, float] = {}
+    current_reb: _dt.date | None = None
+    prev_port_date: _dt.date | None = None
+
+    if prev_trade and prev_level is not None:
+        levels[prev_trade] = prev_level
+
+    rebalance_date = db.fetch_latest_rebalance_date(start_date)
+    if rebalance_date:
+        holdings = db.fetch_holdings_for_rebalance(rebalance_date)
+        if holdings:
+            holdings_by_reb[rebalance_date] = holdings
+            current_reb = rebalance_date
+            divisor = db.fetch_divisor_for_date(rebalance_date)
+            if divisor is None:
+                level_at_reb = db.fetch_level_for_date(rebalance_date)
+                if level_at_reb is None:
+                    raise RuntimeError("missing_divisor_and_level_for_rebalance")
+                prices_prev = db.fetch_prices(rebalance_date, list(holdings.keys()), allow_close=allow_close)
+                price_map_prev = {
+                    ticker: float(info["price"])
+                    for ticker, info in prices_prev.items()
+                    if info.get("price") is not None
+                }
+                if not price_map_prev:
+                    raise RuntimeError("missing_prices_for_rebalance")
+                mv_prev = sum(holdings[ticker] * price_map_prev[ticker] for ticker in holdings if ticker in price_map_prev)
+                if mv_prev <= 0:
+                    raise RuntimeError("invalid_mv_for_rebalance")
+                divisor = mv_prev / level_at_reb
+            divisors_by_reb[rebalance_date] = divisor
+            port_date, _tickers = db.fetch_universe(rebalance_date)
+            prev_port_date = port_date
+
+    return prev_trade, current_reb, prev_port_date, holdings_by_reb, divisors_by_reb, levels
+
+
 def _collect_missing(
     trade_date: _dt.date,
     tickers: List[str],
@@ -363,6 +424,37 @@ def main() -> int:
     total_constituent_rows = 0
     total_contrib_rows = 0
 
+    if trading_days:
+        prev_trade, current_reb, prev_port_date, holdings_by_reb, divisors_by_reb, levels = _seed_prior_state(
+            start_date=trading_days[0],
+            allow_close=args.allow_close,
+        )
+        if prev_trade and current_reb and current_reb in holdings_by_reb:
+            prices_prev = db.fetch_prices(
+                prev_trade,
+                list(holdings_by_reb[current_reb].keys()),
+                allow_close=args.allow_close,
+            )
+            price_map_prev = {
+                ticker: float(info["price"])
+                for ticker, info in prices_prev.items()
+                if info.get("price") is not None
+            }
+            if price_map_prev:
+                prices_by_date[prev_trade] = price_map_prev
+                prices_quality_by_date[prev_trade] = {
+                    ticker: str(info.get("quality") or "").upper()
+                    for ticker, info in prices_prev.items()
+                    if info.get("price") is not None
+                }
+                weights_by_date.update(
+                    compute_constituent_daily(
+                        trading_days=[prev_trade],
+                        holdings_by_rebalance={current_reb: holdings_by_reb[current_reb]},
+                        prices_by_date={prev_trade: price_map_prev},
+                    )
+                )
+
     for trade_date in trading_days:
         port_date, tickers = db.fetch_universe(trade_date)
         if port_date is None or not tickers:
@@ -377,9 +469,40 @@ def main() -> int:
             prices_prev = db.fetch_prices(prev_date, tickers, allow_close=args.allow_close)
             missing_prev = _collect_missing(prev_date, tickers, prices_prev)
             if missing_prev:
-                missing_by_date[prev_date] = missing_prev
-                current_reb = None
-                continue
+                fallback = {}
+                remaining = []
+                for ticker in missing_prev:
+                    prior = db.fetch_latest_price_before(
+                        prev_date,
+                        ticker,
+                        allow_close=args.allow_close,
+                    )
+                    if prior is None:
+                        remaining.append(ticker)
+                        continue
+                    _prev_date, price = prior
+                    fallback[ticker] = {
+                        "price": price,
+                        "quality": "HISTORICAL",
+                    }
+                if remaining:
+                    current_prices = db.fetch_prices(
+                        trade_date,
+                        remaining,
+                        allow_close=args.allow_close,
+                    )
+                    for ticker in remaining:
+                        info = current_prices.get(ticker)
+                        if info and info.get("price") is not None:
+                            fallback[ticker] = {
+                                "price": float(info["price"]),
+                                "quality": "CURRENT",
+                            }
+                if len(fallback) != len(missing_prev):
+                    missing_by_date[prev_date] = missing_prev
+                    current_reb = None
+                    continue
+                prices_prev.update(fallback)
             price_map_prev = {
                 ticker: float(info["price"])
                 for ticker, info in prices_prev.items()
@@ -490,7 +613,11 @@ def main() -> int:
         finish_run(run_id, status="ERROR", error="missing_prices")
         return 2
 
-    levels_rows = [{"trade_date": date, "level_tr": level} for date, level in levels.items()]
+    levels_rows = [
+        {"trade_date": date, "level_tr": level}
+        for date, level in levels.items()
+        if date in trading_days
+    ]
     db.upsert_levels(levels_rows)
 
     ordered_levels = sorted(levels.keys())
@@ -522,14 +649,26 @@ def main() -> int:
             total_contrib_rows += 1
     db.upsert_contribution_daily(contrib_rows)
 
+    lookback_days: list[_dt.date] = []
+    if trading_days:
+        lookback_days = db.fetch_trading_days_before(trading_days[0], limit=25)
+    levels_for_stats = dict(levels)
+    if lookback_days:
+        lookback_start = lookback_days[0]
+        lookback_levels = db.fetch_existing_levels(lookback_start, trading_days[0] - _dt.timedelta(days=1))
+        levels_for_stats.update(lookback_levels)
+    ordered_levels = sorted(levels_for_stats.keys())
+    returns_1d_full = _compute_returns_1d_from_levels(ordered_levels, levels_for_stats)
     stats = compute_stats(
-        trading_days=sorted(levels.keys()),
-        levels=levels,
+        trading_days=ordered_levels,
+        levels=levels_for_stats,
         weights_by_date=weights_by_date,
-        returns_1d=returns_1d,
+        returns_1d=returns_1d_full,
     )
     stats_rows = []
     for trade_date, row in stats.items():
+        if trade_date not in trading_days:
+            continue
         n_imputed = sum(
             1 for quality in prices_quality_by_date.get(trade_date, {}).values() if quality == "IMPUTED"
         )
