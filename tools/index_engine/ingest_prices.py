@@ -368,6 +368,14 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
             except Exception as exc:
                 print(f"Failed to load tickers: {exc}")
                 return 1, {}
+    print(
+        "backfill_window: start={start} end={end} trading_days={days} tickers={tickers}".format(
+            start=start_date.isoformat(),
+            end=last_trading_day.isoformat(),
+            days=len(trading_days),
+            tickers=len(tickers),
+        )
+    )
 
     total_raw = 0
     total_canon = 0
@@ -404,7 +412,14 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
             provider_rows = _fetch_provider_rows(ticker, ticker_start, last_trading_day)
         except Exception as exc:
             provider_error = str(exc)
-            print(f"Provider fetch failed for {ticker}: {exc}")
+            print(
+                "Provider fetch failed for {ticker} range={start}..{end}: {exc}".format(
+                    ticker=ticker,
+                    start=ticker_start.isoformat(),
+                    end=last_trading_day.isoformat(),
+                    exc=exc,
+                )
+            )
             missing_rows = _build_missing_rows(
                 ticker=ticker,
                 trading_days=trading_days,
@@ -418,7 +433,13 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
             continue
 
         if not provider_rows:
-            print(f"Provider returned empty payload for {ticker}")
+            print(
+                "Provider returned empty payload for {ticker} range={start}..{end}".format(
+                    ticker=ticker,
+                    start=ticker_start.isoformat(),
+                    end=last_trading_day.isoformat(),
+                )
+            )
             missing_rows = _build_missing_rows(
                 ticker=ticker,
                 trading_days=trading_days,
@@ -565,6 +586,15 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
         for day in trading_days:
             impacted_by_date[day] = tickers
 
+    print(
+        "backfill_missing_window: start={start} end={end} trading_days={days} tickers={tickers}".format(
+            start=start_date.isoformat(),
+            end=end_date.isoformat(),
+            days=len(trading_days),
+            tickers=len(tickers),
+        )
+    )
+
     existing_ok = _fetch_existing_ok(
         start_date=start_date,
         end_date=end_date,
@@ -608,7 +638,14 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
             try:
                 provider_rows = _fetch_provider_rows(ticker, start, end)
             except Exception as exc:
-                print(f"Provider fetch failed for {ticker}: {exc}")
+                print(
+                    "Provider fetch failed for {ticker} range={start}..{end}: {exc}".format(
+                        ticker=ticker,
+                        start=start.isoformat(),
+                        end=end.isoformat(),
+                        exc=exc,
+                    )
+                )
                 missing_rows = _build_missing_rows(
                     ticker=ticker,
                     trading_days=trading_days,
@@ -622,7 +659,13 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
                 continue
 
             if not provider_rows:
-                print(f"Provider returned empty payload for {ticker}")
+                print(
+                    "Provider returned empty payload for {ticker} range={start}..{end}".format(
+                        ticker=ticker,
+                        start=start.isoformat(),
+                        end=end.isoformat(),
+                    )
+                )
                 missing_rows = _build_missing_rows(
                     ticker=ticker,
                     trading_days=trading_days,

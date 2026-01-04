@@ -11,13 +11,13 @@ The index engine uses an explicit trading-day calendar to remove weekend and hol
 ### Why this matters
 
 - Weekends and market holidays are no longer treated as missing data.
-- Completeness checks use the calendar instead of weekday guessing.
-- Ingest and imputation only operate on explicit trading dates.
+- Ingest and imputation operate on explicit trading dates.
+- Completeness checks still use weekday inference; use the calendar to confirm expected trading days.
 
 ### How to refresh the calendar
 
 ```bash
-python tools/index_engine/update_trading_days.py
+python tools/index_engine/update_trading_days.py --auto
 ```
 
 Output example:
