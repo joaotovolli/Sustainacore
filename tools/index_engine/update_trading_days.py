@@ -6,13 +6,15 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import http.client  # preload stdlib http to avoid app.http shadowing
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = REPO_ROOT / "app"
-for path in (REPO_ROOT, APP_ROOT):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
+if str(APP_ROOT) in sys.path:
+    sys.path.remove(str(APP_ROOT))
+import http.client  # preload stdlib http to avoid app.http shadowing
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from tools.oracle.env_bootstrap import load_env_files
 from index_engine.db import fetch_latest_trading_day, upsert_trading_days
@@ -104,6 +106,18 @@ def update_trading_days(
             and start <= trade_date <= latest
         }
     )
+    if not dates and hasattr(provider, "fetch_daily_window_desc"):
+        window = max(DEFAULT_WINDOW, (latest - start).days + 5)
+        window = min(window, MAX_WINDOW)
+        values = provider.fetch_daily_window_desc("SPY", window=window)
+        dates = sorted(
+            {
+                trade_date
+                for entry in values
+                if (trade_date := _extract_trade_date(entry)) is not None
+                and start <= trade_date <= latest
+            }
+        )
     if not dates and start == latest:
         dates = [latest]
     if not dates:

@@ -149,6 +149,41 @@ def select_effective_end_date(
     return max(eligible)
 
 
+def select_next_missing_trading_day(
+    trading_days: list[_dt.date],
+    max_canon_trade_date: _dt.date | None,
+) -> _dt.date | None:
+    for day in trading_days:
+        if max_canon_trade_date is None or day > max_canon_trade_date:
+            return day
+    return None
+
+
+def _resolve_end_date(
+    provider,
+    probe_symbol: str,
+    today_utc: _dt.date,
+) -> tuple[_dt.date, list[_dt.date], _dt.date | None]:
+    try:
+        provider_latest = provider.fetch_latest_eod_date(probe_symbol)
+    except Exception as exc:
+        print(
+            f"warning: falling back to yesterday; could not fetch latest EOD for {probe_symbol}: {exc}",
+            file=sys.stderr,
+        )
+        provider_latest = today_utc - _dt.timedelta(days=1)
+
+    trading_days = _db_module.fetch_trading_days(DEFAULT_START, today_utc)
+    if not trading_days:
+        return provider_latest, trading_days, None
+    end_date = compute_eligible_end_date(
+        provider_latest=provider_latest,
+        today_utc=today_utc,
+        trading_days=trading_days,
+    )
+    return provider_latest, trading_days, end_date
+
+
 def _probe_with_fallback(
     start_date: _dt.date,
     trading_days: list[_dt.date],
@@ -170,23 +205,8 @@ def _probe_with_fallback(
 
 
 def _select_end_date(provider, probe_symbol: str, today_utc: _dt.date) -> _dt.date | None:
-    try:
-        provider_latest = provider.fetch_latest_eod_date(probe_symbol)
-    except Exception as exc:
-        print(
-            f"warning: falling back to yesterday; could not fetch latest EOD for {probe_symbol}: {exc}",
-            file=sys.stderr,
-        )
-        provider_latest = today_utc - _dt.timedelta(days=1)
-
-    trading_days = _db_module.fetch_trading_days(DEFAULT_START, today_utc)
-    if not trading_days:
-        return None
-    return compute_eligible_end_date(
-        provider_latest=provider_latest,
-        today_utc=today_utc,
-        trading_days=trading_days,
-    )
+    _provider_latest, _trading_days, end_date = _resolve_end_date(provider, probe_symbol, today_utc)
+    return end_date
 
 
 def _safe_journal_tail() -> str | None:
@@ -355,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
         "status": "STARTED",
         "error_msg": None,
         "provider": "MARKET_DATA",
+        "start_date": DEFAULT_START,
         "end_date": today_utc,
         "max_provider_calls": max_provider_calls,
         "provider_calls_used": 0,
@@ -432,7 +453,32 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     probe_symbol = os.getenv(PROBE_SYMBOL_ENV, "AAPL")
-    end_date = _select_end_date(provider, probe_symbol, today_utc)
+    provider_latest, trading_days, end_date = _resolve_end_date(provider, probe_symbol, today_utc)
+    trading_days_max = trading_days[-1] if trading_days else None
+    if trading_days_max and provider_latest and trading_days_max < provider_latest:
+        summary["status"] = "ERROR"
+        summary["error_msg"] = (
+            "trading_days_behind_provider:"
+            f"latest={provider_latest.isoformat()} max_trading_day={trading_days_max.isoformat()}"
+        )
+        finish_run(
+            run_id,
+            status="ERROR",
+            provider_calls_used=0,
+            raw_upserts=0,
+            canon_upserts=0,
+            raw_ok=0,
+            raw_missing=0,
+            raw_error=0,
+            max_provider_calls=max_provider_calls,
+            usage_current=current_usage,
+            usage_limit=plan_limit,
+            usage_remaining=None,
+            oracle_user=oracle_user,
+            error=summary["error_msg"],
+        )
+        _maybe_send_alert("ERROR", summary, run_id, email_on_budget_stop)
+        return 1
     if end_date is None:
         summary["status"] = "ERROR"
         summary["error_msg"] = "no_trading_day_for_end_date"
@@ -455,6 +501,12 @@ def main(argv: list[str] | None = None) -> int:
         _maybe_send_alert("ERROR", summary, run_id, email_on_budget_stop)
         return 1
 
+    max_canon_trade_date = _db_module.fetch_max_canon_trade_date()
+    next_missing_trade_date = select_next_missing_trading_day(trading_days, max_canon_trade_date)
+    start_date = next_missing_trade_date or end_date
+    if start_date > end_date:
+        start_date = end_date
+
     if args.dry_run:
         print(f"latest_eod_date_spy={end_date.isoformat()}")
         return 0
@@ -467,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
             usage_remaining = None
     summary["usage_remaining"] = usage_remaining
     summary["end_date"] = end_date
+    summary["start_date"] = start_date
 
     start_run(
         "sc_idx_price_ingest",
@@ -475,7 +528,7 @@ def main(argv: list[str] | None = None) -> int:
         max_provider_calls=max_provider_calls,
         meta={
             "run_id": run_id,
-            "start_date": DEFAULT_START,
+            "start_date": start_date,
             "oracle_user": oracle_user,
             "usage_current": current_usage,
             "usage_limit": plan_limit,
@@ -527,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
     tickers_env = args.force_backfill_tickers or os.getenv("SC_IDX_TICKERS")
     ingest_args = argparse.Namespace(
         date=None,
-        start=DEFAULT_START.isoformat(),
+        start=start_date.isoformat(),
         end=end_date.isoformat(),
         backfill=True,
         backfill_missing=False,
@@ -553,6 +606,36 @@ def main(argv: list[str] | None = None) -> int:
     status = "OK" if exit_code == 0 else "ERROR"
     summary["status"] = status
     summary["error_msg"] = error_msg
+
+    max_ok_trade_date = summary.get("max_ok_trade_date")
+    if status == "OK":
+        if max_ok_trade_date is None:
+            if max_canon_trade_date is None or max_canon_trade_date < end_date:
+                status = "ERROR"
+                summary["status"] = status
+                summary["error_msg"] = "ingest_missing_ok_prices"
+        elif isinstance(max_ok_trade_date, _dt.date) and max_ok_trade_date < end_date:
+            status = "ERROR"
+            summary["status"] = status
+            summary["error_msg"] = (
+                "ingest_incomplete:"
+                f"max_ok_trade_date={max_ok_trade_date.isoformat()} target={end_date.isoformat()}"
+            )
+
+    if status == "OK":
+        try:
+            missing_tickers = _db_module.fetch_missing_real_for_trade_date(end_date)
+        except Exception as exc:
+            missing_tickers = []
+            print(f"warning: failed to check missing tickers for {end_date}: {exc}", file=sys.stderr)
+        if missing_tickers:
+            status = "ERROR"
+            summary["status"] = status
+            sample = ",".join(missing_tickers[:10])
+            summary["error_msg"] = (
+                "missing_prices_for_date:"
+                f"date={end_date.isoformat()} missing_count={len(missing_tickers)} sample={sample}"
+            )
 
     finish_run(
         run_id,

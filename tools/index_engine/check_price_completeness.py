@@ -178,6 +178,92 @@ def _select_expected_tickers(start: _dt.date) -> list[str]:
     return fetch_distinct_tech100_tickers()
 
 
+def run_check(
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    min_daily_coverage: float,
+    holiday_coverage_threshold: float = 0.10,
+    max_bad_days: int,
+    provider: str,
+    allow_canon_close: bool,
+    allow_imputation: bool,
+    email_on_fail: bool,
+) -> dict[str, object]:
+    del provider, allow_imputation, email_on_fail
+
+    expected_tickers = _select_expected_tickers(start_date)
+    if not expected_tickers:
+        raise RuntimeError("no_tech100_tickers_found")
+
+    weekdays = generate_weekdays(start_date, end_date)
+    ok_by_date = _fetch_ok_price_rows(
+        start=start_date,
+        end=end_date,
+        tickers=expected_tickers,
+        allow_canon_close=allow_canon_close,
+    )
+
+    coverage_by_date = _build_coverage(weekdays, expected_tickers, ok_by_date)
+    holidays = infer_holidays(
+        coverage_by_date, threshold=holiday_coverage_threshold
+    )
+
+    evaluation = evaluate_completeness(
+        coverage_by_date,
+        holidays=sorted(holidays),
+        min_daily_coverage=min_daily_coverage,
+        max_bad_days=max_bad_days,
+    )
+
+    missing_by_ticker = _collect_missing_by_ticker(
+        weekdays,
+        expected_tickers,
+        ok_by_date,
+        holidays,
+    )
+    total_gaps = _total_gaps(
+        weekdays,
+        len(expected_tickers),
+        ok_by_date,
+        holidays,
+    )
+
+    non_holiday_weekdays = [d for d in weekdays if d not in holidays]
+    bad_days = evaluation["bad_days"]
+    worst_dates = [
+        item[0]
+        for item in sorted(
+            (
+                (trade_date, ratio)
+                for trade_date, ratio in coverage_by_date.items()
+                if trade_date in non_holiday_weekdays
+            ),
+            key=lambda x: (x[1], x[0]),
+        )
+    ][:3]
+    worst_tickers = _format_top_tickers(missing_by_ticker, limit=3)
+
+    summary_text = _summary_line(
+        expected_trading_days=len(non_holiday_weekdays),
+        actual_trading_days=len(weekdays),
+        total_gaps=total_gaps,
+        worst_dates=worst_dates,
+        worst_tickers=[t.split()[0] for t in worst_tickers],
+    )
+
+    return {
+        "status": evaluation["status"],
+        "summary_text": summary_text,
+        "coverage_by_date": coverage_by_date,
+        "holidays": holidays,
+        "expected_tickers": expected_tickers,
+        "missing_by_ticker": missing_by_ticker,
+        "total_gaps": total_gaps,
+        "worst_dates": worst_dates,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check TECH100 price completeness")
     parser.add_argument("--start", help="Start date YYYY-MM-DD")
@@ -205,75 +291,34 @@ def main() -> int:
     load_env_files()
 
     run_id = start_run(
-        None,
-        job_name="completeness_check",
-        provider=args.provider,
-        start_date=start_date,
+        "completeness_check",
         end_date=end_date,
+        provider=args.provider,
+        max_provider_calls=0,
+        meta={"start_date": start_date},
     )
 
     status = "ERROR"
     summary_text = ""
     try:
-        expected_tickers = _select_expected_tickers(start_date)
-        if not expected_tickers:
-            raise RuntimeError("no_tech100_tickers_found")
-
-        weekdays = generate_weekdays(start_date, end_date)
-        ok_by_date = _fetch_ok_price_rows(
-            start=start_date,
-            end=end_date,
-            tickers=expected_tickers,
-            allow_canon_close=args.allow_canon_close,
-        )
-
-        coverage_by_date = _build_coverage(weekdays, expected_tickers, ok_by_date)
-        holidays = infer_holidays(
-            coverage_by_date, threshold=args.holiday_coverage_threshold
-        )
-
-        evaluation = evaluate_completeness(
-            coverage_by_date,
-            holidays=sorted(holidays),
+        result = run_check(
+            start_date=start_date,
+            end_date=end_date,
             min_daily_coverage=args.min_daily_coverage,
+            holiday_coverage_threshold=args.holiday_coverage_threshold,
             max_bad_days=args.max_bad_days,
+            provider=args.provider,
+            allow_canon_close=args.allow_canon_close,
+            allow_imputation=True,
+            email_on_fail=args.email_on_fail,
         )
-        status = str(evaluation["status"])
+        status = str(result["status"])
+        summary_text = str(result["summary_text"])
 
-        missing_by_ticker = _collect_missing_by_ticker(
-            weekdays,
-            expected_tickers,
-            ok_by_date,
-            holidays,
-        )
-        total_gaps = _total_gaps(
-            weekdays,
-            len(expected_tickers),
-            ok_by_date,
-            holidays,
-        )
-
-        non_holiday_weekdays = [d for d in weekdays if d not in holidays]
-        bad_days = evaluation["bad_days"]
-        worst_dates = [
-            item[0]
-            for item in sorted(
-                (
-                    (d, coverage_by_date[d])
-                    for d in non_holiday_weekdays
-                ),
-                key=lambda item: (item[1], item[0]),
-            )[:3]
-        ]
-        worst_tickers = [t for t, _ in sorted(missing_by_ticker.items(), key=lambda item: (-item[1], item[0]))[:3]]
-
-        summary_text = _summary_line(
-            expected_trading_days=len(weekdays),
-            actual_trading_days=len(non_holiday_weekdays),
-            total_gaps=total_gaps,
-            worst_dates=worst_dates,
-            worst_tickers=worst_tickers,
-        )
+        coverage_by_date = result["coverage_by_date"]
+        holidays = result["holidays"]
+        expected_tickers = result["expected_tickers"]
+        missing_by_ticker = result["missing_by_ticker"]
 
         print(summary_text)
         print("dates_with_lowest_coverage:")
@@ -305,10 +350,8 @@ def main() -> int:
 
     finish_run(
         run_id,
-        {
-            "status": "OK" if status != "ERROR" else "ERROR",
-            "error_msg": summary_text,
-        },
+        status="OK" if status != "ERROR" else "ERROR",
+        error=summary_text,
     )
 
     if status == "PASS":

@@ -196,6 +196,22 @@ def fetch_max_ok_trade_date(ticker: str, provider: str) -> Optional[_dt.date]:
         return value
 
 
+def fetch_max_canon_trade_date() -> Optional[_dt.date]:
+    """Return the latest trade_date in SC_IDX_PRICES_CANON."""
+
+    sql = "SELECT MAX(trade_date) FROM SC_IDX_PRICES_CANON"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql)
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
 def fetch_trading_days(start: _dt.date, end: _dt.date) -> list[_dt.date]:
     """Return trading days between start and end (inclusive)."""
 

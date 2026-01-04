@@ -10,7 +10,8 @@ The pipeline runs every 6 hours (00:30, 06:30, 12:30, 18:30 UTC). The flow now:
 - Hitting the daily cap prints `daily_budget_stop: ...` and exits 0 so systemd does not treat it as a failure (email only when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`).
 - Fetches the latest available EOD trade date using `SPY` and ingests up to the latest trading day <= that provider date.
 - Refreshes the explicit trading-day calendar (`SC_IDX_TRADING_DAYS`) before ingest.
-- Runs `tools/index_engine/ingest_prices.py --backfill --start 2025-01-02 --end <latest_eod> --max-provider-calls <computed>` and passes `SC_IDX_TICKERS` when present for the ticker list.
+- Starts from the next trading day after `MAX(trade_date)` in `SC_IDX_PRICES_CANON` (falls back to the end date if already caught up).
+- Runs `tools/index_engine/ingest_prices.py --backfill --start <next_missing> --end <latest_eod> --max-provider-calls <computed>` and passes `SC_IDX_TICKERS` when present for the ticker list.
 - Executes a strict completeness check against `SC_IDX_TRADING_DAYS`. If gaps remain, it runs carry-forward imputation and emails detailed alerts.
 - Alerts are suppressed to once per UTC day per alert type (completeness fail, missing-without-prior, daily digest) via `SC_IDX_ALERT_STATE`.
 - Replacement attempts re-fetch real prices for a bounded subset of imputed rows and overwrite canonical imputed rows when real data arrives.
