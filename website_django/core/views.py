@@ -5,8 +5,6 @@ import csv
 import json
 import re
 import hashlib
-from html import escape
-from html.parser import HTMLParser
 from typing import Dict, Iterable, List, Optional, Tuple
 import logging
 import time
@@ -31,6 +29,7 @@ from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
 from core.news_data import NewsDataError, fetch_filter_options
 from core.news_data import fetch_news_detail as fetch_news_detail_oracle
 from core.news_data import fetch_news_list
+from core.news_html import render_news_html
 from core.news_snippets import build_news_snippet
 from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
 from core.analytics import EVENT_TYPES, log_event
@@ -52,6 +51,7 @@ from core.tech100_index_data import (
     get_ytd_return,
 )
 from core import sitemaps
+from sc_admin_portal.news_storage import get_news_asset
 from telemetry.consent import get_consent_from_request
 from telemetry.logger import record_event
 
@@ -737,85 +737,6 @@ def _split_news_paragraphs(text: str) -> List[str]:
     if len(chunks) == 1:
         chunks = [chunk.strip() for chunk in cleaned.split("\n") if chunk.strip()]
     return chunks
-
-
-class _NewsHTMLSanitizer(HTMLParser):
-    allowed_tags = {
-        "p",
-        "br",
-        "ul",
-        "ol",
-        "li",
-        "strong",
-        "em",
-        "b",
-        "i",
-        "a",
-        "blockquote",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-    }
-    allowed_attrs = {"a": {"href", "title"}}
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.parts: List[str] = []
-        self.open_tags: List[str] = []
-
-    def handle_starttag(self, tag: str, attrs: List[tuple[str, Optional[str]]]) -> None:
-        if tag not in self.allowed_tags:
-            return
-        clean_attrs: List[tuple[str, str]] = []
-        for key, value in attrs:
-            if key not in self.allowed_attrs.get(tag, set()):
-                continue
-            if value is None:
-                continue
-            if key == "href":
-                parsed = urlparse(value)
-                if parsed.scheme and parsed.scheme not in {"http", "https", "mailto"}:
-                    continue
-            clean_attrs.append((key, value))
-        attrs_join = "".join(f' {k}="{escape(v, quote=True)}"' for k, v in clean_attrs)
-        if tag == "br":
-            self.parts.append(f"<{tag}{attrs_join}>")
-        else:
-            self.parts.append(f"<{tag}{attrs_join}>")
-            self.open_tags.append(tag)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag not in self.allowed_tags:
-            return
-        if tag in self.open_tags:
-            self.parts.append(f"</{tag}>")
-            for idx in range(len(self.open_tags) - 1, -1, -1):
-                if self.open_tags[idx] == tag:
-                    self.open_tags.pop(idx)
-                    break
-
-    def handle_data(self, data: str) -> None:
-        self.parts.append(escape(data))
-
-    def handle_entityref(self, name: str) -> None:
-        self.parts.append(f"&{name};")
-
-    def handle_charref(self, name: str) -> None:
-        self.parts.append(f"&#{name};")
-
-    def sanitized(self) -> str:
-        while self.open_tags:
-            tag = self.open_tags.pop()
-            self.parts.append(f"</{tag}>")
-        return "".join(self.parts)
-
-
-def _sanitize_news_html(raw_html: str) -> str:
-    parser = _NewsHTMLSanitizer()
-    parser.feed(raw_html)
-    parser.close()
-    return parser.sanitized()
 
 
 def _resolve_news_full_text(item: Dict[str, object]) -> Tuple[str, str]:
@@ -1724,7 +1645,7 @@ def news_detail(request, news_id: str):
     body_html = ""
     body_paragraphs: List[str] = []
     if body_text and re.search(r"<[a-zA-Z][^>]*>", body_text):
-        body_html = _sanitize_news_html(body_text)
+        body_html = render_news_html(body_text)
     else:
         body_paragraphs = _split_news_paragraphs(body_text)
 
@@ -1772,6 +1693,21 @@ def news_detail(request, news_id: str):
     if detail_response.get("error"):
         status = 503 if not selected_item else 200
     return render(request, "news_detail.html", context, status=status)
+
+
+def news_asset(request, asset_id: int):
+    if asset_id <= 0:
+        raise Http404("Asset not found.")
+    asset = get_news_asset(asset_id)
+    if not asset:
+        raise Http404("Asset not found.")
+    content_type = asset.get("mime_type") or "application/octet-stream"
+    response = HttpResponse(asset.get("file_blob") or b"", content_type=content_type)
+    file_name = asset.get("file_name")
+    if file_name:
+        safe_name = str(file_name).replace('"', "")
+        response["Content-Disposition"] = f'inline; filename="{safe_name}"'
+    return response
 
 
 @login_required
