@@ -11,6 +11,7 @@ This document describes how the TECH100 index is calculated and stored daily.
   - `PORT_DATE = MAX(PORT_DATE) <= trade_date` from `TECH11_AI_GOV_ETH_INDEX`.
   - `PORT_WEIGHT > 0`, top 25 by weight.
 - On each rebalance date, sets equal weights and computes shares/divisor for continuity.
+- When the run starts mid-series, it anchors off the prior trading day's stored level/holdings/divisor if available (base=1000 only when no prior level exists).
 - Computes daily index level (Total Return) using `SC_IDX_PRICES_CANON`:
   - Prefers `CANON_ADJ_CLOSE_PX`.
   - Allows `CANON_CLOSE_PX` only with `--allow-close`.
@@ -41,6 +42,10 @@ Daily levels:
 - For each trading day `t`, use the latest rebalance holdings:
   - `MV_t = Σ Shares_i * Price_i(t)`
   - `Level_TR(t) = MV_t / Divisor(rebalance)`
+
+Stats lookbacks:
+
+- Rolling return/volatility windows pull prior levels from Oracle so single-day recomputes still populate `ret_1d/ret_5d/ret_20d/vol_20d`.
 
 ## Running locally
 
