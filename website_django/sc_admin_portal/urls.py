@@ -6,6 +6,7 @@ app_name = "sc_admin_portal"
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
+    path("news/assets/upload/", views.news_asset_upload, name="news_asset_upload"),
     path("approvals/<int:approval_id>/approve/", views.approve_approval, name="approve"),
     path("approvals/<int:approval_id>/approve", views.approve_approval, name="approve_no_slash"),
     path("approvals/<int:approval_id>/reject/", views.reject_approval, name="reject"),

@@ -92,8 +92,8 @@ def _column_map(columns: List[str]) -> Dict[str, Optional[str]]:
             ["DT_PUB", "PUBLISHED_AT", "PUB_DATE", "PUBLISHED", "CREATED_AT", "CREATE_DATE"]
         ),
         "source": pick(["SOURCE_NAME", "SOURCE"]),
-        "body": pick(["FULL_TEXT", "CONTENT", "BODY", "TEXT", "SUMMARY", "DESCRIPTION"]),
-        "full_text": pick(["FULL_TEXT", "CONTENT"]),
+        "body": pick(["FULL_TEXT", "CONTENT", "BODY_HTML", "BODY", "TEXT", "SUMMARY", "DESCRIPTION"]),
+        "full_text": pick(["FULL_TEXT", "CONTENT", "BODY_HTML"]),
         "content": pick(["CONTENT"]),
         "article_text": pick(["ARTICLE_TEXT", "ARTICLE_BODY"]),
         "text": pick(["TEXT"]),
