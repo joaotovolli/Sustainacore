@@ -12,7 +12,6 @@ class ValidationError(Exception):
 
 
 _CURRENCY_RE = re.compile(r"[\$€£¥]")
-_NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
 
 
 def _word_count(text: str) -> int:
@@ -23,8 +22,8 @@ def validate_writer_output(bundle: Dict[str, Any], writer: Dict[str, Any]) -> Tu
     issues: List[str] = []
     headline = (writer.get("headline") or "").strip()
     paragraphs = writer.get("paragraphs") or []
-    table_caption = str(writer.get("table_caption") or "").strip()
-    chart_caption = str(writer.get("chart_caption") or "").strip()
+    table_caption = (writer.get("table_caption") or "").strip()
+    chart_caption = (writer.get("chart_caption") or "").strip()
     compliance = writer.get("compliance_checklist") or {}
 
     if not headline:
@@ -63,8 +62,7 @@ def validate_writer_output(bundle: Dict[str, Any], writer: Dict[str, Any]) -> Tu
         issues.append("table_rows_exceed_limit")
 
     chart = bundle.get("chart_data") or {}
-    has_series = bool(chart.get("series"))
-    if not chart.get("x") or not (chart.get("y") or has_series):
+    if not chart.get("x") or not chart.get("y"):
         issues.append("missing_chart_data")
 
     if not _table_columns_ok(table_rows, issues):
@@ -92,124 +90,48 @@ def _check_banned(text: str, issues: List[str]) -> None:
         issues.append("currency_symbol")
 
 
-def validate_quality_gate(
-    bundle: Dict[str, Any],
-    writer: Dict[str, Any],
-    compute: Dict[str, Any],
-) -> Tuple[bool, List[str]]:
+def quality_gate_strict(bundle: Dict[str, Any], draft: Dict[str, Any]) -> Tuple[bool, List[str]]:
     issues: List[str] = []
-    paragraphs = " ".join(writer.get("paragraphs") or []).lower()
-    report_type = (bundle.get("report_type") or "").upper()
-
-    if report_type == "REBALANCE":
-        if "core" not in paragraphs or "coverage" not in paragraphs:
-            issues.append("missing_core_coverage")
-        required_terms = ["iqr", "hhi", "turnover", "breadth"]
-        stat_hits = sum(1 for term in required_terms if term in paragraphs)
-        if stat_hits < 3:
-            issues.append("missing_non_trivial_stats")
-
-        flags = (compute.get("validation_flags") or {}).get("sector_delta_inconsistent")
-        if flags and "flag" not in paragraphs and "inconsistent" not in paragraphs:
-            issues.append("sector_delta_not_flagged")
-
-    return (len(issues) == 0), issues
-
-
-def quality_gate_strict(
-    bundle: Dict[str, Any],
-    writer: Dict[str, Any],
-    compute: Dict[str, Any],
-    docx_meta: Dict[str, Any],
-) -> Tuple[bool, List[str]]:
-    issues: List[str] = []
-    report_type = (bundle.get("report_type") or "").upper()
-    metrics = bundle.get("metrics") or {}
-    coverage_mean = (metrics.get("coverage") or {}).get("mean_aiges")
-    if coverage_mean in (None, ""):
-        issues.append("coverage_mean_missing")
-
-    headline = str(writer.get("headline") or "")
-    dek = str(writer.get("dek") or "")
-    body_text = " ".join(writer.get("paragraphs") or [])
-    paragraphs = body_text.lower()
-    if "chart" not in paragraphs and "figure" not in paragraphs:
-        issues.append("missing_chart_reference")
-    if "table" not in paragraphs:
-        issues.append("missing_table_reference")
-    if "figure 1" not in paragraphs:
-        issues.append("missing_figure_1_reference")
-    if "table 1" not in paragraphs:
-        issues.append("missing_table_1_reference")
+    text = " ".join(draft.get("paragraphs") or [])
+    lower = text.lower()
 
     forbidden = [
         "chart above",
         "table above",
         "what it shows",
-        "key takeaways",
-        "needs review",
-        "provides the detailed breakdown",
+        "figure x — what it shows",
+        "table x — key takeaways",
         "anchors the evidence",
+        "provides the detailed breakdown",
     ]
     for phrase in forbidden:
-        if phrase in paragraphs or phrase in headline.lower() or phrase in dek.lower():
+        if phrase in lower:
             issues.append(f"forbidden_phrase:{phrase}")
 
-    if re.search(r"\d+\.\s+\d+", body_text):
+    if re.search(r"\d+\.\s+\d+", text):
         issues.append("spaced_decimal")
 
-    if dek:
-        words = _word_count(dek)
-        if words < 15 or words > 25:
-            issues.append("dek_word_count")
-    else:
-        issues.append("missing_dek")
+    if "figure" not in lower:
+        issues.append("missing_figure_reference")
+    if "table" not in lower:
+        issues.append("missing_table_reference")
 
-    numeric_refs = len(_NUMBER_RE.findall(body_text))
-    if numeric_refs < 6:
-        issues.append("insufficient_numeric_references")
+    if "core" not in lower or "rest" not in lower:
+        issues.append("missing_core_vs_rest_mentions")
 
-    if report_type == "REBALANCE":
-        required_terms = ["iqr", "hhi", "turnover", "breadth"]
-        stat_hits = sum(1 for term in required_terms if term in paragraphs)
-        if stat_hits < 3:
-            issues.append("missing_non_trivial_stats")
+    if len(bundle.get("docx_charts") or []) < 2:
+        issues.append("insufficient_charts")
+    if len(bundle.get("docx_tables") or []) < 2:
+        issues.append("insufficient_tables")
 
-        for table in bundle.get("docx_tables") or []:
-            if "Weight Movers" in str(table.get("title") or ""):
-                issues.append("weight_movers_not_allowed")
-                break
+    if not any("Core vs Rest" in str(t.get("title") or "") for t in (bundle.get("docx_tables") or [])):
+        issues.append("missing_core_vs_rest_table")
 
-        flagged = (metrics.get("sector_exposure") or {}).get("core_count_delta_flags") or []
-        if flagged:
-            sector_table = None
-            for table in bundle.get("docx_tables") or []:
-                if table.get("title") == "Sector Exposure Comparison":
-                    sector_table = table
-                    break
-            if sector_table:
-                for row in sector_table.get("rows", []):
-                    if row.get("Sector") in flagged and row.get("Coverage Count Delta") != "Not comparable":
-                        issues.append("sector_delta_flag_missing")
-                        break
+    if any("Weight Movers" in str(t.get("title") or "") for t in (bundle.get("docx_tables") or [])):
+        issues.append("weight_movers_not_allowed")
 
-    outline = writer.get("outline") or []
-    if outline:
-        for idx, item in enumerate(outline):
-            if item.get("type") not in ("figure", "table"):
-                continue
-            ref = "Figure" if item.get("type") == "figure" else "Table"
-            ident = item.get("id")
-            neighbor_text = ""
-            for j in (idx - 1, idx + 1):
-                if 0 <= j < len(outline) and outline[j].get("type") == "paragraph":
-                    neighbor_text += " " + str(outline[j].get("text") or "")
-            if f"{ref} {ident}" not in neighbor_text:
-                issues.append("artifact_not_referenced")
-                break
+    metric_pool = bundle.get("metric_pool") or []
+    if len(metric_pool) < 100:
+        issues.append("metric_pool_too_small")
 
-    if not docx_meta.get("table_style_applied"):
-        issues.append("table_style_missing")
-
-    ok = len(issues) == 0
-    return ok, issues
+    return (len(issues) == 0), issues
