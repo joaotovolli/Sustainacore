@@ -9,6 +9,39 @@ Agents:
 - vm1-esg-ai: scope esg_ai/**, index/**, oracle_scripts/**, target VM1. Must not modify website_django/**.
 - vm2-website: scope website_django/**, target VM2. Must not modify ESG/Ask2 folders.
 
+## Repo Discovery (VM2)
+Checklist (run in order):
+- Identify the running service entrypoint first (systemd/gunicorn/nginx/docker).
+- Extract WorkingDirectory/--chdir from `systemctl cat` or docker compose.
+- Confirm by locating `manage.py` and `.git` before editing code.
+- Only ask the user for paths after these steps fail; include evidence collected.
+
+Recommended paths (non-binding):
+- Prefer checkouts under `/srv/sustainacore` or `/opt/sustainacore`.
+- Optional symlink: `/srv/app` -> actual repo path.
+- `/home/ubuntu` paths are not guaranteed.
+
+Diagnostics bundle (pasteable):
+```bash
+hostname; whoami; pwd
+ps aux | egrep -i "gunicorn|uvicorn|django|manage.py"
+systemctl list-units --type=service --state=running | egrep -i "gunicorn|uvicorn|django|sustain|web|app|nginx"
+systemctl cat <service>
+nginx -T | egrep -n "server_name|root |alias |proxy_pass|upstream|static|media|sustainacore"
+docker ps  # if applicable
+find /srv /opt /var/www -maxdepth 6 -name manage.py
+```
+
+If `.git` is missing at the working directory:
+- Check sibling directories for a repo root (e.g., `/opt/code/Sustainacore`).
+- Inspect deployment notes (e.g., `DEPLOY_CONFIG*.md`, systemd drop-ins).
+- Search for repo URLs in configs or logs (do not print secrets).
+- If a repo URL is found and access is available, clone into `/srv/sustainacore` or `/opt/sustainacore`.
+- If no URL is found, summarize the evidence and ask for the repo location once.
+
+Do not assume:
+- Never hardcode a repo directory without verifying via service configuration first.
+
 ## Delivery & Verification Requirements
 - Done means shipped: for user-facing changes, create a branch, commit, open a PR, and provide the PR URL.
 - CI must be green before claiming completion.
