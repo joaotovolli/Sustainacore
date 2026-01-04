@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import os
 
-MODEL_NAME = "gemini-2.5-flash"
-GEMINI_BIN = os.getenv("GEMINI_BIN", "gemini")
+GPT_MODEL_NAME = os.getenv("RESEARCH_GPT_MODEL", "gpt-5.2")
+GPT_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
+GPT_TEMPERATURE = float(os.getenv("RESEARCH_GPT_TEMPERATURE", "0.4"))
+GPT_MAX_TOKENS = int(os.getenv("RESEARCH_GPT_MAX_TOKENS", "1400"))
+GPT_REASONING_EFFORT = os.getenv("RESEARCH_GPT_REASONING_EFFORT", "high")
+
 WORKER_CWD = os.path.abspath(os.path.dirname(__file__))
 
 DEFAULT_OUTPUT_DIR = os.path.join(WORKER_CWD, "output")

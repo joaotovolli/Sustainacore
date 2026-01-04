@@ -17,7 +17,8 @@ from .analysis import (
     build_weekly_inputs,
 )
 from .docx_builder import build_docx
-from .gemini_cli import log_startup_config
+from .gpt_client import log_startup_config
+from .validators import quality_gate_strict
 from .oracle import (
     ResearchRequest,
     claim_request,
@@ -33,7 +34,7 @@ from .oracle import (
     set_report_value,
     update_request_status,
 )
-from .ping_pong import draft_with_ping_pong
+from .agent_pipeline import build_pipeline
 from .detectors import detect_anomaly, detect_period_close, detect_rebalance, detect_weekly
 
 LOGGER = logging.getLogger("research_generator")
@@ -230,9 +231,14 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.info("Dry-run: trigger=%s label=%s", report_type, label)
         return 0
 
-    draft, issues = draft_with_ping_pong(bundle)
+    draft, issues = build_pipeline(bundle, output_dir=config.DEFAULT_OUTPUT_DIR)
     if not draft:
         LOGGER.error("Drafting failed: %s", "; ".join(issues))
+        return 1
+
+    ok, gate_issues = quality_gate_strict(bundle, draft)
+    if not ok:
+        LOGGER.error("Quality gate failed: %s", "; ".join(gate_issues))
         return 1
 
     approval_id = _create_approval(bundle, draft, report_key)
@@ -242,7 +248,7 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
     return 0
 
 
-def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int]:
+def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Optional[int], List[str]]:
     report_type = (request.request_type or "").upper()
     bundle, err = _build_bundle(
         report_type,
@@ -252,13 +258,21 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
     if err or not bundle:
         raise RuntimeError(err or "bundle_error")
 
-    draft, issues = draft_with_ping_pong(bundle, editor_notes=request.editor_notes)
+    draft, issues = build_pipeline(
+        bundle,
+        output_dir=config.DEFAULT_OUTPUT_DIR,
+        editor_notes=request.editor_notes,
+    )
     if not draft:
         raise RuntimeError("draft_failed: " + "; ".join(issues))
 
     report_key = f"manual_{report_type.lower()}_{request.request_id}"
     if dry_run:
-        return None
+        return None, issues
+
+    ok, gate_issues = quality_gate_strict(bundle, draft)
+    if not ok:
+        raise RuntimeError("quality_gate_failed: " + "; ".join(gate_issues))
 
     approval_id = _create_approval(
         bundle,
@@ -266,7 +280,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
         report_key,
         regenerated_from=request.source_approval_id,
     )
-    return approval_id
+    return approval_id, issues
 
 
 def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Optional[int]) -> int:
@@ -286,7 +300,7 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
         if not claimed:
             continue
         try:
-            approval_id = _process_request(request, dry_run=dry_run)
+            approval_id, issues = _process_request(request, dry_run=dry_run)
             if dry_run:
                 with get_connection() as conn:
                     update_request_status(
@@ -296,12 +310,13 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
                         result_text="Dry-run complete; no approval created.",
                     )
             else:
+                suffix = " DRAFT_LOW_CONFIDENCE" if issues else ""
                 with get_connection() as conn:
                     update_request_status(
                         conn,
                         request.request_id,
                         "DONE",
-                        result_text=f"Approval created: {approval_id}",
+                        result_text=f"Approval created: {approval_id}{suffix}",
                     )
             processed += 1
         except Exception as exc:

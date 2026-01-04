@@ -29,9 +29,10 @@ class AnalysisBundle:
     methodology_url: str
     safe_source_snippets: List[str]
     constraints: Dict[str, Any]
+    extras: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "report_type": self.report_type,
             "window": {"start": self.window_start, "end": self.window_end},
             "key_numbers": self.key_numbers,
@@ -44,6 +45,9 @@ class AnalysisBundle:
             "safe_source_snippets": self.safe_source_snippets,
             "constraints": self.constraints,
         }
+        if self.extras:
+            payload.update(self.extras)
+        return payload
 
 
 def _fmt_date(value: Optional[dt.date]) -> str:
@@ -124,6 +128,11 @@ def build_rebalance_bundle(
         if len(safe_snippets) >= 2:
             break
 
+    latest_core = [row for row in latest_rows if float(row.get("weight") or 0) > 0]
+    latest_rest = [row for row in latest_rows if float(row.get("weight") or 0) <= 0]
+    prev_core = [row for row in previous_rows if float(row.get("weight") or 0) > 0]
+    prev_rest = [row for row in previous_rows if float(row.get("weight") or 0) <= 0]
+
     bundle = AnalysisBundle(
         report_type="REBALANCE",
         window_start=_fmt_date(previous_date),
@@ -155,6 +164,14 @@ def build_rebalance_bundle(
             "no_prices": True,
             "no_advice": True,
             "tone": "research/education",
+        },
+        extras={
+            "raw_latest_rows": latest_rows,
+            "raw_previous_rows": previous_rows,
+            "core_latest_rows": latest_core,
+            "rest_latest_rows": latest_rest,
+            "core_previous_rows": prev_core,
+            "rest_previous_rows": prev_rest,
         },
     )
     return bundle

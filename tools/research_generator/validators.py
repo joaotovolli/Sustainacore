@@ -88,3 +88,50 @@ def _check_banned(text: str, issues: List[str]) -> None:
             issues.append(f"banned_phrase:{phrase}")
     if _CURRENCY_RE.search(text):
         issues.append("currency_symbol")
+
+
+def quality_gate_strict(bundle: Dict[str, Any], draft: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    issues: List[str] = []
+    text = " ".join(draft.get("paragraphs") or [])
+    lower = text.lower()
+
+    forbidden = [
+        "chart above",
+        "table above",
+        "what it shows",
+        "figure x — what it shows",
+        "table x — key takeaways",
+        "anchors the evidence",
+        "provides the detailed breakdown",
+    ]
+    for phrase in forbidden:
+        if phrase in lower:
+            issues.append(f"forbidden_phrase:{phrase}")
+
+    if re.search(r"\d+\.\s+\d+", text):
+        issues.append("spaced_decimal")
+
+    if "figure" not in lower:
+        issues.append("missing_figure_reference")
+    if "table" not in lower:
+        issues.append("missing_table_reference")
+
+    if "core" not in lower or "rest" not in lower:
+        issues.append("missing_core_vs_rest_mentions")
+
+    if len(bundle.get("docx_charts") or []) < 2:
+        issues.append("insufficient_charts")
+    if len(bundle.get("docx_tables") or []) < 2:
+        issues.append("insufficient_tables")
+
+    if not any("Core vs Rest" in str(t.get("title") or "") for t in (bundle.get("docx_tables") or [])):
+        issues.append("missing_core_vs_rest_table")
+
+    if any("Weight Movers" in str(t.get("title") or "") for t in (bundle.get("docx_tables") or [])):
+        issues.append("weight_movers_not_allowed")
+
+    metric_pool = bundle.get("metric_pool") or []
+    if len(metric_pool) < 100:
+        issues.append("metric_pool_too_small")
+
+    return (len(issues) == 0), issues

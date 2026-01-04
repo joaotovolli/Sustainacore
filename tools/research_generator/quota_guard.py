@@ -1,4 +1,4 @@
-"""Quota guard for Gemini CLI usage."""
+"""Quota guard for OpenAI usage."""
 from __future__ import annotations
 
 import datetime as dt

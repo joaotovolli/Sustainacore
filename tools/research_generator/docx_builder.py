@@ -24,13 +24,42 @@ def _render_chart(chart_data: Dict[str, Any], output_dir: str, report_key: str) 
     chart_path = os.path.join(output_dir, f"{report_key}_chart.png")
     chart_type = chart_data.get("type", "line")
     x_vals = chart_data.get("x") or []
+    series = chart_data.get("series") or []
     y_vals = chart_data.get("y") or []
 
-    plt.figure(figsize=(6.4, 3.6))
+    plt.figure(figsize=(6.8, 3.6))
     if chart_type == "bar":
-        plt.bar(x_vals, y_vals)
+        if series:
+            width = 0.8 / max(len(series), 1)
+            indices = list(range(len(x_vals)))
+            for idx, entry in enumerate(series):
+                values = entry.get("values") or []
+                offsets = [i + idx * width for i in indices]
+                plt.bar(offsets, values, width=width, label=entry.get("name") or f"Series {idx+1}")
+            plt.xticks(
+                [i + width * (len(series) - 1) / 2 for i in indices],
+                x_vals,
+                rotation=45,
+                ha="right",
+            )
+            if len(series) > 1:
+                plt.legend(fontsize="small")
+        else:
+            plt.bar(x_vals, y_vals)
+            plt.xticks(rotation=45, ha="right")
+    elif chart_type == "box":
+        data = [entry.get("values") or [] for entry in series]
+        labels = [entry.get("name") or "" for entry in series]
+        plt.boxplot(data, labels=labels)
     else:
-        plt.plot(x_vals, y_vals, marker="o")
+        if series:
+            for idx, entry in enumerate(series):
+                values = entry.get("values") or []
+                plt.plot(x_vals, values, marker="o", label=entry.get("name") or f"Series {idx+1}")
+            if len(series) > 1:
+                plt.legend(fontsize="small")
+        else:
+            plt.plot(x_vals, y_vals, marker="o")
     plt.title(chart_data.get("title") or "")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
@@ -68,16 +97,47 @@ def build_docx(
 
     document = Document()
     document.add_heading(draft.get("headline") or "Research Update", level=0)
+    dek = draft.get("dek")
+    if dek:
+        para = document.add_paragraph(str(dek))
+        if para.runs:
+            para.runs[0].italic = True
 
-    for paragraph in draft.get("paragraphs", []):
-        document.add_paragraph(paragraph)
+    charts = bundle.get("docx_charts") or []
+    tables = bundle.get("docx_tables") or []
+    outline = draft.get("outline") or []
+    chart_paths: Dict[int, str] = {}
+    for idx, chart in enumerate(charts, start=1):
+        chart_paths[idx] = _render_chart(chart, output_dir, f"{report_key}_{idx}")
 
-    document.add_paragraph(draft.get("chart_caption") or "")
-    if os.path.exists(chart_path):
-        document.add_picture(chart_path)
+    if not outline:
+        outline = [{"type": "paragraph", "text": p} for p in draft.get("paragraphs", [])]
+        for idx in range(1, len(charts) + 1):
+            outline.append({"type": "figure", "id": idx})
+        for idx in range(1, len(tables) + 1):
+            outline.append({"type": "table", "id": idx})
 
-    document.add_paragraph(draft.get("table_caption") or "")
-    _add_table(document, bundle.get("table_rows", []))
+    for item in outline:
+        if item.get("type") == "paragraph":
+            document.add_paragraph(item.get("text") or "")
+        elif item.get("type") == "figure":
+            fig_id = int(item.get("id") or 0)
+            if 0 < fig_id <= len(charts):
+                caption = charts[fig_id - 1].get("caption") or f"Figure {fig_id}. Chart"
+                if not str(caption).lower().startswith("figure"):
+                    caption = f"Figure {fig_id}. {caption}"
+                document.add_paragraph(caption)
+                path = chart_paths.get(fig_id)
+                if path and os.path.exists(path):
+                    document.add_picture(path)
+        elif item.get("type") == "table":
+            tbl_id = int(item.get("id") or 0)
+            if 0 < tbl_id <= len(tables):
+                title = tables[tbl_id - 1].get("title") or f"Table {tbl_id}. Table"
+                if not title.lower().startswith("table"):
+                    title = f"Table {tbl_id}. {title}"
+                document.add_paragraph(title)
+                _add_table(document, tables[tbl_id - 1].get("rows") or [])
 
     document.add_paragraph(
         "Disclaimer: Research and education only; not investment advice."
@@ -91,8 +151,11 @@ def build_docx(
     with open(output_path, "rb") as handle:
         docx_bytes = handle.read()
 
+    first_chart = ""
+    if chart_paths:
+        first_chart = chart_paths[min(chart_paths.keys())]
     return {
         "docx_bytes": docx_bytes,
         "docx_name": output_name,
-        "chart_path": chart_path,
+        "chart_path": first_chart,
     }
