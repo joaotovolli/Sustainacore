@@ -1,4 +1,4 @@
-"""Agent pipeline for research generator drafting."""
+"""Agent pipeline for research generator (OpenAI-only)."""
 from __future__ import annotations
 
 import datetime as dt
@@ -7,255 +7,322 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import config
-from .gemini_cli import GeminiCLIError, is_quota_near_limit, run_gemini
 from .gpt_client import GPTClientError, run_gpt_json
-from .learned_notes import append_note
-from .publish_pass import linearize_draft, publisher_in_chief_rewrite
+from .data_integrity import run_integrity
+from .idea_engine import build_chart_bank, build_metric_pool, ensure_angle_count, generate_angles, rank_angles
+from .oracle import get_connection
 from .sanitize import sanitize_text_blocks
 
 LOGGER = logging.getLogger("research_generator.agent_pipeline")
 
 
-def _bundle_context(bundle: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "report_type": bundle.get("report_type"),
-        "window": bundle.get("window"),
-        "metrics": bundle.get("metrics"),
-        "tables": [{"title": t.get("title"), "rows": t.get("rows")} for t in (bundle.get("docx_tables") or [])],
-        "figures": [{"title": f.get("title"), "caption": f.get("caption")} for f in (bundle.get("docx_charts") or [])],
-        "constraints": bundle.get("constraints"),
-    }
+def _debug_dir(output_dir: str) -> str:
+    return os.path.join(output_dir, "debug")
 
 
-def _debug_path() -> str:
-    return os.path.join(config.DEFAULT_OUTPUT_DIR, "debug")
-
-
-def _write_debug(stage: str, state: Dict[str, Any]) -> None:
+def _write_debug(output_dir: str, stage: str, payload: Dict[str, Any]) -> None:
     try:
-        os.makedirs(_debug_path(), exist_ok=True)
+        os.makedirs(_debug_dir(output_dir), exist_ok=True)
         stamp = dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(_debug_path(), f"{stamp}_{stage}.json")
+        path = os.path.join(_debug_dir(output_dir), f"{stamp}_{stage}.json")
         with open(path, "w", encoding="utf-8") as handle:
-            json.dump(state, handle, indent=2, ensure_ascii=True)
+            json.dump(payload, handle, indent=2, ensure_ascii=True)
     except Exception:
         return
 
 
-def _has_blocker(issues: List[Dict[str, Any]]) -> bool:
-    return any(issue.get("severity") == "BLOCKER" for issue in issues)
+def _core_vs_rest_table(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _metric(name: str) -> Optional[float]:
+        for item in metric_pool:
+            if item.get("name") == name:
+                return item.get("value")
+        return None
+
+    rows = [
+        {
+            "Metric": "AIGES mean",
+            "Core": _metric("core.aiges.mean"),
+            "Rest": _metric("rest.aiges.mean"),
+        },
+        {
+            "Metric": "AIGES median",
+            "Core": _metric("core.aiges.p50"),
+            "Rest": _metric("rest.aiges.p50"),
+        },
+        {
+            "Metric": "AIGES IQR",
+            "Core": (_metric("core.aiges.p75") or 0) - (_metric("core.aiges.p25") or 0),
+            "Rest": (_metric("rest.aiges.p75") or 0) - (_metric("rest.aiges.p25") or 0),
+        },
+        {
+            "Metric": "AIGES std",
+            "Core": _metric("core.aiges.std"),
+            "Rest": _metric("rest.aiges.std"),
+        },
+    ]
+    return rows
 
 
-def run_analyst(bundle: Dict[str, Any]) -> Dict[str, Any]:
+def _ensure_core_rest_mentions(paragraphs: List[str], metric_pool: List[Dict[str, Any]]) -> List[str]:
+    joined = " ".join(paragraphs).lower()
+    if "core" in joined and "rest" in joined:
+        return paragraphs
+    core_mean = next((m.get("value") for m in metric_pool if m.get("name") == "core.aiges.mean"), None)
+    rest_mean = next((m.get("value") for m in metric_pool if m.get("name") == "rest.aiges.mean"), None)
+    sentence = f"The Core vs Rest split shows mean AIGES at {core_mean:.2f} vs {rest_mean:.2f}." if core_mean and rest_mean else "The Core vs Rest split is a primary lens in this report."
+    if paragraphs:
+        paragraphs[0] = paragraphs[0].rstrip() + " " + sentence
+    else:
+        paragraphs = [sentence]
+    return paragraphs
+
+
+def _inject_integrity_note(paragraphs: List[str], integrity: Dict[str, Any]) -> List[str]:
+    warnings = integrity.get("warnings") or []
+    if not warnings:
+        return paragraphs
+    if "rest_aiges_low_due_to_missing" in warnings:
+        note = (
+            "Data note: the Rest cohort shows higher missingness in parts of the score data, so the report emphasizes dispersion and sector composition rather than absolute level comparisons."
+            " This keeps the narrative grounded in the most reliable signals."
+        )
+    else:
+        note = (
+            "Data note: some fields show elevated missingness, so the narrative prioritizes dispersion and composition signals over absolute level comparisons."
+        )
+    if paragraphs:
+        paragraphs.insert(1, note)
+    else:
+        paragraphs = [note]
+    return paragraphs
+
+
+def _sector_table(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+    core = bundle.get("core_latest_rows") or []
+    rest = bundle.get("rest_latest_rows") or []
+    sector_counts: Dict[str, Dict[str, int]] = {}
+    for row in core:
+        sector = row.get("sector") or "Unknown"
+        sector_counts.setdefault(sector, {"Core": 0, "Rest": 0})
+        sector_counts[sector]["Core"] += 1
+    for row in rest:
+        sector = row.get("sector") or "Unknown"
+        sector_counts.setdefault(sector, {"Core": 0, "Rest": 0})
+        sector_counts[sector]["Rest"] += 1
+    rows = []
+    for sector, counts in sorted(sector_counts.items()):
+        rows.append({"Sector": sector, "Core": counts["Core"], "Rest": counts["Rest"]})
+    return rows
+
+
+def run_data_investigator(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) -> Dict[str, Any]:
     schema = {
         "insight_candidates": [
-            {
-                "title": "string",
-                "evidence": ["bullet with numbers"],
-                "why_it_matters": "string",
-                "artifact_suggestions": ["Figure 1", "Table 2"],
-                "novelty": "obvious|non_obvious",
-            }
+            {"title": "string", "evidence": ["numbered bullets"], "why_it_matters": "string"}
         ]
     }
     prompt = (
-        "You are the ANALYST. Output JSON only. "
-        "Use only the data bundle. Produce at least 8 insight candidates, "
-        "including 3 non-obvious insights beyond sector delta and top movers. "
+        "You are the Data Investigator. Output JSON only. "
+        "Use only metrics provided. Generate at least 8 candidates including non-obvious insights. "
+        "Each candidate must include metric + direction + magnitude + why it matters. "
         "Schema:\n"
         + json.dumps(schema)
-        + "\nBundle:\n"
-        + json.dumps(_bundle_context(bundle))
-        + "\nExisting insight candidates:\n"
-        + json.dumps(bundle.get("insight_candidates") or [])
+        + "\nMetric pool:\n"
+        + json.dumps(metric_pool[:200])
     )
     messages = [{"role": "user", "content": prompt}]
     return run_gpt_json(messages, timeout=70.0)
 
 
-def run_editor(bundle: Dict[str, Any], analyst: Dict[str, Any]) -> Dict[str, Any]:
+def run_editor(bundle: Dict[str, Any], angles: List[Dict[str, Any]]) -> Dict[str, Any]:
     schema = {
-        "throughline": "1-2 sentences",
         "outline": [
             {"type": "paragraph", "intent": "string"},
             {"type": "figure", "id": 1},
             {"type": "table", "id": 1},
         ],
-        "definitions": {
-            "aiges": "first_mention",
-            "core": "first_mention",
-            "coverage": "first_mention",
-            "rebalance": "first_mention",
-        },
+        "throughline": "string",
     }
     prompt = (
-        "You are the STORY ARCHITECT. Output JSON only. "
-        "Select a narrative arc and place figure/table insertions in the outline. "
-        "Ensure Core/Coverage/AIGES definitions appear only at first mention. "
+        "You are the Story Architect. Output JSON only. "
+        "Pick the top angle and produce a concise outline with insertion points. "
+        "Ensure the outline includes at least one paragraph for Core vs Rest differences and one for change vs prior rebalance. "
         "Schema:\n"
         + json.dumps(schema)
-        + "\nInsights:\n"
-        + json.dumps(analyst.get("insight_candidates") or [])
-        + "\nAvailable figures/tables:\n"
-        + json.dumps({
-            "figures": bundle.get("docx_charts") or [],
-            "tables": bundle.get("docx_tables") or [],
-        })
+        + "\nAngles:\n"
+        + json.dumps(angles)
     )
     messages = [{"role": "user", "content": prompt}]
     return run_gpt_json(messages, timeout=70.0)
 
 
-def run_writer(bundle: Dict[str, Any], editor: Dict[str, Any], analyst: Dict[str, Any]) -> Dict[str, Any]:
+def run_writer(angle: Dict[str, Any], outline: List[Dict[str, Any]]) -> Dict[str, Any]:
     schema = {
-        "headline": "string",
-        "paragraphs": ["string"],
+        "headline": "8-14 words",
+        "paragraphs": ["string paragraphs"],
         "outline": [{"type": "paragraph|figure|table", "id": 1, "text": "string"}],
-        "compliance_checklist": {"no_prices": True, "no_advice": True, "tone_ok": True},
     }
     prompt = (
-        "You are the WRITER. Output JSON only. "
-        "Write a cohesive narrative following the outline intents. "
-        "Reference artifacts inline as 'Figure 1' or 'Table 2'. "
-        "Do not use phrases like 'anchors the evidence' or 'what it shows'. "
-        "Entrants/exits are membership changes only; incumbents get deltas. "
+        "You are the Writer. Output JSON only. "
+        "Write a cohesive narrative using the outline. "
+        "Each paragraph must include at least two numeric facts. "
+        "Include at least 8 distinct insights with metric, direction, and magnitude. "
+        "Include at least one 'change vs prior rebalance' insight. "
+        "Reference artifacts inline as 'Figure 1' or 'Table 1'. "
+        "Avoid scaffolding phrases like 'what it shows' or 'provides the detailed breakdown'. "
         "Schema:\n"
         + json.dumps(schema)
-        + "\nThroughline:\n"
-        + json.dumps(editor.get("throughline"))
-        + "\nOutline intents:\n"
-        + json.dumps(editor.get("outline") or [])
-        + "\nInsights:\n"
-        + json.dumps(analyst.get("insight_candidates") or [])
+        + "\nAngle:\n"
+        + json.dumps(angle)
+        + "\nOutline:\n"
+        + json.dumps(outline)
     )
-    if not is_quota_near_limit():
-        try:
-            response = run_gemini(prompt, timeout=60.0)
-            payload = response.strip()
-            return json.loads(payload[payload.find("{") : payload.rfind("}") + 1])
-        except (GeminiCLIError, json.JSONDecodeError, ValueError) as exc:
-            append_note(failure_type="gemini_writer_failed", fix_hint=str(exc)[:120], report_type=bundle.get("report_type", ""))
     messages = [{"role": "user", "content": prompt}]
     return run_gpt_json(messages, timeout=70.0)
 
 
-def run_copyeditor(draft: Dict[str, Any]) -> Dict[str, Any]:
+def run_copyeditor(paragraphs: List[str]) -> Dict[str, Any]:
     schema = {"paragraphs": ["string"]}
     prompt = (
-        "You are the COPYEDITOR. Output JSON only. "
-        "Fix repetition, tighten language, remove scaffolding phrases. "
-        "Do not alter numeric values. "
+        "You are the Copyeditor. Output JSON only. "
+        "Improve flow, remove repetition, keep numbers unchanged. "
+        "Remove templated phrasing and any scaffolding language. "
         "Schema:\n"
         + json.dumps(schema)
-        + "\nDraft paragraphs:\n"
-        + json.dumps(draft.get("paragraphs") or [])
+        + "\nParagraphs:\n"
+        + json.dumps(paragraphs)
     )
     messages = [{"role": "user", "content": prompt}]
     return run_gpt_json(messages, timeout=60.0)
 
 
-def run_fact_checker(bundle: Dict[str, Any], draft: Dict[str, Any]) -> Dict[str, Any]:
-    schema = {
-        "issues": [
-            {"severity": "BLOCKER|WARN", "issue": "string", "suggested_fix": "string"}
-        ]
-    }
+def run_fact_checker(bundle: Dict[str, Any], paragraphs: List[str]) -> Dict[str, Any]:
+    schema = {"status": "PASS|FAIL", "issues": ["string"]}
     prompt = (
-        "You are the FACT-CHECKER. Output JSON only. "
-        "Check equal-weight logic, numeric consistency, forbidden advice, and entrants/exits handling. "
-        "Do not invent numbers. "
+        "You are the Fact Checker. Output JSON only. "
+        "Check numeric sanity, equal-weight invariants, and forbidden advice. "
+        "Return PASS/FAIL and issues only. "
         "Schema:\n"
         + json.dumps(schema)
-        + "\nBundle metrics:\n"
-        + json.dumps(_bundle_context(bundle))
-        + "\nDraft:\n"
-        + json.dumps(draft.get("paragraphs") or [])
+        + "\nBundle:\n"
+        + json.dumps({"metrics": bundle.get("metrics"), "tables": bundle.get("docx_tables")})
+        + "\nParagraphs:\n"
+        + json.dumps(paragraphs)
     )
     messages = [{"role": "user", "content": prompt}]
     return run_gpt_json(messages, timeout=60.0)
 
 
-def run_pipeline(bundle: Dict[str, Any], *, editor_notes: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], List[str], Dict[str, Any]]:
-    issues: List[str] = []
-    state: Dict[str, Any] = {"report_type": bundle.get("report_type"), "warnings": []}
-
-    try:
-        analyst = run_analyst(bundle)
-        state["insight_candidates"] = analyst.get("insight_candidates")
-        _write_debug("analyst", state)
-    except GPTClientError as exc:
-        append_note(failure_type="analyst_failed", fix_hint=str(exc)[:120], report_type=bundle.get("report_type", ""))
-        analyst = {"insight_candidates": bundle.get("insight_candidates") or []}
-
-    try:
-        editor = run_editor(bundle, analyst)
-        state["outline"] = editor.get("outline")
-        state["throughline"] = editor.get("throughline")
-        _write_debug("editor", state)
-    except GPTClientError as exc:
-        append_note(failure_type="editor_failed", fix_hint=str(exc)[:120], report_type=bundle.get("report_type", ""))
-        editor = {"outline": []}
-
-    try:
-        writer = run_writer(bundle, editor, analyst)
-        _write_debug("writer", {**state, "draft": writer})
-    except GPTClientError as exc:
-        append_note(failure_type="writer_failed", fix_hint=str(exc)[:120], report_type=bundle.get("report_type", ""))
-        return None, [str(exc)], analyst
-
-    try:
-        copyedited = run_copyeditor(writer)
-        writer["paragraphs"] = copyedited.get("paragraphs") or writer.get("paragraphs")
-        _write_debug("copyeditor", {**state, "draft": writer})
-    except GPTClientError as exc:
-        append_note(failure_type="copyeditor_failed", fix_hint=str(exc)[:120], report_type=bundle.get("report_type", ""))
-
-    try:
-        check = run_fact_checker(bundle, writer)
-        issues = [f"{item.get('severity')}: {item.get('issue')}" for item in (check.get("issues") or [])]
-        _write_debug("factcheck", {**state, "issues": issues})
-        if _has_blocker(check.get("issues") or []):
-            retry_note = " ".join(item.get("suggested_fix", "") for item in check.get("issues") or [])
-            writer["paragraphs"] = (writer.get("paragraphs") or []) + [retry_note]
-            copyedited = run_copyeditor(writer)
-            writer["paragraphs"] = copyedited.get("paragraphs") or writer.get("paragraphs")
-    except GPTClientError as exc:
-        append_note(failure_type="factcheck_failed", fix_hint=str(exc)[:120], report_type=bundle.get("report_type", ""))
-
-    linear = linearize_draft(
-        headline=writer.get("headline") or "",
-        paragraphs=writer.get("paragraphs") or [],
-        outline=writer.get("outline") or editor.get("outline") or [],
-        charts=bundle.get("docx_charts") or [],
-        tables=bundle.get("docx_tables") or [],
+def run_publisher(angle: Dict[str, Any], paragraphs: List[str]) -> Dict[str, Any]:
+    schema = {"headline": "string", "dek": "15-25 words", "body": ["string"]}
+    prompt = (
+        "You are the Editor-in-Chief. Output JSON only. "
+        "Rewrite for publish-ready tone. "
+        "Include a 15-25 word dek. "
+        "Ensure each paragraph includes at least two numeric facts and one interpretation. "
+        "Avoid scaffolding phrases like 'Figure X provides the detailed breakdown' or 'anchors the evidence'. "
+        "No advice. "
+        "Schema:\n"
+        + json.dumps(schema)
+        + "\nAngle:\n"
+        + json.dumps(angle)
+        + "\nParagraphs:\n"
+        + json.dumps(paragraphs)
     )
+    messages = [{"role": "user", "content": prompt}]
+    return run_gpt_json(messages, timeout=70.0)
 
-    constraints = {
-        "no_prices": True,
-        "no_advice": True,
-        "tone": "research/education",
-        "editor_notes": editor_notes or "",
-    }
-    final = {}
+
+def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Optional[str] = None) -> Tuple[Dict[str, Any], List[str]]:
+    issues: List[str] = []
+
+    metric_pool = build_metric_pool(bundle)
+    integrity = bundle.get("integrity") or run_integrity(bundle)
+    bundle["integrity"] = integrity
+    charts = build_chart_bank(bundle, metric_pool)
+    tables = [
+        {"title": "Core vs Rest summary", "rows": _core_vs_rest_table(bundle, metric_pool)},
+        {"title": "Sector composition (Core vs Rest)", "rows": _sector_table(bundle)},
+    ]
+    bundle["metric_pool"] = metric_pool
+    bundle["docx_charts"] = charts
+    bundle["docx_tables"] = tables
+    if integrity.get("issues"):
+        issues.extend(integrity.get("issues"))
+    if integrity.get("warnings"):
+        issues.extend(integrity.get("warnings"))
+    _write_debug(output_dir, "metrics", {"metric_pool": metric_pool, "charts": charts, "tables": tables})
+
     try:
-        final = publisher_in_chief_rewrite(linear, constraints=constraints)
+        investigator = run_data_investigator(bundle, metric_pool)
     except GPTClientError as exc:
-        append_note(failure_type="publisher_failed", fix_hint=str(exc)[:120], report_type=bundle.get("report_type", ""))
-        final = {
-            "headline": writer.get("headline"),
-            "dek": None,
-            "body": writer.get("paragraphs") or [],
-        }
+        issues.append(str(exc))
+        investigator = {"insight_candidates": []}
+    _write_debug(output_dir, "investigator", investigator)
 
-    body = final.get("body") or writer.get("paragraphs") or []
-    body = sanitize_text_blocks(body)
+    angles = ensure_angle_count(generate_angles(bundle, metric_pool))
+    with get_connection() as conn:  # type: ignore[name-defined]
+        ranked = rank_angles(angles, report_type=bundle.get("report_type", ""), conn=conn)
+    top = ranked[0] if ranked else {"angle_title": "Core vs Rest overview", "callouts": []}
+    for candidate in ranked:
+        categories = candidate.get("categories") or []
+        if "core vs rest" in str(candidate.get("angle_title", "")).lower() and len(categories) < 2:
+            continue
+        top = candidate
+        break
+    bundle["selected_angle"] = top
+    _write_debug(output_dir, "angles", {"ranked": ranked})
+
+    try:
+        editor = run_editor(bundle, ranked[:5])
+        outline = editor.get("outline") or []
+    except GPTClientError as exc:
+        issues.append(str(exc))
+        outline = []
+    _write_debug(output_dir, "outline", {"outline": outline})
+
+    try:
+        writer = run_writer(top, outline)
+        paragraphs = writer.get("paragraphs") or []
+        outline = writer.get("outline") or outline
+    except GPTClientError as exc:
+        issues.append(str(exc))
+        paragraphs = []
+    _write_debug(output_dir, "writer", {"paragraphs": paragraphs})
+
+    if not paragraphs:
+        paragraphs = [
+            "This report summarizes governance signals using the Core vs Rest lens.",
+            "Figure 1 and Table 1 summarize the score distributions and sector composition referenced in the narrative.",
+        ]
+    try:
+        copyedited = run_copyeditor(paragraphs)
+        paragraphs = copyedited.get("paragraphs") or paragraphs
+    except GPTClientError as exc:
+        issues.append(str(exc))
+    _write_debug(output_dir, "copyedited", {"paragraphs": paragraphs})
+
+    try:
+        fact = run_fact_checker(bundle, paragraphs)
+        if fact.get("status") == "FAIL":
+            issues.extend(fact.get("issues") or [])
+    except GPTClientError as exc:
+        issues.append(str(exc))
+
+    paragraphs = _inject_integrity_note(paragraphs, integrity)
+    paragraphs = _ensure_core_rest_mentions(paragraphs, metric_pool)
+    try:
+        published = run_publisher(top, paragraphs)
+    except GPTClientError as exc:
+        issues.append(str(exc))
+        published = {"headline": top.get("angle_title"), "dek": None, "body": paragraphs}
+
+    body = sanitize_text_blocks(published.get("body") or paragraphs)
     draft = {
-        "headline": final.get("headline") or writer.get("headline"),
-        "dek": final.get("dek"),
+        "headline": published.get("headline") or top.get("angle_title"),
+        "dek": published.get("dek"),
         "paragraphs": body,
-        "outline": writer.get("outline") or editor.get("outline") or [],
-        "compliance_checklist": writer.get("compliance_checklist") or {},
+        "outline": outline,
     }
-    _write_debug("final", {**state, "final": draft})
-    return draft, issues, analyst
+    _write_debug(output_dir, "final", draft)
+    return draft, issues

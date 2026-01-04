@@ -19,7 +19,7 @@ Setup
   - `bash tools/research_generator/systemd/install_systemd.sh`
 
 Notes
-- Model pinned to `gemini-2.5-flash`.
+- Uses OpenAI/Codex models only (no Gemini in research generator).
 - No price data or investment advice; derived metrics only.
 
 Cleanup (research-only)

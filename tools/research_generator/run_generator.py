@@ -6,23 +6,20 @@ import datetime as dt
 import json
 import logging
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
 from .analysis import (
     build_anomaly_inputs,
     build_company_spotlight_bundle,
-    build_core_vs_coverage_gap_bundle,
     build_period_close_inputs,
     build_rebalance_bundle,
-    build_top25_movers_bundle,
     build_weekly_inputs,
 )
 from .docx_builder import build_docx
-from .insight_miner import mine_insights
-from .fact_check import run_fact_check
-from .alerting import send_email
-from .gemini_cli import log_startup_config
+from .data_integrity import run_integrity
+from .gpt_client import log_startup_config
+from .validators import quality_gate_strict
 from .oracle import (
     ResearchRequest,
     claim_request,
@@ -35,17 +32,31 @@ from .oracle import (
     init_env,
     insert_approval,
     insert_alert,
-    insert_report_insights,
-    fetch_last_report_insights,
     insert_research_request,
     set_report_value,
     update_request_status,
 )
-from .agent_pipeline import run_pipeline
-from .validators import quality_gate_strict
+from .agent_pipeline import build_pipeline
 from .detectors import detect_anomaly, detect_period_close, detect_rebalance, detect_weekly
 
 LOGGER = logging.getLogger("research_generator")
+
+
+def _is_retryable_issue(issues: List[str]) -> bool:
+    for issue in issues:
+        lower = str(issue).lower()
+        if "gpt_http_error" in lower or "gpt_network_error" in lower:
+            return True
+        if "openai_api_key_missing" in lower:
+            return True
+    return False
+
+
+def _next_retry(retry_count: int) -> dt.datetime:
+    steps = [dt.timedelta(minutes=2), dt.timedelta(minutes=5), dt.timedelta(minutes=15), dt.timedelta(minutes=30)]
+    if retry_count < len(steps):
+        return dt.datetime.utcnow() + steps[retry_count]
+    return dt.datetime.utcnow() + dt.timedelta(minutes=60)
 
 
 def _preview_table_markdown(rows: list[dict[str, Any]]) -> str:
@@ -60,30 +71,12 @@ def _preview_table_markdown(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _retry_delay_seconds(retry_count: int) -> int:
-    if retry_count <= 0:
-        return 120
-    if retry_count == 1:
-        return 300
-    if retry_count == 2:
-        return 900
-    if retry_count == 3:
-        return 1800
-    return 3600
-
-
-def _next_retry_at(retry_count: int) -> dt.datetime:
-    return dt.datetime.utcnow() + dt.timedelta(seconds=_retry_delay_seconds(retry_count))
-
-
 def _build_details(
     bundle: Dict[str, Any],
     draft: Dict[str, Any],
     chart_name: str,
     *,
     regenerated_from: Optional[int] = None,
-    analysis_notes: Optional[list[str]] = None,
-    fact_warnings: Optional[list[str]] = None,
 ) -> str:
     details = {
         "report_type": bundle.get("report_type"),
@@ -94,12 +87,6 @@ def _build_details(
         },
         "chart_filename": chart_name,
         "preview_table": _preview_table_markdown(bundle.get("table_rows", [])),
-        "metrics": bundle.get("metrics"),
-        "analysis_notes": analysis_notes or [],
-        "csv_extracts": bundle.get("csv_extracts"),
-        "table_callouts": {t.get("title"): t.get("callouts") for t in (bundle.get("docx_tables") or [])},
-        "figure_callouts": {c.get("title"): c.get("callouts") for c in (bundle.get("docx_charts") or [])},
-        "fact_check_warnings": fact_warnings or [],
         "provenance": [
             "TECH11_AI_GOV_ETH_INDEX",
             "SC_IDX_LEVELS",
@@ -179,22 +166,6 @@ def _build_bundle(
                     return None, "Missing rebalance data"
                 bundle = _build_rebalance_bundle(conn, latest_date, previous_date)
                 return bundle.to_dict(), None
-            if report_type == "CORE_VS_COVERAGE_GAP":
-                _, latest_date, previous_date = detect_rebalance(conn)
-                if not latest_date:
-                    return None, "Missing rebalance data"
-                latest_rows = fetch_rebalance_rows(conn, latest_date)
-                prev_rows = fetch_rebalance_rows(conn, previous_date) if previous_date else []
-                bundle = build_core_vs_coverage_gap_bundle(latest_date, previous_date, latest_rows, prev_rows)
-                return bundle.to_dict(), None
-            if report_type == "TOP25_MOVERS_ONLY":
-                _, latest_date, previous_date = detect_rebalance(conn)
-                if not latest_date:
-                    return None, "Missing rebalance data"
-                latest_rows = fetch_rebalance_rows(conn, latest_date)
-                prev_rows = fetch_rebalance_rows(conn, previous_date) if previous_date else []
-                bundle = build_top25_movers_bundle(latest_date, previous_date, latest_rows, prev_rows)
-                return bundle.to_dict(), None
             if report_type == "ANOMALY":
                 bundle, err = build_anomaly_inputs(conn)
                 return bundle.to_dict() if bundle else None, err
@@ -218,124 +189,21 @@ def _build_bundle(
     return None, "Unsupported report type"
 
 
-def _build_docx_payload(
-    bundle: Dict[str, Any],
-    draft: Dict[str, Any],
-    report_key: str,
-) -> Dict[str, Any]:
-    output_dir = config.DEFAULT_OUTPUT_DIR
-    return build_docx(draft, bundle, report_key, output_dir)
-
-
-def _ensure_outline(draft: Dict[str, Any], bundle: Dict[str, Any]) -> None:
-    figures = len(bundle.get("docx_charts") or [])
-    tables = len(bundle.get("docx_tables") or [])
-    outline = draft.get("outline") or []
-
-    def _valid_id(item: Dict[str, Any], max_id: int) -> bool:
-        try:
-            value = int(item.get("id") or 0)
-        except (TypeError, ValueError):
-            return False
-        return 1 <= value <= max_id
-
-    has_fig = any(item.get("type") == "figure" and _valid_id(item, figures) for item in outline)
-    has_tbl = any(item.get("type") == "table" and _valid_id(item, tables) for item in outline)
-    if (figures and not has_fig) or (tables and not has_tbl) or not outline:
-        paragraphs = draft.get("paragraphs") or []
-        new_outline: list[dict[str, Any]] = []
-        fig_id = 1
-        tbl_id = 1
-        for idx, para in enumerate(paragraphs):
-            new_outline.append({"type": "paragraph", "text": para})
-            if idx == 1 and fig_id <= figures:
-                new_outline.append({"type": "figure", "id": fig_id})
-                fig_id += 1
-            if idx == 2 and tbl_id <= tables:
-                new_outline.append({"type": "table", "id": tbl_id})
-                tbl_id += 1
-            if idx == 3 and tbl_id <= tables:
-                new_outline.append({"type": "table", "id": tbl_id})
-                tbl_id += 1
-        while fig_id <= figures:
-            new_outline.append({"type": "figure", "id": fig_id})
-            fig_id += 1
-        while tbl_id <= tables:
-            new_outline.append({"type": "table", "id": tbl_id})
-            tbl_id += 1
-        outline = new_outline
-
-    # Ensure each artifact is referenced by an adjacent paragraph.
-    enhanced: list[dict[str, Any]] = []
-    for idx, item in enumerate(outline):
-        enhanced.append(item)
-        if item.get("type") not in ("figure", "table"):
-            continue
-        ref = "Figure" if item.get("type") == "figure" else "Table"
-        ident = item.get("id") or 1
-        prev_text = ""
-        next_text = ""
-        if idx > 0 and outline[idx - 1].get("type") == "paragraph":
-            prev_text = str(outline[idx - 1].get("text") or "")
-        if idx + 1 < len(outline) and outline[idx + 1].get("type") == "paragraph":
-            next_text = str(outline[idx + 1].get("text") or "")
-        if f"{ref} {ident}" not in f"{prev_text} {next_text}":
-            if item.get("type") == "figure":
-                filler = f"{ref} {ident} highlights the shifts discussed in this section."
-            else:
-                filler = f"{ref} {ident} summarizes the metrics referenced in this section."
-            enhanced.append({"type": "paragraph", "text": filler})
-    draft["outline"] = enhanced
-
-
-def _ensure_publish_safety(draft: Dict[str, Any]) -> None:
-    paragraphs = [p for p in (draft.get("paragraphs") or []) if p]
-    joined = " ".join(paragraphs).lower()
-    if "figure 1" not in joined or "table 1" not in joined:
-        sentence = "Figure 1 highlights the sector exposure shifts and Table 1 summarizes the core versus coverage metrics."
-        if paragraphs:
-            paragraphs[0] = paragraphs[0].rstrip() + " " + sentence
-        else:
-            paragraphs = [sentence]
-        draft["paragraphs"] = paragraphs
-
-    required_terms = ["iqr", "hhi", "turnover", "breadth"]
-    if sum(1 for term in required_terms if term in joined) < 3:
-        stats_sentence = "Table 1 also includes IQR, HHI, turnover, and breadth metrics for quick comparison."
-        paragraphs.append(stats_sentence)
-        draft["paragraphs"] = paragraphs
-
-    dek = str(draft.get("dek") or "").strip()
-    if dek:
-        words = [w for w in dek.split() if w]
-        if 15 <= len(words) <= 25:
-            return
-    combined = " ".join(paragraphs).strip()
-    words = [w for w in combined.split() if w]
-    if not words:
-        draft["dek"] = "Core and coverage shifts frame the quarterly signal for governance and ethics scores and sector balance."
-        return
-    snippet = " ".join(words[:20]).strip()
-    draft["dek"] = f"{snippet}."
-
-
 def _create_approval(
     bundle: Dict[str, Any],
     draft: Dict[str, Any],
-    docx_payload: Dict[str, Any],
+    report_key: str,
     *,
     regenerated_from: Optional[int] = None,
-    analysis_notes: Optional[list[str]] = None,
-    fact_warnings: Optional[list[str]] = None,
 ) -> int:
+    output_dir = config.DEFAULT_OUTPUT_DIR
+    docx_payload = build_docx(draft, bundle, report_key, output_dir)
     summary = _summary_from_draft(draft)
     details = _build_details(
         bundle,
         draft,
         os.path.basename(docx_payload["chart_path"]),
         regenerated_from=regenerated_from,
-        analysis_notes=analysis_notes,
-        fact_warnings=fact_warnings,
     )
 
     payload = {
@@ -354,51 +222,6 @@ def _create_approval(
         approval_id = insert_approval(conn, payload)
     LOGGER.info("Created approval approval_id=%s", approval_id)
     return approval_id
-
-
-def _emit_alerts(
-    *,
-    request_id: Optional[int],
-    approval_id: Optional[int],
-    report_type: str,
-    critical: list[str],
-    warnings: list[str],
-    details: list[str],
-) -> None:
-    summary = []
-    if critical:
-        summary.append("CRITICAL issues:")
-        summary.extend(f"- {item}" for item in critical)
-    if warnings:
-        summary.append("WARNINGS:")
-        summary.extend(f"- {item}" for item in warnings)
-    if details:
-        summary.append("DETAILS:")
-        summary.extend(f"- {item}" for item in details[:10])
-    body = "\n".join(summary)
-    subject = f"Research data quality report ({report_type})"
-
-    with get_connection() as conn:
-        if critical:
-            insert_alert(
-                conn,
-                request_id=request_id,
-                approval_id=approval_id,
-                severity="CRITICAL",
-                title=f"Fact check failed: {report_type}",
-                details=body[:2000],
-            )
-        if warnings:
-            insert_alert(
-                conn,
-                request_id=request_id,
-                approval_id=approval_id,
-                severity="WARN",
-                title=f"Fact check warnings: {report_type}",
-                details=body[:2000],
-            )
-
-    send_email(subject, body)
 
 
 def run_once(force: Optional[str], dry_run: bool) -> int:
@@ -421,58 +244,58 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.error("Bundle build failed: %s", err)
         return 1
 
-    bundle["insight_candidates"] = mine_insights(bundle)
-
-    fact = run_fact_check(bundle)
-    if not fact.ok():
-        _emit_alerts(
-            request_id=None,
-            approval_id=None,
-            report_type=bundle.get("report_type", "UNKNOWN"),
-            critical=fact.critical,
-            warnings=fact.warnings,
-            details=fact.details,
-        )
-        LOGGER.error("Fact check failed: %s", "; ".join(fact.critical))
-        return 1
-
     report_key = f"{report_type.lower()}_{now.strftime('%Y%m%d_%H%M%S')}"
 
     if dry_run:
         LOGGER.info("Dry-run: trigger=%s label=%s", report_type, label)
         return 0
 
-    editor_notes = None
-    draft, issues, compute = run_pipeline(bundle, editor_notes=editor_notes)
+    integrity = run_integrity(bundle)
+    bundle["integrity"] = integrity
+    if integrity.get("issues"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=None,
+                approval_id=None,
+                severity="CRITICAL",
+                title="Data integrity failure",
+                details=json.dumps(integrity, sort_keys=True),
+            )
+        LOGGER.error("Integrity check failed: %s", "; ".join(integrity.get("issues") or []))
+        return 1
+    if integrity.get("warnings"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=None,
+                approval_id=None,
+                severity="WARN",
+                title="Data integrity warning",
+                details=json.dumps(integrity, sort_keys=True),
+            )
+
+    draft, issues = build_pipeline(bundle, output_dir=config.DEFAULT_OUTPUT_DIR)
     if not draft:
         LOGGER.error("Drafting failed: %s", "; ".join(issues))
         return 1
+    if _is_retryable_issue(issues):
+        LOGGER.warning("Drafting retryable issues: %s", "; ".join(issues))
+        return 1
 
-    _ensure_publish_safety(draft)
-    _ensure_outline(draft, bundle)
-    docx_payload = _build_docx_payload(bundle, draft, report_key)
-    ok, gate_issues = quality_gate_strict(bundle, draft, compute or {}, docx_payload)
+    ok, gate_issues = quality_gate_strict(bundle, draft)
     if not ok:
         LOGGER.error("Quality gate failed: %s", "; ".join(gate_issues))
         return 1
 
-    approval_id = _create_approval(
-        bundle,
-        draft,
-        docx_payload,
-        analysis_notes=(compute or {}).get("analysis_notes"),
-        fact_warnings=fact.warnings,
-    )
+    approval_id = _create_approval(bundle, draft, report_key)
     if approval_id:
-        with get_connection() as conn:
-            insights_payload = json.dumps((compute or {}).get("selected_insights") or [], sort_keys=True)
-            insert_report_insights(conn, bundle.get("report_type", ""), insights_payload)
         store_value = label or (bundle.get("window") or {}).get("end") or now.strftime("%Y-%m-%d")
         _store_report_state(report_type, store_value)
     return 0
 
 
-def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int]:
+def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Optional[int], List[str]]:
     report_type = (request.request_type or "").upper()
     bundle, err = _build_bundle(
         report_type,
@@ -482,46 +305,55 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Optional[int
     if err or not bundle:
         raise RuntimeError(err or "bundle_error")
 
-    bundle["insight_candidates"] = mine_insights(bundle)
-    fact = run_fact_check(bundle)
-    if not fact.ok():
-        _emit_alerts(
-            request_id=request.request_id,
-            approval_id=None,
-            report_type=bundle.get("report_type", "UNKNOWN"),
-            critical=fact.critical,
-            warnings=fact.warnings,
-            details=fact.details,
-        )
-        raise RuntimeError("fact_check_failed: " + "; ".join(fact.critical))
+    integrity = run_integrity(bundle)
+    bundle["integrity"] = integrity
+    if integrity.get("issues"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=request.request_id,
+                approval_id=None,
+                severity="CRITICAL",
+                title="Data integrity failure",
+                details=json.dumps(integrity, sort_keys=True),
+            )
+        raise RuntimeError("integrity_failed: " + "; ".join(integrity.get("issues") or []))
+    if integrity.get("warnings"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=request.request_id,
+                approval_id=None,
+                severity="WARN",
+                title="Data integrity warning",
+                details=json.dumps(integrity, sort_keys=True),
+            )
 
-    draft, issues, compute = run_pipeline(bundle, editor_notes=request.editor_notes)
+    draft, issues = build_pipeline(
+        bundle,
+        output_dir=config.DEFAULT_OUTPUT_DIR,
+        editor_notes=request.editor_notes,
+    )
     if not draft:
         raise RuntimeError("draft_failed: " + "; ".join(issues))
+    if _is_retryable_issue(issues):
+        raise RuntimeError("retryable: " + "; ".join(issues))
 
     report_key = f"manual_{report_type.lower()}_{request.request_id}"
     if dry_run:
-        return None
+        return None, issues
 
-    _ensure_publish_safety(draft)
-    _ensure_outline(draft, bundle)
-    docx_payload = _build_docx_payload(bundle, draft, report_key)
-    ok, gate_issues = quality_gate_strict(bundle, draft, compute or {}, docx_payload)
+    ok, gate_issues = quality_gate_strict(bundle, draft)
     if not ok:
         raise RuntimeError("quality_gate_failed: " + "; ".join(gate_issues))
 
     approval_id = _create_approval(
         bundle,
         draft,
-        docx_payload,
+        report_key,
         regenerated_from=request.source_approval_id,
-        analysis_notes=(compute or {}).get("analysis_notes"),
-        fact_warnings=fact.warnings,
     )
-    with get_connection() as conn:
-        insights_payload = json.dumps((compute or {}).get("selected_insights") or [], sort_keys=True)
-        insert_report_insights(conn, bundle.get("report_type", ""), insights_payload)
-    return approval_id
+    return approval_id, issues
 
 
 def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Optional[int]) -> int:
@@ -536,19 +368,12 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
         return 0
 
     for request in requests:
-        if request.next_retry_at and request.next_retry_at > dt.datetime.utcnow():
-            LOGGER.info(
-                "cooldown_active request_id=%s next_retry_at=%s",
-                request.request_id,
-                request.next_retry_at,
-            )
-            continue
         with get_connection() as conn:
             claimed = claim_request(conn, request.request_id)
         if not claimed:
             continue
         try:
-            approval_id = _process_request(request, dry_run=dry_run)
+            approval_id, issues = _process_request(request, dry_run=dry_run)
             if dry_run:
                 with get_connection() as conn:
                     update_request_status(
@@ -558,31 +383,32 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
                         result_text="Dry-run complete; no approval created.",
                     )
             else:
+                suffix = " DRAFT_LOW_CONFIDENCE" if issues else ""
                 with get_connection() as conn:
                     update_request_status(
                         conn,
                         request.request_id,
                         "DONE",
-                        result_text=f"Approval created: {approval_id}",
+                        result_text=f"Approval created: {approval_id}{suffix}",
                     )
             processed += 1
         except Exception as exc:
             message = str(exc)
+            retryable = message.lower().startswith("retryable") or _is_retryable_issue([message])
             if "429" in message or "rate limit" in message.lower():
-                current_retry = int(request.retry_count or 0)
+                retryable = True
+            if retryable:
+                current_retry = request.retry_count or 0
+                next_retry_at = _next_retry(current_retry)
                 new_retry = current_retry + 1
-                next_retry = _next_retry_at(new_retry)
                 with get_connection() as conn:
                     update_request_status(
                         conn,
                         request.request_id,
                         "PENDING",
-                        result_text=(
-                            f"retryable: rate_limited next_retry_at={next_retry.isoformat()} "
-                            f"retry_count={new_retry} {message[:200]}"
-                        )[:400],
+                        result_text=f"retryable: {message[:400]}",
                         retry_count=new_retry,
-                        next_retry_at=next_retry,
+                        next_retry_at=next_retry_at,
                     )
                 LOGGER.warning("Manual request rate-limited request_id=%s", request.request_id)
                 continue
@@ -603,14 +429,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Skip approval creation")
     parser.add_argument(
         "--force",
-        choices=[
-            "rebalance",
-            "weekly",
-            "period",
-            "anomaly",
-            "core_vs_coverage_gap",
-            "top25_movers_only",
-        ],
+        choices=["rebalance", "weekly", "period", "anomaly"],
         help="Force a specific report type",
     )
     parser.add_argument(
@@ -643,10 +462,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             force = "PERIOD_CLOSE"
         elif args.force == "anomaly":
             force = "ANOMALY"
-        elif args.force == "core_vs_coverage_gap":
-            force = "CORE_VS_COVERAGE_GAP"
-        elif args.force == "top25_movers_only":
-            force = "TOP25_MOVERS_ONLY"
 
     if args.seed_request:
         init_env()
