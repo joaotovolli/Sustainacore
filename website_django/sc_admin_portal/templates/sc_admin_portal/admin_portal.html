@@ -585,6 +585,14 @@
     if (!window.tinymce) {
         return;
     }
+    const newsForm = document.querySelector(".news-publish-form");
+    if (newsForm) {
+        newsForm.addEventListener("submit", () => {
+            if (window.tinymce) {
+                window.tinymce.triggerSave();
+            }
+        });
+    }
     const uploadUrl = "{% url 'sc_admin_portal:news_asset_upload' %}";
     const getCookie = (name) => {
         const cookies = document.cookie ? document.cookie.split(";") : [];

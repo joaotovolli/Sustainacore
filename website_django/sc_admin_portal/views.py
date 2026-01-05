@@ -196,8 +196,8 @@ def dashboard(request):
         publish_form = {"headline": headline, "tags": tags, "body_html": body_html}
         try:
             news_item = create_news_post(headline=headline, tags=tags, body_html=body_html)
-            news_success = "News post published."
-            publish_form = {"headline": "", "tags": "", "body_html": ""}
+            messages.success(request, "News post published.")
+            return redirect("news_detail", news_item["id"])
         except ValueError as exc:
             news_error = str(exc)
         except NewsStorageError as exc:
@@ -350,8 +350,9 @@ def news_asset_upload(request):
             status=500,
         )
 
+    asset_url = request.build_absolute_uri(f"/news/assets/{asset_id}/")
     return JsonResponse(
-        {"location": f"/news/assets/{asset_id}/", "asset_id": asset_id}
+        {"location": asset_url, "asset_id": asset_id}
     )
 
 

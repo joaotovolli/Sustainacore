@@ -242,9 +242,12 @@ def get_news_asset(asset_id: int) -> Optional[Dict[str, Any]]:
         return None
 
     file_blob = row[4].read() if hasattr(row[4], "read") else row[4]
+    news_id_value = row[1]
+    if news_id_value is not None:
+        news_id_value = int(news_id_value)
     return {
         "asset_id": int(row[0]),
-        "news_id": int(row[1]),
+        "news_id": news_id_value,
         "file_name": row[2],
         "mime_type": row[3],
         "file_blob": file_blob,
