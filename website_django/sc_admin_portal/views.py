@@ -14,7 +14,11 @@ from django.views.decorators.http import require_POST
 from core.auth import get_auth_email
 from sc_admin_portal.auth import get_admin_email, portal_not_found, require_sc_admin
 from sc_admin_portal import oracle_proc
-from sc_admin_portal.news_storage import create_news_asset, create_news_post
+from sc_admin_portal.news_storage import (
+    NewsStorageError,
+    create_news_asset,
+    create_news_post,
+)
 
 logger = logging.getLogger(__name__)
 _RUNNING_COMMIT: str | None = None
@@ -196,6 +200,8 @@ def dashboard(request):
             publish_form = {"headline": "", "tags": "", "body_html": ""}
         except ValueError as exc:
             news_error = str(exc)
+        except NewsStorageError as exc:
+            news_error = str(exc)
         except Exception:
             logger.exception("Admin portal news publish failed")
             news_error = "Could not publish news. Please try again."
@@ -331,6 +337,11 @@ def news_asset_upload(request):
             file_name=upload.name,
             mime_type=content_type,
             file_bytes=upload.read(),
+        )
+    except NewsStorageError as exc:
+        return JsonResponse(
+            {"error": exc.code or "storage_error", "message": str(exc)},
+            status=503,
         )
     except Exception:
         logger.exception("Admin portal news asset upload failed")

@@ -614,15 +614,27 @@
                 body: formData,
                 credentials: "same-origin",
             })
-                .then((resp) => resp.json())
-                .then((data) => {
+                .then(async (resp) => {
+                    let data = null;
+                    const contentType = resp.headers.get("content-type") || "";
+                    if (contentType.includes("application/json")) {
+                        try {
+                            data = await resp.json();
+                        } catch (error) {
+                            data = null;
+                        }
+                    }
+                    if (!resp.ok) {
+                        const message = data && data.message ? data.message : `Upload failed (${resp.status}).`;
+                        throw new Error(message);
+                    }
                     if (data && data.location) {
                         resolve(data.location);
-                    } else {
-                        reject(data && data.message ? data.message : "Upload failed.");
+                        return;
                     }
+                    throw new Error(data && data.message ? data.message : "Upload failed.");
                 })
-                .catch(() => reject("Upload failed."));
+                .catch((error) => reject(error.message || "Upload failed."));
         }),
         content_style: "img{max-width:100%;height:auto;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #d1d5db;padding:6px;}",
     });
