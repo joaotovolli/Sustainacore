@@ -1,4 +1,5 @@
 from datetime import datetime, date, timedelta
+import html
 import os
 import uuid
 import csv
@@ -1545,8 +1546,13 @@ def news(request):
             item_id = str(item.get("id") or "")
             item["has_full_body"] = item_id.startswith("ESG_NEWS:")
         summary_value = item.get("summary")
-        if summary_value and re.search(r"<[a-zA-Z][^>]*>", str(summary_value)):
-            item["summary"] = summarize_html(str(summary_value))
+        if summary_value:
+            summary_text = str(summary_value)
+            if "&lt;" in summary_text or "&gt;" in summary_text:
+                summary_text = html.unescape(summary_text)
+            if re.search(r"<[a-zA-Z][^>]*>", summary_text):
+                summary_text = summarize_html(summary_text)
+            item["summary"] = summary_text
     sources = filter_options["source_options"] or sorted(
         {item.get("source") for item in news_items if item.get("source")}
     )
