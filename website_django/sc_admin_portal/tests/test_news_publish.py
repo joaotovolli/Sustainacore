@@ -45,10 +45,9 @@ class AdminPortalNewsPublishTests(TestCase):
                 "body_html": "<p>Body</p>",
             },
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/news/NEWS_ITEMS:12/", response["Location"])
         create_news_post.assert_called_once()
-        content = response.content.decode("utf-8")
-        self.assertIn("News post published", content)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch("sc_admin_portal.views.create_news_asset", return_value=55)
@@ -64,7 +63,7 @@ class AdminPortalNewsPublishTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["asset_id"], 55)
-        self.assertIn("/news/assets/55/", payload["location"])
+        self.assertIn("http://testserver/news/assets/55/", payload["location"])
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch(
