@@ -29,7 +29,7 @@ from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
 from core.news_data import NewsDataError, fetch_filter_options
 from core.news_data import fetch_news_detail as fetch_news_detail_oracle
 from core.news_data import fetch_news_list
-from core.news_html import render_news_html
+from core.news_html import render_news_html, summarize_html
 from core.news_snippets import build_news_snippet
 from core.auth import apply_auth_cookie, clear_auth_cookie, is_logged_in
 from core.analytics import EVENT_TYPES, log_event
@@ -1544,6 +1544,9 @@ def news(request):
         if "has_full_body" not in item:
             item_id = str(item.get("id") or "")
             item["has_full_body"] = item_id.startswith("ESG_NEWS:")
+        summary_value = item.get("summary")
+        if summary_value and re.search(r"<[a-zA-Z][^>]*>", str(summary_value)):
+            item["summary"] = summarize_html(str(summary_value))
     sources = filter_options["source_options"] or sorted(
         {item.get("source") for item in news_items if item.get("source")}
     )
