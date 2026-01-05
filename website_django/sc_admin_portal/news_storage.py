@@ -86,7 +86,7 @@ def _insert_mapping(cur, table: str, columns: List[str], values: Dict[str, Any])
 
 def _extract_asset_ids(html: str) -> List[int]:
     ids: List[int] = []
-    for match in re.findall(r"/news/assets/(\\d+)/", html or ""):
+    for match in re.findall(r"/news/assets/(\d+)/", html or ""):
         try:
             ids.append(int(match))
         except ValueError:
@@ -238,17 +238,17 @@ def get_news_asset(asset_id: int) -> Optional[Dict[str, Any]]:
             {"asset_id": asset_id},
         )
         row = cur.fetchone()
-    if not row:
-        return None
+        if not row:
+            return None
 
-    file_blob = row[4].read() if hasattr(row[4], "read") else row[4]
-    news_id_value = row[1]
-    if news_id_value is not None:
-        news_id_value = int(news_id_value)
-    return {
-        "asset_id": int(row[0]),
-        "news_id": news_id_value,
-        "file_name": row[2],
-        "mime_type": row[3],
-        "file_blob": file_blob,
-    }
+        file_blob = row[4].read() if hasattr(row[4], "read") else row[4]
+        news_id_value = row[1]
+        if news_id_value is not None:
+            news_id_value = int(news_id_value)
+        return {
+            "asset_id": int(row[0]),
+            "news_id": news_id_value,
+            "file_name": row[2],
+            "mime_type": row[3],
+            "file_blob": file_blob,
+        }

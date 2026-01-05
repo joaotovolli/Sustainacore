@@ -613,6 +613,10 @@
         toolbar: "undo redo | blocks | bold italic | bullist numlist | table | link image",
         paste_data_images: false,
         automatic_uploads: true,
+        setup: (editor) => {
+            const sync = () => editor.save();
+            editor.on("change keyup input undo redo setcontent", sync);
+        },
         images_upload_handler: (blobInfo) => new Promise((resolve, reject) => {
             const formData = new FormData();
             formData.append("file", blobInfo.blob(), blobInfo.filename());
