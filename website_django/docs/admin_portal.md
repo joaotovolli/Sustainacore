@@ -19,9 +19,9 @@ The portal relies on two Oracle tables:
 
 - `PROC_GEMINI_JOBS`
 - `PROC_GEMINI_APPROVALS`
- - `NEWS_ITEMS` (publish news posts)
- - `NEWS_TAGS` / `NEWS_ITEM_TAGS` (news tags)
- - `NEWS_ASSETS` (image uploads)
+- `NEWS_ITEMS` (publish news posts)
+- `NEWS_TAGS` / `NEWS_ITEM_TAGS` (news tags)
+- `NEWS_ASSETS` (image uploads)
 
 ### Initialize tables
 
@@ -65,6 +65,17 @@ The “Publish news” tab creates curated stories with exactly three inputs:
 tags, headline, and rich body HTML. The body is sanitized on save and stored in
 `NEWS_ITEMS.BODY_HTML`. Uploaded images are stored in `NEWS_ASSETS` and referenced
 as `/news/assets/<asset_id>/` URLs inside the HTML.
+
+### Required migration (post-PR 362)
+
+After merging PR 362, you MUST apply:
+- `db/migrations/V0004__news_rich_body.sql`
+
+Standard ops method (Oracle SQLcl required):
+- `bash scripts/db_migrate.sh`
+
+Verification query:
+- `SELECT COUNT(*) FROM user_tables WHERE table_name = 'NEWS_ASSETS';`
 
 ## Publish news smoke check
 

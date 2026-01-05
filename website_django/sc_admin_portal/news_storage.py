@@ -11,6 +11,26 @@ from core.news_html import sanitize_news_html, summarize_html
 from core.oracle_db import get_connection
 
 
+class NewsStorageError(RuntimeError):
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _is_oracle_missing_table(exc: Exception, table_name: str) -> bool:
+    message = str(exc)
+    if "ORA-00942" not in message:
+        return False
+    return table_name.upper() in message.upper()
+
+
+def _is_oracle_missing_column(exc: Exception, column_name: str) -> bool:
+    message = str(exc)
+    if "ORA-00904" not in message:
+        return False
+    return column_name.upper() in message.upper()
+
+
 def _parse_tags(value: str | Iterable[str] | None) -> List[str]:
     if not value:
         return []
@@ -103,55 +123,63 @@ def create_news_post(*, headline: str, tags: str | Iterable[str] | None, body_ht
 
     asset_ids = _extract_asset_ids(sanitized_html)
 
-    with get_connection() as conn:
-        cur = conn.cursor()
-        id_var = cur.var(oracledb.NUMBER)
-        cur.setinputsizes(
-            summary=oracledb.DB_TYPE_CLOB,
-            body_html=oracledb.DB_TYPE_CLOB,
-        )
-        cur.execute(
-            """
-            INSERT INTO news_items (dt_pub, ticker, title, url, source, summary, pillar_tags, body_html)
-            VALUES (:dt_pub, :ticker, :title, :url, :source, :summary, :pillar_tags, :body_html)
-            RETURNING id INTO :id_out
-            """,
-            {
-                "dt_pub": published_at,
-                "ticker": None,
-                "title": headline,
-                "url": f"{site_url}/news/pending/",
-                "source": source,
-                "summary": summary,
-                "pillar_tags": None,
-                "body_html": sanitized_html,
-                "id_out": id_var,
-            },
-        )
-        new_id = int(id_var.getvalue()[0])
-        detail_url = f"{site_url}/news/NEWS_ITEMS:{new_id}/"
-        cur.execute(
-            "UPDATE news_items SET url = :url WHERE id = :id",
-            {"url": detail_url, "id": new_id},
-        )
-        _link_assets(cur, new_id, asset_ids)
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            id_var = cur.var(oracledb.NUMBER)
+            cur.setinputsizes(
+                summary=oracledb.DB_TYPE_CLOB,
+                body_html=oracledb.DB_TYPE_CLOB,
+            )
+            cur.execute(
+                """
+                INSERT INTO news_items (dt_pub, ticker, title, url, source, summary, pillar_tags, body_html)
+                VALUES (:dt_pub, :ticker, :title, :url, :source, :summary, :pillar_tags, :body_html)
+                RETURNING id INTO :id_out
+                """,
+                {
+                    "dt_pub": published_at,
+                    "ticker": None,
+                    "title": headline,
+                    "url": f"{site_url}/news/pending/",
+                    "source": source,
+                    "summary": summary,
+                    "pillar_tags": None,
+                    "body_html": sanitized_html,
+                    "id_out": id_var,
+                },
+            )
+            new_id = int(id_var.getvalue()[0])
+            detail_url = f"{site_url}/news/NEWS_ITEMS:{new_id}/"
+            cur.execute(
+                "UPDATE news_items SET url = :url WHERE id = :id",
+                {"url": detail_url, "id": new_id},
+            )
+            _link_assets(cur, new_id, asset_ids)
 
-        item_table = "NEWS_ITEMS"
-        if parsed_tags:
-            tag_ids: List[int] = []
-            for tag in parsed_tags:
-                tag_id = _ensure_lookup_id(cur, "NEWS_TAGS", "TAG_ID", "NAME", tag)
-                if tag_id is not None:
-                    tag_ids.append(tag_id)
-            for tag_id in tag_ids:
-                _insert_mapping(
-                    cur,
-                    "NEWS_ITEM_TAGS",
-                    ["item_table", "item_id", "tag_id"],
-                    {"item_table": item_table, "item_id": new_id, "tag_id": tag_id},
-                )
+            item_table = "NEWS_ITEMS"
+            if parsed_tags:
+                tag_ids: List[int] = []
+                for tag in parsed_tags:
+                    tag_id = _ensure_lookup_id(cur, "NEWS_TAGS", "TAG_ID", "NAME", tag)
+                    if tag_id is not None:
+                        tag_ids.append(tag_id)
+                for tag_id in tag_ids:
+                    _insert_mapping(
+                        cur,
+                        "NEWS_ITEM_TAGS",
+                        ["item_table", "item_id", "tag_id"],
+                        {"item_table": item_table, "item_id": new_id, "tag_id": tag_id},
+                    )
 
-        conn.commit()
+            conn.commit()
+    except oracledb.DatabaseError as exc:
+        if _is_oracle_missing_column(exc, "BODY_HTML"):
+            raise NewsStorageError(
+                "BODY_HTML column is missing. Apply migration V0004__news_rich_body.sql.",
+                code="missing_body_html",
+            ) from exc
+        raise
 
     return {
         "id": f"{item_table}:{new_id}",
@@ -169,25 +197,33 @@ def create_news_post(*, headline: str, tags: str | Iterable[str] | None, body_ht
 def create_news_asset(
     *, news_id: Optional[int], file_name: str | None, mime_type: str | None, file_bytes: bytes
 ) -> int:
-    with get_connection() as conn:
-        cur = conn.cursor()
-        id_var = cur.var(oracledb.NUMBER)
-        cur.execute(
-            """
-            INSERT INTO news_assets (news_id, file_name, mime_type, file_blob, created_at)
-            VALUES (:news_id, :file_name, :mime_type, :file_blob, SYSTIMESTAMP)
-            RETURNING asset_id INTO :asset_id
-            """,
-            {
-                "news_id": news_id,
-                "file_name": file_name,
-                "mime_type": mime_type,
-                "file_blob": oracledb.Binary(file_bytes),
-                "asset_id": id_var,
-            },
-        )
-        conn.commit()
-        return int(id_var.getvalue()[0])
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            id_var = cur.var(oracledb.NUMBER)
+            cur.execute(
+                """
+                INSERT INTO news_assets (news_id, file_name, mime_type, file_blob, created_at)
+                VALUES (:news_id, :file_name, :mime_type, :file_blob, SYSTIMESTAMP)
+                RETURNING asset_id INTO :asset_id
+                """,
+                {
+                    "news_id": news_id,
+                    "file_name": file_name,
+                    "mime_type": mime_type,
+                    "file_blob": oracledb.Binary(file_bytes),
+                    "asset_id": id_var,
+                },
+            )
+            conn.commit()
+            return int(id_var.getvalue()[0])
+    except oracledb.DatabaseError as exc:
+        if _is_oracle_missing_table(exc, "NEWS_ASSETS"):
+            raise NewsStorageError(
+                "NEWS_ASSETS table is missing. Apply migration V0004__news_rich_body.sql.",
+                code="missing_news_assets",
+            ) from exc
+        raise
 
 
 def get_news_asset(asset_id: int) -> Optional[Dict[str, Any]]:
