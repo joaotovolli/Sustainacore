@@ -14,6 +14,7 @@ class Profile:
     max_tables: int
     max_iterations: int
     time_budget_minutes: int
+    max_prompt_chars: int
 
 
 @dataclass
@@ -26,31 +27,34 @@ class BudgetDecision:
 MEDIUM = Profile(
     name="MEDIUM",
     max_angles=3,
-    max_candidate_metrics=25,
+    max_candidate_metrics=60,
     max_charts=2,
     max_tables=3,
-    max_iterations=2,
+    max_iterations=1,
     time_budget_minutes=8,
+    max_prompt_chars=12000,
 )
 
 LOW = Profile(
     name="LOW",
-    max_angles=1,
-    max_candidate_metrics=12,
+    max_angles=2,
+    max_candidate_metrics=40,
     max_charts=1,
     max_tables=2,
     max_iterations=1,
     time_budget_minutes=6,
+    max_prompt_chars=9000,
 )
 
 MINIMAL = Profile(
     name="MINIMAL",
     max_angles=1,
-    max_candidate_metrics=8,
+    max_candidate_metrics=20,
     max_charts=1,
-    max_tables=2,
-    max_iterations=1,
-    time_budget_minutes=5,
+    max_tables=1,
+    max_iterations=0,
+    time_budget_minutes=4,
+    max_prompt_chars=6000,
 )
 
 
@@ -65,37 +69,22 @@ def _used_pct(snapshot: Dict[str, Any], key: str) -> Optional[float]:
         return None
 
 
-def choose_profile(snapshot: Dict[str, Any]) -> BudgetDecision:
-    weekly = _used_pct(snapshot, "weekly")
-    five_hour = _used_pct(snapshot, "five_hour")
-    if not snapshot.get("available"):
-        safe = Profile(
-            name="MEDIUM_SAFE_NO_USAGE",
-            max_angles=MEDIUM.max_angles,
-            max_candidate_metrics=MEDIUM.max_candidate_metrics,
-            max_charts=1,
-            max_tables=2,
-            max_iterations=1,
-            time_budget_minutes=MEDIUM.time_budget_minutes,
-        )
-        return BudgetDecision(profile=safe, stop_reason="usage_unavailable", usage_unavailable=True)
+def choose_profile(settings: Dict[str, Any]) -> BudgetDecision:
+    max_context_pct = settings.get("max_context_pct") if settings else None
+    saver_mode = str(settings.get("saver_mode") or "MEDIUM").upper()
+    if max_context_pct is not None:
+        try:
+            max_context_pct = float(max_context_pct)
+        except (TypeError, ValueError):
+            max_context_pct = None
 
-    if (weekly is not None and weekly >= 95) or (five_hour is not None and five_hour >= 95):
-        skip = Profile(
-            name="SKIPPED_BUDGET",
-            max_angles=0,
-            max_candidate_metrics=0,
-            max_charts=0,
-            max_tables=0,
-            max_iterations=0,
-            time_budget_minutes=0,
-        )
-        return BudgetDecision(profile=skip, stop_reason="skipped_budget")
+    if max_context_pct is not None and max_context_pct <= 5:
+        return BudgetDecision(profile=MINIMAL, stop_reason="context_budget_minimal")
+    if max_context_pct is not None and max_context_pct <= 8:
+        return BudgetDecision(profile=LOW, stop_reason="context_budget_low")
 
-    if (weekly is not None and weekly >= 85) or (five_hour is not None and five_hour >= 85):
-        return BudgetDecision(profile=MINIMAL, stop_reason="downgraded_high_usage")
-
-    if (weekly is not None and weekly >= 70) or (five_hour is not None and five_hour >= 70):
-        return BudgetDecision(profile=LOW, stop_reason="downgraded_usage")
-
-    return BudgetDecision(profile=MEDIUM, stop_reason="normal")
+    if saver_mode == "MINIMAL":
+        return BudgetDecision(profile=MINIMAL, stop_reason="saver_mode_minimal")
+    if saver_mode == "LOW":
+        return BudgetDecision(profile=LOW, stop_reason="saver_mode_low")
+    return BudgetDecision(profile=MEDIUM, stop_reason="saver_mode_medium")

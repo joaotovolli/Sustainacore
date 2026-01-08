@@ -349,11 +349,12 @@ def build_pipeline(
     profile = profile or Profile(
         name="MEDIUM",
         max_angles=3,
-        max_candidate_metrics=25,
+        max_candidate_metrics=60,
         max_charts=2,
         max_tables=3,
-        max_iterations=2,
+        max_iterations=1,
         time_budget_minutes=8,
+        max_prompt_chars=12000,
     )
     started_at = dt.datetime.utcnow()
 
@@ -437,6 +438,9 @@ def build_pipeline(
             issues.append(str(exc))
             codex_failed = True
     _write_debug(output_dir, "copyedited", {"paragraphs": paragraphs})
+
+    if profile.max_iterations == 0:
+        template_only = True
 
     if not template_only and not _time_exceeded(started_at, profile.time_budget_minutes):
         try:

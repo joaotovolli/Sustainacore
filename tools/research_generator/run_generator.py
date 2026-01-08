@@ -19,10 +19,11 @@ from .analysis import (
 )
 from .docx_builder import build_docx
 from .data_integrity import run_integrity
-from .codex_cli_runner import log_startup_config
+from .codex_cli_runner import get_run_stats, log_startup_config, reset_run_stats, set_prompt_limit
 from .codex_usage import compute_usage_delta, get_usage_snapshot
 from .doctor_codex import run_doctor
 from .validators import quality_gate_strict
+from .settings import get_settings, update_settings
 from .oracle import (
     ResearchRequest,
     claim_request,
@@ -234,19 +235,23 @@ def _create_approval(
     return approval_id
 
 
-def run_once(force: Optional[str], dry_run: bool) -> int:
+def run_once(force: Optional[str], dry_run: bool, *, scheduled: bool) -> int:
     init_env()
     now = dt.datetime.utcnow()
     started_at = now
-    usage_before = get_usage_snapshot()
-    budget: BudgetDecision = choose_profile(usage_before)
-    LOGGER.info("usage_source=%s usage_available=%s", usage_before.get("source"), usage_before.get("available"))
+    reset_run_stats()
     with get_connection() as conn:
         schema = current_schema(conn)
         ensure_proc_reports(conn)
         pending_approvals = count_pending_approvals(conn)
+        settings = get_settings(conn)
     LOGGER.info("utc_now=%s schema=%s", now.strftime("%Y-%m-%dT%H:%M:%SZ"), schema)
     LOGGER.info("pending_approvals=%s", pending_approvals)
+    LOGGER.info("schedule_enabled=%s saver_mode=%s max_context_pct=%s dev_noop=%s", settings.get("schedule_enabled"), settings.get("saver_mode"), settings.get("max_context_pct"), settings.get("dev_noop"))
+
+    if scheduled and settings.get("schedule_enabled") != "Y":
+        LOGGER.info("Scheduled run disabled by settings; exiting.")
+        return 0
 
     report_type, label, _ = _determine_trigger(now, force)
     if not report_type:
@@ -264,6 +269,30 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.info("Dry-run: trigger=%s label=%s", report_type, label)
         return 0
 
+    if settings.get("dev_noop") == "Y":
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=None,
+                approval_id=None,
+                severity="WARN",
+                title="Scheduled noop",
+                details=json.dumps(
+                    {
+                        "message": "noop: schedule disabled/dev noop",
+                        "report_type": report_type,
+                        "label": label,
+                        "settings": settings,
+                    },
+                    sort_keys=True,
+                    default=str,
+                ),
+            )
+        LOGGER.info("Dev noop enabled; exiting after trigger detection.")
+        return 0
+
+    usage_before = get_usage_snapshot()
+    LOGGER.info("usage_source=%s usage_available=%s", usage_before.get("source"), usage_before.get("available"))
     if not usage_before.get("available"):
         with get_connection() as conn:
             insert_alert(
@@ -275,6 +304,7 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
                 details=json.dumps(usage_before, sort_keys=True),
             )
 
+    budget: BudgetDecision = choose_profile(settings)
     if budget.profile.name == "SKIPPED_BUDGET":
         with get_connection() as conn:
             insert_alert(
@@ -291,6 +321,8 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.warning("Skipped generation due to budget threshold.")
         return 0
 
+    set_prompt_limit(budget.profile.max_prompt_chars)
+
     bundle["profile"] = {
         "name": budget.profile.name,
         "max_angles": budget.profile.max_angles,
@@ -299,6 +331,7 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         "max_tables": budget.profile.max_tables,
         "max_iterations": budget.profile.max_iterations,
         "time_budget_minutes": budget.profile.time_budget_minutes,
+        "max_prompt_chars": budget.profile.max_prompt_chars,
     }
     integrity = run_integrity(bundle)
     bundle["integrity"] = integrity
@@ -350,11 +383,15 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
     stop_reason = budget.stop_reason
     if duration_seconds > budget.profile.time_budget_minutes * 60:
         stop_reason = "time_budget_hit"
+    run_stats = get_run_stats()
     generation_meta = {
         "started_at": started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "finished_at": finished_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "duration_seconds": duration_seconds,
         "profile_selected": budget.profile.name,
+        "context_budget_pct": settings.get("max_context_pct"),
+        "estimated_prompt_chars_total": run_stats.get("prompt_chars_total"),
+        "llm_calls_total": run_stats.get("llm_calls_total"),
         "usage_before": usage_before,
         "usage_after": usage_after,
         "usage_delta": usage_delta,
@@ -375,11 +412,16 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
     return 0
 
 
-def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Optional[int], List[str], bool, Dict[str, Any]]:
+def _process_request(
+    request: ResearchRequest,
+    *,
+    dry_run: bool,
+    settings: Dict[str, Any],
+) -> Tuple[Optional[int], List[str], bool, Dict[str, Any]]:
     report_type = (request.request_type or "").upper()
     started_at = dt.datetime.utcnow()
+    reset_run_stats()
     usage_before = get_usage_snapshot()
-    budget: BudgetDecision = choose_profile(usage_before)
     LOGGER.info("usage_source=%s usage_available=%s", usage_before.get("source"), usage_before.get("available"))
     bundle, err = _build_bundle(
         report_type,
@@ -389,6 +431,23 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
     if err or not bundle:
         raise RuntimeError(err or "bundle_error")
 
+    budget: BudgetDecision = choose_profile(settings)
+    if budget.profile.name == "SKIPPED_BUDGET":
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=request.request_id,
+                approval_id=None,
+                severity="WARN",
+                title="Skipped generation to protect allowance",
+                details=json.dumps(
+                    {"profile_selected": budget.profile.name, "usage_before": usage_before},
+                    sort_keys=True,
+                ),
+            )
+        raise RuntimeError("skipped_budget")
+
+    set_prompt_limit(budget.profile.max_prompt_chars)
     bundle["profile"] = {
         "name": budget.profile.name,
         "max_angles": budget.profile.max_angles,
@@ -397,6 +456,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
         "max_tables": budget.profile.max_tables,
         "max_iterations": budget.profile.max_iterations,
         "time_budget_minutes": budget.profile.time_budget_minutes,
+        "max_prompt_chars": budget.profile.max_prompt_chars,
     }
     integrity = run_integrity(bundle)
     bundle["integrity"] = integrity
@@ -433,21 +493,6 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
                 details=json.dumps(usage_before, sort_keys=True),
             )
 
-    if budget.profile.name == "SKIPPED_BUDGET":
-        with get_connection() as conn:
-            insert_alert(
-                conn,
-                request_id=request.request_id,
-                approval_id=None,
-                severity="WARN",
-                title="Skipped generation to protect allowance",
-                details=json.dumps(
-                    {"profile_selected": budget.profile.name, "usage_before": usage_before},
-                    sort_keys=True,
-                ),
-            )
-        raise RuntimeError("skipped_budget")
-
     template_only = not run_doctor()
     if template_only:
         LOGGER.warning("Codex doctor failed; using template-only draft.")
@@ -476,11 +521,15 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
     stop_reason = budget.stop_reason
     if duration_seconds > budget.profile.time_budget_minutes * 60:
         stop_reason = "time_budget_hit"
+    run_stats = get_run_stats()
     generation_meta = {
         "started_at": started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "finished_at": finished_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "duration_seconds": duration_seconds,
         "profile_selected": budget.profile.name,
+        "context_budget_pct": settings.get("max_context_pct"),
+        "estimated_prompt_chars_total": run_stats.get("prompt_chars_total"),
+        "llm_calls_total": run_stats.get("llm_calls_total"),
         "usage_before": usage_before,
         "usage_after": usage_after,
         "usage_delta": usage_delta,
@@ -501,6 +550,8 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
 
 def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Optional[int]) -> int:
     init_env()
+    with get_connection() as conn:
+        settings = get_settings(conn)
     processed = 0
     with get_connection() as conn:
         requests = fetch_pending_requests(conn, limit=limit)
@@ -520,7 +571,11 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
         if not claimed:
             continue
         try:
-            approval_id, issues, template_mode, generation_meta = _process_request(request, dry_run=dry_run)
+            approval_id, issues, template_mode, generation_meta = _process_request(
+                request,
+                dry_run=dry_run,
+                settings=settings,
+            )
             if dry_run:
                 with get_connection() as conn:
                     update_request_status(
@@ -603,6 +658,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Scheduled Research Generator")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--dry-run", action="store_true", help="Skip approval creation")
+    parser.add_argument("--scheduled", action="store_true", help="Run as scheduled timer")
     parser.add_argument(
         "--force",
         choices=["rebalance", "weekly", "period", "anomaly"],
@@ -618,6 +674,12 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--seed-request",
         action="store_true",
         help="Insert a sample manual request (for verification)",
+    )
+    parser.add_argument("--show-settings", action="store_true", help="Print current settings")
+    parser.add_argument(
+        "--set-settings",
+        nargs="*",
+        help="Set settings key=value pairs (e.g., SCHEDULE_ENABLED=Y)",
     )
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args(argv)
@@ -651,11 +713,28 @@ def main(argv: Optional[list[str]] = None) -> int:
         LOGGER.info("Seeded manual request request_id=%s", request_id)
         return 0
 
+    if args.show_settings or args.set_settings:
+        init_env()
+        with get_connection() as conn:
+            if args.set_settings:
+                patch: Dict[str, Any] = {}
+                for pair in args.set_settings:
+                    if "=" not in pair:
+                        raise SystemExit(f"Invalid setting '{pair}', expected key=value")
+                    key, value = pair.split("=", 1)
+                    patch[key] = value
+                settings = update_settings(conn, patch, updated_by=os.getenv("USER", "cli"))
+            else:
+                settings = get_settings(conn)
+        print(json.dumps(settings, sort_keys=True, default=str))
+        return 0
+
     if args.process_manual:
         return process_pending_manual_requests(5, dry_run=args.dry_run, request_id=args.request_id)
 
-    return run_once(force=force, dry_run=args.dry_run)
+    return run_once(force=force, dry_run=args.dry_run, scheduled=args.scheduled)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+from .settings import get_settings, update_settings

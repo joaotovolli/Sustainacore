@@ -14,6 +14,9 @@ from . import config
 
 LOGGER = logging.getLogger("research_generator.codex_cli")
 
+_RUN_STATS = {"llm_calls": 0, "prompt_chars": 0}
+_PROMPT_LIMIT = None
+
 
 class CodexCLIError(RuntimeError):
     def __init__(self, message: str, *, exit_code: Optional[int] = None, output_tail: str = "") -> None:
@@ -59,6 +62,16 @@ def _build_command() -> list[str]:
 
 
 def call_codex(prompt: str, *, purpose: str, expect_json: bool = True) -> Union[Dict[str, Any], str]:
+    global _RUN_STATS, _PROMPT_LIMIT
+    if _PROMPT_LIMIT:
+        try:
+            limit = int(_PROMPT_LIMIT)
+        except (TypeError, ValueError):
+            limit = None
+        if limit and len(prompt) > limit:
+            prompt = prompt[:limit]
+    _RUN_STATS["llm_calls"] += 1
+    _RUN_STATS["prompt_chars"] += len(prompt)
     attempts = max(config.CODEX_MAX_ATTEMPTS, 1)
     for attempt in range(attempts):
         with tempfile.NamedTemporaryFile(prefix="codex_last_", delete=False) as handle:
@@ -101,6 +114,20 @@ def call_codex(prompt: str, *, purpose: str, expect_json: bool = True) -> Union[
             except OSError:
                 pass
     raise CodexCLIError("codex_cli_failed")
+
+
+def reset_run_stats() -> None:
+    _RUN_STATS["llm_calls"] = 0
+    _RUN_STATS["prompt_chars"] = 0
+
+
+def get_run_stats() -> Dict[str, int]:
+    return dict(_RUN_STATS)
+
+
+def set_prompt_limit(max_chars: Optional[int]) -> None:
+    global _PROMPT_LIMIT
+    _PROMPT_LIMIT = max_chars
 
 
 def log_startup_config() -> None:

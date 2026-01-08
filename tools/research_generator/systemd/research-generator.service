@@ -12,7 +12,7 @@ Environment=PYTHONPATH=/home/opc/Sustainacore:/home/opc/.local/lib/python3.9/sit
 Environment=TNS_ADMIN=/opt/adb_wallet_tp_sso
 EnvironmentFile=-/etc/sustainacore/llm.env
 EnvironmentFile=-/etc/sustainacore/gemini.env
-ExecStart=/usr/bin/python3 -m tools.research_generator.run_generator --once
+ExecStart=/usr/bin/python3 -m tools.research_generator.run_generator --once --scheduled
 
 [Install]
 WantedBy=multi-user.target
