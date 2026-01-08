@@ -26,7 +26,7 @@ Notes
 - Oracle connectivity relies on `TNS_ADMIN` pointing at the VM wallet directory (current default: `/opt/adb_wallet_tp_sso`).
 
 Controls & Scheduling (PROC_RESEARCH_SETTINGS)
-- Scheduled runs are gated by a single ROW in `PROC_RESEARCH_SETTINGS` (row-mode, not key/value).
+- Scheduled runs are gated by a single row in `PROC_RESEARCH_SETTINGS` (row-mode, not key/value).
 - VM1 reads settings at startup; VM2 is responsible for writing settings from the admin portal.
 - Scheduled path requires `--scheduled` and respects `SCHEDULE_ENABLED` and `DEV_NOOP`.
 - Manual processing (`--process-manual`) and explicit `--force` runs are not blocked by the schedule toggle.

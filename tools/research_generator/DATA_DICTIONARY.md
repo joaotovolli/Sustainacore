@@ -1,16 +1,17 @@
 # Research Generator Data Dictionary
+<!-- cspell:ignore herfindahl -->
 
 ## Oracle Tables
 
 ### TECH11_AI_GOV_ETH_INDEX
 - port_date (DATE)
-- company_name (VARCHAR2)
-- ticker (VARCHAR2)
+- company_name (string)
+- ticker (string)
 - port_weight (NUMBER)
-- gics_sector (VARCHAR2)
+- gics_sector (string)
 - aiges_composite_average (NUMBER)
-- summary (CLOB)
-- source_links (CLOB)
+- summary (text)
+- source_links (text)
 - Optional pillars (if present):
   - aiges_pillar_policy
   - aiges_pillar_transparency
@@ -39,50 +40,50 @@ Notes:
 
 ### SC_IDX_CONTRIBUTION_DAILY
 - trade_date (DATE)
-- ticker (VARCHAR2)
+- ticker (string)
 - contribution (NUMBER)
 
 ### PROC_REPORTS
-- report_key (VARCHAR2)
-- report_value (VARCHAR2)
+- report_key (string)
+- report_value (string)
 - updated_at (TIMESTAMP)
 
 ### PROC_RESEARCH_REQUESTS
 - request_id (NUMBER)
-- status (VARCHAR2)
-- request_type (VARCHAR2)
-- company_ticker (VARCHAR2)
+- status (string)
+- request_type (string)
+- company_ticker (string)
 - window_start (TIMESTAMP)
 - window_end (TIMESTAMP)
-- editor_notes (CLOB)
+- editor_notes (text)
 - source_approval_id (NUMBER)
-- created_by (VARCHAR2)
+- created_by (string)
 - created_at (TIMESTAMP)
 - updated_at (TIMESTAMP)
-- result_text (CLOB)
+- result_text (text)
 
-### PROC_RESEARCH_SETTINGS (ROW-MODE)
+### PROC_RESEARCH_SETTINGS (Row-mode)
 - settings_id (NUMBER, PK; use row 1)
 - schedule_enabled (CHAR(1), Y/N)
 - dev_noop (CHAR(1), Y/N)
-- saver_mode (VARCHAR2; MINIMAL/LOW/MEDIUM)
+- saver_mode (string; MINIMAL/LOW/MEDIUM)
 - max_context_pct (NUMBER; budget cap)
-- schedule_freq (VARCHAR2; DAILY/WEEKLY)
+- schedule_freq (string; DAILY/WEEKLY)
 - schedule_hour (NUMBER 0-23)
 - schedule_minute (NUMBER 0-59)
-- schedule_tz (VARCHAR2; UTC/GMT)
-- schedule_dow_mask (VARCHAR2; optional)
+- schedule_tz (string; UTC/GMT)
+- schedule_dow_mask (string; optional)
 - updated_at (TIMESTAMP WITH TIME ZONE)
-- updated_by (VARCHAR2)
+- updated_by (string)
 
 ### PROC_GEMINI_APPROVALS
 - approval_id (NUMBER)
-- request_type (VARCHAR2)
-- title (VARCHAR2)
-- proposed_text (CLOB)
-- details (CLOB)
-- file_name (VARCHAR2)
-- file_mime (VARCHAR2)
+- request_type (string)
+- title (string)
+- proposed_text (text)
+- details (text)
+- file_name (string)
+- file_mime (string)
 - file_blob (BLOB)
 - status (VARCHAR2)
 - created_at (TIMESTAMP)
