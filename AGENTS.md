@@ -1,5 +1,5 @@
 SustainaCore — Autopilot rules for Codex.
-<!-- cspell:ignore certifi noreload ionice sysconfig pycache -->
+<!-- cspell:ignore certifi chdir LOOKBACK noreload ionice sysconfig pycache -->
 - Keep /ask2 contract (q,k -> {answer,sources,meta})
 - Build: python3 -m venv .venv && source .venv/bin/activate && pip -U pip wheel && pip -r requirements.txt && pytest -q || true
 - Run: uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
@@ -12,7 +12,7 @@ Agents:
 ## Repo Discovery (VM2)
 Checklist (run in order):
 - Identify the running service entrypoint first (systemd/gunicorn/nginx/docker).
-- Extract WorkingDirectory/--chdir from `systemctl cat` or docker compose.
+- Extract WorkingDirectory or the change-directory flag (`--chdir`) from `systemctl cat` or docker compose.
 - Confirm by locating `manage.py` and `.git` before editing code.
 - Only ask the user for paths after these steps fail; include evidence collected.
 
@@ -21,7 +21,7 @@ Recommended paths (non-binding):
 - Optional symlink: `/srv/app` -> actual repo path.
 - `/home/ubuntu` paths are not guaranteed.
 
-Diagnostics bundle (pasteable):
+Diagnostics bundle (copy-ready):
 ```bash
 hostname; whoami; pwd
 ps aux | egrep -i "gunicorn|uvicorn|django|manage.py"
@@ -124,6 +124,7 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Never source /etc/sustainacore/*.env or /etc/sustainacore-ai/*.env (not bash-safe).
 - Always run `python3 tools/oracle/preflight_oracle.py` (or `python3 tools/test_db_connect.py`) before any Oracle task.
 - Any new Oracle-facing script must call `load_env_files()` then use `db_helper.get_connection()`.
+- Research generator schedule controls are stored in `PROC_RESEARCH_SETTINGS` as a single row (SETTINGS_ID=1), not key/value.
 - If preflight fails: stop and report the error; do not attempt alternative drivers or wallet rewrites.
 - For SC_IDX price issues, use `tools/index_engine/backfill_prices.py` and see `docs/runbooks/price_ingest_and_backfill.md`.
 - For SC_IDX index continuity issues, recompute with `tools/index_engine/calc_index.py --rebuild --no-preflight-self-heal` as documented in `docs/runbooks/price_ingest_and_backfill.md`.
