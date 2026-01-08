@@ -30,6 +30,15 @@ ROUTINE_CHOICES = [
 ]
 
 _NEWS_UPLOAD_MAX_BYTES = 6 * 1024 * 1024
+_RESEARCH_SETTINGS_DEFAULTS = {
+    "SCHEDULE_ENABLED": "Y",
+    "DEV_NOOP": "N",
+    "SAVER_PROFILE": "MEDIUM",
+    "MAX_CONTEXT_PCT": "50",
+}
+_RESEARCH_SAVER_PROFILES = {"MEDIUM", "LOW", "MINIMAL"}
+_RESEARCH_CONTEXT_MIN = 5
+_RESEARCH_CONTEXT_MAX = 95
 
 RESEARCH_REQUEST_CHOICES = [
     ("REBALANCE", "REBALANCE"),
@@ -133,6 +142,12 @@ def dashboard(request):
     news_success = ""
     news_item = None
     publish_tab_active = False
+    research_tab_active = False
+    research_settings_error = ""
+    research_settings_warning = ""
+    research_settings_success = ""
+    research_form = {}
+    research_settings: dict[str, str] = {}
     created_request_id = request.GET.get("created_request_id")
     if created_request_id:
         success = f"Research request created: {created_request_id}."
@@ -205,7 +220,52 @@ def dashboard(request):
         except Exception:
             logger.exception("Admin portal news publish failed")
             news_error = "Could not publish news. Please try again."
+    if request.method == "POST" and request.POST.get("action") == "save_research_settings":
+        research_tab_active = True
+        schedule_enabled = request.POST.get("schedule_enabled") == "on"
+        dev_noop = request.POST.get("dev_noop") == "on"
+        saver_profile = (request.POST.get("saver_profile") or "").strip().upper()
+        max_context_raw = (request.POST.get("max_context_pct") or "").strip()
+        if not saver_profile:
+            saver_profile = _RESEARCH_SETTINGS_DEFAULTS["SAVER_PROFILE"]
+        if saver_profile not in _RESEARCH_SAVER_PROFILES:
+            research_settings_warning = f"Unknown saver profile '{saver_profile}' saved."
+        try:
+            max_context_pct = int(max_context_raw) if max_context_raw else int(
+                _RESEARCH_SETTINGS_DEFAULTS["MAX_CONTEXT_PCT"]
+            )
+        except ValueError:
+            max_context_pct = int(_RESEARCH_SETTINGS_DEFAULTS["MAX_CONTEXT_PCT"])
+        max_context_pct = max(_RESEARCH_CONTEXT_MIN, min(_RESEARCH_CONTEXT_MAX, max_context_pct))
+        research_form = {
+            "schedule_enabled": "Y" if schedule_enabled else "N",
+            "dev_noop": "Y" if dev_noop else "N",
+            "saver_profile": saver_profile,
+            "max_context_pct": str(max_context_pct),
+        }
+        try:
+            oracle_proc.set_research_settings(
+                {
+                    "SCHEDULE_ENABLED": research_form["schedule_enabled"],
+                    "DEV_NOOP": research_form["dev_noop"],
+                    "SAVER_PROFILE": research_form["saver_profile"],
+                    "MAX_CONTEXT_PCT": research_form["max_context_pct"],
+                },
+                updated_by=_resolve_decided_by(request),
+            )
+            params = "tab=research-settings&settings_saved=1"
+            if research_settings_warning:
+                params += "&settings_warning=unknown_profile"
+            return redirect(f"{request.path}?{params}")
+        except Exception:
+            logger.exception("Admin portal research settings save failed")
+            research_settings_error = "SETTINGS_SAVE_FAILED"
     show_all_jobs = request.GET.get("show_all_jobs") == "1"
+    settings_saved = request.GET.get("settings_saved") == "1"
+    if settings_saved:
+        research_settings_success = "Settings saved."
+    if request.GET.get("settings_warning") == "unknown_profile":
+        research_settings_warning = "Saver profile is not recognized, but it was saved."
     try:
         recent_jobs = oracle_proc.list_recent_jobs(limit=10, include_handed_off=show_all_jobs)
     except Exception as exc:
@@ -218,6 +278,14 @@ def dashboard(request):
             warning = "Jobs failed to load. Please reload."
             diagnostics.append(f"jobs_load_failed: {exc}")
         recent_jobs = []
+    try:
+        research_settings = oracle_proc.get_research_settings()
+    except Exception as exc:
+        logger.exception("Admin portal failed to load research settings")
+        research_settings = {}
+        if not warning:
+            warning = "Research settings failed to load. Please reload."
+        diagnostics.append(f"research_settings_load_failed: {exc}")
     try:
         pending_approvals = oracle_proc.list_pending_approvals(limit=50)
         pending_count = len(pending_approvals)
@@ -256,6 +324,20 @@ def dashboard(request):
     default_tab = "approvals" if pending_count and pending_count > 0 else "create-research"
     if publish_tab_active:
         default_tab = "publish-news"
+    if research_tab_active:
+        default_tab = "research-settings"
+    requested_tab = (request.GET.get("tab") or "").strip()
+    if requested_tab:
+        default_tab = requested_tab
+
+    if not research_form:
+        merged_settings = {**_RESEARCH_SETTINGS_DEFAULTS, **research_settings}
+        research_form = {
+            "schedule_enabled": merged_settings.get("SCHEDULE_ENABLED", "Y"),
+            "dev_noop": merged_settings.get("DEV_NOOP", "N"),
+            "saver_profile": (merged_settings.get("SAVER_PROFILE") or "").strip().upper(),
+            "max_context_pct": merged_settings.get("MAX_CONTEXT_PCT", "50"),
+        }
     selected_approval = None
     approval_id = request.GET.get("approval_id")
     if approval_id:
@@ -293,6 +375,14 @@ def dashboard(request):
             "news_success": news_success,
             "news_item": news_item,
             "news_upload_max_mb": _NEWS_UPLOAD_MAX_BYTES // (1024 * 1024),
+            "research_settings": research_settings,
+            "research_settings_form": research_form,
+            "research_settings_error": research_settings_error,
+            "research_settings_warning": research_settings_warning,
+            "research_settings_success": research_settings_success,
+            "research_saver_profiles": sorted(_RESEARCH_SAVER_PROFILES),
+            "research_context_min": _RESEARCH_CONTEXT_MIN,
+            "research_context_max": _RESEARCH_CONTEXT_MAX,
         },
     )
 

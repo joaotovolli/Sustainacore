@@ -719,3 +719,77 @@ class AdminPortalAccessTests(TestCase):
                 decision_notes="note",
             )
         self.assertEqual(calls.get("decision_notes"), oracle_proc.oracledb.DB_TYPE_CLOB)
+
+
+class ResearchSettingsTests(TestCase):
+    def setUp(self):
+        self.portal_url = reverse("sc_admin_portal:dashboard")
+        self.user_model = get_user_model()
+        self.authorized_user = self.user_model.objects.create_user(
+            username="authorized",
+            email=ADMIN_EMAIL,
+            password="pass",
+        )
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch(
+        "sc_admin_portal.views.oracle_proc.get_research_settings",
+        return_value={
+            "SCHEDULE_ENABLED": "N",
+            "DEV_NOOP": "Y",
+            "SAVER_PROFILE": "LOW",
+            "MAX_CONTEXT_PCT": "25",
+        },
+    )
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
+    def test_research_settings_tab_renders(
+        self, research_mock, decisions_mock, approvals_mock, jobs_mock, settings_mock
+    ):
+        self.client.force_login(self.authorized_user)
+        response = self.client.get(self.portal_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Research settings")
+        self.assertContains(response, "LOW")
+        settings_mock.assert_called_once()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.set_research_settings")
+    @mock.patch("sc_admin_portal.views.oracle_proc.get_research_settings", return_value={})
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
+    def test_research_settings_post_redirects_and_saves(
+        self,
+        research_mock,
+        decisions_mock,
+        approvals_mock,
+        jobs_mock,
+        settings_get_mock,
+        settings_set_mock,
+    ):
+        self.client.force_login(self.authorized_user)
+        response = self.client.post(
+            self.portal_url,
+            {
+                "action": "save_research_settings",
+                "schedule_enabled": "on",
+                "dev_noop": "",
+                "saver_profile": "medium",
+                "max_context_pct": "2",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("tab=research-settings", response["Location"])
+        settings_set_mock.assert_called_once_with(
+            {
+                "SCHEDULE_ENABLED": "Y",
+                "DEV_NOOP": "N",
+                "SAVER_PROFILE": "MEDIUM",
+                "MAX_CONTEXT_PCT": "5",
+            },
+            updated_by=ADMIN_EMAIL,
+        )

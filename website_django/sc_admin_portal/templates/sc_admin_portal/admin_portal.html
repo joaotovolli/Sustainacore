@@ -118,6 +118,7 @@
             <button class="admin-tab-button" type="button" role="tab" data-tab="create-research" aria-controls="tab-create-research">Create Research</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="create-ai-routine" aria-controls="tab-create-ai-routine">Create AI Routine</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="publish-news" aria-controls="tab-publish-news">Publish news</button>
+            <button class="admin-tab-button" type="button" role="tab" data-tab="research-settings" aria-controls="tab-research-settings">Research settings</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="manual-requests" aria-controls="tab-manual-requests">Recent manual requests</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="approvals" aria-controls="tab-approvals">
                 Approvals inbox{% if pending_count != None %} ({{ pending_count }}){% endif %}
@@ -289,6 +290,79 @@
                             <button class="btn" type="submit">Publish news</button>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <div class="admin-tab-panel" role="tabpanel" id="tab-research-settings" data-tab-panel="research-settings">
+                <div class="card">
+                    <h2>Research generator controls</h2>
+                    <p class="muted">Scheduled runs execute on VM1. Disabling here stops the 03:00 run from doing any work.</p>
+
+                    {% if research_settings_success %}
+                    <div class="alert alert--success">{{ research_settings_success }}</div>
+                    {% endif %}
+
+                    {% if research_settings_warning %}
+                    <div class="alert alert--warning">{{ research_settings_warning }}</div>
+                    {% endif %}
+
+                    {% if research_settings_error %}
+                    <div class="alert alert--warning">{{ research_settings_error }}</div>
+                    {% endif %}
+
+                    <form method="post" class="form">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="save_research_settings" />
+                        <div class="form__grid">
+                            <label>
+                                Scheduled runs
+                                <div class="toggle">
+                                    <input type="checkbox" name="schedule_enabled" {% if research_settings_form.schedule_enabled == "Y" %}checked{% endif %} />
+                                    <span class="toggle__slider" aria-hidden="true"></span>
+                                    <span class="muted">Enabled</span>
+                                </div>
+                            </label>
+                            <label>
+                                Dev mode (no-op)
+                                <div class="toggle">
+                                    <input type="checkbox" name="dev_noop" {% if research_settings_form.dev_noop == "Y" %}checked{% endif %} />
+                                    <span class="toggle__slider" aria-hidden="true"></span>
+                                    <span class="muted">Enabled</span>
+                                </div>
+                            </label>
+                            <label>
+                                Saver profile
+                                <select name="saver_profile">
+                                    {% for profile in research_saver_profiles %}
+                                    <option value="{{ profile }}" {% if research_settings_form.saver_profile == profile %}selected{% endif %}>{{ profile }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <label>
+                                Max context budget (%)
+                                <input
+                                    type="number"
+                                    name="max_context_pct"
+                                    min="{{ research_context_min }}"
+                                    max="{{ research_context_max }}"
+                                    value="{{ research_settings_form.max_context_pct }}"
+                                />
+                            </label>
+                        </div>
+                        <div class="form__actions">
+                            <button class="btn" type="submit">Save settings</button>
+                        </div>
+                    </form>
+
+                    <div class="card__section">
+                        <h3 class="h4">Current values</h3>
+                        <p class="muted">
+                            Scheduled: {{ research_settings_form.schedule_enabled }},
+                            Dev noop: {{ research_settings_form.dev_noop }},
+                            Saver profile: {{ research_settings_form.saver_profile }},
+                            Max context: {{ research_settings_form.max_context_pct }}%
+                        </p>
+                    </div>
                 </div>
             </div>
 
