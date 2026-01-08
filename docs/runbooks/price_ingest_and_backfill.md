@@ -64,3 +64,36 @@ SELECT MAX(trade_date) FROM SC_IDX_LEVELS;
 - If `SC_IDX_TRADING_DAYS` lags behind the provider latest EOD date, the daily run will fail with
   `trading_days_behind_provider` and should be retried after refreshing the calendar.
 - If `missing_prices_for_date` appears, re-run a single-day backfill for the reported trade date.
+
+## Stuck index levels (prices updated, levels not)
+When `SC_IDX_LEVELS` stops advancing but prices continue, run this diagnostic sequence:
+
+```sql
+SELECT trade_date FROM SC_IDX_TRADING_DAYS
+ WHERE trade_date BETWEEN DATE '2025-12-29' AND DATE '2026-01-10'
+ ORDER BY trade_date;
+
+SELECT trade_date, COUNT(*) FROM SC_IDX_PRICES_CANON
+ WHERE trade_date BETWEEN DATE '2025-12-31' AND DATE '2026-01-10'
+ GROUP BY trade_date ORDER BY trade_date;
+
+SELECT trade_date, level_tr FROM SC_IDX_LEVELS
+ WHERE index_code='TECH100' AND trade_date BETWEEN DATE '2025-12-31' AND DATE '2026-01-10'
+ ORDER BY trade_date;
+```
+
+If levels lag by >= 1 trading day:
+1) Run calc diagnostics (safe, read-only):
+```bash
+PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/calc_index.py \
+  --start 2026-01-02 --end 2026-01-07 --diagnose-only --diagnose-missing --diagnose-missing-sql
+```
+2) If missing prices are reported, backfill only those tickers for the missing date:
+```bash
+python3 tools/index_engine/ingest_prices.py --start 2026-01-05 --end 2026-01-05 --backfill-missing --tickers TICKER1,TICKER2
+```
+3) Recompute levels/stats/contrib for the missing date range:
+```bash
+PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/calc_index.py \
+  --start 2026-01-05 --end 2026-01-07 --no-preflight-self-heal --debug
+```

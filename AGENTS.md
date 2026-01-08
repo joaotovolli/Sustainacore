@@ -127,6 +127,7 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - If preflight fails: stop and report the error; do not attempt alternative drivers or wallet rewrites.
 - For SC_IDX price issues, use `tools/index_engine/backfill_prices.py` and see `docs/runbooks/price_ingest_and_backfill.md`.
 - For SC_IDX index continuity issues, recompute with `tools/index_engine/calc_index.py --rebuild --no-preflight-self-heal` as documented in `docs/runbooks/price_ingest_and_backfill.md`.
+- For “index levels stuck while prices update”, follow the “Stuck index levels” section in `docs/runbooks/price_ingest_and_backfill.md`.
 
 ## GitHub Hygiene: Commits & PRs
 - Commit messages: imperative subject, <= 72 chars, no trailing period.

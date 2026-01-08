@@ -7,11 +7,10 @@ from pathlib import Path
 import inspect
 from typing import Callable, List
 
-from tools.index_engine.env_loader import load_default_env
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+from tools.index_engine.env_loader import load_default_env
 
 
 def _run_stage(name: str, func: Callable[[List[str]], int], args: List[str]) -> None:
@@ -55,7 +54,7 @@ def main() -> int:
     _run_stage(
         "completeness",
         check_price_completeness.main,
-        ["--since-base", "--strict", "--allow-imputation", "--email-on-fail"],
+        ["--since-base", "--end", "today", "--email-on-fail"],
     )
     _run_stage(
         "impute",

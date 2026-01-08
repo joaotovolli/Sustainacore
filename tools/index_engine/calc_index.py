@@ -7,14 +7,13 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from tools.index_engine.env_loader import load_default_env
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = REPO_ROOT / "app"
 for path in (REPO_ROOT, APP_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from tools.index_engine.env_loader import load_default_env
 from index_engine.alert_state import should_send_alert_once_per_day
 from index_engine.alerts import send_email
 from index_engine.index_calc_v1 import (
@@ -64,6 +63,31 @@ def _compute_returns_1d_from_levels(
     return returns
 
 
+def _select_calc_window(
+    *,
+    trading_days: List[_dt.date],
+    start_date: _dt.date,
+    end_date: _dt.date,
+    max_level_date: _dt.date | None,
+    rebuild: bool,
+) -> tuple[_dt.date, List[_dt.date], str | None]:
+    if not trading_days:
+        return start_date, trading_days, "no_trading_days"
+    if rebuild or max_level_date is None:
+        return start_date, trading_days, None
+    if end_date <= max_level_date:
+        return start_date, [], "up_to_date"
+    next_day = _next_trading_day(trading_days, max_level_date)
+    if next_day is None:
+        return start_date, [], "missing_next_trading_day"
+    if next_day > start_date:
+        start_date = next_day
+    filtered = [day for day in trading_days if day >= start_date]
+    if not filtered:
+        return start_date, filtered, "no_trading_days_after_level"
+    return start_date, filtered, None
+
+
 def _seed_prior_state(
     *,
     start_date: _dt.date,
@@ -78,6 +102,21 @@ def _seed_prior_state(
 
     if prev_trade and prev_level is not None:
         levels[prev_trade] = prev_level
+        shares_prev = db.fetch_constituent_shares(prev_trade)
+        if shares_prev:
+            prices_prev = db.fetch_prices(prev_trade, list(shares_prev.keys()), allow_close=allow_close)
+            price_map_prev = {
+                ticker: float(info["price"])
+                for ticker, info in prices_prev.items()
+                if info.get("price") is not None
+            }
+            mv_prev = sum(shares_prev[ticker] * price_map_prev[ticker] for ticker in shares_prev if ticker in price_map_prev)
+            if mv_prev > 0:
+                holdings_by_reb[prev_trade] = shares_prev
+                divisors_by_reb[prev_trade] = mv_prev / prev_level
+                current_reb = prev_trade
+                prev_port_date, _tickers = db.fetch_universe(prev_trade)
+                return prev_trade, current_reb, prev_port_date, holdings_by_reb, divisors_by_reb, levels
 
     rebalance_date = db.fetch_latest_rebalance_date(start_date)
     if rebalance_date:
@@ -120,6 +159,29 @@ def _collect_missing(
         if price is None:
             missing.append(ticker)
     return missing
+
+
+def _attempt_missing_backfill(
+    *,
+    trade_date: _dt.date,
+    tickers: list[str],
+    max_provider_calls: int,
+) -> tuple[int, dict]:
+    if not tickers:
+        return 0, {}
+    from tools.index_engine import ingest_prices
+
+    args = argparse.Namespace(
+        date=None,
+        start=trade_date.isoformat(),
+        end=trade_date.isoformat(),
+        backfill=False,
+        backfill_missing=True,
+        tickers=",".join(sorted(set(tickers))),
+        debug=False,
+        max_provider_calls=max_provider_calls,
+    )
+    return ingest_prices._run_backfill_missing(args)
 
 
 def _collect_impacted_universe(trading_days: List[_dt.date]) -> tuple[dict[_dt.date, list[str]], list[str]]:
@@ -326,7 +388,24 @@ def main() -> int:
         return 0
 
     trading_days = db.fetch_trading_days(start_date, end_date)
-    if not trading_days:
+    max_level_date = db.fetch_max_level_date()
+    start_date, trading_days, window_status = _select_calc_window(
+        trading_days=trading_days,
+        start_date=start_date,
+        end_date=end_date,
+        max_level_date=max_level_date,
+        rebuild=args.rebuild,
+    )
+    if window_status == "up_to_date":
+        print("index_calc_noop_up_to_date")
+        return 0
+    if window_status == "missing_next_trading_day":
+        print("index_calc_missing_next_trading_day")
+        return 1
+    if window_status == "no_trading_days_after_level":
+        print("index_calc_no_trading_days_after_level")
+        return 1
+    if window_status == "no_trading_days":
         print("no_trading_days_in_range")
         return 1
 
@@ -390,13 +469,6 @@ def main() -> int:
                 )
             return 2
 
-    if not args.rebuild:
-        last_date, _ = db.fetch_last_level_before(start_date)
-        if last_date:
-            next_day = _next_trading_day(trading_days, last_date)
-            if next_day:
-                trading_days = [d for d in trading_days if d >= next_day]
-
     if args.rebuild:
         db.delete_index_range(start_date, end_date)
         db.delete_holdings_divisor(trading_days)
@@ -408,6 +480,19 @@ def main() -> int:
         max_provider_calls=0,
         meta={"start_date": start_date},
     )
+
+    max_canon_trade_date = engine_db.fetch_max_canon_trade_date()
+    if max_canon_trade_date and end_date > max_canon_trade_date:
+        missing_days = [d for d in trading_days if d > max_canon_trade_date]
+        sample = ",".join(d.isoformat() for d in missing_days[:5])
+        error_msg = (
+            "canon_lag:"
+            f"max_canon={max_canon_trade_date.isoformat()} "
+            f"end_date={end_date.isoformat()} "
+            f"missing_dates={sample}"
+        )
+        finish_run(run_id, status="ERROR", error=error_msg)
+        return 2
 
     holdings_by_reb: Dict[_dt.date, Dict[str, float]] = {}
     divisors_by_reb: Dict[_dt.date, float] = {}
@@ -499,9 +584,18 @@ def main() -> int:
                                 "quality": "CURRENT",
                             }
                 if len(fallback) != len(missing_prev):
-                    missing_by_date[prev_date] = missing_prev
-                    current_reb = None
-                    continue
+                    retry_calls = min(10, max(1, len(remaining)))
+                    _attempt_missing_backfill(
+                        trade_date=prev_date,
+                        tickers=remaining,
+                        max_provider_calls=retry_calls,
+                    )
+                    prices_prev = db.fetch_prices(prev_date, tickers, allow_close=args.allow_close)
+                    missing_prev = _collect_missing(prev_date, tickers, prices_prev)
+                    if missing_prev:
+                        missing_by_date[prev_date] = missing_prev
+                        current_reb = None
+                        continue
                 prices_prev.update(fallback)
             price_map_prev = {
                 ticker: float(info["price"])
@@ -532,9 +626,26 @@ def main() -> int:
         prices_now = db.fetch_prices(trade_date, list(holdings_by_reb[current_reb].keys()), allow_close=args.allow_close)
         missing_now = _collect_missing(trade_date, list(holdings_by_reb[current_reb].keys()), prices_now)
         if missing_now:
-            missing_by_date[trade_date] = missing_now
-            if args.strict:
-                continue
+            retry_calls = min(10, max(1, len(missing_now)))
+            _attempt_missing_backfill(
+                trade_date=trade_date,
+                tickers=missing_now,
+                max_provider_calls=retry_calls,
+            )
+            prices_now = db.fetch_prices(
+                trade_date,
+                list(holdings_by_reb[current_reb].keys()),
+                allow_close=args.allow_close,
+            )
+            missing_now = _collect_missing(
+                trade_date,
+                list(holdings_by_reb[current_reb].keys()),
+                prices_now,
+            )
+            if missing_now:
+                missing_by_date[trade_date] = missing_now
+                if args.strict:
+                    continue
 
         price_map = {
             ticker: float(info["price"])
@@ -596,6 +707,14 @@ def main() -> int:
         prev_trade = trade_date
 
     if args.strict and missing_by_date:
+        first_date = sorted(missing_by_date.keys())[0]
+        sample = ",".join(missing_by_date[first_date][:10])
+        error_msg = (
+            "missing_prices:"
+            f"date={first_date.isoformat()} "
+            f"missing_count={len(missing_by_date[first_date])} "
+            f"sample={sample}"
+        )
         summary = pre_diag_output or ""
         if args.diagnose_missing:
             if not summary:
@@ -610,7 +729,7 @@ def main() -> int:
             "sc_idx_index_calc_fail", detail=summary, status="FAIL"
         ):
             send_email("SC_IDX index calc missing prices", summary)
-        finish_run(run_id, status="ERROR", error="missing_prices")
+        finish_run(run_id, status="ERROR", error=error_msg)
         return 2
 
     levels_rows = [
@@ -618,6 +737,9 @@ def main() -> int:
         for date, level in levels.items()
         if date in trading_days
     ]
+    if trading_days and not levels_rows:
+        finish_run(run_id, status="ERROR", error="no_levels_computed")
+        return 2
     db.upsert_levels(levels_rows)
 
     ordered_levels = sorted(levels.keys())
@@ -687,6 +809,35 @@ def main() -> int:
                 "herfindahl": row.get("herfindahl"),
             }
         )
+    if levels_rows:
+        latest_date = max(row["trade_date"] for row in levels_rows)
+        index_ret = returns_1d_full.get(latest_date)
+        contrib_sum = None
+        if latest_date in contributions:
+            contrib_sum = sum(contributions.get(latest_date, {}).values())
+        stats_ret = stats.get(latest_date, {}).get("ret_1d")
+        if index_ret is not None and stats_ret is not None and abs(index_ret - stats_ret) > 1e-6:
+            finish_run(
+                run_id,
+                status="ERROR",
+                error=(
+                    "ret_1d_mismatch:"
+                    f"date={latest_date.isoformat()} "
+                    f"index_ret={index_ret:.8f} stats_ret={stats_ret:.8f}"
+                ),
+            )
+            return 2
+        if index_ret is not None and contrib_sum is not None and abs(contrib_sum - index_ret) > 1e-4:
+            finish_run(
+                run_id,
+                status="ERROR",
+                error=(
+                    "contrib_mismatch:"
+                    f"date={latest_date.isoformat()} "
+                    f"index_ret={index_ret:.8f} contrib_sum={contrib_sum:.8f}"
+                ),
+            )
+            return 2
     db.upsert_stats_daily(stats_rows)
 
     finish_run(run_id, status="OK", error=None)
