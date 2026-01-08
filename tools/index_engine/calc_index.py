@@ -811,11 +811,46 @@ def main() -> int:
         )
     if levels_rows:
         latest_date = max(row["trade_date"] for row in levels_rows)
+        prev_date = _prev_trading_day(ordered_levels, latest_date)
+        prev_level = levels_for_stats.get(prev_date) if prev_date else None
+        latest_level = levels_for_stats.get(latest_date)
+        latest_level_value = float(latest_level) if latest_level is not None else None
         index_ret = returns_1d_full.get(latest_date)
         contrib_sum = None
         if latest_date in contributions:
             contrib_sum = sum(contributions.get(latest_date, {}).values())
         stats_ret = stats.get(latest_date, {}).get("ret_1d")
+        if (
+            prev_level is not None
+            and latest_level_value is not None
+            and latest_date != BASE_DATE
+            and abs(latest_level_value - BASE_LEVEL) < 1e-6
+        ):
+            finish_run(
+                run_id,
+                status="ERROR",
+                error=(
+                    "level_reset:"
+                    f"date={latest_date.isoformat()} "
+                    f"prev_date={prev_date.isoformat() if prev_date else 'n/a'} "
+                    f"prev_level={prev_level:.6f} "
+                    f"level={latest_level_value:.6f}"
+                ),
+            )
+            return 2
+        if prev_level is not None and stats_ret is None and latest_level_value is not None:
+            finish_run(
+                run_id,
+                status="ERROR",
+                error=(
+                    "ret_1d_missing:"
+                    f"date={latest_date.isoformat()} "
+                    f"prev_date={prev_date.isoformat() if prev_date else 'n/a'} "
+                    f"prev_level={prev_level:.6f} "
+                    f"level={latest_level_value:.6f}"
+                ),
+            )
+            return 2
         if index_ret is not None and stats_ret is not None and abs(index_ret - stats_ret) > 1e-6:
             finish_run(
                 run_id,

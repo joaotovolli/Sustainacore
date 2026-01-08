@@ -65,6 +65,31 @@ SELECT MAX(trade_date) FROM SC_IDX_LEVELS;
   `trading_days_behind_provider` and should be retried after refreshing the calendar.
 - If `missing_prices_for_date` appears, re-run a single-day backfill for the reported trade date.
 
+## Pipeline health + resume
+The daily pipeline writes a compact health snapshot to:
+
+```
+tools/audit/output/pipeline_health_latest.txt
+```
+
+Key fields:
+- `calendar_max_date`, `canon_max_date`, `levels_max_date`, `stats_max_date`
+- `next_missing_trading_day`
+- `stage_duration_<stage>_sec`
+- `last_error`
+
+To resume a failed run, re-run the pipeline (resume is default):
+
+```bash
+python3 tools/index_engine/run_pipeline.py
+```
+
+To force a full restart and re-run every stage:
+
+```bash
+python3 tools/index_engine/run_pipeline.py --restart
+```
+
 ## Stuck index levels (prices updated, levels not)
 When `SC_IDX_LEVELS` stops advancing but prices continue, run this diagnostic sequence:
 

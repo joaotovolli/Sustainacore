@@ -129,6 +129,14 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - For SC_IDX index continuity issues, recompute with `tools/index_engine/calc_index.py --rebuild --no-preflight-self-heal` as documented in `docs/runbooks/price_ingest_and_backfill.md`.
 - For “index levels stuck while prices update”, follow the “Stuck index levels” section in `docs/runbooks/price_ingest_and_backfill.md`.
 
+## SC_IDX Pipeline Robustness (VM1)
+- Pipeline state is tracked in `SC_IDX_PIPELINE_STATE`; `python3 tools/index_engine/run_pipeline.py` resumes by default.
+- Force a full restart with `python3 tools/index_engine/run_pipeline.py --restart`.
+- Health summaries are persisted in `SC_IDX_JOB_RUNS` (job_name=`sc_idx_pipeline`) and written to `tools/audit/output/pipeline_health_latest.txt`.
+- Oracle retry knobs: `SC_IDX_ORACLE_RETRY_ATTEMPTS` (default 5) and `SC_IDX_ORACLE_RETRY_BASE_SEC` (default 1).
+- Impute guardrails: `SC_IDX_IMPUTE_LOOKBACK_DAYS` (default 30) and `SC_IDX_IMPUTE_TIMEOUT_SEC` (default 300).
+- Oracle evidence files on failure: `tools/audit/output/oracle_health_*.txt` (no secrets).
+
 ## GitHub Hygiene: Commits & PRs
 - Commit messages: imperative subject, <= 72 chars, no trailing period.
 - Prefer logical commits for distinct changes; avoid noisy commits like "WIP", "fix", "temp".
