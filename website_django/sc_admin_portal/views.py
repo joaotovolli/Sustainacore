@@ -257,9 +257,10 @@ def dashboard(request):
             if research_settings_warning:
                 params += "&settings_warning=unknown_profile"
             return redirect(f"{request.path}?{params}")
-        except Exception:
+        except Exception as exc:
             logger.exception("Admin portal research settings save failed")
             research_settings_error = "SETTINGS_SAVE_FAILED"
+            diagnostics.append(f"research_settings_save_failed: {exc}")
     show_all_jobs = request.GET.get("show_all_jobs") == "1"
     settings_saved = request.GET.get("settings_saved") == "1"
     if settings_saved:
@@ -283,8 +284,7 @@ def dashboard(request):
     except Exception as exc:
         logger.exception("Admin portal failed to load research settings")
         research_settings = {}
-        if not warning:
-            warning = "Research settings failed to load. Please reload."
+        research_settings_error = "SETTINGS_LOAD_FAILED"
         diagnostics.append(f"research_settings_load_failed: {exc}")
     try:
         pending_approvals = oracle_proc.list_pending_approvals(limit=50)
