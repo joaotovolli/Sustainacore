@@ -15,6 +15,8 @@ Setup
   - `python3 tools/research_generator/init_proc_reports.py`
 - Initialize PROC_RESEARCH_REQUESTS:
   - `python3 tools/research_generator/init_proc_research_requests.py`
+- Initialize PROC_RESEARCH_SETTINGS:
+  - `python3 tools/research_generator/init_proc_research_settings.py`
 - Install systemd timer + venv:
   - `bash tools/research_generator/systemd/install_systemd.sh`
 
@@ -22,6 +24,25 @@ Notes
 - Uses Codex CLI only (no Gemini or external LLM clients in research generator).
 - No price data or investment advice; derived metrics only.
 - Oracle connectivity relies on `TNS_ADMIN` pointing at the VM wallet directory (current default: `/opt/adb_wallet_tp_sso`).
+
+Controls & Scheduling (PROC_RESEARCH_SETTINGS)
+- Scheduled runs are gated by a single ROW in `PROC_RESEARCH_SETTINGS` (row-mode, not key/value).
+- VM1 reads settings at startup; VM2 is responsible for writing settings from the admin portal.
+- Scheduled path requires `--scheduled` and respects `SCHEDULE_ENABLED` and `DEV_NOOP`.
+- Manual processing (`--process-manual`) and explicit `--force` runs are not blocked by the schedule toggle.
+
+Settings semantics
+- `SCHEDULE_ENABLED`: `Y`/`N` (disable scheduled runs without stopping the timer).
+- `DEV_NOOP`: `Y`/`N` (detect triggers only, then exit with no LLM calls).
+- `SAVER_MODE`: `MINIMAL`/`LOW`/`MEDIUM` (reduces angles, metrics, charts/tables).
+- `MAX_CONTEXT_PCT`: budget cap; if low, the generator clamps to a smaller profile.
+
+No-cost verification checklist
+- `python3 tools/research_generator/init_proc_research_settings.py`
+- `python3 -m tools.research_generator.run_generator --set-settings SCHEDULE_ENABLED=N`
+- `python3 -m tools.research_generator.run_generator --once --scheduled --log-level INFO`
+- `python3 -m tools.research_generator.run_generator --set-settings SCHEDULE_ENABLED=Y DEV_NOOP=Y`
+- `python3 -m tools.research_generator.run_generator --once --scheduled --log-level INFO`
  
 Codex Doctor
 - `PYTHONPATH=/home/opc/Sustainacore /usr/bin/python3 -m tools.research_generator.doctor_codex`

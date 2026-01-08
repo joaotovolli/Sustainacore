@@ -61,6 +61,20 @@ Notes:
 - updated_at (TIMESTAMP)
 - result_text (CLOB)
 
+### PROC_RESEARCH_SETTINGS (ROW-MODE)
+- settings_id (NUMBER, PK; use row 1)
+- schedule_enabled (CHAR(1), Y/N)
+- dev_noop (CHAR(1), Y/N)
+- saver_mode (VARCHAR2; MINIMAL/LOW/MEDIUM)
+- max_context_pct (NUMBER; budget cap)
+- schedule_freq (VARCHAR2; DAILY/WEEKLY)
+- schedule_hour (NUMBER 0-23)
+- schedule_minute (NUMBER 0-59)
+- schedule_tz (VARCHAR2; UTC/GMT)
+- schedule_dow_mask (VARCHAR2; optional)
+- updated_at (TIMESTAMP WITH TIME ZONE)
+- updated_by (VARCHAR2)
+
 ### PROC_GEMINI_APPROVALS
 - approval_id (NUMBER)
 - request_type (VARCHAR2)
