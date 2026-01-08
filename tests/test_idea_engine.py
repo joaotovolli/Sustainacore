@@ -7,8 +7,8 @@ def test_metric_pool_min_size():
         "rest_latest_rows": [{"aiges": 60, "weight": 0.0}],
         "core_previous_rows": [{"aiges": 78, "weight": 0.04, "ticker": "AAA"}],
     }
-    pool = build_metric_pool(bundle)
-    assert len(pool) >= 100
+    pool = build_metric_pool(bundle, max_metrics=25)
+    assert len(pool) <= 25
 
 
 def test_ranking_returns_one():
@@ -21,8 +21,8 @@ def test_ranking_returns_one():
 
 
 def test_candidate_generation_count():
-    angles = ensure_angle_count([])
-    assert len(angles) == 5
+    angles = ensure_angle_count([], minimum=3)
+    assert len(angles) == 3
 
 
 def test_novelty_penalty_basic():

@@ -18,7 +18,7 @@
 
 ## Table/Figure Commentary
 - Each table/figure needs 3–6 callouts with explicit numbers.
-- Use “The chart above shows…” and “The table below highlights…” in the narrative.
+- Refer to artifacts inline as “Figure 1” or “Table 2” without directional language.
 
 ## Quality Gate
 - Require at least 6 numeric references and 3 non-trivial stats (IQR, HHI, turnover, breadth).
@@ -26,5 +26,4 @@
 
 ## Model Selection Guidance
 - Use Codex-style model for code navigation and Oracle plumbing.
-- Use GPT-style model for statistical analysis, narrative critique, and improved framing.
-- Use Gemini for concise narrative when available; fall back to GPT if rate-limited.
+- Use Codex CLI for all research drafting and critique steps.

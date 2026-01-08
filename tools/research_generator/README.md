@@ -19,9 +19,12 @@ Setup
   - `bash tools/research_generator/systemd/install_systemd.sh`
 
 Notes
-- Uses OpenAI/Codex models only (no Gemini in research generator).
+- Uses Codex CLI only (no Gemini or external LLM clients in research generator).
 - No price data or investment advice; derived metrics only.
 - Oracle connectivity relies on `TNS_ADMIN` pointing at the VM wallet directory (current default: `/opt/adb_wallet_tp_sso`).
+ 
+Codex Doctor
+- `PYTHONPATH=/home/opc/Sustainacore /usr/bin/python3 -m tools.research_generator.doctor_codex`
 - The generator services load `/etc/sustainacore/llm.env` for `OPENAI_API_KEY`.
 
 Cleanup (research-only)

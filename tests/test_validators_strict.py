@@ -6,6 +6,7 @@ def test_docx_no_forbidden_phrases():
         "docx_tables": [{"title": "Core vs Rest summary", "rows": [{"Metric": "A", "Core": 1, "Rest": 2}]}],
         "docx_charts": [{"caption": "Figure 1. Core vs Rest"}],
         "metric_pool": [{"name": "core.aiges.mean", "value": 1}] * 100,
+        "profile": {"max_candidate_metrics": 1, "max_charts": 1, "max_tables": 1},
     }
     draft = {
         "paragraphs": ["Figure 1 shows what it shows. Table 1 lists core vs rest 1 2 3 4 5 6."],
@@ -20,6 +21,7 @@ def test_core_vs_rest_required():
         "docx_tables": [{"title": "Other table", "rows": [{"Metric": "A", "Core": 1, "Rest": 2}]}],
         "docx_charts": [{"caption": "Figure 1. Core vs Rest"}],
         "metric_pool": [{"name": "core.aiges.mean", "value": 1}] * 100,
+        "profile": {"max_candidate_metrics": 1, "max_charts": 1, "max_tables": 1},
     }
     draft = {
         "paragraphs": ["Figure 1 shows results. Table 1 lists metrics 1 2 3 4 5 6 with core and rest."],
@@ -34,6 +36,7 @@ def test_sanitizer_numeric_spacing_gate():
         "docx_tables": [{"title": "Core vs Rest summary", "rows": [{"Metric": "A", "Core": 1, "Rest": 2}]}],
         "docx_charts": [{"caption": "Figure 1. Core vs Rest"}],
         "metric_pool": [{"name": "core.aiges.mean", "value": 1}] * 100,
+        "profile": {"max_candidate_metrics": 1, "max_charts": 1, "max_tables": 1},
     }
     draft = {
         "paragraphs": ["Figure 1 shows 79. 84 vs 70. 12. Table 1 lists metrics 1 2 3 4 5 6 with core and rest."],
