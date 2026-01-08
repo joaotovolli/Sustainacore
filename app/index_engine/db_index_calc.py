@@ -278,6 +278,45 @@ def fetch_existing_levels(start: _dt.date, end: _dt.date) -> dict[_dt.date, floa
         return rows
 
 
+def fetch_max_level_date() -> _dt.date | None:
+    sql = (
+        "SELECT MAX(trade_date) "
+        "FROM SC_IDX_LEVELS "
+        "WHERE index_code = :index_code"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"index_code": INDEX_CODE})
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
+def fetch_constituent_weights(trade_date: _dt.date) -> dict[str, float]:
+    sql = (
+        "SELECT ticker, weight "
+        "FROM SC_IDX_CONSTITUENT_DAILY "
+        "WHERE trade_date = :trade_date"
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"trade_date": trade_date})
+        weights: dict[str, float] = {}
+        for ticker, weight in cur.fetchall():
+            if ticker is None:
+                continue
+            try:
+                value = float(weight)
+            except (TypeError, ValueError):
+                continue
+            weights[str(ticker).strip().upper()] = value
+        return weights
+
+
 def fetch_last_level_before(date: _dt.date) -> tuple[_dt.date | None, float | None]:
     sql = (
         "SELECT trade_date, level_tr "
@@ -360,6 +399,26 @@ def fetch_holdings_for_rebalance(rebalance_date: _dt.date) -> dict[str, float]:
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql, {"index_code": INDEX_CODE, "rebalance_date": rebalance_date})
+        for ticker, shares in cur.fetchall():
+            if ticker is None or shares is None:
+                continue
+            cleaned = str(ticker).strip().upper()
+            if cleaned:
+                rows[cleaned] = float(shares)
+    return rows
+
+
+def fetch_constituent_shares(trade_date: _dt.date) -> dict[str, float]:
+    sql = (
+        "SELECT ticker, shares "
+        "FROM SC_IDX_CONSTITUENT_DAILY "
+        "WHERE trade_date = :trade_date "
+        "AND shares IS NOT NULL"
+    )
+    rows: dict[str, float] = {}
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"trade_date": trade_date})
         for ticker, shares in cur.fetchall():
             if ticker is None or shares is None:
                 continue
@@ -645,11 +704,14 @@ __all__ = [
     "fetch_prices",
     "fetch_latest_price_before",
     "fetch_existing_levels",
+    "fetch_max_level_date",
+    "fetch_constituent_weights",
     "fetch_last_level_before",
     "fetch_divisor_for_date",
     "fetch_level_for_date",
     "fetch_latest_rebalance_date",
     "fetch_holdings_for_rebalance",
+    "fetch_constituent_shares",
     "fetch_trading_days_before",
     "upsert_holdings",
     "upsert_divisor",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 # --- injected helper (keeps DB_ envs + /etc/sustainacore/db.env compatible) ---
@@ -104,11 +105,27 @@ def _conn():
         retry_delay=1,
         tcp_connect_timeout=connect_timeout,
     )
-    try:
-        return oracledb.connect(**connect_kwargs)  # type: ignore[union-attr]
-    except Exception as exc:
-        _log_oracle_issue(exc)
-        raise
+    last_exc: Exception | None = None
+    max_attempts = int(os.getenv("ORACLE_CONNECT_RETRIES", "5"))
+    for attempt in range(max_attempts):
+        try:
+            return oracledb.connect(**connect_kwargs)  # type: ignore[union-attr]
+        except Exception as exc:
+            last_exc = exc
+            message = str(exc)
+            code = None
+            if exc.args:
+                first = exc.args[0]
+                code = getattr(first, "code", None)
+            if "ORA-29002" in message or "ORA-12545" in message or code in {"ORA-29002", "ORA-12545"}:
+                time.sleep(1.0 * (2 ** attempt))
+                continue
+            _log_oracle_issue(exc)
+            raise
+    if last_exc:
+        _log_oracle_issue(last_exc)
+        raise last_exc
+    raise RuntimeError("oracle_connect_failed")
 
 
 @lru_cache(maxsize=None)
