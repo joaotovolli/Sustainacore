@@ -212,6 +212,33 @@ def fetch_max_canon_trade_date() -> Optional[_dt.date]:
         return value
 
 
+def fetch_canon_count_for_date(trade_date: _dt.date) -> int:
+    """Return the count of canonical rows for a trade_date."""
+
+    sql = "SELECT COUNT(*) FROM SC_IDX_PRICES_CANON WHERE trade_date = :trade_date"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"trade_date": trade_date})
+        row = cur.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+
+
+def fetch_max_imputation_date(index_code: str = "TECH100") -> Optional[_dt.date]:
+    """Return the latest imputation trade_date for the index_code."""
+
+    sql = "SELECT MAX(trade_date) FROM SC_IDX_IMPUTATIONS WHERE index_code = :index_code"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"index_code": index_code})
+        row = cur.fetchone()
+        value = row[0] if row else None
+        if value is None:
+            return None
+        if isinstance(value, _dt.datetime):
+            return value.date()
+        return value
+
+
 def fetch_trading_days(start: _dt.date, end: _dt.date) -> list[_dt.date]:
     """Return trading days between start and end (inclusive)."""
 

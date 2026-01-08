@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import os
 import sys
+import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
@@ -161,6 +163,7 @@ def impute_missing_prices(
     end_date: _dt.date,
     allow_canon_close: bool = True,
     email_on_impute: bool = False,
+    max_runtime_sec: float | None = None,
 ) -> dict[str, object]:
     load_default_env()
 
@@ -181,7 +184,16 @@ def impute_missing_prices(
     per_ticker_counts: Counter[str] = Counter()
 
     impacted_cache: dict[_dt.date, list[str]] = {}
+    start_time = time.monotonic()
     for trade_date in trading_days:
+        if max_runtime_sec is not None and (time.monotonic() - start_time) > max_runtime_sec:
+            raise TimeoutError(
+                "IMPUTE_TIMEOUT: exceeded {limit:.0f}s in range {start}..{end}".format(
+                    limit=max_runtime_sec,
+                    start=start_date.isoformat(),
+                    end=end_date.isoformat(),
+                )
+            )
         tickers = fetch_impacted_tickers_for_trade_date(trade_date, cache=impacted_cache)
         for ticker in tickers:
             available_dates = available_by_ticker.get(ticker, set())
@@ -258,6 +270,8 @@ def main() -> int:
     parser.add_argument("--allow-canon-close", action="store_true")
     parser.add_argument("--email-on-impute", action="store_true")
     parser.add_argument("--email", action="store_true", help="Alias for --email-on-impute")
+    parser.add_argument("--lookback-days", type=int, help="Limit the impute window size (default: env)")
+    parser.add_argument("--max-runtime-sec", type=float, help="Abort if runtime exceeds this limit (default: env)")
     args = parser.parse_args()
 
     if args.since_base:
@@ -272,12 +286,31 @@ def main() -> int:
     if end_date < start_date:
         raise ValueError("end date must be on or after start date")
 
+    lookback_days = args.lookback_days
+    if lookback_days is None:
+        try:
+            lookback_days = int(os.getenv("SC_IDX_IMPUTE_LOOKBACK_DAYS", "30"))
+        except ValueError:
+            lookback_days = 30
+    if lookback_days is not None and lookback_days > 0:
+        min_start = end_date - _dt.timedelta(days=lookback_days)
+        if start_date < min_start:
+            start_date = min_start
+
+    max_runtime_sec = args.max_runtime_sec
+    if max_runtime_sec is None:
+        try:
+            max_runtime_sec = float(os.getenv("SC_IDX_IMPUTE_TIMEOUT_SEC", "300"))
+        except ValueError:
+            max_runtime_sec = 300.0
+
     email_on_impute = args.email_on_impute or args.email
     summary = impute_missing_prices(
         start_date=start_date,
         end_date=end_date,
         allow_canon_close=args.allow_canon_close,
         email_on_impute=email_on_impute,
+        max_runtime_sec=max_runtime_sec,
     )
 
     print(
