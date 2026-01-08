@@ -1,5 +1,5 @@
 # Research Generator Data Dictionary
-<!-- cspell:ignore herfindahl -->
+<!-- cspell:ignore herfindahl VARCHAR -->
 
 ## Oracle Tables
 

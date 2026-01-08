@@ -1,4 +1,5 @@
 # Research Generator Controls (VM1/VM2)
+<!-- cspell:ignore VARCHAR -->
 
 ## Purpose
 - Document the control-plane for scheduled research runs.
