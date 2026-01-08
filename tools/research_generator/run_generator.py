@@ -240,6 +240,7 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
     started_at = now
     usage_before = get_usage_snapshot()
     budget: BudgetDecision = choose_profile(usage_before)
+    LOGGER.info("usage_source=%s usage_available=%s", usage_before.get("source"), usage_before.get("available"))
     with get_connection() as conn:
         schema = current_schema(conn)
         ensure_proc_reports(conn)
@@ -379,6 +380,7 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
     started_at = dt.datetime.utcnow()
     usage_before = get_usage_snapshot()
     budget: BudgetDecision = choose_profile(usage_before)
+    LOGGER.info("usage_source=%s usage_available=%s", usage_before.get("source"), usage_before.get("available"))
     bundle, err = _build_bundle(
         report_type,
         None,
