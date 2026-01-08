@@ -6,7 +6,7 @@ import json
 import math
 from typing import Any, Dict, Iterable, List, Tuple
 
-from .gpt_client import GPTClientError, run_gpt_json
+from .codex_cli_runner import CodexCLIError, call_codex
 from .oracle import get_report_value, set_report_value
 
 
@@ -78,7 +78,7 @@ def _stats(values: List[float]) -> Dict[str, float]:
     }
 
 
-def build_metric_pool(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_metric_pool(bundle: Dict[str, Any], *, max_metrics: int) -> List[Dict[str, Any]]:
     metrics: List[Dict[str, Any]] = []
     core = bundle.get("core_latest_rows") or []
     rest = bundle.get("rest_latest_rows") or []
@@ -134,15 +134,17 @@ def build_metric_pool(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
         metrics.append({"name": "core.weight.top5_share", "value": top5 / total if total else 0.0})
         metrics.append({"name": "core.weight.hhi", "value": hhi})
 
-    # Ensure 100+ metrics by adding filler buckets
-    if len(metrics) < 100:
-        for idx in range(100 - len(metrics)):
-            metrics.append({"name": f"filler.metric.{idx+1}", "value": 0.0})
-
+    if max_metrics and len(metrics) > max_metrics:
+        return metrics[:max_metrics]
     return metrics
 
 
-def build_chart_bank(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_chart_bank(
+    bundle: Dict[str, Any],
+    metric_pool: List[Dict[str, Any]],
+    *,
+    max_charts: int,
+) -> List[Dict[str, Any]]:
     charts: List[Dict[str, Any]] = []
     # Core vs rest AIGES distribution chart (if present)
     core_scores = [row.get("aiges") for row in (bundle.get("core_latest_rows") or [])]
@@ -210,7 +212,7 @@ def build_chart_bank(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) 
                 "caption": "Figure 4. Pillar mean comparison between Core and Rest.",
             }
         )
-    return charts[:10]
+    return charts[:max_charts]
 
 
 def _angle_fingerprint(angle: Dict[str, Any]) -> str:
@@ -224,7 +226,13 @@ def _angle_fingerprint(angle: Dict[str, Any]) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def generate_angles(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def generate_angles(
+    bundle: Dict[str, Any],
+    metric_pool: List[Dict[str, Any]],
+    *,
+    max_angles: int,
+    max_candidate_metrics: int,
+) -> List[Dict[str, Any]]:
     schema = {
         "angles": [
             {
@@ -239,24 +247,23 @@ def generate_angles(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) -
     }
     prompt = (
         "You are the Insight Miner. Output JSON only. "
-        "Generate 5 distinct angles with clear thesis and quantified callouts. "
+        f"Generate {max_angles} distinct angles with clear thesis and quantified callouts. "
         "Each angle must include at least 8 callouts and at least two of: "
         "turnover/entrants-exits, dispersion shift, pillar attribution, sector-normalized comparison, concentration metrics. "
         "At least one angle must include a 'what changed vs previous rebalance' insight. "
         "Schema:\n"
         + json.dumps(schema)
         + "\nMetric pool:\n"
-        + json.dumps(metric_pool[:200])
+        + json.dumps(metric_pool[:max_candidate_metrics])
     )
-    messages = [{"role": "user", "content": prompt}]
     try:
-        payload = run_gpt_json(messages, timeout=70.0)
+        payload = call_codex(prompt, purpose="angle_generation", expect_json=True)
         return payload.get("angles") or []
-    except GPTClientError:
+    except CodexCLIError:
         return []
 
 
-def ensure_angle_count(angles: List[Dict[str, Any]], *, minimum: int = 5) -> List[Dict[str, Any]]:
+def ensure_angle_count(angles: List[Dict[str, Any]], *, minimum: int) -> List[Dict[str, Any]]:
     if len(angles) >= minimum:
         return angles
     for idx in range(minimum - len(angles)):

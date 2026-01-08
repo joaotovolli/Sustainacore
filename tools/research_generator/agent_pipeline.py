@@ -7,8 +7,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from .gpt_client import GPTClientError, run_gpt_json
+from .codex_cli_runner import CodexCLIError, call_codex
 from .data_integrity import run_integrity
+from .budget_manager import Profile
 from .idea_engine import build_chart_bank, build_metric_pool, ensure_angle_count, generate_angles, rank_angles
 from .oracle import get_connection
 from .sanitize import sanitize_text_blocks
@@ -29,6 +30,13 @@ def _write_debug(output_dir: str, stage: str, payload: Dict[str, Any]) -> None:
             json.dump(payload, handle, indent=2, ensure_ascii=True)
     except Exception:
         return
+
+
+def _time_exceeded(started_at: dt.datetime, time_budget_minutes: int) -> bool:
+    if time_budget_minutes <= 0:
+        return True
+    elapsed = (dt.datetime.utcnow() - started_at).total_seconds()
+    return elapsed > time_budget_minutes * 60
 
 
 def _core_vs_rest_table(bundle: Dict[str, Any], metric_pool: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -97,6 +105,107 @@ def _inject_integrity_note(paragraphs: List[str], integrity: Dict[str, Any]) -> 
     return paragraphs
 
 
+def _template_paragraphs(metric_pool: List[Dict[str, Any]]) -> List[str]:
+    def _metric(name: str, default: float = 0.0) -> float:
+        for item in metric_pool:
+            if item.get("name") == name:
+                try:
+                    return float(item.get("value"))
+                except (TypeError, ValueError):
+                    return default
+        return default
+
+    core_mean = _metric("core.aiges.mean")
+    rest_mean = _metric("rest.aiges.mean")
+    core_med = _metric("core.aiges.p50")
+    rest_med = _metric("rest.aiges.p50")
+    core_iqr = _metric("core.aiges.p75") - _metric("core.aiges.p25")
+    rest_iqr = _metric("rest.aiges.p75") - _metric("rest.aiges.p25")
+    turnover = _metric("core.turnover.membership")
+    delta_core = _metric("delta.core.aiges.mean")
+    return [
+        (
+            "Figure 1 frames the Core vs Rest comparison: Core mean AIGES is "
+            f"{core_mean:.2f} vs Rest {rest_mean:.2f}, with medians at {core_med:.2f} and {rest_med:.2f}."
+        ),
+        (
+            "Table 1 anchors dispersion: Core IQR is {core_iqr:.2f} versus Rest {rest_iqr:.2f}. "
+            f"That spread signals a Core vs Rest gap of {core_mean - rest_mean:.2f} points."
+        ).format(core_iqr=core_iqr, rest_iqr=rest_iqr),
+        (
+            "Change vs prior rebalance shows a Core mean shift of {delta:.2f}, while membership turnover "
+            f"is {turnover:.2%}. Table 2 summarizes sector composition changes alongside these shifts."
+        ).format(delta=delta_core),
+        (
+            "Figure 2 highlights distribution shape differences alongside the Core vs Rest split; "
+            f"the Core median {core_med:.2f} remains above the Rest median {rest_med:.2f}."
+        ),
+    ]
+
+
+def _ensure_artifact_mentions(
+    paragraphs: List[str],
+    metric_pool: List[Dict[str, Any]],
+) -> List[str]:
+    text = " ".join(paragraphs).lower()
+    if "figure" in text and "table" in text:
+        return paragraphs
+
+    def _metric(name: str, default: float = 0.0) -> float:
+        for item in metric_pool:
+            if item.get("name") == name:
+                try:
+                    return float(item.get("value"))
+                except (TypeError, ValueError):
+                    return default
+        return default
+
+    core_mean = _metric("core.aiges.mean")
+    rest_mean = _metric("rest.aiges.mean")
+    core_med = _metric("core.aiges.p50")
+    rest_med = _metric("rest.aiges.p50")
+    additions: List[str] = []
+    if "figure" not in text:
+        additions.append(
+            f"Figure 1 highlights the Core vs Rest distribution, with means {core_mean:.2f} and {rest_mean:.2f}."
+        )
+    if "table" not in text:
+        additions.append(
+            f"Table 1 summarizes the Core vs Rest medians at {core_med:.2f} and {rest_med:.2f}."
+        )
+    if paragraphs:
+        paragraphs[0] = paragraphs[0].rstrip() + " " + " ".join(additions)
+    else:
+        paragraphs = additions
+    return paragraphs
+
+
+def _ensure_prior_comparison(
+    paragraphs: List[str],
+    metric_pool: List[Dict[str, Any]],
+) -> List[str]:
+    text = " ".join(paragraphs).lower()
+    if "prior" in text or "previous" in text:
+        return paragraphs
+
+    def _metric(name: str, default: float = 0.0) -> float:
+        for item in metric_pool:
+            if item.get("name") == name:
+                try:
+                    return float(item.get("value"))
+                except (TypeError, ValueError):
+                    return default
+        return default
+
+    delta_core = _metric("delta.core.aiges.mean")
+    sentence = f"Compared with the prior rebalance, the Core mean AIGES shifted by {delta_core:.2f} points."
+    if paragraphs:
+        paragraphs[0] = paragraphs[0].rstrip() + " " + sentence
+    else:
+        paragraphs = [sentence]
+    return paragraphs
+
+
 def _sector_table(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
     core = bundle.get("core_latest_rows") or []
     rest = bundle.get("rest_latest_rows") or []
@@ -128,10 +237,9 @@ def run_data_investigator(bundle: Dict[str, Any], metric_pool: List[Dict[str, An
         "Schema:\n"
         + json.dumps(schema)
         + "\nMetric pool:\n"
-        + json.dumps(metric_pool[:200])
+        + json.dumps(metric_pool)
     )
-    messages = [{"role": "user", "content": prompt}]
-    return run_gpt_json(messages, timeout=70.0)
+    return call_codex(prompt, purpose="data_investigator", expect_json=True)
 
 
 def run_editor(bundle: Dict[str, Any], angles: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -152,8 +260,7 @@ def run_editor(bundle: Dict[str, Any], angles: List[Dict[str, Any]]) -> Dict[str
         + "\nAngles:\n"
         + json.dumps(angles)
     )
-    messages = [{"role": "user", "content": prompt}]
-    return run_gpt_json(messages, timeout=70.0)
+    return call_codex(prompt, purpose="editor", expect_json=True)
 
 
 def run_writer(angle: Dict[str, Any], outline: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -177,8 +284,7 @@ def run_writer(angle: Dict[str, Any], outline: List[Dict[str, Any]]) -> Dict[str
         + "\nOutline:\n"
         + json.dumps(outline)
     )
-    messages = [{"role": "user", "content": prompt}]
-    return run_gpt_json(messages, timeout=70.0)
+    return call_codex(prompt, purpose="writer", expect_json=True)
 
 
 def run_copyeditor(paragraphs: List[str]) -> Dict[str, Any]:
@@ -192,8 +298,7 @@ def run_copyeditor(paragraphs: List[str]) -> Dict[str, Any]:
         + "\nParagraphs:\n"
         + json.dumps(paragraphs)
     )
-    messages = [{"role": "user", "content": prompt}]
-    return run_gpt_json(messages, timeout=60.0)
+    return call_codex(prompt, purpose="copyeditor", expect_json=True)
 
 
 def run_fact_checker(bundle: Dict[str, Any], paragraphs: List[str]) -> Dict[str, Any]:
@@ -209,8 +314,7 @@ def run_fact_checker(bundle: Dict[str, Any], paragraphs: List[str]) -> Dict[str,
         + "\nParagraphs:\n"
         + json.dumps(paragraphs)
     )
-    messages = [{"role": "user", "content": prompt}]
-    return run_gpt_json(messages, timeout=60.0)
+    return call_codex(prompt, purpose="fact_checker", expect_json=True)
 
 
 def run_publisher(angle: Dict[str, Any], paragraphs: List[str]) -> Dict[str, Any]:
@@ -229,21 +333,40 @@ def run_publisher(angle: Dict[str, Any], paragraphs: List[str]) -> Dict[str, Any
         + "\nParagraphs:\n"
         + json.dumps(paragraphs)
     )
-    messages = [{"role": "user", "content": prompt}]
-    return run_gpt_json(messages, timeout=70.0)
+    return call_codex(prompt, purpose="publisher", expect_json=True)
 
 
-def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Optional[str] = None) -> Tuple[Dict[str, Any], List[str]]:
+def build_pipeline(
+    bundle: Dict[str, Any],
+    *,
+    output_dir: str,
+    editor_notes: Optional[str] = None,
+    template_only: bool = False,
+    profile: Optional[Profile] = None,
+) -> Tuple[Dict[str, Any], List[str]]:
     issues: List[str] = []
+    codex_failed = False
+    profile = profile or Profile(
+        name="MEDIUM",
+        max_angles=3,
+        max_candidate_metrics=25,
+        max_charts=2,
+        max_tables=3,
+        max_iterations=2,
+        time_budget_minutes=8,
+    )
+    started_at = dt.datetime.utcnow()
 
-    metric_pool = build_metric_pool(bundle)
+    metric_pool = build_metric_pool(bundle, max_metrics=profile.max_candidate_metrics)
     integrity = bundle.get("integrity") or run_integrity(bundle)
     bundle["integrity"] = integrity
-    charts = build_chart_bank(bundle, metric_pool)
+    charts = build_chart_bank(bundle, metric_pool, max_charts=profile.max_charts)
     tables = [
         {"title": "Core vs Rest summary", "rows": _core_vs_rest_table(bundle, metric_pool)},
         {"title": "Sector composition (Core vs Rest)", "rows": _sector_table(bundle)},
     ]
+    if profile.max_tables and len(tables) > profile.max_tables:
+        tables = tables[: profile.max_tables]
     bundle["metric_pool"] = metric_pool
     bundle["docx_charts"] = charts
     bundle["docx_tables"] = tables
@@ -253,14 +376,24 @@ def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Opt
         issues.extend(integrity.get("warnings"))
     _write_debug(output_dir, "metrics", {"metric_pool": metric_pool, "charts": charts, "tables": tables})
 
-    try:
-        investigator = run_data_investigator(bundle, metric_pool)
-    except GPTClientError as exc:
-        issues.append(str(exc))
-        investigator = {"insight_candidates": []}
+    investigator = {"insight_candidates": []}
+    if not template_only and not _time_exceeded(started_at, profile.time_budget_minutes):
+        try:
+            investigator = run_data_investigator(bundle, metric_pool)
+        except CodexCLIError as exc:
+            issues.append(str(exc))
+            codex_failed = True
     _write_debug(output_dir, "investigator", investigator)
 
-    angles = ensure_angle_count(generate_angles(bundle, metric_pool))
+    angles = []
+    if not _time_exceeded(started_at, profile.time_budget_minutes):
+        angles = generate_angles(
+            bundle,
+            metric_pool,
+            max_angles=profile.max_angles,
+            max_candidate_metrics=profile.max_candidate_metrics,
+        )
+    angles = ensure_angle_count(angles, minimum=max(profile.max_angles, 1))
     with get_connection() as conn:  # type: ignore[name-defined]
         ranked = rank_angles(angles, report_type=bundle.get("report_type", ""), conn=conn)
     top = ranked[0] if ranked else {"angle_title": "Core vs Rest overview", "callouts": []}
@@ -273,56 +406,68 @@ def build_pipeline(bundle: Dict[str, Any], *, output_dir: str, editor_notes: Opt
     bundle["selected_angle"] = top
     _write_debug(output_dir, "angles", {"ranked": ranked})
 
-    try:
-        editor = run_editor(bundle, ranked[:5])
-        outline = editor.get("outline") or []
-    except GPTClientError as exc:
-        issues.append(str(exc))
-        outline = []
+    outline = []
+    if not template_only and not _time_exceeded(started_at, profile.time_budget_minutes):
+        try:
+            editor = run_editor(bundle, ranked[: max(profile.max_angles, 1)])
+            outline = editor.get("outline") or []
+        except CodexCLIError as exc:
+            issues.append(str(exc))
+            codex_failed = True
     _write_debug(output_dir, "outline", {"outline": outline})
 
-    try:
-        writer = run_writer(top, outline)
-        paragraphs = writer.get("paragraphs") or []
-        outline = writer.get("outline") or outline
-    except GPTClientError as exc:
-        issues.append(str(exc))
-        paragraphs = []
+    paragraphs: List[str] = []
+    if not template_only and not _time_exceeded(started_at, profile.time_budget_minutes):
+        try:
+            writer = run_writer(top, outline)
+            paragraphs = writer.get("paragraphs") or []
+            outline = writer.get("outline") or outline
+        except CodexCLIError as exc:
+            issues.append(str(exc))
+            codex_failed = True
     _write_debug(output_dir, "writer", {"paragraphs": paragraphs})
 
     if not paragraphs:
-        paragraphs = [
-            "This report summarizes governance signals using the Core vs Rest lens.",
-            "Figure 1 and Table 1 summarize the score distributions and sector composition referenced in the narrative.",
-        ]
-    try:
-        copyedited = run_copyeditor(paragraphs)
-        paragraphs = copyedited.get("paragraphs") or paragraphs
-    except GPTClientError as exc:
-        issues.append(str(exc))
+        paragraphs = _template_paragraphs(metric_pool)
+    if not template_only and not _time_exceeded(started_at, profile.time_budget_minutes):
+        try:
+            copyedited = run_copyeditor(paragraphs)
+            paragraphs = copyedited.get("paragraphs") or paragraphs
+        except CodexCLIError as exc:
+            issues.append(str(exc))
+            codex_failed = True
     _write_debug(output_dir, "copyedited", {"paragraphs": paragraphs})
 
-    try:
-        fact = run_fact_checker(bundle, paragraphs)
-        if fact.get("status") == "FAIL":
-            issues.extend(fact.get("issues") or [])
-    except GPTClientError as exc:
-        issues.append(str(exc))
+    if not template_only and not _time_exceeded(started_at, profile.time_budget_minutes):
+        try:
+            fact = run_fact_checker(bundle, paragraphs)
+            if fact.get("status") == "FAIL":
+                issues.extend(fact.get("issues") or [])
+        except CodexCLIError as exc:
+            issues.append(str(exc))
+            codex_failed = True
 
     paragraphs = _inject_integrity_note(paragraphs, integrity)
     paragraphs = _ensure_core_rest_mentions(paragraphs, metric_pool)
-    try:
-        published = run_publisher(top, paragraphs)
-    except GPTClientError as exc:
-        issues.append(str(exc))
+    if not template_only and not _time_exceeded(started_at, profile.time_budget_minutes):
+        try:
+            published = run_publisher(top, paragraphs)
+        except CodexCLIError as exc:
+            issues.append(str(exc))
+            codex_failed = True
+            published = {"headline": top.get("angle_title"), "dek": None, "body": paragraphs}
+    else:
         published = {"headline": top.get("angle_title"), "dek": None, "body": paragraphs}
 
     body = sanitize_text_blocks(published.get("body") or paragraphs)
+    body = _ensure_artifact_mentions(body, metric_pool)
+    body = _ensure_prior_comparison(body, metric_pool)
     draft = {
         "headline": published.get("headline") or top.get("angle_title"),
         "dek": published.get("dek"),
         "paragraphs": body,
         "outline": outline,
+        "template_mode": template_only or codex_failed,
     }
     _write_debug(output_dir, "final", draft)
     return draft, issues

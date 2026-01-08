@@ -122,9 +122,12 @@ def quality_gate_strict(bundle: Dict[str, Any], draft: Dict[str, Any]) -> Tuple[
     if "prior" not in lower and "previous" not in lower:
         issues.append("missing_prior_comparison")
 
-    if len(bundle.get("docx_charts") or []) < 2:
+    profile = bundle.get("profile") or {}
+    min_charts = min(2, int(profile.get("max_charts") or 0)) if profile.get("max_charts") else 2
+    min_tables = min(2, int(profile.get("max_tables") or 0)) if profile.get("max_tables") else 2
+    if len(bundle.get("docx_charts") or []) < min_charts:
         issues.append("insufficient_charts")
-    if len(bundle.get("docx_tables") or []) < 2:
+    if len(bundle.get("docx_tables") or []) < min_tables:
         issues.append("insufficient_tables")
 
     if not any("Core vs Rest" in str(t.get("title") or "") for t in (bundle.get("docx_tables") or [])):
@@ -134,8 +137,8 @@ def quality_gate_strict(bundle: Dict[str, Any], draft: Dict[str, Any]) -> Tuple[
         issues.append("weight_movers_not_allowed")
 
     metric_pool = bundle.get("metric_pool") or []
-    if len(metric_pool) < 100:
-        issues.append("metric_pool_too_small")
+    if not metric_pool:
+        issues.append("metric_pool_empty")
 
     selected_angle = bundle.get("selected_angle") or {}
     callouts = selected_angle.get("callouts") or []

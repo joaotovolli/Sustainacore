@@ -51,6 +51,13 @@ def _render_chart(chart_data: Dict[str, Any], output_dir: str, report_key: str) 
         data = [entry.get("values") or [] for entry in series]
         labels = [entry.get("name") or "" for entry in series]
         plt.boxplot(data, labels=labels)
+    elif chart_type == "hist":
+        data = [entry.get("values") or [] for entry in series]
+        labels = [entry.get("name") or "" for entry in series]
+        if data:
+            plt.hist(data, bins=10, label=labels, alpha=0.7)
+            if len(labels) > 1:
+                plt.legend(fontsize="small")
     else:
         if series:
             for idx, entry in enumerate(series):
@@ -117,6 +124,8 @@ def build_docx(
         for idx in range(1, len(tables) + 1):
             outline.append({"type": "table", "id": idx})
 
+    inserted_figs = set()
+    inserted_tables = set()
     for item in outline:
         if item.get("type") == "paragraph":
             document.add_paragraph(item.get("text") or "")
@@ -130,6 +139,7 @@ def build_docx(
                 path = chart_paths.get(fig_id)
                 if path and os.path.exists(path):
                     document.add_picture(path)
+                inserted_figs.add(fig_id)
         elif item.get("type") == "table":
             tbl_id = int(item.get("id") or 0)
             if 0 < tbl_id <= len(tables):
@@ -138,6 +148,27 @@ def build_docx(
                     title = f"Table {tbl_id}. {title}"
                 document.add_paragraph(title)
                 _add_table(document, tables[tbl_id - 1].get("rows") or [])
+                inserted_tables.add(tbl_id)
+
+    for fig_id in range(1, len(charts) + 1):
+        if fig_id in inserted_figs:
+            continue
+        caption = charts[fig_id - 1].get("caption") or f"Figure {fig_id}. Chart"
+        if not str(caption).lower().startswith("figure"):
+            caption = f"Figure {fig_id}. {caption}"
+        document.add_paragraph(caption)
+        path = chart_paths.get(fig_id)
+        if path and os.path.exists(path):
+            document.add_picture(path)
+
+    for tbl_id in range(1, len(tables) + 1):
+        if tbl_id in inserted_tables:
+            continue
+        title = tables[tbl_id - 1].get("title") or f"Table {tbl_id}. Table"
+        if not title.lower().startswith("table"):
+            title = f"Table {tbl_id}. {title}"
+        document.add_paragraph(title)
+        _add_table(document, tables[tbl_id - 1].get("rows") or [])
 
     document.add_paragraph(
         "Disclaimer: Research and education only; not investment advice."

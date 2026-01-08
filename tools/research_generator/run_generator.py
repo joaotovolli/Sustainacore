@@ -9,6 +9,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import config
+from .budget_manager import BudgetDecision, choose_profile
 from .analysis import (
     build_anomaly_inputs,
     build_company_spotlight_bundle,
@@ -18,7 +19,9 @@ from .analysis import (
 )
 from .docx_builder import build_docx
 from .data_integrity import run_integrity
-from .gpt_client import log_startup_config
+from .codex_cli_runner import log_startup_config
+from .codex_usage import compute_usage_delta, get_usage_snapshot
+from .doctor_codex import run_doctor
 from .validators import quality_gate_strict
 from .oracle import (
     ResearchRequest,
@@ -45,9 +48,7 @@ LOGGER = logging.getLogger("research_generator")
 def _is_retryable_issue(issues: List[str]) -> bool:
     for issue in issues:
         lower = str(issue).lower()
-        if "gpt_http_error" in lower or "gpt_network_error" in lower:
-            return True
-        if "openai_api_key_missing" in lower:
+        if "codex_cli_nonzero" in lower or "codex_cli_timeout" in lower:
             return True
     return False
 
@@ -77,6 +78,8 @@ def _build_details(
     chart_name: str,
     *,
     regenerated_from: Optional[int] = None,
+    llm_issues: Optional[List[str]] = None,
+    generation_meta: Optional[Dict[str, Any]] = None,
 ) -> str:
     details = {
         "report_type": bundle.get("report_type"),
@@ -93,6 +96,9 @@ def _build_details(
             "SC_IDX_STATS_DAILY",
             "SC_IDX_CONTRIBUTION_DAILY",
         ],
+        "draft_mode": "template" if draft.get("template_mode") else "llm",
+        "llm_issues": llm_issues or [],
+        "generation_meta": generation_meta or {},
     }
     if regenerated_from:
         details["regenerated_from_approval_id"] = regenerated_from
@@ -195,6 +201,8 @@ def _create_approval(
     report_key: str,
     *,
     regenerated_from: Optional[int] = None,
+    llm_issues: Optional[List[str]] = None,
+    generation_meta: Optional[Dict[str, Any]] = None,
 ) -> int:
     output_dir = config.DEFAULT_OUTPUT_DIR
     docx_payload = build_docx(draft, bundle, report_key, output_dir)
@@ -204,6 +212,8 @@ def _create_approval(
         draft,
         os.path.basename(docx_payload["chart_path"]),
         regenerated_from=regenerated_from,
+        llm_issues=llm_issues,
+        generation_meta=generation_meta,
     )
 
     payload = {
@@ -227,6 +237,9 @@ def _create_approval(
 def run_once(force: Optional[str], dry_run: bool) -> int:
     init_env()
     now = dt.datetime.utcnow()
+    started_at = now
+    usage_before = get_usage_snapshot()
+    budget: BudgetDecision = choose_profile(usage_before)
     with get_connection() as conn:
         schema = current_schema(conn)
         ensure_proc_reports(conn)
@@ -250,6 +263,42 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.info("Dry-run: trigger=%s label=%s", report_type, label)
         return 0
 
+    if not usage_before.get("available"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=None,
+                approval_id=None,
+                severity="WARN",
+                title="Codex usage unavailable",
+                details=json.dumps(usage_before, sort_keys=True),
+            )
+
+    if budget.profile.name == "SKIPPED_BUDGET":
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=None,
+                approval_id=None,
+                severity="WARN",
+                title="Skipped generation to protect allowance",
+                details=json.dumps(
+                    {"profile_selected": budget.profile.name, "usage_before": usage_before},
+                    sort_keys=True,
+                ),
+            )
+        LOGGER.warning("Skipped generation due to budget threshold.")
+        return 0
+
+    bundle["profile"] = {
+        "name": budget.profile.name,
+        "max_angles": budget.profile.max_angles,
+        "max_candidate_metrics": budget.profile.max_candidate_metrics,
+        "max_charts": budget.profile.max_charts,
+        "max_tables": budget.profile.max_tables,
+        "max_iterations": budget.profile.max_iterations,
+        "time_budget_minutes": budget.profile.time_budget_minutes,
+    }
     integrity = run_integrity(bundle)
     bundle["integrity"] = integrity
     if integrity.get("issues"):
@@ -275,12 +324,17 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
                 details=json.dumps(integrity, sort_keys=True),
             )
 
-    draft, issues = build_pipeline(bundle, output_dir=config.DEFAULT_OUTPUT_DIR)
+    template_only = not run_doctor()
+    if template_only:
+        LOGGER.warning("Codex doctor failed; using template-only draft.")
+    draft, issues = build_pipeline(
+        bundle,
+        output_dir=config.DEFAULT_OUTPUT_DIR,
+        template_only=template_only,
+        profile=budget.profile,
+    )
     if not draft:
         LOGGER.error("Drafting failed: %s", "; ".join(issues))
-        return 1
-    if _is_retryable_issue(issues):
-        LOGGER.warning("Drafting retryable issues: %s", "; ".join(issues))
         return 1
 
     ok, gate_issues = quality_gate_strict(bundle, draft)
@@ -288,15 +342,43 @@ def run_once(force: Optional[str], dry_run: bool) -> int:
         LOGGER.error("Quality gate failed: %s", "; ".join(gate_issues))
         return 1
 
-    approval_id = _create_approval(bundle, draft, report_key)
+    finished_at = dt.datetime.utcnow()
+    usage_after = get_usage_snapshot()
+    usage_delta = compute_usage_delta(usage_before, usage_after)
+    duration_seconds = int((finished_at - started_at).total_seconds())
+    stop_reason = budget.stop_reason
+    if duration_seconds > budget.profile.time_budget_minutes * 60:
+        stop_reason = "time_budget_hit"
+    generation_meta = {
+        "started_at": started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "finished_at": finished_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "duration_seconds": duration_seconds,
+        "profile_selected": budget.profile.name,
+        "usage_before": usage_before,
+        "usage_after": usage_after,
+        "usage_delta": usage_delta,
+        "stop_reason": stop_reason,
+        "model_plan": "codex_cli",
+    }
+
+    approval_id = _create_approval(
+        bundle,
+        draft,
+        report_key,
+        llm_issues=issues,
+        generation_meta=generation_meta,
+    )
     if approval_id:
         store_value = label or (bundle.get("window") or {}).get("end") or now.strftime("%Y-%m-%d")
         _store_report_state(report_type, store_value)
     return 0
 
 
-def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Optional[int], List[str]]:
+def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Optional[int], List[str], bool, Dict[str, Any]]:
     report_type = (request.request_type or "").upper()
+    started_at = dt.datetime.utcnow()
+    usage_before = get_usage_snapshot()
+    budget: BudgetDecision = choose_profile(usage_before)
     bundle, err = _build_bundle(
         report_type,
         None,
@@ -305,6 +387,15 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
     if err or not bundle:
         raise RuntimeError(err or "bundle_error")
 
+    bundle["profile"] = {
+        "name": budget.profile.name,
+        "max_angles": budget.profile.max_angles,
+        "max_candidate_metrics": budget.profile.max_candidate_metrics,
+        "max_charts": budget.profile.max_charts,
+        "max_tables": budget.profile.max_tables,
+        "max_iterations": budget.profile.max_iterations,
+        "time_budget_minutes": budget.profile.time_budget_minutes,
+    }
     integrity = run_integrity(bundle)
     bundle["integrity"] = integrity
     if integrity.get("issues"):
@@ -329,31 +420,81 @@ def _process_request(request: ResearchRequest, *, dry_run: bool) -> Tuple[Option
                 details=json.dumps(integrity, sort_keys=True),
             )
 
+    if not usage_before.get("available"):
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=request.request_id,
+                approval_id=None,
+                severity="WARN",
+                title="Codex usage unavailable",
+                details=json.dumps(usage_before, sort_keys=True),
+            )
+
+    if budget.profile.name == "SKIPPED_BUDGET":
+        with get_connection() as conn:
+            insert_alert(
+                conn,
+                request_id=request.request_id,
+                approval_id=None,
+                severity="WARN",
+                title="Skipped generation to protect allowance",
+                details=json.dumps(
+                    {"profile_selected": budget.profile.name, "usage_before": usage_before},
+                    sort_keys=True,
+                ),
+            )
+        raise RuntimeError("skipped_budget")
+
+    template_only = not run_doctor()
+    if template_only:
+        LOGGER.warning("Codex doctor failed; using template-only draft.")
     draft, issues = build_pipeline(
         bundle,
         output_dir=config.DEFAULT_OUTPUT_DIR,
         editor_notes=request.editor_notes,
+        template_only=template_only,
+        profile=budget.profile,
     )
     if not draft:
         raise RuntimeError("draft_failed: " + "; ".join(issues))
-    if _is_retryable_issue(issues):
-        raise RuntimeError("retryable: " + "; ".join(issues))
 
     report_key = f"manual_{report_type.lower()}_{request.request_id}"
     if dry_run:
-        return None, issues
+        return None, issues, False, {}
 
     ok, gate_issues = quality_gate_strict(bundle, draft)
     if not ok:
         raise RuntimeError("quality_gate_failed: " + "; ".join(gate_issues))
+
+    finished_at = dt.datetime.utcnow()
+    usage_after = get_usage_snapshot()
+    usage_delta = compute_usage_delta(usage_before, usage_after)
+    duration_seconds = int((finished_at - started_at).total_seconds())
+    stop_reason = budget.stop_reason
+    if duration_seconds > budget.profile.time_budget_minutes * 60:
+        stop_reason = "time_budget_hit"
+    generation_meta = {
+        "started_at": started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "finished_at": finished_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "duration_seconds": duration_seconds,
+        "profile_selected": budget.profile.name,
+        "usage_before": usage_before,
+        "usage_after": usage_after,
+        "usage_delta": usage_delta,
+        "stop_reason": stop_reason,
+        "model_plan": "codex_cli",
+    }
 
     approval_id = _create_approval(
         bundle,
         draft,
         report_key,
         regenerated_from=request.source_approval_id,
+        llm_issues=issues,
+        generation_meta=generation_meta,
     )
-    return approval_id, issues
+    return approval_id, issues, bool(draft.get("template_mode")), generation_meta
 
 
 def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Optional[int]) -> int:
@@ -367,13 +508,17 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
         LOGGER.info("No pending manual requests.")
         return 0
 
+    now = dt.datetime.utcnow()
     for request in requests:
+        if request.updated_at and (now - request.updated_at).total_seconds() < 3600 and request.retry_count:
+            LOGGER.info("Skip retry request_id=%s within 1h guard", request.request_id)
+            continue
         with get_connection() as conn:
             claimed = claim_request(conn, request.request_id)
         if not claimed:
             continue
         try:
-            approval_id, issues = _process_request(request, dry_run=dry_run)
+            approval_id, issues, template_mode, generation_meta = _process_request(request, dry_run=dry_run)
             if dry_run:
                 with get_connection() as conn:
                     update_request_status(
@@ -383,13 +528,32 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
                         result_text="Dry-run complete; no approval created.",
                     )
             else:
-                suffix = " DRAFT_LOW_CONFIDENCE" if issues else ""
+                suffix = ""
+                if template_mode:
+                    suffix = " TEMPLATE_DRAFT"
+                elif issues:
+                    suffix = " DRAFT_LOW_CONFIDENCE"
+                usage_delta = generation_meta.get("usage_delta") or {}
+                delta_5h = usage_delta.get("five_hour_used_pct_delta")
+                delta_week = usage_delta.get("weekly_used_pct_delta")
+                duration_seconds = generation_meta.get("duration_seconds")
+                duration_text = ""
+                if duration_seconds is not None:
+                    minutes = int(duration_seconds // 60)
+                    seconds = int(duration_seconds % 60)
+                    duration_text = f" duration={minutes}m{seconds:02d}s"
+                usage_text = ""
+                if usage_delta.get("available") is False:
+                    usage_text = f" usage=n/a(reason={usage_delta.get('reason')})"
+                else:
+                    if delta_5h is not None or delta_week is not None:
+                        usage_text = f" usage_delta_5h={delta_5h:+.2f}pp usage_delta_week={delta_week:+.2f}pp"
                 with get_connection() as conn:
                     update_request_status(
                         conn,
                         request.request_id,
                         "DONE",
-                        result_text=f"Approval created: {approval_id}{suffix}",
+                        result_text=f"done: approval_id={approval_id}{duration_text}{usage_text}{suffix}",
                     )
             processed += 1
         except Exception as exc:
@@ -411,6 +575,16 @@ def process_pending_manual_requests(limit: int, *, dry_run: bool, request_id: Op
                         next_retry_at=next_retry_at,
                     )
                 LOGGER.warning("Manual request rate-limited request_id=%s", request.request_id)
+                continue
+            if "skipped_budget" in message:
+                with get_connection() as conn:
+                    update_request_status(
+                        conn,
+                        request.request_id,
+                        "SKIPPED_BUDGET",
+                        result_text="skipped_budget: allowance protection",
+                    )
+                LOGGER.warning("Manual request skipped for budget request_id=%s", request.request_id)
                 continue
             with get_connection() as conn:
                 update_request_status(
