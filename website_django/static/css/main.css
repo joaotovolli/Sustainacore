@@ -1370,6 +1370,37 @@ body.has-consent-banner .chat-fab {
     word-break: break-word;
 }
 
+.news-detail__rich img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 0.75rem 0;
+}
+
+.news-detail__table-wrap {
+    overflow-x: auto;
+    margin: 1rem 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.news-detail__table-wrap table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 480px;
+}
+
+.news-detail__table-wrap th,
+.news-detail__table-wrap td {
+    border: 1px solid var(--border);
+    padding: 0.55rem 0.6rem;
+    text-align: left;
+}
+
+.news-detail__table-wrap thead th {
+    background: var(--surface-muted);
+}
+
 .news-detail__cta {
     margin-top: 1.25rem;
 }

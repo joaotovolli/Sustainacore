@@ -67,6 +67,57 @@ class NewsDataTests(SimpleTestCase):
 
     @mock.patch("core.news_data._get_sources")
     @mock.patch("core.news_data.get_connection")
+    def test_fetch_news_list_prefers_body_over_full_text(self, get_connection, get_sources):
+        get_sources.return_value = {
+            "list": {
+                "name": "V_NEWS_RECENT",
+                "mapping": {
+                    "item_id": "ITEM_ID",
+                    "item_table": "ITEM_TABLE",
+                    "published_at": "DT_PUB",
+                    "title": "TITLE",
+                    "url": "URL",
+                    "source": "SOURCE_NAME",
+                    "body": "BODY",
+                    "summary": None,
+                    "tags": "TAGS",
+                    "full_text": "FULL_TEXT",
+                },
+            },
+            "schema": "WKSP_ESGAPEX",
+        }
+        cursor = mock.MagicMock()
+        cursor.fetchone.return_value = (1,)
+        cursor.fetchall.return_value = [
+            (
+                "NEWS_ITEMS",
+                301,
+                "2025-01-02T12:30:00Z",
+                None,
+                "Sample headline",
+                "https://example.com/story",
+                "Example News",
+                "Plain summary",
+                None,
+                None,
+                None,
+                None,
+                None,
+                1,
+            ),
+        ]
+        conn = mock.MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__.return_value = conn
+        conn.__exit__.return_value = None
+        get_connection.return_value = conn
+
+        result = news_data.fetch_news_list(limit=10, offset=0, days=7)
+        item = result["items"][0]
+        self.assertEqual(item["summary"], "Plain summary")
+
+    @mock.patch("core.news_data._get_sources")
+    @mock.patch("core.news_data.get_connection")
     def test_fetch_news_detail_prefers_full_text(self, get_connection, get_sources):
         get_sources.return_value = {
             "detail": {

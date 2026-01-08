@@ -19,6 +19,9 @@ The portal relies on two Oracle tables:
 
 - `PROC_GEMINI_JOBS`
 - `PROC_GEMINI_APPROVALS`
+- `NEWS_ITEMS` (publish news posts)
+- `NEWS_TAGS` / `NEWS_ITEM_TAGS` (news tags)
+- `NEWS_ASSETS` (image uploads)
 
 ### Initialize tables
 
@@ -55,6 +58,35 @@ To attach files or add Gemini comments for approvals, populate:
 
 - `FILE_NAME`, `FILE_MIME`, `FILE_BLOB` for attachments
 - `GEMINI_COMMENTS` for additional notes shown in the approval detail view
+
+## Publish news (rich body)
+
+The “Publish news” tab creates curated stories with exactly three inputs:
+tags, headline, and rich body HTML. The body is sanitized on save and stored in
+`NEWS_ITEMS.BODY_HTML`. Uploaded images are stored in `NEWS_ASSETS` and referenced
+as `/news/assets/<asset_id>/` URLs inside the HTML.
+
+### Required migration (post-PR 362)
+
+After merging PR 362, you MUST apply:
+- `db/migrations/V0004__news_rich_body.sql`
+
+Standard ops method (Oracle SQLcl required):
+- `bash scripts/db_migrate.sh`
+
+Verification query:
+- `SELECT COUNT(*) FROM user_tables WHERE table_name = 'NEWS_ASSETS';`
+
+## Publish news smoke check
+
+1) Start the local server:
+   - `DJANGO_SECRET_KEY=test python website_django/manage.py runserver 127.0.0.1:8065 --noreload`
+2) Visit `/_sc/admin/#publish-news` and publish a story containing:
+   - Headline + tags
+   - A paragraph, a small table, and one uploaded image
+3) Verify listings and detail render:
+   - `curl -s http://127.0.0.1:8065/news/ | rg "News & Insights"`
+   - `curl -s http://127.0.0.1:8065/news/NEWS_ITEMS:<id>/ | rg "news-detail__rich"`
 
 ## Draft cleanup
 

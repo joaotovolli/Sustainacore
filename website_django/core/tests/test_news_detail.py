@@ -150,7 +150,9 @@ class NewsDetailSmokeTests(SimpleTestCase):
         response = self.client.get(reverse("news_detail", args=["NEWS_ITEMS:55"]), HTTP_HOST="sustainacore.org")
         content = response.content.decode("utf-8")
         self.assertIn("<p>Safe</p>", content)
-        self.assertNotIn("<script>", content)
+        match = re.search(r'<div class="news-detail__rich">(.*?)</div>', content, re.DOTALL)
+        self.assertIsNotNone(match)
+        self.assertNotIn("<script>", match.group(1))
 
     @mock.patch("core.views.fetch_filter_options")
     @mock.patch("core.views.fetch_news_detail_oracle")
@@ -177,6 +179,50 @@ class NewsDetailSmokeTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertNotIn("Read at source", content)
         self.assertNotIn("Source link not available", content)
+
+    @mock.patch("core.views.fetch_filter_options")
+    @mock.patch("core.views.fetch_news_detail_oracle")
+    def test_news_detail_renders_tables_and_images(self, fetch_detail, fetch_filter_options):
+        fetch_filter_options.return_value = {
+            "source_options": [],
+            "tag_options": [],
+            "supports_source": False,
+            "supports_tag": False,
+            "supports_ticker": False,
+        }
+        fetch_detail.return_value = {
+            "item": {
+                "id": "NEWS_ITEMS:77",
+                "title": "Table headline",
+                "url": "https://example.com/story",
+                "source": "Example News",
+                "published_at": "2025-01-02T12:30:00Z",
+                "content": (
+                    "<p>Intro</p>"
+                    "<table><thead><tr><th>Col</th></tr></thead>"
+                    "<tbody><tr><td>Row</td></tr></tbody></table>"
+                    '<img src="/news/assets/12/" alt="Chart">'
+                ),
+            },
+            "error": None,
+        }
+        response = self.client.get(reverse("news_detail", args=["NEWS_ITEMS:77"]), HTTP_HOST="sustainacore.org")
+        content = response.content.decode("utf-8")
+        self.assertIn("news-detail__table-wrap", content)
+        self.assertIn('/news/assets/12/', content)
+
+    @mock.patch("core.views.get_news_asset")
+    def test_news_asset_allows_unlinked_uploads(self, get_news_asset):
+        get_news_asset.return_value = {
+            "asset_id": 5,
+            "news_id": None,
+            "file_name": "chart.png",
+            "mime_type": "image/png",
+            "file_blob": b"binary",
+        }
+        response = self.client.get(reverse("news_asset", args=[5]), HTTP_HOST="sustainacore.org")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
 
     @mock.patch("core.views.fetch_filter_options")
     @mock.patch("core.views.fetch_news_detail_oracle")

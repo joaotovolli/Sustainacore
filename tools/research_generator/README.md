@@ -25,6 +25,7 @@ Notes
  
 Codex Doctor
 - `PYTHONPATH=/home/opc/Sustainacore /usr/bin/python3 -m tools.research_generator.doctor_codex`
+- The generator services load `/etc/sustainacore/llm.env` for `OPENAI_API_KEY`.
 
 Cleanup (research-only)
 - Dry run (counts only):

@@ -6,13 +6,19 @@ import os
 from datetime import datetime, time
 
 from django.contrib import messages
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_POST
 
 from core.auth import get_auth_email
 from sc_admin_portal.auth import get_admin_email, portal_not_found, require_sc_admin
 from sc_admin_portal import oracle_proc
+from sc_admin_portal.news_storage import (
+    NewsStorageError,
+    create_news_asset,
+    create_news_post,
+)
 
 logger = logging.getLogger(__name__)
 _RUNNING_COMMIT: str | None = None
@@ -22,6 +28,8 @@ ROUTINE_CHOICES = [
     ("RAG_INGEST", "Text to be transformed and added to RAG Vectors"),
     ("INDEX_REBALANCE", "Data to be added to Index Rebalance"),
 ]
+
+_NEWS_UPLOAD_MAX_BYTES = 6 * 1024 * 1024
 
 RESEARCH_REQUEST_CHOICES = [
     ("REBALANCE", "REBALANCE"),
@@ -120,6 +128,11 @@ def dashboard(request):
     warning = ""
     diagnostics: list[str] = []
     job_id = None
+    publish_form = {"headline": "", "tags": "", "body_html": ""}
+    news_error = ""
+    news_success = ""
+    news_item = None
+    publish_tab_active = False
     created_request_id = request.GET.get("created_request_id")
     if created_request_id:
         success = f"Research request created: {created_request_id}."
@@ -175,6 +188,23 @@ def dashboard(request):
             except Exception:
                 logger.exception("Admin portal research request create failed type=%s", request_type)
                 error = "Could not create research request. Please try again."
+    if request.method == "POST" and request.POST.get("action") == "publish_news":
+        publish_tab_active = True
+        headline = (request.POST.get("headline") or "").strip()
+        tags = (request.POST.get("tags") or "").strip()
+        body_html = (request.POST.get("body_html") or "").strip()
+        publish_form = {"headline": headline, "tags": tags, "body_html": body_html}
+        try:
+            news_item = create_news_post(headline=headline, tags=tags, body_html=body_html)
+            messages.success(request, "News post published.")
+            return redirect("news_detail", news_item["id"])
+        except ValueError as exc:
+            news_error = str(exc)
+        except NewsStorageError as exc:
+            news_error = str(exc)
+        except Exception:
+            logger.exception("Admin portal news publish failed")
+            news_error = "Could not publish news. Please try again."
     show_all_jobs = request.GET.get("show_all_jobs") == "1"
     try:
         recent_jobs = oracle_proc.list_recent_jobs(limit=10, include_handed_off=show_all_jobs)
@@ -224,6 +254,8 @@ def dashboard(request):
         recent_research_requests = []
         research_requests_error = "Manual requests failed to load."
     default_tab = "approvals" if pending_count and pending_count > 0 else "create-research"
+    if publish_tab_active:
+        default_tab = "publish-news"
     selected_approval = None
     approval_id = request.GET.get("approval_id")
     if approval_id:
@@ -256,7 +288,71 @@ def dashboard(request):
             "running_commit": _load_running_commit(),
             "now_utc": datetime.utcnow(),
             "selected_approval": selected_approval,
+            "news_form": publish_form,
+            "news_error": news_error,
+            "news_success": news_success,
+            "news_item": news_item,
+            "news_upload_max_mb": _NEWS_UPLOAD_MAX_BYTES // (1024 * 1024),
         },
+    )
+
+
+@never_cache
+@require_sc_admin
+@require_POST
+def news_asset_upload(request):
+    upload = request.FILES.get("file")
+    if not upload:
+        return JsonResponse(
+            {"error": "missing_file", "message": "No file uploaded."}, status=400
+        )
+
+    if upload.size and upload.size > _NEWS_UPLOAD_MAX_BYTES:
+        return JsonResponse(
+            {"error": "file_too_large", "message": "File exceeds upload limit."},
+            status=400,
+        )
+
+    content_type = (upload.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        return JsonResponse(
+            {"error": "invalid_type", "message": "Only image uploads are allowed."},
+            status=400,
+        )
+
+    news_id = request.POST.get("news_id")
+    news_id_value = None
+    if news_id:
+        try:
+            news_id_value = int(news_id)
+        except ValueError:
+            return JsonResponse(
+                {"error": "invalid_news_id", "message": "Invalid news identifier."},
+                status=400,
+            )
+
+    try:
+        asset_id = create_news_asset(
+            news_id=news_id_value,
+            file_name=upload.name,
+            mime_type=content_type,
+            file_bytes=upload.read(),
+        )
+    except NewsStorageError as exc:
+        return JsonResponse(
+            {"error": exc.code or "storage_error", "message": str(exc)},
+            status=503,
+        )
+    except Exception:
+        logger.exception("Admin portal news asset upload failed")
+        return JsonResponse(
+            {"error": "upload_failed", "message": "Unable to upload image."},
+            status=500,
+        )
+
+    asset_url = request.build_absolute_uri(f"/news/assets/{asset_id}/")
+    return JsonResponse(
+        {"location": asset_url, "asset_id": asset_id}
     )
 
 
