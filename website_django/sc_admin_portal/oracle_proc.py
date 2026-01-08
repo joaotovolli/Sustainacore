@@ -13,6 +13,7 @@ JOB_TABLE = "PROC_GEMINI_JOBS"
 APPROVAL_TABLE = "PROC_GEMINI_APPROVALS"
 RESEARCH_REQUEST_TABLE = "PROC_RESEARCH_REQUESTS"
 RESEARCH_SETTINGS_TABLE = "PROC_RESEARCH_SETTINGS"
+_RESEARCH_SETTINGS_COLUMNS: dict[str, str | None] | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,12 @@ def _normalize_oracle_scalar(value):
     if isinstance(value, (list, tuple)):
         return value[0] if value else None
     return value
+
+
+class ResearchSettingsColumnsError(RuntimeError):
+    def __init__(self, message: str, columns: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.columns = columns or []
 
 
 def _to_setting_value(value: object | None) -> str:
@@ -223,13 +230,67 @@ def list_recent_jobs(limit: int = 10, include_handed_off: bool = False) -> list[
     ]
 
 
+def resolve_research_settings_columns(conn) -> dict[str, str | None]:
+    global _RESEARCH_SETTINGS_COLUMNS
+    if _RESEARCH_SETTINGS_COLUMNS:
+        return _RESEARCH_SETTINGS_COLUMNS
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM user_tab_columns
+            WHERE table_name = :table_name
+            """,
+            {"table_name": RESEARCH_SETTINGS_TABLE},
+        )
+        rows = cursor.fetchall() or []
+        columns = [str(_to_setting_value(row[0]) or "").upper() for row in rows if row and row[0]]
+        if not columns:
+            cursor.execute(
+                """
+                SELECT column_name
+                FROM all_tab_columns
+                WHERE table_name = :table_name
+                  AND owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
+                """,
+                {"table_name": RESEARCH_SETTINGS_TABLE},
+            )
+            rows = cursor.fetchall() or []
+            columns = [str(_to_setting_value(row[0]) or "").upper() for row in rows if row and row[0]]
+
+    def pick(options: list[str]) -> str | None:
+        for option in options:
+            if option in columns:
+                return option
+        return None
+
+    key_col = pick(["SETTING_KEY", "KEY", "KEY_NAME", "NAME"])
+    value_col = pick(["SETTING_VALUE", "VALUE", "SETTING_VAL", "VALUE_TEXT", "SETTING_TEXT"])
+    updated_at_col = pick(["UPDATED_AT", "UPDATED_ON", "LAST_UPDATED"])
+    updated_by_col = pick(["UPDATED_BY", "LAST_UPDATED_BY"])
+
+    if not key_col or not value_col:
+        message = "PROC_RESEARCH_SETTINGS columns: " + ", ".join(sorted(columns))
+        raise ResearchSettingsColumnsError(message, columns=sorted(columns))
+
+    _RESEARCH_SETTINGS_COLUMNS = {
+        "key_col": key_col,
+        "value_col": value_col,
+        "updated_at_col": updated_at_col,
+        "updated_by_col": updated_by_col,
+    }
+    return _RESEARCH_SETTINGS_COLUMNS
+
+
 def get_research_settings() -> dict[str, str]:
-    sql = f"""
-        SELECT setting_key, setting_value
-        FROM {RESEARCH_SETTINGS_TABLE}
-    """
     settings: dict[str, str] = {}
     with get_connection() as conn:
+        cols = resolve_research_settings_columns(conn)
+        sql = f"""
+            SELECT {cols['key_col']}, {cols['value_col']}
+            FROM {RESEARCH_SETTINGS_TABLE}
+        """
         with conn.cursor() as cursor:
             cursor.execute(sql)
             rows = cursor.fetchall() or []
@@ -245,25 +306,24 @@ def set_research_settings(updates: dict[str, str], updated_by: str | None = None
     if not updates:
         return
     with get_connection() as conn:
+        cols = resolve_research_settings_columns(conn)
         with conn.cursor() as cursor:
-            has_updated_at = _column_exists(cursor, RESEARCH_SETTINGS_TABLE, "UPDATED_AT")
-            has_updated_by = _column_exists(cursor, RESEARCH_SETTINGS_TABLE, "UPDATED_BY")
             cursor.setinputsizes(setting_value=oracledb.DB_TYPE_CLOB)
             for key, value in updates.items():
                 key_text = (key or "").strip().upper()
                 if not key_text:
                     continue
                 setting_value = value if value is not None else ""
-                update_fields = ["t.setting_value = s.setting_value"]
-                insert_cols = ["setting_key", "setting_value"]
+                update_fields = [f"t.{cols['value_col']} = s.setting_value"]
+                insert_cols = [cols["key_col"], cols["value_col"]]
                 insert_vals = ["s.setting_key", "s.setting_value"]
-                if has_updated_at:
-                    update_fields.append("t.updated_at = SYSTIMESTAMP")
-                    insert_cols.append("updated_at")
+                if cols.get("updated_at_col"):
+                    update_fields.append(f"t.{cols['updated_at_col']} = SYSTIMESTAMP")
+                    insert_cols.append(cols["updated_at_col"])
                     insert_vals.append("SYSTIMESTAMP")
-                if has_updated_by:
-                    update_fields.append("t.updated_by = s.updated_by")
-                    insert_cols.append("updated_by")
+                if cols.get("updated_by_col"):
+                    update_fields.append(f"t.{cols['updated_by_col']} = s.updated_by")
+                    insert_cols.append(cols["updated_by_col"])
                     insert_vals.append("s.updated_by")
                 merge_sql = f"""
                     MERGE INTO {RESEARCH_SETTINGS_TABLE} t
