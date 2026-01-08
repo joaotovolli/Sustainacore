@@ -799,7 +799,7 @@ class ResearchSettingsTests(TestCase):
     @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
     @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
-    def test_research_settings_tab_uses_resolved_columns(
+    def test_research_settings_tab_uses_kv_columns(
         self, research_mock, decisions_mock, approvals_mock, jobs_mock
     ):
         class DummyCursor:
@@ -831,18 +831,55 @@ class ResearchSettingsTests(TestCase):
             yield DummyConn()
 
         with mock.patch(
-            "sc_admin_portal.oracle_proc.resolve_research_settings_columns",
-            return_value={
-                "key_col": "KEY_NAME",
-                "value_col": "VALUE_TEXT",
-                "updated_at_col": None,
-                "updated_by_col": None,
-            },
+            "sc_admin_portal.oracle_proc.get_proc_research_settings_columns",
+            return_value={"KEY_NAME", "VALUE_TEXT"},
         ), mock.patch("sc_admin_portal.oracle_proc.get_connection", fake_conn):
             self.client.force_login(self.authorized_user)
             response = self.client.get(self.portal_url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "MINIMAL")
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_jobs", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_pending_approvals", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_decisions", return_value=[])
+    @mock.patch("sc_admin_portal.views.oracle_proc.list_recent_research_requests", return_value=[])
+    def test_research_settings_tab_uses_row_mode(
+        self, research_mock, decisions_mock, approvals_mock, jobs_mock
+    ):
+        class DummyCursor:
+            def execute(self, *_args, **_kwargs):
+                return None
+
+            def fetchone(self):
+                return (1, "N", "Y", "LOW", 35)
+
+        class DummyConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def cursor(self):
+                @contextlib.contextmanager
+                def _cursor():
+                    yield DummyCursor()
+
+                return _cursor()
+
+        @contextlib.contextmanager
+        def fake_conn():
+            yield DummyConn()
+
+        with mock.patch(
+            "sc_admin_portal.oracle_proc.get_proc_research_settings_columns",
+            return_value={"SETTINGS_ID", "SCHEDULE_ENABLED", "DEV_NOOP", "SAVER_MODE", "MAX_CONTEXT_PCT"},
+        ), mock.patch("sc_admin_portal.oracle_proc.get_connection", fake_conn):
+            self.client.force_login(self.authorized_user)
+            response = self.client.get(self.portal_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "LOW")
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     @mock.patch(

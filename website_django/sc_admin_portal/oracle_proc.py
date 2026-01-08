@@ -14,6 +14,7 @@ APPROVAL_TABLE = "PROC_GEMINI_APPROVALS"
 RESEARCH_REQUEST_TABLE = "PROC_RESEARCH_REQUESTS"
 RESEARCH_SETTINGS_TABLE = "PROC_RESEARCH_SETTINGS"
 _RESEARCH_SETTINGS_COLUMNS: dict[str, str | None] | None = None
+_RESEARCH_SETTINGS_TABLE_COLUMNS: set[str] | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,96 @@ class ResearchSettingsColumnsError(RuntimeError):
     def __init__(self, message: str, columns: list[str] | None = None) -> None:
         super().__init__(message)
         self.columns = columns or []
+
+
+def _normalize_yes_no(value: object | None, default: str = "N") -> str:
+    text = _to_setting_value(value).strip().upper()
+    if not text:
+        return default
+    if text in {"Y", "YES", "TRUE", "1", "T"}:
+        return "Y"
+    if text in {"N", "NO", "FALSE", "0", "F"}:
+        return "N"
+    return default
+
+
+def _normalize_int(value: object | None, default: int) -> int:
+    raw = _to_setting_value(value).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def get_proc_research_settings_columns(conn) -> set[str]:
+    global _RESEARCH_SETTINGS_TABLE_COLUMNS
+    if _RESEARCH_SETTINGS_TABLE_COLUMNS is not None:
+        return _RESEARCH_SETTINGS_TABLE_COLUMNS
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM user_tab_columns
+            WHERE table_name = :table_name
+            """,
+            {"table_name": RESEARCH_SETTINGS_TABLE},
+        )
+        rows = cursor.fetchall() or []
+        columns = {
+            str(_to_setting_value(row[0]) or "").upper()
+            for row in rows
+            if row and row[0]
+        }
+        if not columns:
+            cursor.execute(
+                """
+                SELECT column_name
+                FROM all_tab_columns
+                WHERE table_name = :table_name
+                  AND owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
+                """,
+                {"table_name": RESEARCH_SETTINGS_TABLE},
+            )
+            rows = cursor.fetchall() or []
+            columns = {
+                str(_to_setting_value(row[0]) or "").upper()
+                for row in rows
+                if row and row[0]
+            }
+
+    _RESEARCH_SETTINGS_TABLE_COLUMNS = columns
+    return columns
+
+
+def _is_row_mode(columns: set[str]) -> bool:
+    return "SETTINGS_ID" in columns and "SCHEDULE_ENABLED" in columns and "DEV_NOOP" in columns
+
+
+def _resolve_kv_columns(columns: set[str]) -> dict[str, str | None]:
+    def pick(options: list[str]) -> str | None:
+        for option in options:
+            if option in columns:
+                return option
+        return None
+
+    key_col = pick(["SETTING_KEY", "KEY", "KEY_NAME", "NAME"])
+    value_col = pick(["SETTING_VALUE", "VALUE", "SETTING_VAL", "VALUE_TEXT", "SETTING_TEXT"])
+    updated_at_col = pick(["UPDATED_AT", "UPDATED_ON", "LAST_UPDATED"])
+    updated_by_col = pick(["UPDATED_BY", "LAST_UPDATED_BY"])
+
+    if not key_col or not value_col:
+        message = "PROC_RESEARCH_SETTINGS columns: " + ", ".join(sorted(columns))
+        raise ResearchSettingsColumnsError(message, columns=sorted(columns))
+
+    return {
+        "key_col": key_col,
+        "value_col": value_col,
+        "updated_at_col": updated_at_col,
+        "updated_by_col": updated_by_col,
+    }
 
 
 def _to_setting_value(value: object | None) -> str:
@@ -235,57 +326,18 @@ def resolve_research_settings_columns(conn) -> dict[str, str | None]:
     if _RESEARCH_SETTINGS_COLUMNS:
         return _RESEARCH_SETTINGS_COLUMNS
 
-    with conn.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT column_name
-            FROM user_tab_columns
-            WHERE table_name = :table_name
-            """,
-            {"table_name": RESEARCH_SETTINGS_TABLE},
-        )
-        rows = cursor.fetchall() or []
-        columns = [str(_to_setting_value(row[0]) or "").upper() for row in rows if row and row[0]]
-        if not columns:
-            cursor.execute(
-                """
-                SELECT column_name
-                FROM all_tab_columns
-                WHERE table_name = :table_name
-                  AND owner = SYS_CONTEXT('USERENV','CURRENT_SCHEMA')
-                """,
-                {"table_name": RESEARCH_SETTINGS_TABLE},
-            )
-            rows = cursor.fetchall() or []
-            columns = [str(_to_setting_value(row[0]) or "").upper() for row in rows if row and row[0]]
-
-    def pick(options: list[str]) -> str | None:
-        for option in options:
-            if option in columns:
-                return option
-        return None
-
-    key_col = pick(["SETTING_KEY", "KEY", "KEY_NAME", "NAME"])
-    value_col = pick(["SETTING_VALUE", "VALUE", "SETTING_VAL", "VALUE_TEXT", "SETTING_TEXT"])
-    updated_at_col = pick(["UPDATED_AT", "UPDATED_ON", "LAST_UPDATED"])
-    updated_by_col = pick(["UPDATED_BY", "LAST_UPDATED_BY"])
-
-    if not key_col or not value_col:
-        message = "PROC_RESEARCH_SETTINGS columns: " + ", ".join(sorted(columns))
-        raise ResearchSettingsColumnsError(message, columns=sorted(columns))
-
-    _RESEARCH_SETTINGS_COLUMNS = {
-        "key_col": key_col,
-        "value_col": value_col,
-        "updated_at_col": updated_at_col,
-        "updated_by_col": updated_by_col,
-    }
+    columns = get_proc_research_settings_columns(conn)
+    _RESEARCH_SETTINGS_COLUMNS = _resolve_kv_columns(columns)
     return _RESEARCH_SETTINGS_COLUMNS
 
 
 def get_research_settings() -> dict[str, str]:
     settings: dict[str, str] = {}
     with get_connection() as conn:
+        columns = get_proc_research_settings_columns(conn)
+        if _is_row_mode(columns):
+            settings.update(_get_research_settings_row(conn, columns))
+            return settings
         cols = resolve_research_settings_columns(conn)
         sql = f"""
             SELECT {cols['key_col']}, {cols['value_col']}
@@ -294,18 +346,90 @@ def get_research_settings() -> dict[str, str]:
         with conn.cursor() as cursor:
             cursor.execute(sql)
             rows = cursor.fetchall() or []
-    for key, value in rows:
-        key_text = _to_setting_value(key).strip()
-        if not key_text:
-            continue
-        settings[key_text.upper()] = _to_setting_value(value)
+        for key, value in rows:
+            key_text = _to_setting_value(key).strip()
+            if not key_text:
+                continue
+            settings[key_text.upper()] = _to_setting_value(value)
     return settings
+
+
+def _get_research_settings_row(conn, columns: set[str]) -> dict[str, str]:
+    select_cols = [
+        col
+        for col in [
+            "SETTINGS_ID",
+            "SCHEDULE_ENABLED",
+            "DEV_NOOP",
+            "SAVER_MODE",
+            "MAX_CONTEXT_PCT",
+            "SCHEDULE_FREQ",
+            "SCHEDULE_HOUR",
+            "SCHEDULE_MINUTE",
+            "SCHEDULE_TZ",
+            "SCHEDULE_DOW_MASK",
+            "UPDATED_AT",
+            "UPDATED_BY",
+        ]
+        if col in columns
+    ]
+    if not select_cols:
+        raise ResearchSettingsColumnsError(
+            "PROC_RESEARCH_SETTINGS columns: " + ", ".join(sorted(columns)),
+            columns=sorted(columns),
+        )
+
+    row = None
+    with conn.cursor() as cursor:
+        if "SETTINGS_ID" in columns:
+            cursor.execute(
+                f"""
+                SELECT {", ".join(select_cols)}
+                FROM {RESEARCH_SETTINGS_TABLE}
+                WHERE SETTINGS_ID = 1
+                """
+            )
+            row = cursor.fetchone()
+        if not row:
+            order_by = []
+            if "UPDATED_AT" in columns:
+                order_by.append("UPDATED_AT DESC")
+            if "SETTINGS_ID" in columns:
+                order_by.append("SETTINGS_ID DESC")
+            order_clause = f"ORDER BY {', '.join(order_by)}" if order_by else ""
+            cursor.execute(
+                f"""
+                SELECT {", ".join(select_cols)}
+                FROM {RESEARCH_SETTINGS_TABLE}
+                {order_clause}
+                FETCH FIRST 1 ROWS ONLY
+                """
+            )
+            row = cursor.fetchone()
+
+    if not row:
+        return {}
+
+    raw = dict(zip(select_cols, row))
+    max_context = _normalize_int(raw.get("MAX_CONTEXT_PCT"), 50)
+    max_context = max(1, min(90, max_context))
+    saver_mode = _to_setting_value(raw.get("SAVER_MODE")).strip().upper() or "MEDIUM"
+    return {
+        "SCHEDULE_ENABLED": _normalize_yes_no(raw.get("SCHEDULE_ENABLED"), "Y"),
+        "DEV_NOOP": _normalize_yes_no(raw.get("DEV_NOOP"), "N"),
+        "SAVER_PROFILE": saver_mode,
+        "MAX_CONTEXT_PCT": str(max_context),
+    }
 
 
 def set_research_settings(updates: dict[str, str], updated_by: str | None = None) -> None:
     if not updates:
         return
     with get_connection() as conn:
+        columns = get_proc_research_settings_columns(conn)
+        if _is_row_mode(columns):
+            _set_research_settings_row(conn, updates, updated_by, columns)
+            return
         cols = resolve_research_settings_columns(conn)
         with conn.cursor() as cursor:
             cursor.setinputsizes(setting_value=oracledb.DB_TYPE_CLOB)
@@ -333,7 +457,7 @@ def set_research_settings(updates: dict[str, str], updated_by: str | None = None
                                :updated_by AS updated_by
                         FROM dual
                     ) s
-                    ON (t.setting_key = s.setting_key)
+                    ON (t.{cols['key_col']} = s.setting_key)
                     WHEN MATCHED THEN
                         UPDATE SET {", ".join(update_fields)}
                     WHEN NOT MATCHED THEN
@@ -349,6 +473,74 @@ def set_research_settings(updates: dict[str, str], updated_by: str | None = None
                     },
                 )
         conn.commit()
+
+
+def _set_research_settings_row(
+    conn, updates: dict[str, str], updated_by: str | None, columns: set[str]
+) -> None:
+    if "SETTINGS_ID" not in columns:
+        raise ResearchSettingsColumnsError(
+            "PROC_RESEARCH_SETTINGS columns: " + ", ".join(sorted(columns)),
+            columns=sorted(columns),
+        )
+    required = {"SCHEDULE_ENABLED", "DEV_NOOP", "SAVER_MODE", "MAX_CONTEXT_PCT"}
+    missing = required - columns
+    if missing:
+        raise ResearchSettingsColumnsError(
+            "PROC_RESEARCH_SETTINGS columns: " + ", ".join(sorted(columns)),
+            columns=sorted(columns),
+        )
+
+    schedule_enabled = _normalize_yes_no(updates.get("SCHEDULE_ENABLED"), "Y")
+    dev_noop = _normalize_yes_no(updates.get("DEV_NOOP"), "N")
+    saver_mode = (
+        (updates.get("SAVER_PROFILE") or updates.get("SAVER_MODE") or "")
+        .strip()
+        .upper()
+        or "MEDIUM"
+    )
+    max_context = _normalize_int(updates.get("MAX_CONTEXT_PCT"), 50)
+    max_context = max(1, min(90, max_context))
+
+    update_fields = [
+        "t.SCHEDULE_ENABLED = :schedule_enabled",
+        "t.DEV_NOOP = :dev_noop",
+        "t.SAVER_MODE = :saver_mode",
+        "t.MAX_CONTEXT_PCT = :max_context_pct",
+    ]
+    insert_cols = ["SETTINGS_ID", "SCHEDULE_ENABLED", "DEV_NOOP", "SAVER_MODE", "MAX_CONTEXT_PCT"]
+    insert_vals = ["1", ":schedule_enabled", ":dev_noop", ":saver_mode", ":max_context_pct"]
+    if "UPDATED_AT" in columns:
+        update_fields.append("t.UPDATED_AT = SYSTIMESTAMP")
+        insert_cols.append("UPDATED_AT")
+        insert_vals.append("SYSTIMESTAMP")
+    if "UPDATED_BY" in columns:
+        update_fields.append("t.UPDATED_BY = :updated_by")
+        insert_cols.append("UPDATED_BY")
+        insert_vals.append(":updated_by")
+
+    merge_sql = f"""
+        MERGE INTO {RESEARCH_SETTINGS_TABLE} t
+        USING (SELECT 1 AS SETTINGS_ID FROM dual) s
+        ON (t.SETTINGS_ID = s.SETTINGS_ID)
+        WHEN MATCHED THEN
+            UPDATE SET {", ".join(update_fields)}
+        WHEN NOT MATCHED THEN
+            INSERT ({", ".join(insert_cols)})
+            VALUES ({", ".join(insert_vals)})
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            merge_sql,
+            {
+                "schedule_enabled": schedule_enabled,
+                "dev_noop": dev_noop,
+                "saver_mode": saver_mode,
+                "max_context_pct": max_context,
+                "updated_by": updated_by,
+            },
+        )
+    conn.commit()
 
 
 def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
