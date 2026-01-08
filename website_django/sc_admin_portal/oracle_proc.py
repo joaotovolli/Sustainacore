@@ -12,6 +12,7 @@ from core.oracle_db import get_connection
 JOB_TABLE = "PROC_GEMINI_JOBS"
 APPROVAL_TABLE = "PROC_GEMINI_APPROVALS"
 RESEARCH_REQUEST_TABLE = "PROC_RESEARCH_REQUESTS"
+RESEARCH_SETTINGS_TABLE = "PROC_RESEARCH_SETTINGS"
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,18 @@ def _normalize_oracle_scalar(value):
     if isinstance(value, (list, tuple)):
         return value[0] if value else None
     return value
+
+
+def _to_setting_value(value: object | None) -> str:
+    value = _materialize_value(value)
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.decode("latin-1", errors="ignore")
+    return str(value)
 
 
 def _table_exists(cursor: oracledb.Cursor, table_name: str) -> bool:
@@ -208,6 +221,74 @@ def list_recent_jobs(limit: int = 10, include_handed_off: bool = False) -> list[
         }
         for row in rows
     ]
+
+
+def get_research_settings() -> dict[str, str]:
+    sql = f"""
+        SELECT setting_key, setting_value
+        FROM {RESEARCH_SETTINGS_TABLE}
+    """
+    settings: dict[str, str] = {}
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            rows = cursor.fetchall() or []
+    for key, value in rows:
+        key_text = _to_setting_value(key).strip()
+        if not key_text:
+            continue
+        settings[key_text.upper()] = _to_setting_value(value)
+    return settings
+
+
+def set_research_settings(updates: dict[str, str], updated_by: str | None = None) -> None:
+    if not updates:
+        return
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            has_updated_at = _column_exists(cursor, RESEARCH_SETTINGS_TABLE, "UPDATED_AT")
+            has_updated_by = _column_exists(cursor, RESEARCH_SETTINGS_TABLE, "UPDATED_BY")
+            cursor.setinputsizes(setting_value=oracledb.DB_TYPE_CLOB)
+            for key, value in updates.items():
+                key_text = (key or "").strip().upper()
+                if not key_text:
+                    continue
+                setting_value = value if value is not None else ""
+                update_fields = ["t.setting_value = s.setting_value"]
+                insert_cols = ["setting_key", "setting_value"]
+                insert_vals = ["s.setting_key", "s.setting_value"]
+                if has_updated_at:
+                    update_fields.append("t.updated_at = SYSTIMESTAMP")
+                    insert_cols.append("updated_at")
+                    insert_vals.append("SYSTIMESTAMP")
+                if has_updated_by:
+                    update_fields.append("t.updated_by = s.updated_by")
+                    insert_cols.append("updated_by")
+                    insert_vals.append("s.updated_by")
+                merge_sql = f"""
+                    MERGE INTO {RESEARCH_SETTINGS_TABLE} t
+                    USING (
+                        SELECT :setting_key AS setting_key,
+                               :setting_value AS setting_value,
+                               :updated_by AS updated_by
+                        FROM dual
+                    ) s
+                    ON (t.setting_key = s.setting_key)
+                    WHEN MATCHED THEN
+                        UPDATE SET {", ".join(update_fields)}
+                    WHEN NOT MATCHED THEN
+                        INSERT ({", ".join(insert_cols)})
+                        VALUES ({", ".join(insert_vals)})
+                """
+                cursor.execute(
+                    merge_sql,
+                    {
+                        "setting_key": key_text,
+                        "setting_value": setting_value,
+                        "updated_by": updated_by,
+                    },
+                )
+        conn.commit()
 
 
 def list_pending_approvals(limit: int = 50) -> list[dict[str, object]]:
