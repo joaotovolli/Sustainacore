@@ -83,6 +83,9 @@ def test_pipeline_skip_ingest(monkeypatch):
     _patch_health(monkeypatch)
 
     monkeypatch.setenv("SC_IDX_PIPELINE_SKIP_INGEST", "1")
+    monkeypatch.delenv("MARKET_DATA_API_BASE_URL", raising=False)
+    monkeypatch.delenv("SC_MARKET_DATA_API_KEY", raising=False)
+    monkeypatch.delenv("MARKET_DATA_API_KEY", raising=False)
     monkeypatch.setattr(pipeline, "PipelineStateStore", lambda pipeline_name=None: store)
 
     update_mod = types.ModuleType("tools.index_engine.update_trading_days")
@@ -133,7 +136,7 @@ def test_pipeline_skip_ingest(monkeypatch):
     exit_code = pipeline.main([])
     assert exit_code == 0
     assert "ingest" not in calls
-    assert calls == ["update_trading_days", "completeness", "calc_index", "impute"]
+    assert calls == ["completeness", "calc_index", "impute"]
 
 
 def test_pipeline_advances_next_missing_day(monkeypatch):

@@ -13,6 +13,8 @@ Systemd units load (in order):
 - `/etc/sustainacore/db.env` (Oracle + non-secret defaults)
 - `/etc/sustainacore-ai/secrets.env` (API keys / SMTP secrets)
 - `/etc/sustainacore/index.env` (non-secret SC_IDX runtime config, including `MARKET_DATA_API_BASE_URL`)
+- `/etc/sustainacore/index.env` (non-secret SC_IDX runtime config, including `MARKET_DATA_API_BASE_URL`)
+- `/etc/sustainacore-ai/secrets.env` (API keys / SMTP secrets)
 
 ## Repo checkout used by systemd
 - Units run from `/home/opc/Sustainacore` with `PYTHONPATH=/home/opc/Sustainacore`.

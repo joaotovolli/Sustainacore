@@ -20,7 +20,7 @@ Environment:
 
 - `SC_MARKET_DATA_API_KEY` or `MARKET_DATA_API_KEY` must be set (never logged).
 - `MARKET_DATA_API_BASE_URL` must be set (base URL for the provider API).
-- All index-engine CLI tools auto-load environment files (best-effort) on startup via `tools/index_engine/env_loader.py`, reading (in order): `/etc/sustainacore/db.env` then `/etc/sustainacore-ai/secrets.env`. Explicit shell env vars still win.
+- All index-engine CLI tools auto-load environment files (best-effort) on startup via `tools/index_engine/env_loader.py`, reading (in order): `/etc/sustainacore/db.env`, `/etc/sustainacore/index.env`, then `/etc/sustainacore-ai/secrets.env`. Explicit shell env vars still win.
 - `SC_IDX_MARKET_DATA_DAILY_LIMIT` sets the daily call ceiling (default 800).
 - `SC_IDX_MARKET_DATA_DAILY_BUFFER` reserves extra headroom near the daily cap (default 25; alias `SC_IDX_MARKET_DATA_CREDIT_BUFFER` for back-compat).
 - Provider throttle override (rarely needed): `SC_IDX_MARKET_DATA_CALLS_PER_WINDOW` (default 6) and `SC_IDX_MARKET_DATA_WINDOW_SECONDS` (default 120). All provider calls are serialized via `/tmp/sc_idx_market_data.lock` to avoid cross-process spikes.
