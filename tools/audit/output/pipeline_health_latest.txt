@@ -1,0 +1,17 @@
+calendar_max_date=2026-01-08
+canon_max_date=2026-01-08
+canon_count_latest_day=105
+levels_max_date=2026-01-08
+level_latest=1093.159863
+stats_max_date=2026-01-08
+ret_1d_latest=-0.004675610548128595
+contrib_max_date=2026-01-08
+contrib_count_latest_day=25
+next_missing_trading_day=None
+oracle_error_counts_24h=13
+last_error=None
+stage_duration_impute_sec=3.61
+stage_duration_update_trading_days_sec=0.48
+stage_duration_calc_index_sec=0.51
+stage_duration_ingest_prices_sec=23.67
+stage_duration_completeness_check_sec=0.59

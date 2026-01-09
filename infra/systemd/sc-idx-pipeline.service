@@ -6,17 +6,21 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=opc
-WorkingDirectory=/opt/sustainacore-ai
-Environment=PYTHONPATH=/opt/sustainacore-ai
+WorkingDirectory=/home/opc/Sustainacore
+Environment=PYTHONPATH=/home/opc/Sustainacore
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/etc/sustainacore/db.env
 EnvironmentFile=/etc/sustainacore-ai/secrets.env
+EnvironmentFile=/etc/sustainacore/index.env
+RuntimeMaxSec=3600
 ExecStartPre=/usr/bin/test -r /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/test -r /etc/sustainacore-ai/secrets.env
-ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore-ai/secrets.env
+ExecStartPre=/usr/bin/test -r /etc/sustainacore/index.env
+ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore-ai/secrets.env /etc/sustainacore/index.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env
-ExecStart=/usr/bin/flock -n /tmp/sc_idx_pipeline.lock /usr/bin/python3 /opt/sustainacore-ai/tools/index_engine/run_pipeline.py
+ExecStartPre=/usr/bin/namei -l /etc/sustainacore/index.env
+ExecStart=/usr/bin/flock -n /tmp/sc_idx_pipeline.lock /usr/bin/python3 /home/opc/Sustainacore/tools/index_engine/run_pipeline.py
 Restart=on-failure
 RestartSec=10
 
