@@ -11,6 +11,8 @@
 ## Environment files
 Systemd units load (in order):
 - `/etc/sustainacore/db.env` (Oracle + non-secret defaults)
+- `/etc/sustainacore-ai/secrets.env` (API keys / SMTP secrets)
+- `/etc/sustainacore/index.env` (non-secret SC_IDX runtime config, including `MARKET_DATA_API_BASE_URL`)
 - `/etc/sustainacore/index.env` (non-secret SC_IDX runtime config, including `MARKET_DATA_API_BASE_URL`)
 - `/etc/sustainacore-ai/secrets.env` (API keys / SMTP secrets)
 
@@ -25,12 +27,26 @@ Do not print env contents in logs or docs.
 - Completeness check: weekdays `00:10`
 - Index calc: `01:30`
 
+## Lock + runtime guardrails
+- Ingest + pipeline use a shared file lock: `/tmp/sc_idx_pipeline.lock` via `flock -n`.
+- Runtime limits (systemd): `RuntimeMaxSec=7200` for ingest, `RuntimeMaxSec=3600` for pipeline.
+
 ## Status + logs
 ```bash
 systemctl list-timers --all | rg -i "sc-idx"
 systemctl status sc-idx-pipeline.service
 sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
 ```
+
+## Healthy signals
+- Latest `SC_IDX_JOB_RUNS` for `sc_idx_pipeline` is `OK` with `error_msg` showing `last_error=None`.
+- `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, `SC_IDX_STATS_DAILY` max dates align.
+- `tools/audit/output/pipeline_health_latest.txt` exists and `last_error` is empty/none.
+
+## If stuck
+- Safe retry: `sudo systemctl restart sc-idx-pipeline.service`
+- Force a fresh pipeline run only if state is stale: `python3 tools/index_engine/run_pipeline.py --restart`
+- Do not delete `SC_IDX_PIPELINE_STATE` unless following the emergency procedure in the ops checklist.
 
 ## Manual run (same env as timer)
 ```bash
