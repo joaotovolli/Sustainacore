@@ -25,6 +25,7 @@ If the environment variables are only available via root-only env files, run via
 sudo -n systemd-run --wait --collect --pipe --unit=sc-idx-backfill \
   --working-directory=/home/opc/Sustainacore \
   -p EnvironmentFile=/etc/sustainacore/db.env \
+  -p EnvironmentFile=/etc/sustainacore/index.env \
   -p EnvironmentFile=/etc/sustainacore-ai/app.env \
   -p EnvironmentFile=/etc/sustainacore-ai/secrets.env \
   -- python3 tools/index_engine/backfill_prices.py --date 2026-01-02 --debug

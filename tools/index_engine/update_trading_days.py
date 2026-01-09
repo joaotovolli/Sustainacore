@@ -67,6 +67,7 @@ def update_trading_days(
     load_env_files(
         paths=(
             "/etc/sustainacore/db.env",
+            "/etc/sustainacore/index.env",
             "/etc/sustainacore-ai/app.env",
             "/etc/sustainacore-ai/secrets.env",
         )

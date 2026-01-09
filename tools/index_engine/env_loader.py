@@ -42,6 +42,7 @@ def load_default_env() -> None:
     """Load known env files used by SC_IDX services (best-effort)."""
 
     load_env_file("/etc/sustainacore/db.env")
+    load_env_file("/etc/sustainacore/index.env")
     load_env_file("/etc/sustainacore-ai/secrets.env")
 
 
