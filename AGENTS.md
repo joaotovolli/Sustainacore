@@ -137,6 +137,7 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Oracle retry knobs: `SC_IDX_ORACLE_RETRY_ATTEMPTS` (default 5) and `SC_IDX_ORACLE_RETRY_BASE_SEC` (default 1).
 - Impute guardrails: `SC_IDX_IMPUTE_LOOKBACK_DAYS` (default 30) and `SC_IDX_IMPUTE_TIMEOUT_SEC` (default 300).
 - Oracle evidence files on failure: `tools/audit/output/oracle_health_*.txt` (no secrets).
+- Systemd SC_IDX units load `/etc/sustainacore/index.env` for non-secret pipeline config (e.g., `MARKET_DATA_API_BASE_URL`).
 
 ## GitHub Hygiene: Commits & PRs
 - Commit messages: imperative subject, <= 72 chars, no trailing period.
