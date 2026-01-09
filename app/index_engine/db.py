@@ -6,6 +6,15 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 from db_helper import get_connection
 
+TICKER_ALIASES = {"FI": "FISV"}
+
+
+def normalize_ticker(value: str) -> str:
+    """Normalize tickers to canonical aliases."""
+
+    cleaned = value.strip().upper()
+    return TICKER_ALIASES.get(cleaned, cleaned)
+
 
 def fetch_constituent_tickers(trade_date: _dt.date) -> list[str]:
     """
@@ -38,7 +47,7 @@ def fetch_constituent_tickers(trade_date: _dt.date) -> list[str]:
         for row in rows:
             if not row or row[0] is None:
                 continue
-            cleaned = str(row[0]).strip().upper()
+            cleaned = normalize_ticker(str(row[0]))
             if cleaned:
                 tickers.append(cleaned)
         return tickers
@@ -68,7 +77,7 @@ def fetch_distinct_tech100_tickers() -> list[str]:
         for row in rows:
             if not row or row[0] is None:
                 continue
-            cleaned = str(row[0]).strip().upper()
+            cleaned = normalize_ticker(str(row[0]))
             if cleaned:
                 tickers.append(cleaned)
         return tickers
@@ -110,7 +119,7 @@ def fetch_impacted_tickers_for_port_date(port_date: _dt.date) -> list[str]:
         for row in rows:
             if not row or row[0] is None:
                 continue
-            cleaned = str(row[0]).strip().upper()
+            cleaned = normalize_ticker(str(row[0]))
             if cleaned:
                 tickers.append(cleaned)
         return tickers
@@ -170,7 +179,7 @@ def fetch_missing_real_for_trade_date(trade_date: _dt.date, impacted: Optional[l
         for row in rows:
             if not row or row[0] is None:
                 continue
-            cleaned = str(row[0]).strip().upper()
+            cleaned = normalize_ticker(str(row[0]))
             if cleaned:
                 missing.append(cleaned)
         return missing

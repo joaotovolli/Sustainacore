@@ -31,6 +31,12 @@ from index_engine.reconcile import reconcile_canonical
 from providers.market_data_provider import fetch_eod_prices, fetch_single_day_bar
 
 PROVIDER = "MARKET_DATA"
+TICKER_ALIASES = {"FI": "FISV"}
+
+
+def _normalize_ticker(value: str) -> str:
+    cleaned = value.strip().upper()
+    return TICKER_ALIASES.get(cleaned, cleaned)
 
 
 def _parse_date(value: str) -> _dt.date:
@@ -55,7 +61,7 @@ def _split_tickers(raw: Optional[str]) -> list[str]:
         return []
     tickers: List[str] = []
     for part in raw.split(","):
-        cleaned = part.strip().upper()
+        cleaned = _normalize_ticker(part)
         if cleaned:
             tickers.append(cleaned)
     return tickers
@@ -75,7 +81,7 @@ def _build_raw_rows_from_provider(provider_rows: list[dict]) -> list[dict]:
             trade_date = _dt.date.fromisoformat(str(row.get("trade_date")))
         except Exception:
             continue
-        ticker = str(row.get("ticker") or "").upper()
+        ticker = _normalize_ticker(str(row.get("ticker") or ""))
         if not ticker:
             continue
         close_px = row.get("close")
