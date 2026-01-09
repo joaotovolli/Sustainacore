@@ -138,6 +138,11 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Impute guardrails: `SC_IDX_IMPUTE_LOOKBACK_DAYS` (default 30) and `SC_IDX_IMPUTE_TIMEOUT_SEC` (default 300).
 - Oracle evidence files on failure: `tools/audit/output/oracle_health_*.txt` (no secrets).
 
+## FI -> FISV Normalization (VM1)
+- Ticker normalization is enforced in ingest + DB helpers: `FI` is mapped to `FISV`.
+- Migration tool: `tools/db_migrations/migrate_fi_to_fisv.py` (dry-run default, `--apply` to write).
+- Rollback via backup tables `SC_BAK_FI_FISV_*` created per apply run.
+
 ## GitHub Hygiene: Commits & PRs
 - Commit messages: imperative subject, <= 72 chars, no trailing period.
 - Prefer logical commits for distinct changes; avoid noisy commits like "WIP", "fix", "temp".

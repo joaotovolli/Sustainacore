@@ -5,6 +5,7 @@ import datetime as _dt
 from typing import Iterable, Optional
 
 from db_helper import get_connection
+from index_engine.db import normalize_ticker
 
 INDEX_CODE = "TECH100"
 
@@ -192,7 +193,7 @@ def fetch_universe(trade_date: _dt.date) -> tuple[_dt.date | None, list[str]]:
         for _, ticker in rows:
             if ticker is None:
                 continue
-            cleaned = str(ticker).strip().upper()
+            cleaned = normalize_ticker(str(ticker))
             if cleaned:
                 tickers.append(cleaned)
         return port_date, tickers
