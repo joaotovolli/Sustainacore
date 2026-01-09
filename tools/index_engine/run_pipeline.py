@@ -226,6 +226,9 @@ def main(argv: List[str] | None = None) -> int:
     args = _parse_args(argv)
     load_default_env()
     skip_ingest = os.getenv("SC_IDX_PIPELINE_SKIP_INGEST") == "1"
+    provider_base = os.getenv("MARKET_DATA_API_BASE_URL")
+    provider_key = os.getenv("SC_MARKET_DATA_API_KEY") or os.getenv("MARKET_DATA_API_KEY")
+    provider_ready = bool(provider_base and provider_key)
 
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     head_commit = _git_head()
@@ -300,6 +303,8 @@ def main(argv: List[str] | None = None) -> int:
     def _stage_update_trading_days(_args: List[str]) -> tuple[int, str]:
         from tools.index_engine import update_trading_days
 
+        if skip_ingest and not provider_ready:
+            return 0, "calendar_skip_missing_provider_env"
         update_trading_days.update_trading_days(auto_extend=True)
         return 0, "calendar_refreshed"
 

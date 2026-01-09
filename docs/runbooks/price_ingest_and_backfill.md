@@ -25,6 +25,7 @@ If the environment variables are only available via root-only env files, run via
 sudo -n systemd-run --wait --collect --pipe --unit=sc-idx-backfill \
   --working-directory=/home/opc/Sustainacore \
   -p EnvironmentFile=/etc/sustainacore/db.env \
+  -p EnvironmentFile=/etc/sustainacore/index.env \
   -p EnvironmentFile=/etc/sustainacore-ai/app.env \
   -p EnvironmentFile=/etc/sustainacore-ai/secrets.env \
   -- python3 tools/index_engine/backfill_prices.py --date 2026-01-02 --debug
@@ -64,6 +65,28 @@ SELECT MAX(trade_date) FROM SC_IDX_LEVELS;
 - If `SC_IDX_TRADING_DAYS` lags behind the provider latest EOD date, the daily run will fail with
   `trading_days_behind_provider` and should be retried after refreshing the calendar.
 - If `missing_prices_for_date` appears, re-run a single-day backfill for the reported trade date.
+
+## FI -> FISV migration
+To permanently replace ticker `FI` with `FISV` across history, run the migration tool:
+
+```bash
+python3 tools/db_migrations/migrate_fi_to_fisv.py          # dry-run (default)
+python3 tools/db_migrations/migrate_fi_to_fisv.py --apply  # apply with backups
+```
+
+Artifacts are written to:
+- `tools/audit/output/fi_to_fisv_migration_report.md`
+- `tools/audit/output/fi_to_fisv_collisions.csv`
+- rollback backups in `SC_BAK_FI_FISV_*` tables
+
+After applying, recompute index outputs for the affected window and verify:
+
+```bash
+PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/calc_index.py \
+  --start 2026-01-05 --end 2026-01-08 --strict --debug --no-preflight-self-heal
+PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/check_price_completeness.py \
+  --start 2026-01-08 --end 2026-01-08 --min-daily-coverage 1.0 --max-bad-days 0 --allow-canon-close
+```
 
 ## Pipeline health + resume
 The daily pipeline writes a compact health snapshot to:
