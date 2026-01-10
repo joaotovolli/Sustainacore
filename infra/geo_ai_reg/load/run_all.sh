@@ -3,10 +3,11 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: run_all.sh --bundle <path> [--drop-and-recreate] [--truncate] [--dry-run]
+Usage: run_all.sh --bundle <path> | --dir <path> [--drop-and-recreate] [--truncate] [--dry-run]
 
 Options:
-  --bundle <path>        Path to the bundle zip or extracted folder
+  --bundle <path>        Path to the bundle zip
+  --dir <path>           Path to extracted bundle directory
   --drop-and-recreate    Drop tables and reapply DDL before loading
   --truncate             Truncate tables before loading
   --dry-run              Show load order and CSV counts without DB writes
@@ -14,6 +15,7 @@ EOF
 }
 
 bundle_path=""
+bundle_dir=""
 drop_and_recreate=false
 truncate=false
 dry_run=false
@@ -22,6 +24,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --bundle)
       bundle_path="${2:-}"
+      shift 2
+      ;;
+    --dir)
+      bundle_dir="${2:-}"
       shift 2
       ;;
     --drop-and-recreate)
@@ -48,9 +54,14 @@ while [[ $# -gt 0 ]]; do
   esac
  done
 
-if [[ -z "$bundle_path" ]]; then
-  echo "Missing --bundle" >&2
+if [[ -z "$bundle_path" && -z "$bundle_dir" ]]; then
+  echo "Missing --bundle or --dir" >&2
   usage
+  exit 2
+fi
+
+if [[ -n "$bundle_path" && -n "$bundle_dir" ]]; then
+  echo "Choose only one of --bundle or --dir" >&2
   exit 2
 fi
 
@@ -61,7 +72,11 @@ fi
 
 python3 tools/oracle/preflight_oracle.py
 
-cmd=(python3 infra/geo_ai_reg/load/load_bundle.py --bundle "$bundle_path")
+if [[ -n "$bundle_dir" ]]; then
+  cmd=(python3 infra/geo_ai_reg/load/load_bundle.py --dir "$bundle_dir")
+else
+  cmd=(python3 infra/geo_ai_reg/load/load_bundle.py --bundle "$bundle_path")
+fi
 if [[ "$drop_and_recreate" == "true" ]]; then
   cmd+=(--drop-and-recreate)
 fi

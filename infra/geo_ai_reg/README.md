@@ -25,9 +25,24 @@ Keep the bundle in place or unzip it into a working folder:
 
 ```bash
 cd /home/opc/Sustainacore
-mkdir -p infra/geo_ai_reg/bundle
-unzip -o /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip -d infra/geo_ai_reg/bundle
+rm -rf /tmp/ai_reg_bundle_work
+mkdir -p /tmp/ai_reg_bundle_work
+unzip -o /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip -d /tmp/ai_reg_bundle_work
 ```
+
+## Patch missing AS_OF_DATE values (bundle fix)
+If the CSVs contain blank `AS_OF_DATE` values, patch the extracted bundle in-place
+using the patcher (day-first parsing is default for this dataset):
+
+```bash
+cd /home/opc/Sustainacore
+python3 infra/geo_ai_reg/load/patch_bundle_csvs.py \
+  --input-dir /tmp/ai_reg_bundle_work \
+  --day-first
+```
+
+Patch audit output is appended to:
+`infra/geo_ai_reg/output/patch_audit.md`.
 
 ## Apply the DDL
 If this is a fresh schema (or you need a clean rebuild), apply the DDL.
@@ -35,7 +50,7 @@ If this is a fresh schema (or you need a clean rebuild), apply the DDL.
 ```bash
 cd /home/opc/Sustainacore
 python3 infra/geo_ai_reg/load/load_bundle.py \
-  --bundle /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip \
+  --dir /tmp/ai_reg_bundle_work \
   --ddl-only
 ```
 
@@ -44,17 +59,17 @@ To drop and recreate all tables before applying the DDL:
 ```bash
 cd /home/opc/Sustainacore
 python3 infra/geo_ai_reg/load/load_bundle.py \
-  --bundle /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip \
+  --dir /tmp/ai_reg_bundle_work \
   --drop-and-recreate --ddl-only
 ```
 
 ## Load the CSVs
-Default load (appends new snapshots; preserves history):
+Default load (appends new snapshots; preserves history) from the extracted directory:
 
 ```bash
 cd /home/opc/Sustainacore
 ./infra/geo_ai_reg/load/run_all.sh \
-  --bundle /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip
+  --dir /tmp/ai_reg_bundle_work
 ```
 
 Reload a clean dataset (drops and recreates tables first):
@@ -62,7 +77,7 @@ Reload a clean dataset (drops and recreates tables first):
 ```bash
 cd /home/opc/Sustainacore
 ./infra/geo_ai_reg/load/run_all.sh \
-  --bundle /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip \
+  --dir /tmp/ai_reg_bundle_work \
   --drop-and-recreate
 ```
 
@@ -71,7 +86,7 @@ Reload into existing schema by truncating tables:
 ```bash
 cd /home/opc/Sustainacore
 ./infra/geo_ai_reg/load/run_all.sh \
-  --bundle /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip \
+  --dir /tmp/ai_reg_bundle_work \
   --truncate
 ```
 
@@ -80,7 +95,7 @@ Dry-run (shows dependency order + CSV row counts, no DB writes):
 ```bash
 cd /home/opc/Sustainacore
 ./infra/geo_ai_reg/load/run_all.sh \
-  --bundle /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip \
+  --dir /tmp/ai_reg_bundle_work \
   --dry-run
 ```
 
