@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Global AI Regulation | SustainaCore{% endblock %}
+{% block meta_description %}Explore AI regulation snapshots by jurisdiction with global coverage and drilldowns.{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+  <div class="shell">
+    <div class="section__header">
+      <div>
+        <span class="pill pill--soft">Global AI Regulation</span>
+        <h1>Regulatory coverage by jurisdiction</h1>
+        <p class="muted">Snapshots of AI regulation status, evidence coverage, and milestones across the world.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__header card__header--split">
+        <div>
+          <h2 class="h4">Explore the global dataset</h2>
+          <p class="muted">Select a snapshot date and drill down into a jurisdiction to inspect instruments and sources.</p>
+        </div>
+        <div class="card__actions">
+          <label>
+            As-of date
+            <select name="as_of" id="ai-reg-as-of" data-endpoint="/ai-regulation/data/as-of-dates">
+              {% if as_of_dates %}
+                {% for d in as_of_dates %}
+                  <option value="{{ d }}" {% if d == latest_as_of %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="">No snapshots available</option>
+              {% endif %}
+            </select>
+          </label>
+          <label>
+            Status
+            <select name="status" disabled>
+              <option value="">All statuses (coming soon)</option>
+            </select>
+          </label>
+          <label>
+            Instrument type
+            <select name="type" disabled>
+              <option value="">All types (coming soon)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="cards cards--list">
+        <div class="card card--lined">
+          <div class="card__header">
+            <h3 class="h5">Global snapshot</h3>
+            <p class="muted">3D globe visualization placeholder.</p>
+          </div>
+          <div
+            class="muted"
+            data-map-container
+            style="min-height: 360px; border: 1px dashed var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center;"
+          >
+            Globe rendering will appear here.
+          </div>
+        </div>
+        <div class="card card--lined">
+          <div class="card__header">
+            <h3 class="h5">Jurisdiction drilldown</h3>
+            <p class="muted">Select a country on the globe to load instruments, milestones, and sources.</p>
+          </div>
+          <div class="muted" data-drilldown-panel>
+            Waiting for a jurisdiction selection.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
