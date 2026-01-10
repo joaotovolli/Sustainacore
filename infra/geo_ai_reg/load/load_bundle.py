@@ -9,6 +9,7 @@ import io
 import os
 import re
 import sys
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from decimal import Decimal
@@ -158,6 +159,8 @@ def _parse_date(value: str) -> Optional[dt.date]:
             return None
 
 
+
+
 def _parse_timestamp(value: str) -> Optional[dt.datetime]:
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
         try:
@@ -208,6 +211,8 @@ def _reader_from_bundle(bundle_file: BundleFile) -> Iterator[List[str]]:
             yield row
 
 
+
+
 def _count_csv_rows(bundle_file: BundleFile) -> Tuple[List[str], int]:
     iterator = _reader_from_bundle(bundle_file)
     try:
@@ -219,6 +224,17 @@ def _count_csv_rows(bundle_file: BundleFile) -> Tuple[List[str], int]:
         if not row:
             continue
         row_count += 1
+    return header, row_count
+
+
+def _count_csv_rows_from_path(path: Path) -> Tuple[List[str], int]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.reader(handle)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return [], 0
+        row_count = sum(1 for row in reader if row)
     return header, row_count
 
 
@@ -238,61 +254,62 @@ def _inputsizes(columns: Sequence[str], column_types: Mapping[str, str]) -> Opti
 def _load_table(
     conn,
     table: TableSpec,
-    bundle_file: BundleFile,
+    csv_path: Path,
     *,
     dry_run: bool,
     batch_size: int,
 ) -> Tuple[int, int]:
-    iterator = _reader_from_bundle(bundle_file)
-    try:
-        header = next(iterator)
-    except StopIteration:
-        return 0, 0
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        iterator = csv.reader(handle)
+        try:
+            header = next(iterator)
+        except StopIteration:
+            return 0, 0
 
-    columns = [col.strip() for col in header]
-    columns_upper = [col.upper() for col in columns]
-    insert_sql = (
-        f"INSERT INTO {table.name} (" + ",".join(columns_upper) + ") "
-        f"VALUES (" + ",".join(f":{idx + 1}" for idx in range(len(columns_upper))) + ")"
-    )
+        columns = [col.strip() for col in header]
+        columns_upper = [col.upper() for col in columns]
+        insert_sql = (
+            f"INSERT INTO {table.name} (" + ",".join(columns_upper) + ") "
+            f"VALUES (" + ",".join(f":{idx + 1}" for idx in range(len(columns_upper))) + ")"
+        )
 
-    expected_rows = 0
-    loaded_rows = 0
-    batch: List[List[object]] = []
+        expected_rows = 0
+        loaded_rows = 0
+        batch: List[List[object]] = []
 
-    if dry_run:
+        if dry_run:
+            for row in iterator:
+                if not row:
+                    continue
+                expected_rows += 1
+            return expected_rows, 0
+
+        cur = conn.cursor()
+        sizes = _inputsizes(columns_upper, table.columns)
+        if sizes:
+            cur.setinputsizes(*sizes)
+
         for row in iterator:
             if not row:
                 continue
             expected_rows += 1
-        return expected_rows, 0
+            if len(row) < len(columns_upper):
+                row = row + [""] * (len(columns_upper) - len(row))
+            values = [
+                _normalize_value(row[idx], table.columns.get(columns_upper[idx]))
+                for idx in range(len(columns_upper))
+            ]
+            batch.append(values)
+            if len(batch) >= batch_size:
+                cur.executemany(insert_sql, batch)
+                loaded_rows += len(batch)
+                batch = []
 
-    cur = conn.cursor()
-    sizes = _inputsizes(columns_upper, table.columns)
-    if sizes:
-        cur.setinputsizes(*sizes)
-
-    for row in iterator:
-        if not row:
-            continue
-        expected_rows += 1
-        if len(row) < len(columns_upper):
-            row = row + [""] * (len(columns_upper) - len(row))
-        values = [
-            _normalize_value(row[idx], table.columns.get(columns_upper[idx]))
-            for idx in range(len(columns_upper))
-        ]
-        batch.append(values)
-        if len(batch) >= batch_size:
+        if batch:
             cur.executemany(insert_sql, batch)
             loaded_rows += len(batch)
-            batch = []
 
-    if batch:
-        cur.executemany(insert_sql, batch)
-        loaded_rows += len(batch)
-
-    return expected_rows, loaded_rows
+        return expected_rows, loaded_rows
 
 
 def _table_count(conn, table_name: str) -> int:
@@ -331,7 +348,9 @@ def _resolve_bundle_path(path: str) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Load AI regulation bundle into Oracle")
-    parser.add_argument("--bundle", required=True, help="Path to bundle zip or extracted folder")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--bundle", help="Path to bundle zip")
+    group.add_argument("--dir", dest="bundle_dir", help="Path to extracted bundle directory")
     parser.add_argument("--drop-and-recreate", action="store_true", help="Drop all tables and recreate schema")
     parser.add_argument("--truncate", action="store_true", help="Truncate tables before loading")
     parser.add_argument("--ddl-only", action="store_true", help="Apply DDL and exit")
@@ -339,7 +358,12 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=500, help="Rows per batch insert")
     args = parser.parse_args()
 
-    bundle_path = _resolve_bundle_path(args.bundle)
+    bundle_path = _resolve_bundle_path(args.bundle or args.bundle_dir)
+    if args.bundle and _is_zip(bundle_path):
+        temp_dir = Path(tempfile.mkdtemp(prefix="ai_reg_bundle_"))
+        with zipfile.ZipFile(bundle_path) as archive:
+            archive.extractall(temp_dir)
+        bundle_path = temp_dir
     ddl_file, csv_files = _find_bundle_files(bundle_path)
 
     with ddl_file.opener() as handle:
@@ -355,7 +379,9 @@ def main() -> int:
     load_order = _toposort(tables)
     reverse_order = list(reversed(load_order))
 
-    csv_table_names = {Path(name).stem.upper(): bundle for name, bundle in csv_files.items()}
+    csv_table_names: Dict[str, Path] = {}
+    for upper_name, bundle_file in csv_files.items():
+        csv_table_names[Path(upper_name).stem.upper()] = bundle_path / Path(bundle_file.name).name
     tables_with_csv = [name for name in load_order if name in csv_table_names]
     missing_csv = sorted(name for name in tables if name not in csv_table_names)
     extra_csv = sorted(name for name in csv_table_names if name not in tables)
@@ -370,7 +396,7 @@ def main() -> int:
         print(f"ddl_file={ddl_file.name}")
         print("load_order=" + ",".join(tables_with_csv))
         for table_name in tables_with_csv:
-            header, count = _count_csv_rows(csv_table_names[table_name])
+            header, count = _count_csv_rows_from_path(csv_table_names[table_name])
             print(f"table={table_name} csv_rows={count} columns={len(header)}")
         return 0
 
@@ -393,11 +419,10 @@ def main() -> int:
 
         for table_name in tables_with_csv:
             table = tables[table_name]
-            bundle_file = csv_table_names[table_name]
             expected_rows, loaded_rows = _load_table(
                 conn,
                 table,
-                bundle_file,
+                csv_table_names[table_name],
                 dry_run=False,
                 batch_size=args.batch_size,
             )
