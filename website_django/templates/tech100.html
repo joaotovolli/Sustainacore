@@ -23,6 +23,19 @@
 
     {% include "partials/tech100_nav.html" %}
 
+    <div class="card card--lined">
+      <div class="card__header card__header--split">
+        <div>
+          <span class="pill pill--soft">AI Regulation</span>
+          <h2 class="h4">Compare governance scores with global regulation coverage</h2>
+          <p class="muted">Jump to the AI Regulation globe to see jurisdiction-level instruments and milestones.</p>
+        </div>
+        <div class="card__actions">
+          <a class="btn btn--secondary" href="/ai-regulation/">Open AI Regulation</a>
+        </div>
+      </div>
+    </div>
+
     {% if tech100_error %}
       <div class="alert alert--warning">
         Live TECH100 data is temporarily unavailable; please try again later.
