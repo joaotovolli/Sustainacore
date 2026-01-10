@@ -19,6 +19,7 @@ const NAME_ALIASES = new Map([
 const GEOJSON_REMOTE_FALLBACK =
   'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
 const ISO2_PROPERTY_CANDIDATES = ['ISO_A2', 'iso_a2', 'ISO2', 'iso2', 'ISO_2'];
+const DEFAULT_POV = { lat: 20, lng: 0, altitude: 2.1 };
 
 const state = {
   asOf: null,
@@ -35,7 +36,8 @@ const state = {
   flatMap: null,
   hover: null,
   mapMode: '3d',
-  mapErrorEl: null
+  mapErrorEl: null,
+  defaultPov: DEFAULT_POV
 };
 
 const formatNumber = (value) => (Number.isFinite(value) ? value.toLocaleString() : '—');
@@ -259,6 +261,15 @@ const initGlobe = async (container, tooltip) => {
     tooltip.style.top = `${event.clientY - bounds.top}px`;
   });
 
+  const controls = globe.controls();
+  if (controls) {
+    controls.enableZoom = true;
+    controls.zoomSpeed = 0.7;
+    controls.enablePan = false;
+    controls.minDistance = 140;
+    controls.maxDistance = 520;
+  }
+
   return globe;
 };
 
@@ -288,6 +299,8 @@ const initFallbackMap = (container, tooltip, geoData) => {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
   container.appendChild(svg);
 
   const project = ([lon, lat]) => [
@@ -338,7 +351,106 @@ const initFallbackMap = (container, tooltip, geoData) => {
     paths.push({ element: pathEl, feature });
   });
 
-  return { svg, paths };
+  const viewBoxState = { x: 0, y: 0, width, height };
+  const minScale = 1;
+  const maxScale = 4.5;
+
+  const applyViewBox = () => {
+    svg.setAttribute(
+      'viewBox',
+      `${viewBoxState.x.toFixed(2)} ${viewBoxState.y.toFixed(2)} ${viewBoxState.width.toFixed(2)} ${viewBoxState.height.toFixed(2)}`
+    );
+  };
+
+  const clampViewBox = () => {
+    const maxX = width - viewBoxState.width;
+    const maxY = height - viewBoxState.height;
+    viewBoxState.x = Math.max(0, Math.min(viewBoxState.x, maxX));
+    viewBoxState.y = Math.max(0, Math.min(viewBoxState.y, maxY));
+  };
+
+  const resetView = () => {
+    viewBoxState.x = 0;
+    viewBoxState.y = 0;
+    viewBoxState.width = width;
+    viewBoxState.height = height;
+    applyViewBox();
+  };
+
+  svg.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const pointerX = (event.clientX - rect.left) / rect.width;
+      const pointerY = (event.clientY - rect.top) / rect.height;
+      const scale = width / viewBoxState.width;
+      const zoomFactor = Math.exp(-event.deltaY * 0.001);
+      const nextScale = Math.min(maxScale, Math.max(minScale, scale * zoomFactor));
+      const nextWidth = width / nextScale;
+      const nextHeight = height / nextScale;
+      const anchorX = viewBoxState.x + pointerX * viewBoxState.width;
+      const anchorY = viewBoxState.y + pointerY * viewBoxState.height;
+      viewBoxState.x = anchorX - pointerX * nextWidth;
+      viewBoxState.y = anchorY - pointerY * nextHeight;
+      viewBoxState.width = nextWidth;
+      viewBoxState.height = nextHeight;
+      clampViewBox();
+      applyViewBox();
+    },
+    { passive: false }
+  );
+
+  let isDragging = false;
+  let dragStart = null;
+
+  svg.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const rect = svg.getBoundingClientRect();
+    dragStart = {
+      x: event.clientX,
+      y: event.clientY,
+      viewBoxX: viewBoxState.x,
+      viewBoxY: viewBoxState.y,
+      width: viewBoxState.width,
+      height: viewBoxState.height,
+      rectWidth: rect.width,
+      rectHeight: rect.height
+    };
+    isDragging = false;
+    svg.setPointerCapture(event.pointerId);
+    svg.style.cursor = 'grabbing';
+  });
+
+  svg.addEventListener('pointermove', (event) => {
+    if (!dragStart) return;
+    const dx = event.clientX - dragStart.x;
+    const dy = event.clientY - dragStart.y;
+    if (!isDragging && Math.hypot(dx, dy) < 2) {
+      return;
+    }
+    isDragging = true;
+    const offsetX = (dx / dragStart.rectWidth) * dragStart.width;
+    const offsetY = (dy / dragStart.rectHeight) * dragStart.height;
+    viewBoxState.x = dragStart.viewBoxX - offsetX;
+    viewBoxState.y = dragStart.viewBoxY - offsetY;
+    clampViewBox();
+    applyViewBox();
+    event.preventDefault();
+  });
+
+  const endDrag = (event) => {
+    if (!dragStart) return;
+    dragStart = null;
+    svg.releasePointerCapture(event.pointerId);
+    svg.style.cursor = 'grab';
+  };
+
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointerleave', endDrag);
+  svg.style.cursor = 'grab';
+
+  return { svg, paths, resetView };
 };
 
 const setHeatmapIndex = (jurisdictions) => {
@@ -545,6 +657,7 @@ const setup = async () => {
   const globeContainer = root.querySelector('[data-globe]');
   const fallbackContainer = root.querySelector('[data-fallback]');
   const tooltip = root.querySelector('[data-tooltip]');
+  const resetButton = root.querySelector('[data-reset-view]');
   state.mapErrorEl = root.querySelector('[data-map-error]');
   clearMapError();
 
@@ -559,6 +672,14 @@ const setup = async () => {
 
   const force2d = window.__AI_REG_FORCE_2D === true;
   const canUseWebGL = isWebGLAvailable();
+  const resizeGlobe = () => {
+    if (!state.globe || !mapContainer) return;
+    const width = mapContainer.clientWidth || 0;
+    const height = mapContainer.clientHeight || 0;
+    if (!width || !height) return;
+    state.globe.width(width).height(height);
+  };
+
   if (!force2d && canUseWebGL && geoData) {
     try {
       state.globe = await initGlobe(globeContainer, tooltip);
@@ -580,12 +701,13 @@ const setup = async () => {
   }
 
   if (state.globe && geoData) {
+    resizeGlobe();
     state.globe
       .polygonsData(geoData.features)
       .polygonSideColor(() => 'rgba(15, 23, 42, 0.2)')
       .polygonsTransitionDuration(400);
-    state.globe.controls().autoRotate = true;
-    state.globe.controls().autoRotateSpeed = 0.6;
+    state.globe.pointOfView(state.defaultPov, 0);
+    state.globe.controls().autoRotate = false;
   }
 
   await refreshHeatmap(root, state.asOf);
@@ -598,6 +720,24 @@ const setup = async () => {
   if (mapContainer) {
     mapContainer.addEventListener('mouseleave', () => {
       tooltip.hidden = true;
+    });
+  }
+
+  if (mapContainer && state.globe) {
+    const observer = new ResizeObserver(() => {
+      resizeGlobe();
+    });
+    observer.observe(mapContainer);
+  }
+
+  if (resetButton) {
+    resetButton.addEventListener('click', () => {
+      if (state.globe) {
+        state.globe.pointOfView(state.defaultPov, 600);
+      }
+      if (state.flatMap?.resetView) {
+        state.flatMap.resetView();
+      }
     });
   }
 };

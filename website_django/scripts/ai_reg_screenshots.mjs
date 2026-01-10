@@ -125,6 +125,21 @@ const run = async () => {
     extraHTTPHeaders: hostHeader ? { Host: hostHeader } : undefined,
   });
   const page = await context.newPage();
+  const logLines = [];
+  page.on("console", (msg) => {
+    logLines.push(`[console:${msg.type()}] ${msg.text()}`);
+  });
+  page.on("pageerror", (err) => {
+    logLines.push(`[pageerror] ${err.message}`);
+  });
+  page.on("requestfailed", (request) => {
+    logLines.push(`[requestfailed] ${request.url()} ${request.failure()?.errorText || ""}`.trim());
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 400) {
+      logLines.push(`[response:${response.status()}] ${response.url()}`);
+    }
+  });
   process.stdout.write("Page created.\\n");
   page.setDefaultTimeout(timeoutMs);
   page.setDefaultNavigationTimeout(timeoutMs * 2);
@@ -190,6 +205,10 @@ const run = async () => {
     if (failures.length) {
       const failurePath = path.join(outDir, "ai_regulation_failures.txt");
       fs.writeFileSync(failurePath, failures.join("\n") + "\n");
+      if (logLines.length) {
+        const logPath = path.join(outDir, "ai_regulation_console.txt");
+        fs.writeFileSync(logPath, logLines.join("\n") + "\n");
+      }
       throw new Error(`Assertions failed:\n${failures.join("\n")}`);
     }
   }

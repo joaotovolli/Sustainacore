@@ -224,9 +224,9 @@ const run = async () => {
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD || "1",
     };
 
-  const screenshotProc = spawnSync(
+    const screenshotProc = spawnSync(
       "node",
-      ["scripts/ai_reg_screenshots.mjs", "--mode", requestedMode, "--base-url", baseUrl],
+      ["scripts/ai_reg_screenshots.mjs", "--mode", requestedMode, "--base-url", screenshotBaseUrl],
       { cwd: rootDir, stdio: "inherit", env }
     );
     if (screenshotProc.status !== 0) {
