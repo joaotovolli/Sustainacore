@@ -1,6 +1,7 @@
 # AI regulation Oracle load evidence
 
 Run metadata:
+<<<<<<< HEAD
 - Run date (UTC): 2026-01-10 16:37:39 UTC
 - Bundle: /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip
 - Bundle sha256: bf319ef396d507fb0f5c70d9423898646f16d3dc3eade324261bb31dfdafcbac
@@ -22,6 +23,13 @@ Patch summary:
 - STG_AI_REG_RECORD_RAW.csv: blanks fixed=95, derived as-of=2026-01-09
 
 Verification output (verify.sql):
+=======
+- Run date (UTC): TBD
+- Bundle: /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip
+- As-of date(s) in data: 2026-01-09
+
+Row counts (expected minimums from CSVs):
+>>>>>>> 8981e9a (Add GEO AI regulation Oracle loader and documentation)
 - DIM_LOAD_BATCH: 22
 - STG_AI_REG_RECORD_RAW: 439
 - DIM_JURISDICTION: 145
@@ -38,6 +46,7 @@ Verification output (verify.sql):
 - BRG_SNAPSHOT_SOURCE: 342
 - FACT_SNAPSHOT_MILESTONE_DATE: 97
 - BRG_SNAPSHOT_BATCH: 439
+<<<<<<< HEAD
 - AS_OF_RANGE: min=2026-01-09 max=2026-01-09
 - orphan_snapshot_jur: 0
 - orphan_snapshot_inst: 0
@@ -49,3 +58,15 @@ Verification output (verify.sql):
 
 Warnings:
 - None.
+=======
+
+Warnings:
+- Load not executed yet. Replace counts with actual DB counts after running verify.sql.
+- Update the run date and capture any loader warnings or row count mismatches.
+
+## How to fill this after running verify.sql
+1) Run the verification command in `infra/geo_ai_reg/README.md` and capture output.
+2) Replace the row counts above with the actual DB counts from verify.sql.
+3) Update the run date and record the min/max as-of date reported by verify.sql.
+4) Note any non-zero orphan counts or loader warnings in the Warnings section.
+>>>>>>> 8981e9a (Add GEO AI regulation Oracle loader and documentation)
