@@ -40,7 +40,8 @@ const state = {
   hover: null,
   mapMode: '3d',
   mapErrorEl: null,
-  defaultPov: DEFAULT_POV
+  defaultPov: DEFAULT_POV,
+  globeSize: { width: 0, height: 0 }
 };
 
 const formatNumber = (value) => (Number.isFinite(value) ? value.toLocaleString() : '—');
@@ -836,16 +837,31 @@ const setup = async () => {
     }
   }
 
+  let resizeRaf = null;
   const resizeGlobe = () => {
     if (!state.globe || !mapContainer) return;
-    const width = mapContainer.clientWidth || 0;
-    const height = mapContainer.clientHeight || 0;
+    const bounds = mapContainer.getBoundingClientRect();
+    const width = Math.round(bounds.width);
+    const height = Math.round(bounds.height);
     if (!width || !height) return;
+    const last = state.globeSize || { width: 0, height: 0 };
+    if (Math.abs(width - last.width) < 2 && Math.abs(height - last.height) < 2) {
+      return;
+    }
+    state.globeSize = { width, height };
     state.globe.width(width).height(height);
   };
 
+  const scheduleResize = () => {
+    if (resizeRaf) return;
+    resizeRaf = window.requestAnimationFrame(() => {
+      resizeRaf = null;
+      resizeGlobe();
+    });
+  };
+
   if (state.globe && geoData) {
-    resizeGlobe();
+    scheduleResize();
     state.globe
       .polygonsData(geoData.features)
       .polygonSideColor(() => 'rgba(15, 23, 42, 0.2)')
@@ -879,7 +895,7 @@ const setup = async () => {
 
   if (mapContainer && state.globe) {
     const observer = new ResizeObserver(() => {
-      resizeGlobe();
+      scheduleResize();
     });
     observer.observe(mapContainer);
   }
