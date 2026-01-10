@@ -1,7 +1,7 @@
 # AI regulation Oracle load evidence
 
 Run metadata:
-- Run date (UTC): 2026-01-10 16:37:39 UTC
+- Run date (UTC): 2026-01-10 17:02:56 UTC
 - Bundle: /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip
 - Bundle sha256: bf319ef396d507fb0f5c70d9423898646f16d3dc3eade324261bb31dfdafcbac
 - As-of date(s) in data: 2026-01-09
@@ -11,7 +11,7 @@ Commands executed:
 - `python3 tools/oracle/preflight_oracle.py`
 - `rm -rf /tmp/ai_reg_bundle_work && mkdir -p /tmp/ai_reg_bundle_work`
 - `unzip -q /home/opc/incoming/ai_reg/ai_reg_oracle_output_bundle.zip -d /tmp/ai_reg_bundle_work`
-- `python3 infra/geo_ai_reg/load/patch_bundle_csvs.py --input-dir /tmp/ai_reg_bundle_work --day-first`
+- `python3 infra/geo_ai_reg/load/patch_bundle_csvs.py --input-dir /tmp/ai_reg_bundle_work`
 - `python3 infra/geo_ai_reg/load/load_bundle.py --dir /tmp/ai_reg_bundle_work --drop-and-recreate --ddl-only`
 - `./infra/geo_ai_reg/load/run_all.sh --dir /tmp/ai_reg_bundle_work`
 - `python3 - <<'PY' ... infra/geo_ai_reg/sql/verify.sql ... PY`
