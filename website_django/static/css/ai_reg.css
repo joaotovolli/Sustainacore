@@ -18,7 +18,7 @@
 
 .ai-reg__map-shell {
   position: relative;
-  min-height: clamp(320px, 52vh, 640px);
+  height: clamp(360px, 55vh, 640px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -231,7 +231,7 @@
   }
 
   .ai-reg__map-shell {
-    min-height: 320px;
+    height: 320px;
   }
 
   .ai-reg__panel-metrics {
