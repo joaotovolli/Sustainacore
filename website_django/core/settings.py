@@ -82,6 +82,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sitemaps',
+    'ai_reg',
     'ask2',
     'telemetry',
     'sc_admin_portal',

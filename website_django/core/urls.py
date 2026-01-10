@@ -83,6 +83,7 @@ urlpatterns = [
         name="tech100_attribution_api",
     ),
     path("tech100/stats/data/", tech100_index_views.api_tech100_stats, name="tech100_stats_api"),
+    path("ai-regulation/", include("ai_reg.urls")),
     path("news/", views.news, name="news"),
     path("news/admin/", views.news_admin, name="news_admin"),
     path("news/assets/<int:asset_id>/", views.news_asset, name="news_asset"),
