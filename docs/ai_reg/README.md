@@ -110,3 +110,7 @@ All queries target the GEO AI regulation schema created by the loader in `infra/
 ## Caching
 
 Heatmap responses are cached per `as_of` date using the Django default cache backend.
+
+## How to access from the site
+
+Use the top navigation “AI Regulation” link or the homepage AI Regulation promo card to open the globe heat map at `/ai-regulation/`.
