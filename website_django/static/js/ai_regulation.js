@@ -75,16 +75,18 @@ const getIso2FromFeature = (feature) => {
   return null;
 };
 
+const getFeatureName = (feature) =>
+  feature?.properties?.name ||
+  feature?.properties?.NAME ||
+  feature?.properties?.ADMIN ||
+  '';
+
 const resolveJurisdiction = (feature) => {
   const iso2 = getIso2FromFeature(feature);
   if (iso2 && state.heatmapByIso.has(iso2)) {
     return state.heatmapByIso.get(iso2) || null;
   }
-  const featureName =
-    feature?.properties?.name ||
-    feature?.properties?.NAME ||
-    feature?.properties?.ADMIN ||
-    '';
+  const featureName = getFeatureName(feature);
   if (!featureName) return null;
   const key = normalizeName(featureName);
   return state.heatmapIndex.get(key) || null;
@@ -243,8 +245,10 @@ const initGlobe = async (container, tooltip) => {
     })
     .onPolygonClick((feature) => {
       const data = resolveJurisdiction(feature);
-      if (data?.iso2) {
-        loadJurisdiction(data.iso2, data.name);
+      const iso2 = data?.iso2 || getIso2FromFeature(feature);
+      const name = data?.name || getFeatureName(feature);
+      if (iso2) {
+        loadJurisdiction(iso2, name);
       }
     });
 
@@ -295,11 +299,18 @@ const initFallbackMap = (container, tooltip, geoData) => {
   geoData.features.forEach((feature) => {
     const pathDef = buildSvgPath(feature.geometry, project);
     if (!pathDef) return;
+    const data = resolveJurisdiction(feature);
+    const fallbackIso2 = data?.iso2 || getIso2FromFeature(feature);
+    const fallbackName = data?.name || getFeatureName(feature);
     const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     pathEl.setAttribute('d', pathDef);
-    pathEl.setAttribute('fill', colorForCount(getInstrumentCount(resolveJurisdiction(feature)), state.heatmapMax));
+    pathEl.setAttribute('fill', colorForCount(getInstrumentCount(data), state.heatmapMax));
     pathEl.setAttribute('stroke', 'rgba(255,255,255,0.5)');
     pathEl.setAttribute('stroke-width', '0.5');
+    if (fallbackIso2) {
+      pathEl.setAttribute('data-iso2', fallbackIso2);
+      pathEl.setAttribute('data-name', fallbackName || '');
+    }
     pathEl.addEventListener('mousemove', (event) => {
       const data = resolveJurisdiction(feature);
       if (!data) {
@@ -317,12 +328,14 @@ const initFallbackMap = (container, tooltip, geoData) => {
     });
     pathEl.addEventListener('click', () => {
       const data = resolveJurisdiction(feature);
-      if (data?.iso2) {
-        loadJurisdiction(data.iso2, data.name);
+      const iso2 = data?.iso2 || getIso2FromFeature(feature);
+      const name = data?.name || getFeatureName(feature);
+      if (iso2) {
+        loadJurisdiction(iso2, name);
       }
     });
     svg.appendChild(pathEl);
-    paths.push(pathEl);
+    paths.push({ element: pathEl, feature });
   });
 
   return { svg, paths };
@@ -359,9 +372,9 @@ const updateMapColors = (jurisdictions) => {
       });
   }
   if (state.flatMap?.paths) {
-    state.flatMap.paths.attr('fill', (feature) => {
+    state.flatMap.paths.forEach(({ element, feature }) => {
       const data = resolveJurisdiction(feature);
-      return colorForCount(getInstrumentCount(data), state.heatmapMax);
+      element.setAttribute('fill', colorForCount(getInstrumentCount(data), state.heatmapMax));
     });
   }
 };
@@ -544,10 +557,16 @@ const setup = async () => {
     setMapError('Map data failed to load. Please refresh and try again.');
   }
 
+  const force2d = window.__AI_REG_FORCE_2D === true;
   const canUseWebGL = isWebGLAvailable();
-  if (canUseWebGL && geoData) {
-    state.globe = await initGlobe(globeContainer, tooltip);
-    state.mapMode = '3d';
+  if (!force2d && canUseWebGL && geoData) {
+    try {
+      state.globe = await initGlobe(globeContainer, tooltip);
+      state.mapMode = '3d';
+    } catch (error) {
+      logIssue('Globe initialization failed; falling back to 2D.', error);
+      state.globe = null;
+    }
   }
 
   if (!state.globe) {
