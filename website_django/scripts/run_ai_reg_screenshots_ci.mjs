@@ -175,27 +175,34 @@ const run = async () => {
     journalProc.stdout.pipe(logStream);
     journalProc.stderr.pipe(logStream);
 
-    spawn("sudo", [
-      "systemd-run",
-      "--collect",
-      "--unit",
-      unitName,
-      "--property",
-      `EnvironmentFile=${envFiles[0]}`,
-      "--property",
-      `EnvironmentFile=${envFiles[1]}`,
-      "--property",
-      "EnvironmentFile=-/etc/sysconfig/sustainacore-django.env",
-      "--property",
-      `EnvironmentFile=${overrideEnvPath}`,
-      "--property",
-      "WorkingDirectory=/opt/code/Sustainacore/website_django",
-      pythonBin,
-      "manage.py",
-      "runserver",
-      `127.0.0.1:${port}`,
-      "--noreload",
-    ]);
+    const runserverProc = spawnSync(
+      "sudo",
+      [
+        "systemd-run",
+        "--collect",
+        "--unit",
+        unitName,
+        "--property",
+        `EnvironmentFile=${envFiles[0]}`,
+        "--property",
+        `EnvironmentFile=${envFiles[1]}`,
+        "--property",
+        "EnvironmentFile=-/etc/sysconfig/sustainacore-django.env",
+        "--property",
+        `EnvironmentFile=${overrideEnvPath}`,
+        "--property",
+        "WorkingDirectory=/opt/code/Sustainacore/website_django",
+        pythonBin,
+        "manage.py",
+        "runserver",
+        `127.0.0.1:${port}`,
+        "--noreload",
+      ],
+      { stdio: "inherit" }
+    );
+    if (runserverProc.status !== 0) {
+      throw new Error("systemd-run failed to launch runserver");
+    }
   }
 
   try {
@@ -219,6 +226,7 @@ const run = async () => {
       AI_REG_FORCE_2D: process.env.AI_REG_FORCE_2D || "1",
       AI_REG_SCREENSHOT_HOST_HEADER: hostResolve ? "" : hostHeader,
       AI_REG_IGNORE_HTTPS_ERRORS: process.env.AI_REG_IGNORE_HTTPS_ERRORS || "1",
+      AI_REG_VIEWPORTS: process.env.AI_REG_VIEWPORTS || "desktop,mobile",
       AI_REG_HOST_RESOLVE: hostResolve ? `${hostResolve}:127.0.0.1` : "",
       PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || "/home/ubuntu/.cache/ms-playwright",
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD || "1",

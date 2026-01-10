@@ -4,20 +4,25 @@
   gap: 6px;
 }
 
+.ai-reg__card {
+  max-width: clamp(960px, 92vw, 1400px);
+  margin: 0 auto;
+}
+
 .ai-reg__grid {
   display: grid;
-  grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   margin-top: 20px;
 }
 
 .ai-reg__map-shell {
   position: relative;
-  min-height: 420px;
+  min-height: clamp(320px, 52vh, 640px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  background: radial-gradient(circle at top, rgba(59, 130, 246, 0.12), rgba(15, 23, 42, 0.05));
+  background: radial-gradient(circle at top, rgba(59, 130, 246, 0.18), rgba(226, 232, 240, 0.6));
 }
 
 .ai-reg__globe,
@@ -26,13 +31,33 @@
   height: 100%;
 }
 
+.ai-reg__globe {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-reg__globe canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
 .ai-reg__fallback {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   justify-content: center;
   gap: 8px;
   padding: 12px;
+}
+
+.ai-reg__fallback svg {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  display: block;
+  touch-action: none;
 }
 
 .ai-reg__fallback-label {
@@ -94,6 +119,13 @@
   padding: 16px 6px 0;
 }
 
+.ai-reg__controls {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .ai-reg__legend-bar {
   flex: 1;
   height: 8px;
@@ -110,7 +142,7 @@
 .ai-reg__panel-body {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 .ai-reg__panel-section {
@@ -121,6 +153,24 @@
 .ai-reg__panel-section:first-child {
   border-top: none;
   padding-top: 0;
+}
+
+.ai-reg__panel-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-reg__panel-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ai-reg__panel-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
 }
 
 .ai-reg__summary {
@@ -141,15 +191,52 @@
 }
 
 .ai-reg__stat {
-  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.ai-reg__stat strong {
+  font-size: 1.15rem;
 }
 
 .ai-reg__stat span {
   display: block;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .ai-reg__filters {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+
+  .ai-reg__legend {
+    flex-wrap: wrap;
+  }
+
+  .ai-reg__panel-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .ai-reg__card {
+    max-width: 100%;
+  }
+
+  .ai-reg__map-shell {
+    min-height: 320px;
+  }
+
+  .ai-reg__panel-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .ai-reg__pill {

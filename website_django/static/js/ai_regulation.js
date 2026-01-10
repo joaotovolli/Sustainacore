@@ -19,6 +19,8 @@ const NAME_ALIASES = new Map([
 const GEOJSON_REMOTE_FALLBACK =
   'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
 const ISO2_PROPERTY_CANDIDATES = ['ISO_A2', 'iso_a2', 'ISO2', 'iso2', 'ISO_2'];
+const DEFAULT_POV = { lat: 20, lng: 0, altitude: 2.1 };
+const FOCUS_POV = { altitude: 1.65 };
 
 const state = {
   asOf: null,
@@ -28,6 +30,8 @@ const state = {
   timelineCache: new Map(),
   geoData: null,
   geojsonUrl: null,
+  globeTextureUrl: null,
+  featureByIso: new Map(),
   heatmapIndex: new Map(),
   heatmapByIso: new Map(),
   heatmapMax: 1,
@@ -35,7 +39,8 @@ const state = {
   flatMap: null,
   hover: null,
   mapMode: '3d',
-  mapErrorEl: null
+  mapErrorEl: null,
+  defaultPov: DEFAULT_POV
 };
 
 const formatNumber = (value) => (Number.isFinite(value) ? value.toLocaleString() : '—');
@@ -81,6 +86,34 @@ const getFeatureName = (feature) =>
   feature?.properties?.ADMIN ||
   '';
 
+const collectCoordinates = (geometry) => {
+  if (!geometry) return [];
+  if (geometry.type === 'Polygon') {
+    return geometry.coordinates.flat();
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.flat(2);
+  }
+  return [];
+};
+
+const getFeatureCentroid = (feature) => {
+  const coords = collectCoordinates(feature?.geometry);
+  if (!coords.length) return null;
+  let sumLon = 0;
+  let sumLat = 0;
+  let count = 0;
+  coords.forEach((point) => {
+    const [lon, lat] = point;
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+    sumLon += lon;
+    sumLat += lat;
+    count += 1;
+  });
+  if (!count) return null;
+  return { lng: sumLon / count, lat: sumLat / count };
+};
+
 const resolveJurisdiction = (feature) => {
   const iso2 = getIso2FromFeature(feature);
   if (iso2 && state.heatmapByIso.has(iso2)) {
@@ -90,6 +123,16 @@ const resolveJurisdiction = (feature) => {
   if (!featureName) return null;
   const key = normalizeName(featureName);
   return state.heatmapIndex.get(key) || null;
+};
+
+const buildFeatureIndex = (geoData) => {
+  state.featureByIso.clear();
+  if (!geoData?.features) return;
+  geoData.features.forEach((feature) => {
+    const iso2 = getIso2FromFeature(feature);
+    if (!iso2) return;
+    state.featureByIso.set(iso2, feature);
+  });
 };
 
 const setMapError = (message) => {
@@ -208,7 +251,7 @@ const getInstrumentCount = (data) => {
   return data.instrument_count ?? data.instruments_count ?? 0;
 };
 
-const initGlobe = async (container, tooltip) => {
+const initGlobe = async (container, tooltip, textureUrl) => {
   if (!window.Globe || !window.THREE) {
     logIssue('Globe library unavailable; switching to 2D fallback.');
     return null;
@@ -252,12 +295,27 @@ const initGlobe = async (container, tooltip) => {
       }
     });
 
+  if (textureUrl) {
+    globe.globeImageUrl(textureUrl);
+  } else {
+    globe.globeMaterial().color = new window.THREE.Color('#3b82f6');
+  }
+
   container.addEventListener('mousemove', (event) => {
     if (tooltip.hidden) return;
     const bounds = container.getBoundingClientRect();
     tooltip.style.left = `${event.clientX - bounds.left}px`;
     tooltip.style.top = `${event.clientY - bounds.top}px`;
   });
+
+  const controls = globe.controls();
+  if (controls) {
+    controls.enableZoom = true;
+    controls.zoomSpeed = 0.7;
+    controls.enablePan = false;
+    controls.minDistance = 140;
+    controls.maxDistance = 520;
+  }
 
   return globe;
 };
@@ -288,6 +346,8 @@ const initFallbackMap = (container, tooltip, geoData) => {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
   container.appendChild(svg);
 
   const project = ([lon, lat]) => [
@@ -338,7 +398,142 @@ const initFallbackMap = (container, tooltip, geoData) => {
     paths.push({ element: pathEl, feature });
   });
 
-  return { svg, paths };
+  const viewBoxState = { x: 0, y: 0, width, height };
+  const minScale = 1;
+  const maxScale = 4.5;
+
+  const applyViewBox = () => {
+    svg.setAttribute(
+      'viewBox',
+      `${viewBoxState.x.toFixed(2)} ${viewBoxState.y.toFixed(2)} ${viewBoxState.width.toFixed(2)} ${viewBoxState.height.toFixed(2)}`
+    );
+  };
+
+  const clampViewBox = () => {
+    const maxX = width - viewBoxState.width;
+    const maxY = height - viewBoxState.height;
+    viewBoxState.x = Math.max(0, Math.min(viewBoxState.x, maxX));
+    viewBoxState.y = Math.max(0, Math.min(viewBoxState.y, maxY));
+  };
+
+  const resetView = () => {
+    viewBoxState.x = 0;
+    viewBoxState.y = 0;
+    viewBoxState.width = width;
+    viewBoxState.height = height;
+    applyViewBox();
+  };
+
+  const focusOnFeature = (feature) => {
+    const coords = collectCoordinates(feature?.geometry);
+    if (!coords.length) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    coords.forEach(([lon, lat]) => {
+      const [x, y] = project([lon, lat]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return;
+    const padding = 24;
+    const targetWidth = Math.max((maxX - minX) + padding * 2, width / maxScale);
+    const targetHeight = Math.max((maxY - minY) + padding * 2, height / maxScale);
+    viewBoxState.width = Math.min(width, targetWidth);
+    viewBoxState.height = Math.min(height, targetHeight);
+    viewBoxState.x = minX - (viewBoxState.width - (maxX - minX)) / 2;
+    viewBoxState.y = minY - (viewBoxState.height - (maxY - minY)) / 2;
+    clampViewBox();
+    applyViewBox();
+  };
+
+  const zoomBy = (factor) => {
+    const scale = width / viewBoxState.width;
+    const nextScale = Math.min(maxScale, Math.max(minScale, scale * factor));
+    const nextWidth = width / nextScale;
+    const nextHeight = height / nextScale;
+    const centerX = viewBoxState.x + viewBoxState.width / 2;
+    const centerY = viewBoxState.y + viewBoxState.height / 2;
+    viewBoxState.x = centerX - nextWidth / 2;
+    viewBoxState.y = centerY - nextHeight / 2;
+    viewBoxState.width = nextWidth;
+    viewBoxState.height = nextHeight;
+    clampViewBox();
+    applyViewBox();
+  };
+
+  svg.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const pointerX = (event.clientX - rect.left) / rect.width;
+      const pointerY = (event.clientY - rect.top) / rect.height;
+      const scale = width / viewBoxState.width;
+      const zoomFactor = Math.exp(-event.deltaY * 0.001);
+      const nextScale = Math.min(maxScale, Math.max(minScale, scale * zoomFactor));
+      const nextWidth = width / nextScale;
+      const nextHeight = height / nextScale;
+      const anchorX = viewBoxState.x + pointerX * viewBoxState.width;
+      const anchorY = viewBoxState.y + pointerY * viewBoxState.height;
+      viewBoxState.x = anchorX - pointerX * nextWidth;
+      viewBoxState.y = anchorY - pointerY * nextHeight;
+      viewBoxState.width = nextWidth;
+      viewBoxState.height = nextHeight;
+      clampViewBox();
+      applyViewBox();
+    },
+    { passive: false }
+  );
+
+  let dragStart = null;
+
+  svg.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const rect = svg.getBoundingClientRect();
+    dragStart = {
+      x: event.clientX,
+      y: event.clientY,
+      viewBoxX: viewBoxState.x,
+      viewBoxY: viewBoxState.y,
+      width: viewBoxState.width,
+      height: viewBoxState.height,
+      rectWidth: rect.width,
+      rectHeight: rect.height
+    };
+    svg.setPointerCapture(event.pointerId);
+    svg.style.cursor = 'grabbing';
+  });
+
+  svg.addEventListener('pointermove', (event) => {
+    if (!dragStart) return;
+    const dx = event.clientX - dragStart.x;
+    const dy = event.clientY - dragStart.y;
+    const offsetX = (dx / dragStart.rectWidth) * dragStart.width;
+    const offsetY = (dy / dragStart.rectHeight) * dragStart.height;
+    viewBoxState.x = dragStart.viewBoxX - offsetX;
+    viewBoxState.y = dragStart.viewBoxY - offsetY;
+    clampViewBox();
+    applyViewBox();
+    event.preventDefault();
+  });
+
+  const endDrag = (event) => {
+    if (!dragStart) return;
+    dragStart = null;
+    svg.releasePointerCapture(event.pointerId);
+    svg.style.cursor = 'grab';
+  };
+
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointerleave', endDrag);
+  svg.style.cursor = 'grab';
+
+  return { svg, paths, resetView, focusOnFeature, zoomBy };
 };
 
 const setHeatmapIndex = (jurisdictions) => {
@@ -390,6 +585,47 @@ const renderSummary = (jurisdictions, summaryJurisdictions, summaryInstruments) 
   summaryInstruments.textContent = formatNumber(totalInstruments);
 };
 
+const renderCountryOptions = (select, jurisdictions) => {
+  if (!select) return;
+  if (!Array.isArray(jurisdictions) || jurisdictions.length === 0) {
+    select.innerHTML = '<option value="">No countries available</option>';
+    select.disabled = true;
+    return;
+  }
+  const sorted = [...jurisdictions].sort((a, b) => {
+    const aCount = getInstrumentCount(a);
+    const bCount = getInstrumentCount(b);
+    if (bCount !== aCount) return bCount - aCount;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+  const options = sorted
+    .filter((item) => item.iso2)
+    .map((item) => {
+      const count = getInstrumentCount(item);
+      return `<option value="${escapeHtml(item.iso2)}" data-count="${count}">${escapeHtml(item.name)}</option>`;
+    });
+  select.innerHTML = `<option value="">Select a country</option>${options.join('')}`;
+  select.disabled = false;
+};
+
+const updateCountrySelect = (select, iso2) => {
+  if (!select || !iso2) return;
+  select.value = iso2;
+};
+
+const focusOnIso = (iso2) => {
+  if (!iso2) return;
+  const feature = state.featureByIso.get(String(iso2).toUpperCase());
+  if (!feature) return;
+  const centroid = getFeatureCentroid(feature);
+  if (state.globe && centroid) {
+    state.globe.pointOfView({ ...centroid, altitude: FOCUS_POV.altitude }, 700);
+  }
+  if (state.flatMap?.focusOnFeature) {
+    state.flatMap.focusOnFeature(feature);
+  }
+};
+
 const renderDrilldown = (panel, data) => {
   const instruments = data.instruments || [];
   const sources = data.sources || [];
@@ -433,12 +669,12 @@ const renderDrilldown = (panel, data) => {
     : '';
 
   panel.innerHTML = `
-    <div>
+    <div class="ai-reg__panel-header">
       <h4 class="h5">${escapeHtml(jurisdiction.name || 'Jurisdiction')}</h4>
       <div class="muted">ISO: ${escapeHtml(jurisdiction.iso2 || '--')}</div>
       ${dataQualityFlag}
     </div>
-    <div class="ai-reg__stat-grid">
+    <div class="ai-reg__panel-metrics">
       <div class="ai-reg__stat">
         <span>Obligations</span>
         <strong>${formatNumber(jurisdiction.obligations_count)}</strong>
@@ -449,16 +685,18 @@ const renderDrilldown = (panel, data) => {
       </div>
     </div>
     <div class="ai-reg__panel-section">
-      <h5 class="h6">Instruments</h5>
-      ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
-    </div>
-    <div class="ai-reg__panel-section">
       <h5 class="h6">Upcoming milestones</h5>
       ${milestonesList ? `<ul class="ai-reg__list">${milestonesList}</ul>` : '<div class="muted">No milestones available.</div>'}
     </div>
-    <div class="ai-reg__panel-section">
-      <h5 class="h6">Sources</h5>
-      ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
+    <div class="ai-reg__panel-columns">
+      <div class="ai-reg__panel-section">
+        <h5 class="h6">Instruments</h5>
+        ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
+      </div>
+      <div class="ai-reg__panel-section">
+        <h5 class="h6">Sources</h5>
+        ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
+      </div>
     </div>
   `;
 };
@@ -467,7 +705,10 @@ const loadJurisdiction = async (iso2, nameOverride) => {
   const root = document.querySelector('[data-ai-reg-root]');
   if (!root) return;
   const panelBody = root.querySelector('[data-drilldown-body]');
+  const countrySelect = root.querySelector('[data-country-select]');
   if (!panelBody) return;
+  updateCountrySelect(countrySelect, iso2);
+  focusOnIso(iso2);
   panelBody.innerHTML = `<div class="muted">Loading ${escapeHtml(nameOverride || iso2)}…</div>`;
   try {
     const endpoint = root.dataset.jurisdictionEndpoint;
@@ -511,12 +752,17 @@ const refreshHeatmap = async (root, asOf) => {
   const loading = root.querySelector('[data-map-loading]');
   const summaryJurisdictions = root.querySelector('[data-ai-reg-summary-jurisdictions]');
   const summaryInstruments = root.querySelector('[data-ai-reg-summary-instruments]');
+  const countrySelect = root.querySelector('[data-country-select]');
   const heatmapEndpoint = root.dataset.heatmapEndpoint;
   if (loading) loading.hidden = false;
   try {
     if (!asOf) {
       if (summaryJurisdictions) summaryJurisdictions.textContent = '—';
       if (summaryInstruments) summaryInstruments.textContent = '—';
+      if (countrySelect) {
+        countrySelect.innerHTML = '<option value="">No snapshots available</option>';
+        countrySelect.disabled = true;
+      }
       return;
     }
     const data = await getHeatmap(heatmapEndpoint, asOf);
@@ -525,12 +771,17 @@ const refreshHeatmap = async (root, asOf) => {
       clearMapError();
     }
     renderSummary(jurisdictions, summaryJurisdictions, summaryInstruments);
+    renderCountryOptions(countrySelect, jurisdictions);
     updateMapColors(jurisdictions);
   } catch (error) {
     logIssue('Heatmap fetch failed.', error);
     setMapError('Heatmap failed to load. Please refresh and try again.');
     if (summaryJurisdictions) summaryJurisdictions.textContent = '—';
     if (summaryInstruments) summaryInstruments.textContent = '—';
+    if (countrySelect) {
+      countrySelect.innerHTML = '<option value="">Unable to load countries</option>';
+      countrySelect.disabled = true;
+    }
   } finally {
     if (loading) loading.hidden = true;
   }
@@ -541,18 +792,24 @@ const setup = async () => {
   if (!root) return;
 
   const asOfSelect = root.querySelector('#ai-reg-as-of');
+  const countrySelect = root.querySelector('[data-country-select]');
   const mapContainer = root.querySelector('[data-map-container]');
   const globeContainer = root.querySelector('[data-globe]');
   const fallbackContainer = root.querySelector('[data-fallback]');
   const tooltip = root.querySelector('[data-tooltip]');
+  const resetButton = root.querySelector('[data-reset-view]');
+  const zoomInButton = root.querySelector('[data-zoom-in]');
+  const zoomOutButton = root.querySelector('[data-zoom-out]');
   state.mapErrorEl = root.querySelector('[data-map-error]');
   clearMapError();
 
   state.asOf = asOfSelect?.value || null;
+  state.globeTextureUrl = root.dataset.globeTextureUrl || null;
 
   let geoData = null;
   try {
     geoData = await loadGeoData(root.dataset.geojsonUrl);
+    buildFeatureIndex(geoData);
   } catch (error) {
     setMapError('Map data failed to load. Please refresh and try again.');
   }
@@ -561,7 +818,7 @@ const setup = async () => {
   const canUseWebGL = isWebGLAvailable();
   if (!force2d && canUseWebGL && geoData) {
     try {
-      state.globe = await initGlobe(globeContainer, tooltip);
+      state.globe = await initGlobe(globeContainer, tooltip, state.globeTextureUrl);
       state.mapMode = '3d';
     } catch (error) {
       logIssue('Globe initialization failed; falling back to 2D.', error);
@@ -579,13 +836,25 @@ const setup = async () => {
     }
   }
 
+  const resizeGlobe = () => {
+    if (!state.globe || !mapContainer) return;
+    const width = mapContainer.clientWidth || 0;
+    const height = mapContainer.clientHeight || 0;
+    if (!width || !height) return;
+    state.globe.width(width).height(height);
+  };
+
   if (state.globe && geoData) {
+    resizeGlobe();
     state.globe
       .polygonsData(geoData.features)
       .polygonSideColor(() => 'rgba(15, 23, 42, 0.2)')
       .polygonsTransitionDuration(400);
-    state.globe.controls().autoRotate = true;
-    state.globe.controls().autoRotateSpeed = 0.6;
+    state.globe.pointOfView(state.defaultPov, 0);
+    const controls = state.globe.controls();
+    if (controls) {
+      controls.autoRotate = false;
+    }
   }
 
   await refreshHeatmap(root, state.asOf);
@@ -595,11 +864,55 @@ const setup = async () => {
     await refreshHeatmap(root, state.asOf);
   });
 
+  countrySelect?.addEventListener('change', (event) => {
+    const iso2 = event.target.value;
+    if (!iso2) return;
+    const jurisdiction = state.heatmapByIso.get(String(iso2).toUpperCase());
+    loadJurisdiction(iso2, jurisdiction?.name || iso2);
+  });
+
   if (mapContainer) {
     mapContainer.addEventListener('mouseleave', () => {
       tooltip.hidden = true;
     });
   }
+
+  if (mapContainer && state.globe) {
+    const observer = new ResizeObserver(() => {
+      resizeGlobe();
+    });
+    observer.observe(mapContainer);
+  }
+
+  resetButton?.addEventListener('click', () => {
+    if (state.globe) {
+      state.globe.pointOfView(state.defaultPov, 600);
+    }
+    if (state.flatMap?.resetView) {
+      state.flatMap.resetView();
+    }
+  });
+
+  const adjustZoom = (direction) => {
+    if (state.globe) {
+      const controls = state.globe.controls();
+      if (controls?.dollyIn && controls?.dollyOut) {
+        const factor = direction === 'in' ? 1.12 : 0.9;
+        if (direction === 'in') {
+          controls.dollyIn(factor);
+        } else {
+          controls.dollyOut(factor);
+        }
+        controls.update();
+      }
+    }
+    if (state.flatMap?.zoomBy) {
+      state.flatMap.zoomBy(direction === 'in' ? 1.15 : 0.9);
+    }
+  };
+
+  zoomInButton?.addEventListener('click', () => adjustZoom('in'));
+  zoomOutButton?.addEventListener('click', () => adjustZoom('out'));
 };
 
 document.addEventListener('DOMContentLoaded', () => {

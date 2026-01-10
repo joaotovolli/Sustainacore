@@ -70,7 +70,7 @@ const diffPair = (beforeName, afterName, diffName) => {
   process.stdout.write(`diff ${diffPath} (mismatch: ${mismatch})\n`);
 };
 
-const requiredAfter = ["ai_regulation.png"];
+const requiredAfter = ["ai_regulation_desktop.png", "ai_regulation_mobile.png"];
 
 for (const name of requiredAfter) {
   const filePath = path.join(afterDir, name);
@@ -81,4 +81,5 @@ for (const name of requiredAfter) {
   }
 }
 
-diffPair("ai_regulation.png", "ai_regulation.png", "diff_ai_regulation.png");
+diffPair("ai_regulation_desktop.png", "ai_regulation_desktop.png", "diff_ai_regulation_desktop.png");
+diffPair("ai_regulation_mobile.png", "ai_regulation_mobile.png", "diff_ai_regulation_mobile.png");
