@@ -107,6 +107,11 @@ All queries target the GEO AI regulation schema created by the loader in `infra/
 - `BRG_SNAPSHOT_SOURCE`
 - `DIM_SOURCE`
 
+## Map assets
+
+The frontend loads a bundled GeoJSON map from `website_django/static/geo/world_countries_simplified.geojson`
+and only falls back to a remote source if the local asset fails to load.
+
 ## Caching
 
 Heatmap responses are cached per `as_of` date using the Django default cache backend.
