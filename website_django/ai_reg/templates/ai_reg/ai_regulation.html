@@ -19,7 +19,13 @@
       </div>
     </div>
 
-    <div class="card" data-ai-reg-root data-heatmap-endpoint="/ai-regulation/data/heatmap" data-jurisdiction-endpoint="/ai-regulation/data/jurisdiction">
+    <div
+      class="card"
+      data-ai-reg-root
+      data-heatmap-endpoint="/ai-regulation/data/heatmap"
+      data-jurisdiction-endpoint="/ai-regulation/data/jurisdiction"
+      data-geojson-url="{% static 'geo/world_countries_simplified.geojson' %}"
+    >
       <div class="card__header card__header--split">
         <div>
           <h2 class="h4">Explore the global dataset</h2>
@@ -74,10 +80,11 @@
           <div class="ai-reg__map-shell" data-map-container>
             <div class="ai-reg__globe" data-globe></div>
             <div class="ai-reg__fallback" data-fallback hidden>
-              <div class="ai-reg__fallback-label">2D fallback map (WebGL unavailable)</div>
+              <div class="ai-reg__fallback-label" data-fallback-label>2D fallback map (WebGL unavailable)</div>
             </div>
             <div class="ai-reg__tooltip" data-tooltip hidden></div>
             <div class="ai-reg__loading" data-map-loading hidden>Loading heatmap…</div>
+            <div class="ai-reg__error" data-map-error hidden></div>
           </div>
           <div class="ai-reg__legend">
             <span class="muted">Low</span>
@@ -105,6 +112,5 @@
 {% block extra_scripts %}
   <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.29.2/dist/globe.gl.min.js" crossorigin="anonymous"></script>
-  <script src="https://d3js.org/d3.v7.min.js" crossorigin="anonymous"></script>
   <script type="module" src="{% static 'js/ai_regulation.js' %}?v={{ static_version }}"></script>
 {% endblock %}

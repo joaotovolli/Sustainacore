@@ -16,7 +16,9 @@ const NAME_ALIASES = new Map([
   ['bruneidarussalam', 'brunei']
 ]);
 
-const GEOJSON_URL = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
+const GEOJSON_REMOTE_FALLBACK =
+  'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
+const ISO2_PROPERTY_CANDIDATES = ['ISO_A2', 'iso_a2', 'ISO2', 'iso2', 'ISO_2'];
 
 const state = {
   asOf: null,
@@ -25,12 +27,15 @@ const state = {
   instrumentsCache: new Map(),
   timelineCache: new Map(),
   geoData: null,
+  geojsonUrl: null,
   heatmapIndex: new Map(),
+  heatmapByIso: new Map(),
   heatmapMax: 1,
   globe: null,
   flatMap: null,
   hover: null,
-  mapMode: '3d'
+  mapMode: '3d',
+  mapErrorEl: null
 };
 
 const formatNumber = (value) => (Number.isFinite(value) ? value.toLocaleString() : '—');
@@ -50,10 +55,51 @@ const normalizeName = (name) => {
   return NAME_ALIASES.get(normalized) || normalized;
 };
 
+const logIssue = (message, error) => {
+  if (error) {
+    console.error(`AI regulation map: ${message}`, error);
+  } else {
+    console.warn(`AI regulation map: ${message}`);
+  }
+};
+
+const getIso2FromFeature = (feature) => {
+  if (!feature?.properties) return null;
+  for (const key of ISO2_PROPERTY_CANDIDATES) {
+    const value = feature.properties[key];
+    if (!value) continue;
+    const normalized = String(value).trim().toUpperCase();
+    if (!normalized || normalized === '-99') continue;
+    return normalized;
+  }
+  return null;
+};
+
 const resolveJurisdiction = (feature) => {
-  if (!feature?.properties?.name) return null;
-  const key = normalizeName(feature.properties.name);
+  const iso2 = getIso2FromFeature(feature);
+  if (iso2 && state.heatmapByIso.has(iso2)) {
+    return state.heatmapByIso.get(iso2) || null;
+  }
+  const featureName =
+    feature?.properties?.name ||
+    feature?.properties?.NAME ||
+    feature?.properties?.ADMIN ||
+    '';
+  if (!featureName) return null;
+  const key = normalizeName(featureName);
   return state.heatmapIndex.get(key) || null;
+};
+
+const setMapError = (message) => {
+  if (!state.mapErrorEl) return;
+  state.mapErrorEl.textContent = message;
+  state.mapErrorEl.hidden = false;
+};
+
+const clearMapError = () => {
+  if (!state.mapErrorEl) return;
+  state.mapErrorEl.hidden = true;
+  state.mapErrorEl.textContent = '';
 };
 
 const getStorageItem = (key) => {
@@ -161,7 +207,8 @@ const getInstrumentCount = (data) => {
 };
 
 const initGlobe = async (container, tooltip) => {
-  if (!window.Globe) {
+  if (!window.Globe || !window.THREE) {
+    logIssue('Globe library unavailable; switching to 2D fallback.');
     return null;
   }
   const globe = window.Globe()(container)
@@ -211,33 +258,49 @@ const initGlobe = async (container, tooltip) => {
   return globe;
 };
 
+const buildSvgPath = (geometry, project) => {
+  if (!geometry) return '';
+  const drawRing = (ring) =>
+    ring
+      .map((point, idx) => {
+        const [x, y] = project(point);
+        return `${idx === 0 ? 'M' : 'L'}${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(' ') + ' Z';
+
+  if (geometry.type === 'Polygon') {
+    return geometry.coordinates.map(drawRing).join(' ');
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.map((poly) => poly.map(drawRing).join(' ')).join(' ');
+  }
+  return '';
+};
+
 const initFallbackMap = (container, tooltip, geoData) => {
-  if (!window.d3) return null;
-  const width = 900;
-  const height = 500;
-  const svg = window.d3
-    .select(container)
-    .append('svg')
-    .attr('viewBox', `0 0 ${width} ${height}`)
-    .attr('preserveAspectRatio', 'xMidYMid meet');
+  if (!container || !geoData) return null;
+  const width = 1000;
+  const height = 520;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  container.appendChild(svg);
 
-  const projection = window.d3.geoNaturalEarth1().fitSize([width, height], geoData);
-  const path = window.d3.geoPath(projection);
+  const project = ([lon, lat]) => [
+    ((Number(lon) + 180) / 360) * width,
+    ((90 - Number(lat)) / 180) * height
+  ];
 
-  const paths = svg
-    .append('g')
-    .selectAll('path')
-    .data(geoData.features)
-    .enter()
-    .append('path')
-    .attr('d', path)
-    .attr('fill', (feature) => {
-      const data = resolveJurisdiction(feature);
-      return colorForCount(getInstrumentCount(data), state.heatmapMax);
-    })
-    .attr('stroke', 'rgba(255,255,255,0.5)')
-    .attr('stroke-width', 0.5)
-    .on('mousemove', (event, feature) => {
+  const paths = [];
+  geoData.features.forEach((feature) => {
+    const pathDef = buildSvgPath(feature.geometry, project);
+    if (!pathDef) return;
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathEl.setAttribute('d', pathDef);
+    pathEl.setAttribute('fill', colorForCount(getInstrumentCount(resolveJurisdiction(feature)), state.heatmapMax));
+    pathEl.setAttribute('stroke', 'rgba(255,255,255,0.5)');
+    pathEl.setAttribute('stroke-width', '0.5');
+    pathEl.addEventListener('mousemove', (event) => {
       const data = resolveJurisdiction(feature);
       if (!data) {
         tooltip.hidden = true;
@@ -248,29 +311,31 @@ const initFallbackMap = (container, tooltip, geoData) => {
       const bounds = container.getBoundingClientRect();
       tooltip.style.left = `${event.clientX - bounds.left}px`;
       tooltip.style.top = `${event.clientY - bounds.top}px`;
-    })
-    .on('mouseleave', () => {
+    });
+    pathEl.addEventListener('mouseleave', () => {
       tooltip.hidden = true;
-    })
-    .on('click', (event, feature) => {
+    });
+    pathEl.addEventListener('click', () => {
       const data = resolveJurisdiction(feature);
       if (data?.iso2) {
         loadJurisdiction(data.iso2, data.name);
       }
     });
+    svg.appendChild(pathEl);
+    paths.push(pathEl);
+  });
 
-  return {
-    svg,
-    path,
-    projection,
-    paths
-  };
+  return { svg, paths };
 };
 
 const setHeatmapIndex = (jurisdictions) => {
   state.heatmapIndex.clear();
+  state.heatmapByIso.clear();
   let max = 0;
   jurisdictions.forEach((item) => {
+    if (item.iso2) {
+      state.heatmapByIso.set(String(item.iso2).toUpperCase(), item);
+    }
     const key = normalizeName(item.name);
     state.heatmapIndex.set(key, item);
     max = Math.max(max, getInstrumentCount(item));
@@ -302,6 +367,7 @@ const updateMapColors = (jurisdictions) => {
 };
 
 const renderSummary = (jurisdictions, summaryJurisdictions, summaryInstruments) => {
+  if (!summaryJurisdictions || !summaryInstruments) return;
   const totalJurisdictions = jurisdictions.length;
   const totalInstruments = jurisdictions.reduce(
     (acc, item) => acc + getInstrumentCount(item),
@@ -408,11 +474,24 @@ const loadJurisdiction = async (iso2, nameOverride) => {
   }
 };
 
-const loadGeoData = async () => {
+const loadGeoData = async (localUrl) => {
   if (state.geoData) return state.geoData;
-  const data = await fetchJson(GEOJSON_URL);
-  state.geoData = data;
-  return data;
+  const candidates = [localUrl, GEOJSON_REMOTE_FALLBACK].filter(Boolean);
+  let lastError = null;
+  for (const url of candidates) {
+    try {
+      const data = await fetchJson(url);
+      if (!data || !Array.isArray(data.features)) {
+        throw new Error('GeoJSON missing features array');
+      }
+      state.geoData = data;
+      return data;
+    } catch (error) {
+      lastError = error;
+      logIssue(`GeoJSON load failed for ${url}.`, error);
+    }
+  }
+  throw lastError || new Error('GeoJSON load failed');
 };
 
 const refreshHeatmap = async (root, asOf) => {
@@ -420,22 +499,27 @@ const refreshHeatmap = async (root, asOf) => {
   const summaryJurisdictions = root.querySelector('[data-ai-reg-summary-jurisdictions]');
   const summaryInstruments = root.querySelector('[data-ai-reg-summary-instruments]');
   const heatmapEndpoint = root.dataset.heatmapEndpoint;
-  loading.hidden = false;
+  if (loading) loading.hidden = false;
   try {
     if (!asOf) {
-      summaryJurisdictions.textContent = '—';
-      summaryInstruments.textContent = '—';
+      if (summaryJurisdictions) summaryJurisdictions.textContent = '—';
+      if (summaryInstruments) summaryInstruments.textContent = '—';
       return;
     }
     const data = await getHeatmap(heatmapEndpoint, asOf);
     const jurisdictions = data.jurisdictions || [];
+    if (state.geoData) {
+      clearMapError();
+    }
     renderSummary(jurisdictions, summaryJurisdictions, summaryInstruments);
     updateMapColors(jurisdictions);
   } catch (error) {
-    summaryJurisdictions.textContent = '—';
-    summaryInstruments.textContent = '—';
+    logIssue('Heatmap fetch failed.', error);
+    setMapError('Heatmap failed to load. Please refresh and try again.');
+    if (summaryJurisdictions) summaryJurisdictions.textContent = '—';
+    if (summaryInstruments) summaryInstruments.textContent = '—';
   } finally {
-    loading.hidden = true;
+    if (loading) loading.hidden = true;
   }
 };
 
@@ -448,24 +532,35 @@ const setup = async () => {
   const globeContainer = root.querySelector('[data-globe]');
   const fallbackContainer = root.querySelector('[data-fallback]');
   const tooltip = root.querySelector('[data-tooltip]');
+  state.mapErrorEl = root.querySelector('[data-map-error]');
+  clearMapError();
 
   state.asOf = asOfSelect?.value || null;
 
-  const geoData = await loadGeoData();
+  let geoData = null;
+  try {
+    geoData = await loadGeoData(root.dataset.geojsonUrl);
+  } catch (error) {
+    setMapError('Map data failed to load. Please refresh and try again.');
+  }
 
   const canUseWebGL = isWebGLAvailable();
-  if (canUseWebGL) {
+  if (canUseWebGL && geoData) {
     state.globe = await initGlobe(globeContainer, tooltip);
     state.mapMode = '3d';
   }
 
   if (!state.globe) {
     state.mapMode = '2d';
-    fallbackContainer.hidden = false;
-    state.flatMap = initFallbackMap(fallbackContainer, tooltip, geoData);
+    if (fallbackContainer) {
+      fallbackContainer.hidden = false;
+    }
+    if (geoData) {
+      state.flatMap = initFallbackMap(fallbackContainer, tooltip, geoData);
+    }
   }
 
-  if (state.globe) {
+  if (state.globe && geoData) {
     state.globe
       .polygonsData(geoData.features)
       .polygonSideColor(() => 'rgba(15, 23, 42, 0.2)')
@@ -481,13 +576,16 @@ const setup = async () => {
     await refreshHeatmap(root, state.asOf);
   });
 
-  mapContainer.addEventListener('mouseleave', () => {
-    tooltip.hidden = true;
-  });
+  if (mapContainer) {
+    mapContainer.addEventListener('mouseleave', () => {
+      tooltip.hidden = true;
+    });
+  }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  setup().catch(() => {
-    // no-op
+  setup().catch((error) => {
+    logIssue('Map initialization failed.', error);
+    setMapError('Map failed to initialize. Please refresh and try again.');
   });
 });
