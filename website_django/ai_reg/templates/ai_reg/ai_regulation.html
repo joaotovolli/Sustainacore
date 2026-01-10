@@ -20,11 +20,12 @@
     </div>
 
     <div
-      class="card"
+      class="card ai-reg__card"
       data-ai-reg-root
       data-heatmap-endpoint="/ai-regulation/data/heatmap"
       data-jurisdiction-endpoint="/ai-regulation/data/jurisdiction"
       data-geojson-url="{% static 'geo/world_countries_simplified.geojson' %}"
+      data-globe-texture-url="{% static 'geo/earth_texture.svg' %}"
     >
       <div class="card__header card__header--split">
         <div>
@@ -45,15 +46,21 @@
             </select>
           </label>
           <label>
+            Country
+            <select name="country" id="ai-reg-country" data-country-select disabled>
+              <option value="">Loading countries…</option>
+            </select>
+          </label>
+          <label>
             Status
             <select name="status" disabled>
-              <option value="">All statuses (coming soon)</option>
+              <option value="">Not available yet</option>
             </select>
           </label>
           <label>
             Instrument type
             <select name="type" disabled>
-              <option value="">All types (coming soon)</option>
+              <option value="">Not available yet</option>
             </select>
           </label>
         </div>
@@ -64,7 +71,7 @@
           <div class="card__header">
             <div>
               <h3 class="h5">Global snapshot</h3>
-              <p class="muted">Hover a jurisdiction for counts. Select a country to view the drilldown.</p>
+              <p class="muted">Drag to rotate • Scroll to zoom • Select a country to view the drilldown.</p>
             </div>
             <div class="ai-reg__summary">
               <div>
@@ -90,6 +97,17 @@
             <span class="muted">Low</span>
             <div class="ai-reg__legend-bar" aria-hidden="true"></div>
             <span class="muted">High</span>
+            <div class="ai-reg__controls">
+              <button type="button" class="btn btn--ghost btn--sm" data-zoom-in>
+                Zoom in
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" data-zoom-out>
+                Zoom out
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm ai-reg__reset" data-reset-view>
+                Reset view
+              </button>
+            </div>
           </div>
         </div>
         <aside class="card card--lined ai-reg__panel" data-drilldown-panel>
