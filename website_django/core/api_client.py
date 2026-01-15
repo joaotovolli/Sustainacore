@@ -91,6 +91,35 @@ def _extract_meta(payload: Dict[str, Any] | List[Dict[str, Any]]) -> Dict[str, A
     return {}
 
 
+def _tech100_fixture_items() -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    sectors = ["Software", "Semiconductors", "Internet", "Hardware", "Services"]
+    regions = ["North America", "Europe", "Asia-Pacific"]
+    for idx in range(25):
+        rank = idx + 1
+        score = round(86.5 - idx * 0.6, 2)
+        items.append(
+            {
+                "company_name": f"Tech Company {rank}",
+                "ticker": f"TCH{rank:02d}",
+                "gics_sector": sectors[idx % len(sectors)],
+                "region": regions[idx % len(regions)],
+                "port_date": "2025-01-31",
+                "rank_index": rank,
+                "weight": round(0.04 - idx * 0.001, 4),
+                "aiges_composite_average": score,
+                "aiges_composite": score,
+                "transparency": round(80 + (idx % 5) * 2.1, 2),
+                "ethical_principles": round(78 + (idx % 4) * 2.4, 2),
+                "governance_structure": round(82 + (idx % 3) * 1.8, 2),
+                "regulatory_alignment": round(76 + (idx % 6) * 1.7, 2),
+                "stakeholder_engagement": round(79 + (idx % 5) * 1.9, 2),
+                "summary": "Fixture data for VRT stability.",
+            }
+        )
+    return items
+
+
 def fetch_tech100(
     *,
     port_date: Optional[str] = None,
@@ -111,6 +140,21 @@ def fetch_tech100(
         params["search"] = search_param
     if search:
         params["search"] = search
+
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        items = _tech100_fixture_items()
+        if sector:
+            items = [item for item in items if item.get("gics_sector") == sector]
+        if search_param:
+            search_lower = search_param.lower()
+            items = [
+                item
+                for item in items
+                if search_lower in (item.get("company_name") or "").lower()
+                or search_lower in (item.get("ticker") or "").lower()
+            ]
+        result = {"items": items, "meta": {"count": len(items)}, "error": None}
+        return result
 
     cache_key = _cache_key("tech100", params)
     cached = cache.get(cache_key)
