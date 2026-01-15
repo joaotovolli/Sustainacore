@@ -10,8 +10,39 @@
     --shadow: 0 10px 30px rgba(15, 28, 63, 0.08);
     --shadow-soft: 0 14px 34px rgba(15, 28, 63, 0.1);
     --radius: 14px;
-    --content-max: 1100px;
+    --container-max: 1200px;
+    --content-max: var(--container-max);
     --card: #ffffff;
+    --container-padding: clamp(1rem, 3vw, 2.5rem);
+    --measure: 70ch;
+    --space-1: 0.4rem;
+    --space-2: 0.8rem;
+    --space-3: 1.2rem;
+    --space-4: 1.6rem;
+    --space-5: 2.2rem;
+    --space-6: 3rem;
+    --font-size-base: clamp(0.98rem, 0.35vw + 0.9rem, 1.05rem);
+    --font-size-sm: clamp(0.85rem, 0.2vw + 0.8rem, 0.95rem);
+    --font-size-lg: clamp(1.1rem, 0.5vw + 1rem, 1.25rem);
+    --font-size-xl: clamp(1.3rem, 0.9vw + 1.1rem, 1.6rem);
+}
+
+@media (max-width: 900px) {
+    :root {
+        --container-padding: 1.25rem;
+    }
+}
+
+@media (max-width: 768px) {
+    :root {
+        --container-padding: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    :root {
+        --container-padding: 0.85rem;
+    }
 }
 
 .tech100-index__chart-card {
@@ -61,13 +92,26 @@ body {
     background: var(--bg);
     color: var(--text);
     line-height: 1.7;
-    font-size: 16px;
+    font-size: var(--font-size-base);
     -webkit-font-smoothing: antialiased;
 }
 
-img {
+img,
+video,
+svg,
+iframe {
     max-width: 100%;
+    height: auto;
     display: block;
+}
+
+table {
+    max-width: 100%;
+}
+
+:where(p, li, dd, dt, blockquote, figcaption, a) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 a {
@@ -79,17 +123,18 @@ a:hover {
     color: var(--brand-blue-strong);
 }
 
+.container,
 .shell {
     max-width: var(--content-max);
     margin: 0 auto;
-    padding: 0 1.75rem;
+    padding: 0 var(--container-padding);
     width: 100%;
 }
 
 .page__container {
     max-width: var(--content-max);
     margin: 0 auto;
-    padding: 0 24px;
+    padding: 0 var(--container-padding);
     width: 100%;
 }
 
@@ -140,6 +185,60 @@ h3 {
     gap: 1rem;
     flex: 1;
     justify-content: flex-end;
+}
+
+.nav-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    cursor: pointer;
+}
+
+.nav-toggle__icon {
+    position: relative;
+    width: 20px;
+    height: 2px;
+    background: currentColor;
+    display: block;
+    border-radius: 999px;
+}
+
+.nav-toggle__icon::before,
+.nav-toggle__icon::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    width: 20px;
+    height: 2px;
+    background: currentColor;
+    border-radius: 999px;
+    transition: transform 0.2s ease;
+}
+
+.nav-toggle__icon::before {
+    transform: translateY(-6px);
+}
+
+.nav-toggle__icon::after {
+    transform: translateY(6px);
+}
+
+.nav-toggle[aria-expanded="true"] .nav-toggle__icon {
+    background: transparent;
+}
+
+.nav-toggle[aria-expanded="true"] .nav-toggle__icon::before {
+    transform: rotate(45deg);
+}
+
+.nav-toggle[aria-expanded="true"] .nav-toggle__icon::after {
+    transform: rotate(-45deg);
 }
 
 .brand {
@@ -246,6 +345,8 @@ h3 {
 
 .nav__link {
     color: inherit;
+    display: inline-flex;
+    align-items: center;
     padding: 0.45rem 0.75rem;
     border-radius: 999px;
     transition: background 0.2s ease, color 0.2s ease;
@@ -1187,8 +1288,30 @@ body.has-consent-banner .chat-fab {
     gap: 1rem;
 }
 
+.grid--two {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
 .grid--three {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.stack > * + * {
+    margin-top: var(--space-3);
+}
+
+.stack--tight > * + * {
+    margin-top: var(--space-2);
+}
+
+.stack--loose > * + * {
+    margin-top: var(--space-4);
+}
+
+.prose {
+    max-width: var(--measure);
+    width: 100%;
+    margin: 0 auto;
 }
 
 .news-grid {
@@ -2536,20 +2659,28 @@ textarea:focus {
         padding: 0 1.25rem 1rem;
     }
 
-    .shell,
-    .page__container {
-        padding-left: 1.25rem;
-        padding-right: 1.25rem;
-    }
-
     .topbar__inner {
         padding: 0.75rem 0;
         gap: 0.75rem;
+        flex-wrap: wrap;
     }
 
     .topbar__nav {
-        flex-wrap: wrap;
-        row-gap: 0.65rem;
+        display: none;
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .topbar__nav.is-open {
+        display: flex;
+    }
+
+    .nav-toggle {
+        display: inline-flex;
     }
 
     .brand__text {
@@ -2561,20 +2692,22 @@ textarea:focus {
     }
 
     .nav--primary {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 0.35rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.4rem;
+    }
+
+    .nav--auth {
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
     }
 
     .nav__link {
-        font-size: 0.9rem;
-        padding: 0.4rem 0.65rem;
-        white-space: nowrap;
-    }
-
-    .nav__link--aux {
-        display: none;
+        font-size: 0.95rem;
+        padding: 0.5rem 0.75rem;
+        width: 100%;
+        justify-content: space-between;
     }
 }
 
@@ -2583,42 +2716,12 @@ textarea:focus {
         overflow-x: hidden;
     }
 
-    .topbar__inner {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .topbar__nav {
-        width: 100%;
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .nav {
-        width: 100%;
-    }
-
-    .nav--auth {
-        width: 100%;
-        justify-content: flex-end;
-    }
-
     .nav__label--full {
         display: none;
     }
 
     .nav__label--short {
         display: inline;
-    }
-
-    .nav--primary {
-        gap: 0.4rem;
-        padding-bottom: 0.25rem;
-        scrollbar-width: none;
-    }
-
-    .nav--primary::-webkit-scrollbar {
-        display: none;
     }
 
     .auth-pill__button {
@@ -2630,11 +2733,6 @@ textarea:focus {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-    }
-
-    .page__container {
-        padding-left: 1rem;
-        padding-right: 1rem;
     }
 
     .hero__grid {
