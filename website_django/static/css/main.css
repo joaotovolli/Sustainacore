@@ -2500,6 +2500,9 @@ textarea:focus {
 .tech100-home__range {
     flex-wrap: nowrap;
     gap: 0.35rem;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .tech100-home__range .btn {
@@ -2543,6 +2546,10 @@ textarea:focus {
     margin-bottom: 1rem;
 }
 
+.tech100-home__chart-header > * {
+    min-width: 0;
+}
+
 .tech100-home__canvas {
     height: 240px;
 }
@@ -2558,17 +2565,6 @@ textarea:focus {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem 1.5rem;
-}
-
-@media (max-width: 600px) {
-    .tech100-home__chart-header {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .tech100-home__range {
-        flex-wrap: wrap;
-    }
 }
 
 .tech100-home__quality {
