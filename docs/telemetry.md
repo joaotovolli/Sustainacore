@@ -93,3 +93,7 @@ Environment variables (optional):
   - Provision a GeoIP database file on the VM (outside the repo).
   - Set `TELEMETRY_GEOIP_ENABLED=1` and `TELEMETRY_GEOIP_DB_PATH=/path/to/db`.
   - Restart `gunicorn.service` to pick up the environment changes.
+  - Current ops configuration uses DB-IP Lite City MMDB from:
+    - https://db-ip.com/db/download/ip-to-city-lite
+  - Installed path on VM2:
+    - `/opt/sustainacore/geoip/dbip-city-lite.mmdb`
