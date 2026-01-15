@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
-from typing import Optional, Tuple
+import re
+from typing import Iterable, Optional, Tuple
 
 from django.conf import settings
 
@@ -40,3 +41,87 @@ def hash_ip(raw_ip: str) -> Optional[str]:
 def get_ip_fields(request) -> Tuple[Optional[str], Optional[str]]:
     raw_ip = get_client_ip(request)
     return truncate_ip(raw_ip), hash_ip(raw_ip)
+
+
+def ensure_session_key(request) -> Optional[str]:
+    try:
+        if "_telemetry" not in request.session:
+            request.session["_telemetry"] = "1"
+        if request.session.session_key:
+            return request.session.session_key
+        request.session.save()
+        return request.session.session_key
+    except Exception:
+        return None
+
+
+def anonymize_user_id(value: str) -> int:
+    salt = getattr(settings, "TELEMETRY_HASH_SALT", settings.SECRET_KEY)
+    payload = f"{salt}:{value}".encode("utf-8")
+    digest = hashlib.sha256(payload).digest()
+    user_id = int.from_bytes(digest[:8], "big") % 2147483647
+    return user_id or 1
+
+
+def resolve_user_id(request, *, consent_analytics: bool, anon_id: Optional[str]) -> Optional[int]:
+    if not consent_analytics:
+        return None
+    if getattr(request, "user", None) and getattr(request.user, "is_authenticated", False):
+        try:
+            return int(request.user.id)
+        except (TypeError, ValueError):
+            return None
+    if anon_id:
+        return anonymize_user_id(anon_id)
+    return None
+
+
+def is_bot_user_agent(user_agent: Optional[str]) -> bool:
+    ua = (user_agent or "").lower()
+    if not ua:
+        return False
+    return any(token in ua for token in ("bot", "spider", "crawler", "crawl", "scrape", "scanner"))
+
+
+_GEO_VALUE_RE = re.compile(r"^[A-Z0-9_-]+$")
+
+
+def _normalize_header_name(name: str) -> str:
+    key = name.strip().upper().replace("-", "_")
+    if not key:
+        return ""
+    if key.startswith("HTTP_") or key in {"CONTENT_TYPE", "CONTENT_LENGTH"}:
+        return key
+    return f"HTTP_{key}"
+
+
+def _get_header_value(request, headers: Iterable[str]) -> Optional[str]:
+    for header in headers:
+        key = _normalize_header_name(header)
+        if not key:
+            continue
+        value = request.META.get(key)
+        if value:
+            return value
+    return None
+
+
+def _clean_geo_value(value: Optional[str], max_len: int) -> Optional[str]:
+    if not value:
+        return None
+    cleaned = value.strip().upper()
+    if not cleaned:
+        return None
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len]
+    if not _GEO_VALUE_RE.match(cleaned):
+        return None
+    return cleaned
+
+
+def get_geo_fields(request) -> Tuple[Optional[str], Optional[str]]:
+    country_headers = getattr(settings, "TELEMETRY_GEO_COUNTRY_HEADERS", [])
+    region_headers = getattr(settings, "TELEMETRY_GEO_REGION_HEADERS", [])
+    country = _clean_geo_value(_get_header_value(request, country_headers), 8)
+    region = _clean_geo_value(_get_header_value(request, region_headers), 16)
+    return country, region

@@ -27,6 +27,10 @@ Client-side (only if analytics consent = yes):
 - `ask2_opened`
 - `tab_changed`
 
+Analytics identifiers (only if analytics consent = yes):
+- `session_key`: server session key used to group events
+- `user_id`: anonymous numeric ID derived from the first-party analytics cookie
+
 Ask2 content (stored in Oracle):
 - Ask2 user and assistant messages are stored in `W_WEB_ASK2_CONVERSATION` and `W_WEB_ASK2_MESSAGE`.
 - Content is truncated to 20,000 characters per message.
@@ -66,3 +70,5 @@ Environment variables (optional):
 - `TELEMETRY_TRUST_X_FORWARDED_FOR` (`1` to trust proxy headers)
 - `TELEMETRY_STORE_ASK2_TEXT` (`1` to store Ask2 message text; default OFF)
 - `ASK2_STORE_CONVERSATIONS` (`1` to store Ask2 prompts + replies in events; default OFF)
+- `TELEMETRY_GEO_COUNTRY_HEADERS` (comma-separated header names for country code)
+- `TELEMETRY_GEO_REGION_HEADERS` (comma-separated header names for region code)
