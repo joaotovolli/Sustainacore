@@ -18,6 +18,43 @@ const screenshotTimeoutMs = Number(process.env.VRT_SCREENSHOT_TIMEOUT_MS || "150
 const waitAfterLoadMs = Number(process.env.VRT_WAIT_MS || "350");
 const smokeMode = ["1", "true"].includes((process.env.VRT_SMOKE || "").toLowerCase());
 const runChecks = mode !== "baseline";
+const watchdogMs = Number(process.env.VRT_WATCHDOG_MS || "10000");
+
+let lastProgressAt = Date.now();
+let lastProgressLabel = "init";
+const log = (message) => {
+  lastProgressAt = Date.now();
+  lastProgressLabel = message;
+  process.stdout.write(`${message}\n`);
+};
+
+const parseForcedViewports = () => {
+  const raw = (process.env.VRT_FORCE_VIEWPORT || "").trim();
+  if (!raw) return null;
+  const entries = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  const parsed = [];
+  for (const entry of entries) {
+    const match = entry.match(/^(\d+)\s*x\s*(\d+)$/i);
+    if (!match) continue;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) continue;
+    parsed.push({
+      label: `forced_${width}x${height}`,
+      width,
+      height,
+      mobile: width <= 820,
+    });
+  }
+  return parsed.length ? parsed : null;
+};
+
+const parseForcedPages = () => {
+  const raw = (process.env.VRT_FORCE_PAGES || "").trim();
+  if (!raw) return null;
+  const names = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  return names.length ? names : null;
+};
 
 const allViewports = [
   { label: "desktop_1920x1080", width: 1920, height: 1080, mobile: false },
@@ -41,9 +78,12 @@ const allPages = [
   { name: "tech100_constituents", path: "/tech100/constituents/" },
 ];
 
-const viewports = smokeMode
-  ? [{ label: "mobile_390x844", width: 390, height: 844, mobile: true }]
-  : allViewports;
+const forcedViewports = parseForcedViewports();
+const viewports = forcedViewports
+  ? forcedViewports
+  : smokeMode
+    ? [{ label: "mobile_390x844", width: 390, height: 844, mobile: true }]
+    : allViewports;
 
 const pages = smokeMode
   ? [
@@ -56,8 +96,10 @@ const filterList = (process.env.VRT_PAGES || "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
-const filteredPages = filterList.length
-  ? pages.filter((page) => filterList.includes(page.name))
+const forcedPages = parseForcedPages();
+const filterNames = forcedPages || filterList;
+const filteredPages = filterNames.length
+  ? pages.filter((page) => filterNames.includes(page.name))
   : pages;
 
 const sanitizeName = (name) => name.replace(/[^a-z0-9_-]+/gi, "_");
@@ -94,16 +136,22 @@ const checkMobileLayout = async (page, label, url) => {
       }
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) continue;
-      if (rect.right > viewportWidth + 2 || rect.width > viewportWidth + 2) {
+      if (rect.width > viewportWidth + 1 || rect.right > viewportWidth + 1 || rect.left < -1) {
         offenders.push({
           tag: el.tagName.toLowerCase(),
-          className: el.className || "",
+          id: el.id || "",
+          className: String(el.className || "").slice(0, 120),
+          text: (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60),
+          left: Math.round(rect.left),
           right: Math.round(rect.right),
           width: Math.round(rect.width),
+          delta: Math.round(rect.right - viewportWidth),
         });
-        if (offenders.length >= 8) break;
       }
     }
+
+    offenders.sort((a, b) => b.delta - a.delta);
+    const topOffenders = offenders.slice(0, 15);
 
     const header = document.querySelector("header");
     const main = document.querySelector("main");
@@ -118,14 +166,14 @@ const checkMobileLayout = async (page, label, url) => {
       viewportWidth,
       maxScrollWidth,
       overflow,
-      offenders,
+      offenders: topOffenders,
       headerOverlap,
     };
   });
 
   if (result.overflow > 2) {
     throw new Error(
-      `[${label}] Horizontal overflow on ${url}: viewport=${result.viewportWidth} scrollWidth=${result.maxScrollWidth}`
+      `[${label}] Horizontal overflow on ${url}: viewport=${result.viewportWidth} scrollWidth=${result.maxScrollWidth} offenders=${JSON.stringify(result.offenders)}`
     );
   }
 
@@ -175,10 +223,25 @@ const checkMobileNav = async (page, label, url) => {
 };
 
 const run = async () => {
+  const startLabel = `[VRT] start mode=${mode} baseUrl=${baseUrl} pages=${filteredPages.length} viewports=${viewports.length}`;
+  log(startLabel);
+  const progressWatchdog = setInterval(() => {
+    if (Date.now() - lastProgressAt > watchdogMs) {
+      process.stderr.write(
+        `[VRT] watchdog: no progress within ${watchdogMs}ms (last=${lastProgressLabel})\n`
+      );
+      process.exit(1);
+    }
+  }, 1000);
+
+  log("[VRT] launching browser");
   const browser = await chromium.launch();
+  log("[VRT] browser ready");
   const failures = [];
 
   for (const viewport of viewports) {
+    log(`[VRT] viewport ${viewport.label} ${viewport.width}x${viewport.height}`);
+    log("[VRT] context create start");
     const context = await browser.newContext({
       viewport: { width: viewport.width, height: viewport.height },
       deviceScaleFactor: 1,
@@ -186,6 +249,7 @@ const run = async () => {
       timezoneId: "UTC",
       reducedMotion: "reduce",
     });
+    log("[VRT] context create done");
     await context.addInitScript(() => {
       window.__VRT__ = true;
       const fixed = new Date("2025-01-01T00:00:00Z").getTime();
@@ -207,10 +271,21 @@ const run = async () => {
       window.Date = MockDate;
       Math.random = () => 0.42;
     });
+    log("[VRT] page create start");
     const page = await context.newPage();
+    log("[VRT] page ready");
+    let pageStartWatchdog = null;
+    pageStartWatchdog = setTimeout(() => {
+      process.stderr.write(
+        `[VRT] watchdog: no page start within ${watchdogMs}ms after page ready (last=${lastProgressLabel})\n`
+      );
+      process.exit(1);
+    }, watchdogMs);
     await page.emulateMedia({ reducedMotion: "reduce" });
+    log("[VRT] route setup");
     await page.route(/https:\/\/fonts\.googleapis\.com\/.*/i, (route) => route.abort());
     await page.route(/https:\/\/fonts\.gstatic\.com\/.*/i, (route) => route.abort());
+    log("[VRT] route setup done");
     await page.addStyleTag({
       content: [
         "* { transition: none !important; animation: none !important; caret-color: transparent !important; }",
@@ -240,6 +315,11 @@ const run = async () => {
       const url = `${baseUrl}${entry.path}`;
       let response = null;
       try {
+        if (pageStartWatchdog) {
+          clearTimeout(pageStartWatchdog);
+          pageStartWatchdog = null;
+        }
+        log(`[VRT] navigate start ${viewport.label} ${entry.name} ${url}`);
         response = await page.goto(url, { waitUntil: "commit", timeout: pageTimeoutMs });
         await page.evaluate(async () => {
           if (document.fonts && document.fonts.ready) {
@@ -248,6 +328,7 @@ const run = async () => {
         });
         statusMap[viewport.label][entry.name] = response ? response.status() : 0;
         await page.waitForTimeout(waitAfterLoadMs);
+        log(`[VRT] navigate done ${viewport.label} ${entry.name}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         failures.push({
@@ -288,8 +369,9 @@ const run = async () => {
       const fileName = `${sanitizeName(entry.name)}.png`;
       const outPath = path.join(outDir, fileName);
       try {
+        log(`[VRT] screenshot start ${outPath}`);
         await page.screenshot({ path: outPath, fullPage: true, timeout: screenshotTimeoutMs });
-        process.stdout.write(`saved ${outPath}\n`);
+        log(`[VRT] saved ${outPath}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         failures.push({
@@ -304,10 +386,15 @@ const run = async () => {
       }
     }
 
+    if (pageStartWatchdog) {
+      clearTimeout(pageStartWatchdog);
+      pageStartWatchdog = null;
+    }
     await context.close();
   }
 
   await browser.close();
+  clearInterval(progressWatchdog);
 
   const statusPath = path.join(outRoot, mode, "status.json");
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });

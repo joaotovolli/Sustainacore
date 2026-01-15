@@ -2500,6 +2500,9 @@ textarea:focus {
 .tech100-home__range {
     flex-wrap: nowrap;
     gap: 0.35rem;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .tech100-home__range .btn {
@@ -2532,6 +2535,7 @@ textarea:focus {
 
 .tech100-home__chart {
     min-height: 320px;
+    min-width: 0;
 }
 
 .tech100-home__chart-header {
@@ -2542,6 +2546,10 @@ textarea:focus {
     margin-bottom: 1rem;
 }
 
+.tech100-home__chart-header > * {
+    min-width: 0;
+}
+
 .tech100-home__canvas {
     height: 240px;
 }
@@ -2550,6 +2558,7 @@ textarea:focus {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    min-width: 0;
 }
 
 .tech100-home__stats-grid {
