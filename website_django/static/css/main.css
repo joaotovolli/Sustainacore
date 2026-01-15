@@ -2532,6 +2532,7 @@ textarea:focus {
 
 .tech100-home__chart {
     min-height: 320px;
+    min-width: 0;
 }
 
 .tech100-home__chart-header {
@@ -2550,12 +2551,24 @@ textarea:focus {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    min-width: 0;
 }
 
 .tech100-home__stats-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem 1.5rem;
+}
+
+@media (max-width: 600px) {
+    .tech100-home__chart-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .tech100-home__range {
+        flex-wrap: wrap;
+    }
 }
 
 .tech100-home__quality {

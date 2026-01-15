@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
 
 jobs:
   guard-secrets:
@@ -79,6 +81,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Configure smoke VRT for pull requests
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          echo "VRT_SMOKE=1" >> "$GITHUB_ENV"
+          echo "VRT_FORCE_VIEWPORT=360x800" >> "$GITHUB_ENV"
+          echo "VRT_FORCE_PAGES=home" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: "18"
