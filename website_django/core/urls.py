@@ -59,6 +59,7 @@ urlpatterns = [
     path("telemetry/consent/", csrf_exempt(telemetry_views.consent), name="telemetry_consent"),
     path("telemetry/event/", csrf_exempt(telemetry_views.telemetry_event), name="telemetry_event"),
     path("telemetry/health/", telemetry_views.telemetry_health, name="telemetry_health"),
+    path("telemetry/debug/headers/", telemetry_views.telemetry_debug_headers, name="telemetry_debug_headers"),
     path("api/tech100/index-levels", tech100_index_views.api_tech100_index_levels),
     path("api/tech100/index/attribution", tech100_index_views.api_tech100_performance_attribution),
     path("api/tech100/index/holdings", tech100_index_views.api_tech100_holdings),
