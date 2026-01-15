@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
+from functools import lru_cache
 from typing import Iterable, Optional, Tuple
 
 from django.conf import settings
@@ -156,4 +157,42 @@ def get_geo_fields(request) -> Tuple[Optional[str], Optional[str]]:
     region_headers = getattr(settings, "TELEMETRY_GEO_REGION_HEADERS", [])
     country = _clean_geo_value(_get_header_value(request, country_headers), 8)
     region = _clean_geo_value(_get_header_value(request, region_headers), 16)
+    if country or region:
+        return country, region
+    if not getattr(settings, "TELEMETRY_GEOIP_ENABLED", False):
+        return country, region
+    raw_ip = get_client_ip(request)
+    if not raw_ip:
+        return country, region
+    geoip_country, geoip_region = _lookup_geoip_fields(raw_ip)
+    return geoip_country, geoip_region
+
+
+@lru_cache(maxsize=1)
+def _get_geoip_reader():
+    db_path = getattr(settings, "TELEMETRY_GEOIP_DB_PATH", "") or ""
+    if not db_path:
+        return None
+    try:
+        import geoip2.database  # type: ignore
+    except Exception:
+        return None
+    try:
+        return geoip2.database.Reader(db_path)
+    except Exception:
+        return None
+
+
+def _lookup_geoip_fields(raw_ip: str) -> Tuple[Optional[str], Optional[str]]:
+    reader = _get_geoip_reader()
+    if not reader:
+        return None, None
+    try:
+        response = reader.city(raw_ip)
+    except Exception:
+        return None, None
+    country = _clean_geo_value(getattr(response.country, "iso_code", None), 8)
+    subdivision = getattr(response.subdivisions, "most_specific", None)
+    region_code = getattr(subdivision, "iso_code", None)
+    region = _clean_geo_value(region_code, 16)
     return country, region
