@@ -141,7 +141,7 @@ def _get_header_value(request, headers: Iterable[str]) -> Optional[str]:
 def _clean_geo_value(value: Optional[str], max_len: int) -> Optional[str]:
     if not value:
         return None
-    cleaned = value.strip().upper()
+    cleaned = value.split(",", 1)[0].strip().upper()
     if not cleaned:
         return None
     if len(cleaned) > max_len:

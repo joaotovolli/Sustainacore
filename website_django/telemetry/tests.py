@@ -12,7 +12,7 @@ from core.analytics import ANON_COOKIE
 from telemetry.consent import CONSENT_COOKIE, ConsentState, parse_consent_cookie, serialize_consent
 from telemetry.middleware import TelemetryMiddleware
 from telemetry.models import WebEvent
-from telemetry.utils import get_client_ip
+from telemetry.utils import get_client_ip, get_geo_fields
 
 
 class TestConsentCookie(TestCase):
@@ -190,3 +190,20 @@ class TestTelemetryDebugHeaders(TestCase):
             }
         )
         self.assertEqual(get_client_ip(request), "127.0.0.1")
+
+
+class TestTelemetryGeoParsing(SimpleTestCase):
+    @override_settings(
+        TELEMETRY_GEO_COUNTRY_HEADERS=["X-Country-Code"],
+        TELEMETRY_GEO_REGION_HEADERS=["X-Region-Code"],
+    )
+    def test_geo_headers_normalize_and_split(self):
+        request = SimpleNamespace(
+            META={
+                "HTTP_X_COUNTRY_CODE": " us, ca ",
+                "HTTP_X_REGION_CODE": "  ny, us ",
+            }
+        )
+        country, region = get_geo_fields(request)
+        self.assertEqual(country, "US")
+        self.assertEqual(region, "NY")

@@ -83,3 +83,7 @@ Environment variables (optional):
   `TELEMETRY_GEO_REGION_HEADERS`).
 - For local verification, enable `TELEMETRY_DEBUG_HEADERS=1` and call
   `/telemetry/debug/headers/` to see which header names are present (values are not returned).
+- If header values include comma-separated values, only the first entry is used.
+- To enable geo enrichment, configure the edge/reverse proxy to inject
+  `X-Country-Code` / `X-Region-Code` (or equivalent) and then set
+  `TELEMETRY_GEO_COUNTRY_HEADERS` / `TELEMETRY_GEO_REGION_HEADERS` accordingly.
