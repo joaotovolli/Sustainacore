@@ -77,6 +77,8 @@ Environment variables (optional):
 - `TELEMETRY_GEO_COUNTRY_HEADERS` (comma-separated header names for country code)
 - `TELEMETRY_GEO_REGION_HEADERS` (comma-separated header names for region code)
 - `TELEMETRY_DEBUG_HEADERS` (`1` to expose a local-only header presence endpoint)
+- `TELEMETRY_GEOIP_ENABLED` (`1` to enable GeoIP fallback; default OFF)
+- `TELEMETRY_GEOIP_DB_PATH` (filesystem path to the GeoIP database file)
 
 ## Geo enablement
 - Country/region enrichment requires upstream headers (set in `TELEMETRY_GEO_COUNTRY_HEADERS` and
@@ -87,3 +89,7 @@ Environment variables (optional):
 - To enable geo enrichment, configure the edge/reverse proxy to inject
   `X-Country-Code` / `X-Region-Code` (or equivalent) and then set
   `TELEMETRY_GEO_COUNTRY_HEADERS` / `TELEMETRY_GEO_REGION_HEADERS` accordingly.
+- Optional GeoIP fallback (off by default):
+  - Provision a GeoIP database file on the VM (outside the repo).
+  - Set `TELEMETRY_GEOIP_ENABLED=1` and `TELEMETRY_GEOIP_DB_PATH=/path/to/db`.
+  - Restart `gunicorn.service` to pick up the environment changes.

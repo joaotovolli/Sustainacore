@@ -78,6 +78,8 @@ TELEMETRY_GEO_COUNTRY_HEADERS = get_env_list(
 TELEMETRY_GEO_REGION_HEADERS = get_env_list(
     "TELEMETRY_GEO_REGION_HEADERS", "X-Region-Code,X-Geo-Region"
 )
+TELEMETRY_GEOIP_ENABLED = env_bool("TELEMETRY_GEOIP_ENABLED", default=False)
+TELEMETRY_GEOIP_DB_PATH = os.environ.get("TELEMETRY_GEOIP_DB_PATH", "")
 
 # Application definition
 

@@ -12,6 +12,8 @@ from core.analytics import ANON_COOKIE
 from telemetry.consent import CONSENT_COOKIE, ConsentState, parse_consent_cookie, serialize_consent
 from telemetry.middleware import TelemetryMiddleware
 from telemetry.models import WebEvent
+from unittest import mock
+
 from telemetry.utils import get_client_ip, get_geo_fields
 
 
@@ -207,3 +209,11 @@ class TestTelemetryGeoParsing(SimpleTestCase):
         country, region = get_geo_fields(request)
         self.assertEqual(country, "US")
         self.assertEqual(region, "NY")
+
+    @override_settings(TELEMETRY_GEOIP_ENABLED=True)
+    def test_geoip_fallback_used_when_headers_missing(self):
+        request = SimpleNamespace(META={"REMOTE_ADDR": "127.0.0.1"})
+        with mock.patch("telemetry.utils._lookup_geoip_fields", return_value=("US", "CA")):
+            country, region = get_geo_fields(request)
+        self.assertEqual(country, "US")
+        self.assertEqual(region, "CA")
