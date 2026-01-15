@@ -11,17 +11,50 @@ const diffDir = path.join(outRoot, "diff");
 const statusBeforePath = path.join(beforeDir, "status.json");
 const statusAfterPath = path.join(afterDir, "status.json");
 
-const viewports = [
-  // Desktop remains strict; allow 0.25% to avoid failing on minor footer/link shifts.
-  { label: "desktop_1440x900", desktop: true, maxMismatch: 0.0025 },
+const forcedViewportRaw = (process.env.VRT_FORCE_VIEWPORT || "").trim();
+const forcedPagesRaw = (process.env.VRT_FORCE_PAGES || "").trim();
+const smokeMode = ["1", "true"].includes((process.env.VRT_SMOKE || "").toLowerCase());
+
+const parseForcedViewports = () => {
+  if (!forcedViewportRaw) return null;
+  const entries = forcedViewportRaw.split(",").map((value) => value.trim()).filter(Boolean);
+  const parsed = [];
+  for (const entry of entries) {
+    const match = entry.match(/^(\d+)\s*x\s*(\d+)$/i);
+    if (!match) continue;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) continue;
+    const label = `forced_${width}x${height}`;
+    parsed.push({
+      label,
+      desktop: width >= 1024,
+      maxMismatch: width >= 1024 ? 0.0025 : 0.01,
+    });
+  }
+  return parsed.length ? parsed : null;
+};
+
+const parseForcedPages = () => {
+  if (!forcedPagesRaw) return null;
+  const names = forcedPagesRaw.split(",").map((value) => value.trim()).filter(Boolean);
+  return names.length ? names : null;
+};
+
+const defaultViewports = [
   { label: "desktop_1920x1080", desktop: true, maxMismatch: 0.0025 },
-  // Mobile is advisory unless the mismatch exceeds 1% to avoid minor reflow noise.
+  { label: "desktop_1536x864", desktop: true, maxMismatch: 0.0025 },
+  { label: "desktop_1366x768", desktop: true, maxMismatch: 0.0025 },
+  { label: "tablet_1024x768", desktop: true, maxMismatch: 0.0025 },
+  { label: "tablet_768x1024", desktop: false, maxMismatch: 0.01 },
   { label: "mobile_390x844", desktop: false, maxMismatch: 0.01 },
-  { label: "mobile_844x390", desktop: false, maxMismatch: 0.01 },
+  { label: "mobile_360x800", desktop: false, maxMismatch: 0.01 },
 ];
 
-const pages = [
+const defaultPages = [
   "home",
+  "privacy",
+  "terms",
   "news",
   "news_detail_one",
   "news_detail_two",
@@ -43,6 +76,13 @@ const loadStatus = (filePath) => {
 
 const statusBefore = loadStatus(statusBeforePath);
 const statusAfter = loadStatus(statusAfterPath);
+
+const forcedViewports = parseForcedViewports();
+const forcedPages = parseForcedPages();
+const allowMissing = Boolean(forcedViewports || forcedPages || smokeMode);
+
+const viewports = forcedViewports || defaultViewports;
+const pages = forcedPages || (smokeMode ? ["home"] : defaultPages);
 
 const readPng = (filePath) => PNG.sync.read(fs.readFileSync(filePath));
 
@@ -70,8 +110,11 @@ const cropPng = (image, width, height) => {
   return cropped;
 };
 
-const diffPair = (beforePath, afterPath, diffPath, maxMismatch) => {
+const diffPair = (beforePath, afterPath, diffPath) => {
   if (!fs.existsSync(beforePath) || !fs.existsSync(afterPath)) {
+    if (allowMissing) {
+      return null;
+    }
     throw new Error(`Missing screenshot: ${beforePath} or ${afterPath}`);
   }
   const before = readPng(beforePath);
@@ -113,9 +156,20 @@ for (const viewport of viewports) {
       process.stdout.write(`skip diff for ${viewport.label} ${page} (baseline status ${beforeStatus})\n`);
       continue;
     }
+    if (!fs.existsSync(afterPath) || !fs.existsSync(beforePath)) {
+      if (allowMissing) {
+        process.stdout.write(`skip missing ${viewport.label} ${page}\n`);
+        continue;
+      }
+      throw new Error(`Missing screenshot: ${beforePath} or ${afterPath}`);
+    }
     assertNotBlank(afterPath);
     const diffPath = path.join(diffDir, viewport.label, `${page}.png`);
-    const ratio = diffPair(beforePath, afterPath, diffPath, viewport.maxMismatch);
+    const ratio = diffPair(beforePath, afterPath, diffPath);
+    if (ratio === null) {
+      process.stdout.write(`skip missing ${viewport.label} ${page}\n`);
+      continue;
+    }
     const ratioText = (ratio * 100).toFixed(2);
     process.stdout.write(`${viewport.label} ${page} mismatch ${ratioText}%\n`);
     summary[viewport.label][page] = {
