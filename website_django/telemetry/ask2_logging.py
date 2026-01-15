@@ -12,7 +12,7 @@ from django.utils.timezone import now
 
 from telemetry.consent import get_consent_from_request
 from telemetry.models import WebAsk2Conversation, WebAsk2Message
-from telemetry.utils import get_ip_fields
+from telemetry.utils import ensure_session_key, get_ip_fields, is_bot_user_agent
 
 logger = logging.getLogger(__name__)
 
@@ -42,15 +42,6 @@ def get_or_create_conversation_id(request) -> uuid.UUID:
     return uuid.uuid4()
 
 
-def ensure_session_key(request) -> Optional[str]:
-    try:
-        if not request.session.session_key:
-            request.session.save()
-        return request.session.session_key
-    except Exception:
-        return None
-
-
 def log_ask2_exchange(
     *,
     request,
@@ -70,9 +61,15 @@ def log_ask2_exchange(
     db_alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
     ip_prefix, ip_hash = get_ip_fields(request)
     user_agent = (request.META.get("HTTP_USER_AGENT") or "")[:512] or None
-    session_key = ensure_session_key(request)
-    user_id = request.user.id if getattr(request.user, "is_authenticated", False) else None
     consent = get_consent_from_request(request)
+    user_agent_raw = request.META.get("HTTP_USER_AGENT", "") or None
+    is_bot = is_bot_user_agent(user_agent_raw)
+    session_key = ensure_session_key(request) if consent.analytics and not is_bot else None
+    user_id = (
+        request.user.id
+        if consent.analytics and getattr(request.user, "is_authenticated", False)
+        else None
+    )
     timestamp = now()
 
     def _write():
