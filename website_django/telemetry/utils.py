@@ -8,12 +8,44 @@ from typing import Iterable, Optional, Tuple
 from django.conf import settings
 
 
+def _parse_ip(value: str) -> Optional[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    try:
+        return ipaddress.ip_address(value)
+    except ValueError:
+        return None
+
+
+def _first_public_ip(candidates: Iterable[str]) -> Optional[str]:
+    for candidate in candidates:
+        if not candidate:
+            continue
+        ip_obj = _parse_ip(candidate)
+        if ip_obj and ip_obj.is_global:
+            return str(ip_obj)
+    return None
+
+
 def get_client_ip(request) -> str:
-    trust_forwarded = getattr(settings, "TELEMETRY_TRUST_X_FORWARDED_FOR", False)
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR") if trust_forwarded else None
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR", "") or ""
+    trust_forwarded = getattr(settings, "TELEMETRY_TRUST_X_FORWARDED_FOR", True)
+    forwarded_raw = request.META.get("HTTP_X_FORWARDED_FOR") if trust_forwarded else None
+    real_ip_raw = request.META.get("HTTP_X_REAL_IP") if trust_forwarded else None
+    remote_addr = request.META.get("REMOTE_ADDR", "") or ""
+
+    if forwarded_raw:
+        forwarded_ips = [part.strip() for part in forwarded_raw.split(",")]
+        public_ip = _first_public_ip(forwarded_ips)
+        if public_ip:
+            return public_ip
+
+    if real_ip_raw:
+        public_ip = _first_public_ip([real_ip_raw.strip()])
+        if public_ip:
+            return public_ip
+
+    ip_obj = _parse_ip(remote_addr.strip()) if remote_addr else None
+    if ip_obj:
+        return str(ip_obj)
+    return remote_addr
 
 
 def truncate_ip(raw_ip: str) -> Optional[str]:

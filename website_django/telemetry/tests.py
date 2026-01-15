@@ -3,12 +3,16 @@ import json
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory, TestCase, TransactionTestCase
+from types import SimpleNamespace
+
+from django.test import RequestFactory, SimpleTestCase, TestCase, TransactionTestCase
+from django.test.utils import override_settings
 
 from core.analytics import ANON_COOKIE
 from telemetry.consent import CONSENT_COOKIE, ConsentState, parse_consent_cookie, serialize_consent
 from telemetry.middleware import TelemetryMiddleware
 from telemetry.models import WebEvent
+from telemetry.utils import get_client_ip
 
 
 class TestConsentCookie(TestCase):
@@ -125,3 +129,64 @@ class TestTelemetryEventEndpoint(TestCase):
         response = self.client.post("/telemetry/event/", payload, content_type="application/json")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(WebEvent.objects.count(), 1)
+
+
+class TestTelemetryIpSelection(SimpleTestCase):
+    def test_prefers_public_ip_from_forwarded_chain(self):
+        request = SimpleNamespace(
+            META={
+                "HTTP_X_FORWARDED_FOR": "10.0.0.1, 1.2.3.4",
+                "REMOTE_ADDR": "127.0.0.1",
+            }
+        )
+        self.assertEqual(get_client_ip(request), "1.2.3.4")
+
+    def test_falls_back_to_real_ip_when_forwarded_private(self):
+        request = SimpleNamespace(
+            META={
+                "HTTP_X_FORWARDED_FOR": "10.0.0.1, 192.168.1.5",
+                "HTTP_X_REAL_IP": "1.2.3.4",
+                "REMOTE_ADDR": "127.0.0.1",
+            }
+        )
+        self.assertEqual(get_client_ip(request), "1.2.3.4")
+
+    def test_falls_back_to_remote_addr_when_no_public(self):
+        request = SimpleNamespace(
+            META={
+                "HTTP_X_FORWARDED_FOR": "10.0.0.1, 192.168.1.5",
+                "HTTP_X_REAL_IP": "172.16.0.9",
+                "REMOTE_ADDR": "127.0.0.1",
+            }
+        )
+        self.assertEqual(get_client_ip(request), "127.0.0.1")
+
+
+class TestTelemetryDebugHeaders(TestCase):
+    def test_debug_headers_disabled_by_default(self):
+        response = self.client.get("/telemetry/debug/headers/")
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(TELEMETRY_DEBUG_HEADERS=True)
+    def test_debug_headers_returns_presence(self):
+        response = self.client.get(
+            "/telemetry/debug/headers/",
+            REMOTE_ADDR="127.0.0.1",
+            HTTP_X_REAL_IP="1.2.3.4",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("ip_headers", payload)
+        self.assertTrue(payload["ip_headers"]["REMOTE_ADDR"])
+        self.assertTrue(payload["ip_headers"]["HTTP_X_REAL_IP"])
+
+    @override_settings(TELEMETRY_TRUST_X_FORWARDED_FOR=False)
+    def test_ignores_forwarded_when_untrusted(self):
+        request = SimpleNamespace(
+            META={
+                "HTTP_X_FORWARDED_FOR": "1.2.3.4",
+                "HTTP_X_REAL_IP": "1.2.3.4",
+                "REMOTE_ADDR": "127.0.0.1",
+            }
+        )
+        self.assertEqual(get_client_ip(request), "127.0.0.1")

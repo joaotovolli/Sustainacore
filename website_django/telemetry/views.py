@@ -14,6 +14,7 @@ from telemetry.consent import CONSENT_COOKIE, ConsentState, get_consent_from_req
 from telemetry.logger import record_consent, record_event
 from telemetry.models import WebEvent
 from telemetry.utils import (
+    _normalize_header_name,
     ensure_session_key,
     get_geo_fields,
     is_bot_user_agent,
@@ -169,5 +170,23 @@ def telemetry_health(request: HttpRequest) -> JsonResponse:
         "checked_at": now().isoformat(),
     }
     return JsonResponse(payload)
+
+
+def telemetry_debug_headers(request: HttpRequest) -> JsonResponse:
+    if not getattr(settings, "TELEMETRY_DEBUG_HEADERS", False):
+        return JsonResponse({"detail": "not found"}, status=404)
+    ip_headers = {
+        "REMOTE_ADDR": bool(request.META.get("REMOTE_ADDR")),
+        "HTTP_X_FORWARDED_FOR": bool(request.META.get("HTTP_X_FORWARDED_FOR")),
+        "HTTP_X_REAL_IP": bool(request.META.get("HTTP_X_REAL_IP")),
+    }
+    country_headers = getattr(settings, "TELEMETRY_GEO_COUNTRY_HEADERS", [])
+    region_headers = getattr(settings, "TELEMETRY_GEO_REGION_HEADERS", [])
+    geo_headers = {}
+    for name in list(country_headers) + list(region_headers):
+        key = _normalize_header_name(name)
+        if key:
+            geo_headers[key] = bool(request.META.get(key))
+    return JsonResponse({"ip_headers": ip_headers, "geo_headers": geo_headers})
 
 # Create your views here.

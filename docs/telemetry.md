@@ -41,6 +41,10 @@ Ask2 content (stored in Oracle):
 - `ip_hash`: salted hash (uses `TELEMETRY_HASH_SALT` or `SECRET_KEY`)
 - User agent and referrer are stored when present.
 
+IP selection (server-side):
+- Preferred order: `X-Forwarded-For` (first public IP), `X-Real-IP`, then `REMOTE_ADDR`.
+- Private/reserved/bogon ranges are ignored unless all candidates are non-public.
+
 ## Retention
 - Default retention is 180 days for telemetry events.
 - `manage.py purge_web_telemetry --days N` removes older rows.
@@ -67,8 +71,15 @@ Environment variables (optional):
 - `TELEMETRY_POLICY_VERSION` (default `2025-12-30`)
 - `TELEMETRY_HASH_SALT` (default `SECRET_KEY`)
 - `TELEMETRY_RETENTION_DAYS` (default `180`)
-- `TELEMETRY_TRUST_X_FORWARDED_FOR` (`1` to trust proxy headers)
+- `TELEMETRY_TRUST_X_FORWARDED_FOR` (`1` to trust proxy headers; default on)
 - `TELEMETRY_STORE_ASK2_TEXT` (`1` to store Ask2 message text; default OFF)
 - `ASK2_STORE_CONVERSATIONS` (`1` to store Ask2 prompts + replies in events; default OFF)
 - `TELEMETRY_GEO_COUNTRY_HEADERS` (comma-separated header names for country code)
 - `TELEMETRY_GEO_REGION_HEADERS` (comma-separated header names for region code)
+- `TELEMETRY_DEBUG_HEADERS` (`1` to expose a local-only header presence endpoint)
+
+## Geo enablement
+- Country/region enrichment requires upstream headers (set in `TELEMETRY_GEO_COUNTRY_HEADERS` and
+  `TELEMETRY_GEO_REGION_HEADERS`).
+- For local verification, enable `TELEMETRY_DEBUG_HEADERS=1` and call
+  `/telemetry/debug/headers/` to see which header names are present (values are not returned).
