@@ -6,6 +6,9 @@ on:
       - 'website_django/templates/**'
       - 'website_django/static/**'
       - 'website_django/core/**'
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 3 * * *"
 
 jobs:
   ui-home-compare:
