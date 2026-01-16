@@ -31,6 +31,10 @@ gh run download <run_id> -n ui-home-compare
    - `diffPixels` and `diffPct`
    - `overflowOffendersTop15` for layout issues
 3) Fix preview, push, repeat until diff acceptable.
+4) Poll PR checks using the fast script (avoid long-running `--watch`):
+```
+tools/ci/poll_pr_checks.sh <pr-number>
+```
 
 ## Why CI-only
 VM2 is 1GB RAM and cannot reliably run Playwright. All UI compare runs happen in
