@@ -25,16 +25,19 @@ jobs:
           cd website_django
           npx playwright install --with-deps chromium
       - name: Verify preview auth secrets
+        id: preview-secrets
         env:
           PREVIEW_BASIC_AUTH_USER: ${{ secrets.PREVIEW_BASIC_AUTH_USER }}
           PREVIEW_BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
         run: |
           set -euo pipefail
           if [ -z "${PREVIEW_BASIC_AUTH_USER}" ] || [ -z "${PREVIEW_BASIC_AUTH_PASS}" ]; then
-            echo "Missing GitHub Secrets: PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS" >&2
-            exit 1
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "missing=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Capture before/after/diff
+        if: steps.preview-secrets.outputs.missing == 'false'
         env:
           PROD_BASE_URL: https://sustainacore.org
           PREVIEW_BASE_URL: https://preview.sustainacore.org
@@ -47,6 +50,7 @@ jobs:
           cd website_django
           node scripts/ui_compare_home.mjs
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ui-home-compare
@@ -59,6 +63,11 @@ jobs:
             echo "- Preview: https://preview.sustainacore.org/";
             echo "- Artifacts: ui-home-compare (before/home.png, after/home.png, diff/home_diff.png, report/ui_compare_report.json)";
             echo;
+            if [ "${{ steps.preview-secrets.outputs.missing }}" = "true" ]; then
+              echo "### Status";
+              echo "Skipped (missing PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS).";
+              exit 0;
+            fi
             echo "### Compare summary";
             if [ -f artifacts/ui_home/report/ui_compare_summary.txt ]; then
               cat artifacts/ui_home/report/ui_compare_summary.txt;
