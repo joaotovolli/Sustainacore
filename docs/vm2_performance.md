@@ -1,4 +1,5 @@
 # VM2 Performance Checklist
+<!-- cspell:ignore ppid etime -->
 
 ## Quick checks (safe)
 - `free -h`

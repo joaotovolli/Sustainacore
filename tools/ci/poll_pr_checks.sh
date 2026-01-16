@@ -4,6 +4,7 @@ set -euo pipefail
 pr_number="${1:-}"
 if [[ -z "$pr_number" ]]; then
   echo "usage: $0 <pr-number>" >&2
+  echo "example: bash tools/ci/poll_pr_checks.sh 405" >&2
   exit 2
 fi
 

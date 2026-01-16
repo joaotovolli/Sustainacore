@@ -135,6 +135,7 @@ Do not assume:
 ## Codex CLI Timeouts (VM2)
 - Avoid long-running commands (>10s) in Codex CLI; use short, repeatable polls.
 - Do NOT use `gh pr checks --watch`. Use `tools/ci/poll_pr_checks.sh <pr>` instead.
+- Do NOT execute markdown files in shell (e.g., `AGENTS.md`); edit them with apply_patch or heredoc.
 
 ### Health Check Commands
 ```bash
