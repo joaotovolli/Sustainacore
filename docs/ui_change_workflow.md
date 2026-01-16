@@ -47,10 +47,18 @@ gh pr create --fill
 
 7) Request human approval (agent never merges).
 
+## Preview deploy (PR branch → preview)
+- Workflow: `.github/workflows/deploy_preview_vm2.yml`
+- Deploys the PR HEAD SHA to preview only.
+- Preview must reflect the PR SHA before UI compare runs.
+
 ## Secrets setup (GitHub)
 Required GitHub Secrets:
 - `PREVIEW_BASIC_AUTH_USER`
 - `PREVIEW_BASIC_AUTH_PASS`
+- `VM2_HOST`
+- `VM2_USER`
+- `VM2_SSH_KEY`
 
 These are low-risk but MUST remain secrets and never be committed or logged.
 
@@ -66,3 +74,6 @@ These are low-risk but MUST remain secrets and never be committed or logged.
 ## Links
 - `AGENTS.md` UI Change Contract
 - `docs/ui_screenshot_process.md`
+
+## Troubleshooting
+- Preview shows no change: confirm `deploy_preview_vm2` ran and preview HTML includes `build: <sha>`.
