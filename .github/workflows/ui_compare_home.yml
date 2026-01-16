@@ -2,6 +2,10 @@ name: UI Screenshot Compare (Home)
 
 on:
   pull_request:
+    paths:
+      - 'website_django/templates/**'
+      - 'website_django/static/**'
+      - 'website_django/core/**'
 
 jobs:
   ui-home-compare:
@@ -24,6 +28,10 @@ jobs:
           set -euo pipefail
           cd website_django
           npx playwright install --with-deps chromium
+      - name: Prepare artifact directories
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ui/before artifacts/ui/after artifacts/ui/diff artifacts/ui/report
       - name: Verify preview auth secrets
         id: preview-secrets
         env:
@@ -36,6 +44,14 @@ jobs:
           else
             echo "missing=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Write skip report (missing secrets)
+        if: steps.preview-secrets.outputs.missing == 'true'
+        run: |
+          set -euo pipefail
+          printf '%s\n' "UI compare skipped (missing PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS)." \
+            > artifacts/ui/report/ui_compare_summary.txt
+          printf '%s\n' '{"status":"skipped","reason":"missing preview secrets"}' \
+            > artifacts/ui/report/ui_compare_report.json
       - name: Capture before/after/diff
         if: steps.preview-secrets.outputs.missing == 'false'
         env:
@@ -45,16 +61,26 @@ jobs:
           BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
           TIMEOUT_MS: "60000"
           DIFF_MAX_PIXELS: "100"
+          OUTPUT_DIR: artifacts/ui
         run: |
           set -euo pipefail
           cd website_django
           node scripts/ui_compare_home.mjs
+      - name: Enforce diff threshold
+        if: steps.preview-secrets.outputs.missing == 'false'
+        env:
+          DIFF_MAX_PIXELS: "100"
+          UI_COMPARE_REPORT: artifacts/ui/report/ui_compare_report.json
+        run: |
+          set -euo pipefail
+          cd website_django
+          node scripts/ui_compare_threshold.mjs
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ui-home-compare
-          path: artifacts/ui_home
+          path: artifacts/ui
       - name: Job summary
         run: |
           {
@@ -69,8 +95,8 @@ jobs:
               exit 0;
             fi
             echo "### Compare summary";
-            if [ -f artifacts/ui_home/report/ui_compare_summary.txt ]; then
-              cat artifacts/ui_home/report/ui_compare_summary.txt;
+            if [ -f artifacts/ui/report/ui_compare_summary.txt ]; then
+              cat artifacts/ui/report/ui_compare_summary.txt;
             else
               echo "No summary file found.";
             fi
@@ -101,3 +127,43 @@ jobs:
               pull_number: pr.number,
               body: updated
             });
+      - name: Comment with artifact download command
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info("No pull_request context; skipping PR comment.");
+              return;
+            }
+            const marker = "<!-- ui-home-compare-artifacts -->";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              "UI compare artifacts are ready.",
+              "- Production: https://sustainacore.org/",
+              "- Preview: https://preview.sustainacore.org/",
+              `- Run: ${runUrl}`,
+              `- Download: gh run download ${context.runId} -n ui-home-compare`
+            ].join("\\n");
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number
+            });
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body
+              });
+            }

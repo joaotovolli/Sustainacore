@@ -7,7 +7,7 @@
 - Generates a pixel diff.
 - Writes a report with diff stats and overflow offenders.
 
-Artifacts (CI):
+Artifacts (CI) under `artifacts/ui/`:
 - `before/home.png`
 - `after/home.png`
 - `diff/home_diff.png`
