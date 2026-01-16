@@ -44,12 +44,10 @@ jobs:
         if: steps.preview-secrets.outputs.missing == 'true'
         run: |
           set -euo pipefail
-          cat <<'EOF' > artifacts/ui_home/report/ui_compare_summary.txt
-UI compare skipped (missing PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS).
-EOF
-          cat <<'EOF' > artifacts/ui_home/report/ui_compare_report.json
-{"status":"skipped","reason":"missing preview secrets"}
-EOF
+          printf '%s\n' "UI compare skipped (missing PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS)." \
+            > artifacts/ui_home/report/ui_compare_summary.txt
+          printf '%s\n' '{"status":"skipped","reason":"missing preview secrets"}' \
+            > artifacts/ui_home/report/ui_compare_report.json
       - name: Wait for preview to match PR SHA
         if: steps.preview-secrets.outputs.missing == 'false'
         env:
