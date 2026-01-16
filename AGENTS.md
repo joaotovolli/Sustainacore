@@ -18,6 +18,7 @@ Non-negotiable rules:
 - NEVER commit secrets; preview Basic Auth must live in GitHub Secrets only.
 - ALWAYS use CI artifacts as the feedback loop; VM2 is not the source of truth.
 - VM2 has 1GB RAM; Playwright/Chromium runs for UI compare MUST be CI-only.
+- PR #244 screenshot-compare contract is canonical (before/after/diff + preview links).
 
 Required agent loop:
 A) Open PR

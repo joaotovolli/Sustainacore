@@ -17,6 +17,7 @@ Use this for **any** change that impacts what users see on sustainacore.org
 - MUST use CI artifacts for validation; do not run Playwright locally on VM2.
 - MUST keep preview Basic Auth credentials in GitHub Secrets only.
 - MUST request human approval; the agent never merges.
+- PR #244 screenshot-compare contract is canonical for UI changes.
 
 ## Step-by-step (agent)
 1) Create a branch:
