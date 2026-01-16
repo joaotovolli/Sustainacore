@@ -1,0 +1,103 @@
+name: UI Screenshot Compare (Home)
+
+on:
+  pull_request:
+
+jobs:
+  ui-home-compare:
+    name: UI compare (home, prod vs preview)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: website_django/package-lock.json
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          cd website_django
+          npm ci
+      - name: Install Playwright Chromium
+        run: |
+          set -euo pipefail
+          cd website_django
+          npx playwright install --with-deps chromium
+      - name: Verify preview auth secrets
+        id: preview-secrets
+        env:
+          PREVIEW_BASIC_AUTH_USER: ${{ secrets.PREVIEW_BASIC_AUTH_USER }}
+          PREVIEW_BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PREVIEW_BASIC_AUTH_USER}" ] || [ -z "${PREVIEW_BASIC_AUTH_PASS}" ]; then
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Capture before/after/diff
+        if: steps.preview-secrets.outputs.missing == 'false'
+        env:
+          PROD_BASE_URL: https://sustainacore.org
+          PREVIEW_BASE_URL: https://preview.sustainacore.org
+          BASIC_AUTH_USER: ${{ secrets.PREVIEW_BASIC_AUTH_USER }}
+          BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
+          TIMEOUT_MS: "60000"
+          DIFF_MAX_PIXELS: "100"
+        run: |
+          set -euo pipefail
+          cd website_django
+          node scripts/ui_compare_home.mjs
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-home-compare
+          path: artifacts/ui_home
+      - name: Job summary
+        run: |
+          {
+            echo "## UI home screenshot compare";
+            echo "- Production: https://sustainacore.org/";
+            echo "- Preview: https://preview.sustainacore.org/";
+            echo "- Artifacts: ui-home-compare (before/home.png, after/home.png, diff/home_diff.png, report/ui_compare_report.json)";
+            echo;
+            if [ "${{ steps.preview-secrets.outputs.missing }}" = "true" ]; then
+              echo "### Status";
+              echo "Skipped (missing PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS).";
+              exit 0;
+            fi
+            echo "### Compare summary";
+            if [ -f artifacts/ui_home/report/ui_compare_summary.txt ]; then
+              cat artifacts/ui_home/report/ui_compare_summary.txt;
+            else
+              echo "No summary file found.";
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Ensure preview links in PR body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info("No pull_request context; skipping PR body update.");
+              return;
+            }
+            const previewBlock = [
+              "## Preview links",
+              "- https://preview.sustainacore.org/",
+              "- https://sustainacore.org/"
+            ].join("\\n");
+            const body = pr.body || "";
+            if (body.includes("## Preview links")) {
+              core.info("Preview links already present in PR body.");
+              return;
+            }
+            const updated = `${body}\\n\\n${previewBlock}\\n`;
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              body: updated
+            });

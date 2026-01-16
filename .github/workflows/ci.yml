@@ -76,7 +76,7 @@ jobs:
     name: Mobile VRT (desktop hard gate)
     runs-on: ubuntu-latest
     needs: vrt-changes
-    if: needs.vrt-changes.outputs.ui == 'true'
+    if: github.event_name != 'pull_request' && needs.vrt-changes.outputs.ui == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
