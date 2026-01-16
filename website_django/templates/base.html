@@ -20,7 +20,7 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body data-logged-in="{% if is_logged_in %}true{% else %}false{% endif %}">
-    <header class="topbar" data-site-header>
+    <header class="topbar">
         <div class="shell topbar__inner">
             <div class="brand">
                 <a class="brand-mark" href="{% url 'home' %}" aria-label="SustainaCore home">
@@ -33,17 +33,7 @@
                     <div class="brand__tagline">Open ESG &amp; AI governance data</div>
                 </div>
             </div>
-            <button
-                class="nav-toggle"
-                type="button"
-                data-nav-toggle
-                aria-label="Toggle navigation"
-                aria-expanded="false"
-                aria-controls="site-nav"
-            >
-                <span class="nav-toggle__icon" aria-hidden="true"></span>
-            </button>
-            <div class="topbar__nav" id="site-nav" data-nav-panel>
+            <div class="topbar__nav">
                 <nav class="nav nav--primary" aria-label="Primary">
                     <a href="{% url 'home' %}" class="nav__link">Home</a>
                     <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2">
@@ -269,7 +259,6 @@
         window.SC_TELEMETRY_POLICY_VERSION = "{{ telemetry_policy_version }}";
     </script>
     <script src="{% static 'js/telemetry.js' %}?v={{ static_version }}"></script>
-    <script src="{% static 'js/nav_toggle.js' %}?v={{ static_version }}"></script>
     <script src="{% static 'js/header_auth.js' %}"></script>
     <script src="{% static 'js/download_gate.js' %}?v={{ static_version }}"></script>
 </body>
