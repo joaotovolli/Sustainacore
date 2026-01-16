@@ -32,33 +32,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/ui/before artifacts/ui/after artifacts/ui/diff artifacts/ui/report
-      - name: Verify preview auth secrets
-        id: preview-secrets
-        env:
-          PREVIEW_BASIC_AUTH_USER: ${{ secrets.PREVIEW_BASIC_AUTH_USER }}
-          PREVIEW_BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
-        run: |
-          set -euo pipefail
-          if [ -z "${PREVIEW_BASIC_AUTH_USER}" ] || [ -z "${PREVIEW_BASIC_AUTH_PASS}" ]; then
-            echo "missing=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "missing=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Write skip report (missing secrets)
-        if: steps.preview-secrets.outputs.missing == 'true'
-        run: |
-          set -euo pipefail
-          printf '%s\n' "UI compare skipped (missing PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS)." \
-            > artifacts/ui/report/ui_compare_summary.txt
-          printf '%s\n' '{"status":"skipped","reason":"missing preview secrets"}' \
-            > artifacts/ui/report/ui_compare_report.json
       - name: Capture before/after/diff
-        if: steps.preview-secrets.outputs.missing == 'false'
         env:
           PROD_BASE_URL: https://sustainacore.org
           PREVIEW_BASE_URL: https://preview.sustainacore.org
-          BASIC_AUTH_USER: ${{ secrets.PREVIEW_BASIC_AUTH_USER }}
-          BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
           TIMEOUT_MS: "60000"
           DIFF_MAX_PIXELS: "100"
           OUTPUT_DIR: artifacts/ui
@@ -67,7 +44,6 @@ jobs:
           cd website_django
           node scripts/ui_compare_home.mjs
       - name: Enforce diff threshold
-        if: steps.preview-secrets.outputs.missing == 'false'
         env:
           DIFF_MAX_PIXELS: "100"
           UI_COMPARE_REPORT: artifacts/ui/report/ui_compare_report.json
@@ -89,11 +65,6 @@ jobs:
             echo "- Preview: https://preview.sustainacore.org/";
             echo "- Artifacts: ui-home-compare (before/home.png, after/home.png, diff/home_diff.png, report/ui_compare_report.json)";
             echo;
-            if [ "${{ steps.preview-secrets.outputs.missing }}" = "true" ]; then
-              echo "### Status";
-              echo "Skipped (missing PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS).";
-              exit 0;
-            fi
             echo "### Compare summary";
             if [ -f artifacts/ui/report/ui_compare_summary.txt ]; then
               cat artifacts/ui/report/ui_compare_summary.txt;

@@ -3,7 +3,7 @@
 ## What CI does
 - Captures **home page** screenshots from:
   - Production: `https://sustainacore.org/`
-  - Preview: `https://preview.sustainacore.org/`
+  - Preview (public): `https://preview.sustainacore.org/`
 - Generates a pixel diff.
 - Writes a report with diff stats and overflow offenders.
 
