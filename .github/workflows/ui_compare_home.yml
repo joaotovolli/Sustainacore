@@ -24,6 +24,10 @@ jobs:
           set -euo pipefail
           cd website_django
           npx playwright install --with-deps chromium
+      - name: Prepare artifact directories
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ui_home/before artifacts/ui_home/after artifacts/ui_home/diff artifacts/ui_home/report
       - name: Verify preview auth secrets
         id: preview-secrets
         env:
@@ -36,6 +40,16 @@ jobs:
           else
             echo "missing=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Write skip report (missing secrets)
+        if: steps.preview-secrets.outputs.missing == 'true'
+        run: |
+          set -euo pipefail
+          cat <<'EOF' > artifacts/ui_home/report/ui_compare_summary.txt
+UI compare skipped (missing PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS).
+EOF
+          cat <<'EOF' > artifacts/ui_home/report/ui_compare_report.json
+{"status":"skipped","reason":"missing preview secrets"}
+EOF
       - name: Wait for preview to match PR SHA
         if: steps.preview-secrets.outputs.missing == 'false'
         env:
@@ -137,7 +151,7 @@ jobs:
               marker,
               "UI compare artifacts are ready.",
               `- Run: ${runUrl}`,
-              `- Download: \\`gh run download ${context.runId} -n ui-home-compare\\``
+              `- Download: gh run download ${context.runId} -n ui-home-compare`
             ].join("\\n");
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
