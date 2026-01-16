@@ -5,6 +5,31 @@ SustainaCore — Autopilot rules for Codex.
 - Run: uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
 - Deploy: ops/scripts/deploy_vm.sh
 
+## UI Change Contract (Preview → Approval → Production)
+Definitions:
+- Production: `https://sustainacore.org/`
+- Preview (Basic Auth): `https://preview.sustainacore.org/`
+- CI: GitHub Actions (CI artifacts are the source of truth for UI diffs)
+- VRT: Visual regression testing (scheduled/manual only; not a PR gate)
+
+Non-negotiable rules:
+- NEVER change production directly for UI work; all changes go through PR review.
+- NEVER disable required checks unless explicitly directed by the repo owner.
+- NEVER commit secrets; preview Basic Auth must live in GitHub Secrets only.
+- ALWAYS use CI artifacts as the feedback loop; VM2 is not the source of truth.
+- VM2 has 1GB RAM; Playwright/Chromium runs for UI compare MUST be CI-only.
+
+Required agent loop:
+A) Open PR
+B) Wait for CI UI compare to finish
+C) Review artifacts + report and iterate until acceptable
+D) Request human approval (agent never merges)
+
+Docs:
+- `docs/ui_change_workflow.md` (canonical UI change workflow)
+- `docs/ui_screenshot_process.md` (UI compare process + artifact interpretation)
+- PR checklist in `.github/PULL_REQUEST_TEMPLATE.md`
+
 Agents:
 - vm1-esg-ai: scope esg_ai/**, index/**, oracle_scripts/**, target VM1. Must not modify website_django/**.
 - vm2-website: scope website_django/**, target VM2. Must not modify ESG/Ask2 folders.
