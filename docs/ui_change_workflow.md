@@ -9,13 +9,13 @@ Use this for **any** change that impacts what users see on sustainacore.org
 
 ## Definitions
 - Production: `https://sustainacore.org/`
-- Preview (Basic Auth): `https://preview.sustainacore.org/`
+- Preview (public): `https://preview.sustainacore.org/`
 - CI artifacts: the only trusted feedback loop for UI diffs
 
 ## Non-negotiable rules
 - MUST use a PR; never change production directly.
 - MUST use CI artifacts for validation; do not run Playwright locally on VM2.
-- MUST keep preview Basic Auth credentials in GitHub Secrets only.
+- MUST keep preview public; no Basic Auth required.
 - MUST request human approval; the agent never merges.
 - PR #244 screenshot-compare contract is canonical for UI changes.
 
@@ -47,13 +47,6 @@ gh pr create --fill
 6) Iterate until diffs are acceptable.
 
 7) Request human approval (agent never merges).
-
-## Secrets setup (GitHub)
-Required GitHub Secrets:
-- `PREVIEW_BASIC_AUTH_USER`
-- `PREVIEW_BASIC_AUTH_PASS`
-
-These are low-risk but MUST remain secrets and never be committed or logged.
 
 ## Approval & merge policy
 - Humans approve and merge.

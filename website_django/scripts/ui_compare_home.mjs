@@ -6,8 +6,6 @@ import { PNG } from "pngjs";
 
 const prodBaseUrl = process.env.PROD_BASE_URL || "https://sustainacore.org";
 const previewBaseUrl = process.env.PREVIEW_BASE_URL || "https://preview.sustainacore.org";
-const authUser = process.env.BASIC_AUTH_USER || "";
-const authPass = process.env.BASIC_AUTH_PASS || "";
 const timeoutMs = Number(process.env.TIMEOUT_MS || "60000");
 const maxDiffPixels = Number(process.env.DIFF_MAX_PIXELS || "100");
 const outRoot = process.env.OUTPUT_DIR || path.resolve("artifacts", "ui");
@@ -50,7 +48,7 @@ const writeDiff = (beforePath, afterPath, diffPath) => {
   return { mismatchPixels, mismatchPercent, width, height };
 };
 
-const capture = async ({ label, url, useAuth }) => {
+const capture = async ({ label, url }) => {
   lastBeat = `launch ${label}`;
   progress(`[home-compare] launch start ${label}`);
   const browser = await withTimeout(
@@ -66,7 +64,6 @@ const capture = async ({ label, url, useAuth }) => {
   const context = await withTimeout(
     browser.newContext({
       viewport,
-      httpCredentials: useAuth ? { username: authUser, password: authPass } : undefined,
     }),
     timeoutMs,
     "browser.newContext"
@@ -165,8 +162,8 @@ const run = async () => {
   progress(`[home-compare] prod url ${prodBaseUrl}`);
   progress(`[home-compare] preview url ${previewBaseUrl}`);
 
-  const before = await capture({ label: "before", url: `${prodBaseUrl}/`, useAuth: false });
-  const after = await capture({ label: "after", url: `${previewBaseUrl}/`, useAuth: true });
+  const before = await capture({ label: "before", url: `${prodBaseUrl}/` });
+  const after = await capture({ label: "after", url: `${previewBaseUrl}/` });
   const diffPath = path.join(outRoot, "diff", "home_diff.png");
   lastBeat = "diff";
   progress(`[home-compare] diff start ${diffPath}`);

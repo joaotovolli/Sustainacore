@@ -8,14 +8,14 @@ SustainaCore — Autopilot rules for Codex.
 ## UI Change Contract (Preview → Approval → Production)
 Definitions:
 - Production: `https://sustainacore.org/`
-- Preview (Basic Auth): `https://preview.sustainacore.org/`
+- Preview (public): `https://preview.sustainacore.org/`
 - CI: GitHub Actions (CI artifacts are the source of truth for UI diffs)
 - VRT: Visual regression testing (scheduled/manual only; not a PR gate)
 
 Non-negotiable rules:
 - NEVER change production directly for UI work; all changes go through PR review.
 - NEVER disable required checks unless explicitly directed by the repo owner.
-- NEVER commit secrets; preview Basic Auth must live in GitHub Secrets only.
+- NEVER commit secrets; preview is public (no Basic Auth).
 - ALWAYS use CI artifacts as the feedback loop; VM2 is not the source of truth.
 - VM2 has 1GB RAM; Playwright/Chromium runs for UI compare MUST be CI-only.
 - PR #244 screenshot-compare contract is canonical (before/after/diff + preview links).
@@ -71,7 +71,7 @@ Do not assume:
 ## Delivery & Verification Requirements
 - Done means shipped: for user-facing changes, create a branch, commit, open a PR, and provide the PR URL.
 - CI must be green before claiming completion.
-- When a preview environment exists, verify there and provide evidence (status codes + rendered HTML grep). Use existing auth env vars; never print secrets.
+- When a preview environment exists, verify there and provide evidence (status codes + rendered HTML grep). Preview is public (no Basic Auth); never print secrets.
 - Evidence rules: never claim “confirmed” without concrete proof. For UI links, show rendered HTML (curl + grep). If preview curl fails with TLS error (exit code 60), fix CA certs or use Python requests + certifi; only use `curl -k` as a last resort with diagnostics.
 
 ## VRT Baseline Updates (VM2 UI)
