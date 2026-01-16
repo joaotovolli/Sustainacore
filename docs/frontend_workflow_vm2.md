@@ -55,7 +55,7 @@ TECH100_SCREENSHOT_MODE=after TECH100_UI_DATA_MODE=oracle node scripts/run_tech1
 
 ## PR Gate (Home Only)
 PRs run a lightweight home-page screenshot compare (prod vs preview) in GitHub Actions.
-Workflow: `.github/workflows/ui_screenshot_compare.yml`.
+Workflow: `.github/workflows/ui_compare_home.yml`.
 
 Required secrets (names only):
 - `PREVIEW_BASIC_AUTH_USER`

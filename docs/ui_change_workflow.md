@@ -4,7 +4,7 @@ This workflow is the canonical UI validation gate for Sustainacore PRs. It repla
 local Playwright runs on VM2 (1GB RAM) with a lightweight CI-only compare.
 
 ## PR Gate (Home Only)
-- Workflow: `.github/workflows/ui_screenshot_compare.yml`
+- Workflow: `.github/workflows/ui_compare_home.yml`
 - Scope: home page `/` only, single viewport 1440x900
 - Comparison: Production vs Preview
   - Production: `https://sustainacore.org/`
@@ -38,7 +38,7 @@ The job summary includes:
 - ...
 
 ## Testing
-- CI only (ui_screenshot_compare)
+- CI only (ui_compare_home)
 
 ## Evidence
 - Preview: https://preview.sustainacore.org/

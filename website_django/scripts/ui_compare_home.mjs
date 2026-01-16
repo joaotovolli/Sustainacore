@@ -9,9 +9,11 @@ const previewBaseUrl = process.env.PREVIEW_BASE_URL || "https://preview.sustaina
 const authUser = process.env.BASIC_AUTH_USER || "";
 const authPass = process.env.BASIC_AUTH_PASS || "";
 const timeoutMs = Number(process.env.TIMEOUT_MS || "60000");
+const maxDiffPixels = Number(process.env.DIFF_MAX_PIXELS || "100");
 const outRoot = process.env.OUTPUT_DIR || path.resolve("artifacts", "ui_home");
 const reportDir = path.join(outRoot, "report");
 const viewport = { width: 1440, height: 900 };
+const tmpReportPath = "/tmp/ui_home_report.json";
 
 const progress = (message) => {
   process.stdout.write(`${message}\n`);
@@ -20,7 +22,7 @@ const progress = (message) => {
 let lastBeat = "init";
 const heartbeat = setInterval(() => {
   process.stdout.write(`[home-compare] heartbeat ${lastBeat}\n`);
-}, 2000);
+}, 1500);
 
 const withTimeout = (promise, ms, label) => {
   let timeoutId = null;
@@ -186,6 +188,7 @@ const run = async () => {
   };
   const reportPath = path.join(reportDir, "ui_compare_report.json");
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  fs.writeFileSync(tmpReportPath, `${JSON.stringify(report, null, 2)}\n`);
   const summaryPath = path.join(reportDir, "ui_compare_summary.txt");
   const offenderLines = after.layoutMetrics.overflowOffendersTop15
     .map((item, index) => {
@@ -206,6 +209,11 @@ const run = async () => {
   ].join("\n");
   fs.writeFileSync(summaryPath, `${summary}\n`);
   progress(`[home-compare] report done ${summaryPath}`);
+  if (Number.isFinite(maxDiffPixels) && diffStats.mismatchPixels > maxDiffPixels) {
+    throw new Error(
+      `Diff exceeds threshold: ${diffStats.mismatchPixels} > ${maxDiffPixels}`
+    );
+  }
 };
 
 run()

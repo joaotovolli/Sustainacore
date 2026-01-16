@@ -1,4 +1,4 @@
-name: UI Screenshot Compare
+name: UI Screenshot Compare (Home)
 
 on:
   pull_request:
@@ -41,10 +41,11 @@ jobs:
           BASIC_AUTH_USER: ${{ secrets.PREVIEW_BASIC_AUTH_USER }}
           BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
           TIMEOUT_MS: "60000"
+          DIFF_MAX_PIXELS: "100"
         run: |
           set -euo pipefail
           cd website_django
-          node scripts/screenshot_compare_home_ci.mjs
+          node scripts/ui_compare_home.mjs
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -65,3 +66,29 @@ jobs:
               echo "No summary file found.";
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Ensure preview links in PR body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info("No pull_request context; skipping PR body update.");
+              return;
+            }
+            const previewBlock = [
+              "## Preview links",
+              "- https://preview.sustainacore.org/",
+              "- https://sustainacore.org/"
+            ].join("\\n");
+            const body = pr.body || "";
+            if (body.includes("## Preview links")) {
+              core.info("Preview links already present in PR body.");
+              return;
+            }
+            const updated = `${body}\\n\\n${previewBlock}\\n`;
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              body: updated
+            });
