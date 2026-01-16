@@ -1,11 +1,11 @@
-name: UI Home Screenshot Compare
+name: UI Screenshot Compare
 
 on:
   pull_request:
 
 jobs:
   ui-home-compare:
-    name: UI home compare (prod vs preview)
+    name: UI compare (home, prod vs preview)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,5 +56,12 @@ jobs:
             echo "## UI home screenshot compare";
             echo "- Production: https://sustainacore.org/";
             echo "- Preview: https://preview.sustainacore.org/";
-            echo "- Artifacts: ui-home-compare (before/home.png, after/home.png, diff/home_diff.png)";
+            echo "- Artifacts: ui-home-compare (before/home.png, after/home.png, diff/home_diff.png, report/ui_compare_report.json)";
+            echo;
+            echo "### Compare summary";
+            if [ -f artifacts/ui_home/report/ui_compare_summary.txt ]; then
+              cat artifacts/ui_home/report/ui_compare_summary.txt;
+            else
+              echo "No summary file found.";
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
