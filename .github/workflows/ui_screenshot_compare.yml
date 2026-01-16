@@ -1,0 +1,60 @@
+name: UI Screenshot Compare (Home)
+
+on:
+  pull_request:
+
+jobs:
+  screenshot-compare-home:
+    name: Screenshot compare (home)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: website_django/package-lock.json
+      - name: Install Node dependencies
+        run: |
+          set -euo pipefail
+          cd website_django
+          npm ci
+      - name: Install Playwright Chromium
+        run: |
+          set -euo pipefail
+          cd website_django
+          npx playwright install --with-deps chromium
+      - name: Check preview credentials
+        env:
+          PREVIEW_BASIC_AUTH_USER: ${{ secrets.PREVIEW_BASIC_AUTH_USER }}
+          PREVIEW_BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PREVIEW_BASIC_AUTH_USER}" ] || [ -z "${PREVIEW_BASIC_AUTH_PASS}" ]; then
+            echo "Missing GitHub Secrets: PREVIEW_BASIC_AUTH_USER / PREVIEW_BASIC_AUTH_PASS" >&2
+            exit 1
+          fi
+      - name: Capture before/after/diff
+        env:
+          BEFORE_URL: https://sustainacore.org/
+          AFTER_URL: https://preview.sustainacore.org/
+          SCREENSHOT_BASIC_AUTH_USER: ${{ secrets.PREVIEW_BASIC_AUTH_USER }}
+          SCREENSHOT_BASIC_AUTH_PASS: ${{ secrets.PREVIEW_BASIC_AUTH_PASS }}
+          TIMEOUT_MS: "60000"
+        run: |
+          set -euo pipefail
+          cd website_django
+          node scripts/screenshot_compare_onepage.mjs
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshot-compare-home
+          path: /tmp/ui_shots
+      - name: Job summary
+        run: |
+          {
+            echo "## Screenshot compare (home)";
+            echo "- Production: https://sustainacore.org/";
+            echo "- Preview: https://preview.sustainacore.org/";
+            echo "- Artifacts: ui-screenshot-compare-home (before.png, after.png, diff.png)";
+          } >> "$GITHUB_STEP_SUMMARY"
