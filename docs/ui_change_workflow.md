@@ -1,55 +1,68 @@
-# UI Change Workflow (CI Screenshot Compare)
+# UI Change Workflow (Preview → PR → Production)
 
-This workflow is the canonical UI validation gate for Sustainacore PRs. It replaces
-local Playwright runs on VM2 (1GB RAM) with a lightweight CI-only compare.
+This is the canonical workflow for any UI-visible change. It is designed for
+VM2 constraints (1GB RAM) and uses CI-only screenshot comparison.
 
-## PR Gate (Home Only)
-- Workflow: `.github/workflows/ui_compare_home.yml`
-- Scope: home page `/` only, single viewport 1440x900
-- Comparison: Production vs Preview
-  - Production: `https://sustainacore.org/`
-  - Preview: `https://preview.sustainacore.org/`
+## When to use this workflow
+Use this for **any** change that impacts what users see on sustainacore.org
+(templates, CSS, JS, layout, nav, footer, content presentation).
 
-## Required GitHub Secrets
+## Definitions
+- Production: `https://sustainacore.org/`
+- Preview (Basic Auth): `https://preview.sustainacore.org/`
+- CI artifacts: the only trusted feedback loop for UI diffs
+
+## Non-negotiable rules
+- MUST use a PR; never change production directly.
+- MUST use CI artifacts for validation; do not run Playwright locally on VM2.
+- MUST keep preview Basic Auth credentials in GitHub Secrets only.
+- MUST request human approval; the agent never merges.
+
+## Step-by-step (agent)
+1) Create a branch:
+```
+git checkout -b feature/<ui-change>
+```
+
+2) Make the UI change and commit.
+
+3) Push and open PR:
+```
+git push -u origin feature/<ui-change>
+gh pr create --fill
+```
+
+4) Wait for CI **UI Screenshot Compare (Home)** to finish.
+
+5) Review artifacts:
+- PR → Checks → UI Screenshot Compare (Home) → Artifacts
+- Files:
+  - `before/home.png`
+  - `after/home.png`
+  - `diff/home_diff.png`
+  - `report/ui_compare_report.json`
+  - `report/ui_compare_summary.txt`
+
+6) Iterate until diffs are acceptable.
+
+7) Request human approval (agent never merges).
+
+## Secrets setup (GitHub)
+Required GitHub Secrets:
 - `PREVIEW_BASIC_AUTH_USER`
 - `PREVIEW_BASIC_AUTH_PASS`
 
-## Artifacts
-The workflow uploads `ui-home-compare` containing:
-- `artifacts/ui_home/before/home.png`
-- `artifacts/ui_home/after/home.png`
-- `artifacts/ui_home/diff/home_diff.png`
-- `artifacts/ui_home/report/ui_compare_report.json`
-- `artifacts/ui_home/report/ui_compare_summary.txt`
+These are low-risk but MUST remain secrets and never be committed or logged.
 
-## CI Job Summary
-The job summary includes:
-- Production link
-- Preview link
-- Artifact name
-- Diff percent and overflow offenders (if any)
+## Approval & merge policy
+- Humans approve and merge.
+- If production regresses after merge, revert the PR.
 
-## PR Body Template
-```
-## Summary
-- ...
+## Never lose this again
+- This workflow is required and referenced in `AGENTS.md`.
+- PR checklist enforces preview links and artifact review.
+- CI artifacts are the primary review evidence.
 
-## Changes
-- ...
-
-## Testing
-- CI only (ui_compare_home)
-
-## Evidence
-- Preview: https://preview.sustainacore.org/
-- Production: https://sustainacore.org/
-- Actions artifacts: ui-home-compare
-
-## Notes / Follow-ups
-- ...
-```
-
-## Troubleshooting
-- Secrets missing: workflow fails with a clear message. Set the two preview secrets.
-- Preview TLS: ensure `https://preview.sustainacore.org/` is valid and reachable.
-- VM2 constraints: do not run Playwright locally; rely on CI artifacts.
+## Links
+- `AGENTS.md` UI Change Contract
+- `docs/ui_screenshot_process.md`
