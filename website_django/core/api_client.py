@@ -12,6 +12,7 @@ import logging
 import requests
 from django.conf import settings
 from django.core.cache import cache
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ def fetch_tech100(
     if search:
         params["search"] = search
 
-    if os.getenv("SUSTAINACORE_ENV", "").lower() == "preview":
+    if getattr(settings, "SUSTAINACORE_ENV", "").lower() == "preview":
         items = _tech100_fixture_items()
         if sector:
             items = [item for item in items if item.get("gics_sector") == sector]
@@ -239,7 +240,7 @@ def fetch_news(
 ) -> Dict[str, Any]:
     """Fetch news items from VM1 `/api/news` endpoint."""
 
-    if os.getenv("SUSTAINACORE_ENV", "").lower() == "preview":
+    if getattr(settings, "SUSTAINACORE_ENV", "").lower() == "preview":
         return {"items": [], "meta": {"count": 0, "source": "fixture"}, "error": None}
 
     # VM1 `/api/news` accepts limit, days, source, and tag (multi) query params
