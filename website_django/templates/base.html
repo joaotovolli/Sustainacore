@@ -20,7 +20,6 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body data-logged-in="{% if is_logged_in %}true{% else %}false{% endif %}">
-    <!-- build: {{ static_version }} -->
     <header class="topbar">
         <div class="shell topbar__inner">
             <div class="brand">
@@ -34,43 +33,43 @@
                     <div class="brand__tagline">Open ESG &amp; AI governance data</div>
                 </div>
             </div>
-            <div class="topbar__nav">
-                <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="primary-nav-panel">
-                    <span class="nav-toggle__icon" aria-hidden="true"><span></span></span>
-                    <span class="nav-toggle__label">Menu</span>
-                </button>
-                <div class="nav-panel" id="primary-nav-panel" data-nav-panel>
-                    <nav class="nav nav--primary" aria-label="Primary">
-                        <a href="{% url 'home' %}" class="nav__link">Home</a>
-                        <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2">Ask2 AI</a>
-                        <div class="nav__dropdown" data-nav-dropdown>
-                            <button class="nav__link nav__link--dropdown" type="button" aria-haspopup="true" aria-expanded="false" data-nav-dropdown-toggle>
-                                AI Gov &amp; Ethics Index <span class="nav__caret" aria-hidden="true">▾</span>
-                            </button>
-                            <div class="nav__menu" role="menu">
-                                <a href="{% url 'tech100_index' %}" class="nav__menu-link" role="menuitem">Index overview</a>
-                                <a href="{% url 'tech100_performance' %}" class="nav__menu-link" role="menuitem">Performance</a>
-                                <a href="{% url 'tech100_constituents' %}" class="nav__menu-link" role="menuitem">Constituents</a>
-                                <a href="{% url 'tech100_attribution' %}" class="nav__menu-link" role="menuitem">Attribution</a>
-                                <a href="{% url 'tech100_stats' %}" class="nav__menu-link" role="menuitem">Stats</a>
-                                <a href="{% url 'tech100' %}" class="nav__menu-link" role="menuitem">Governance scores</a>
-                            </div>
+            <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="site-nav">
+                <span class="sr-only">Toggle navigation</span>
+                <span aria-hidden="true">☰</span>
+            </button>
+            <div class="topbar__nav" id="site-nav" data-nav-panel>
+                <nav class="nav nav--primary" aria-label="Primary">
+                    <a href="{% url 'home' %}" class="nav__link">Home</a>
+                    <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2">Ask2 AI</a>
+                    <details class="nav__dropdown">
+                        <summary class="nav__link nav__link--dropdown">
+                            AI Gov &amp; Ethics Index
+                        </summary>
+                        <div class="nav__dropdown-menu" role="group" aria-label="AI Gov &amp; Ethics Index">
+                            <a href="/tech100/index/" class="nav__dropdown-link">Index overview</a>
+                            <a href="/tech100/performance/" class="nav__dropdown-link">Performance</a>
+                            <a href="/tech100/constituents/" class="nav__dropdown-link">Constituents</a>
+                            <a href="/tech100/attribution/" class="nav__dropdown-link">Attribution</a>
+                            <a href="/tech100/stats/" class="nav__dropdown-link">Stats</a>
+                            <a href="/tech100/" class="nav__dropdown-link">Governance scores</a>
                         </div>
-                        <a href="/ai-regulation/" class="nav__link">Regulatory HeatMap</a>
-                        <a href="{% url 'news' %}" class="nav__link">News</a>
-                        <a href="mailto:info@sustainacore.org" class="nav__link nav__link--aux">Contact Us</a>
-                    </nav>
-                    <div class="nav nav--actions" aria-label="Header actions">
-                        <a class="nav__icon-link" href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" class="nav__icon">
-                                <path fill="currentColor" d="M12 .5a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2.16c-3.34.72-4.04-1.6-4.04-1.6-.55-1.4-1.35-1.78-1.35-1.78-1.1-.76.08-.74.08-.74 1.21.09 1.85 1.24 1.85 1.24 1.08 1.86 2.84 1.32 3.54 1 .11-.79.42-1.32.76-1.62-2.66-.3-5.46-1.33-5.46-5.9 0-1.3.47-2.36 1.24-3.19-.12-.3-.54-1.52.12-3.17 0 0 1-.32 3.3 1.22a11.5 11.5 0 0 1 6 0C17.7 6 18.7 6.33 18.7 6.33c.66 1.65.24 2.87.12 3.17.77.83 1.23 1.9 1.23 3.19 0 4.58-2.8 5.6-5.47 5.89.43.38.81 1.1.81 2.22v3.3c0 .32.22.68.82.57A12 12 0 0 0 12 .5Z"/>
-                            </svg>
-                        </a>
-                        <a class="nav__icon-link" href="https://www.linkedin.com/company/sustainacore-org" target="_blank" rel="noreferrer" aria-label="SustainaCore on LinkedIn">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" class="nav__icon">
-                                <path fill="currentColor" d="M4.98 3.5a2.5 2.5 0 1 1-.02 5 2.5 2.5 0 0 1 .02-5ZM3 8.98h4v12H3zM9 8.98h3.8v1.64h.05c.53-1 1.83-2.05 3.76-2.05 4.02 0 4.76 2.64 4.76 6.07v6.34h-4v-5.62c0-1.34-.03-3.07-1.87-3.07-1.88 0-2.17 1.46-2.17 2.97v5.72H9z"/>
-                            </svg>
-                        </a>
+                    </details>
+                    <a href="/ai-regulation/" class="nav__link">Regulatory HeatMap</a>
+                    <a href="{% url 'news' %}" class="nav__link">News</a>
+                    <a href="mailto:info@sustainacore.org" class="nav__link nav__link--aux">Contact Us</a>
+                </nav>
+                <div class="nav nav--actions" aria-label="Account and social">
+                    <a href="https://github.com/joaotovolli/Sustainacore" class="icon-link" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.54 2.87 8.39 6.84 9.75.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.1-1.5-1.1-1.5-.9-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.57 2.34 1.12 2.9.85.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.08 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.3 9.3 0 0 1 12 6.8c.85 0 1.7.12 2.5.35 1.9-1.33 2.74-1.05 2.74-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.64 1.03 2.76 0 3.95-2.35 4.82-4.58 5.08.36.33.69.97.69 1.96 0 1.41-.01 2.55-.01 2.9 0 .27.18.6.69.49A10.2 10.2 0 0 0 22 12.26C22 6.58 17.52 2 12 2z"/>
+                        </svg>
+                    </a>
+                    <a href="https://www.linkedin.com/company/sustainacore-org" class="icon-link" target="_blank" rel="noreferrer" aria-label="SustainaCore on LinkedIn">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.03-3.05-1.86-3.05-1.86 0-2.14 1.45-2.14 2.95v5.67H9.33V9h3.42v1.56h.05c.48-.9 1.65-1.86 3.39-1.86 3.62 0 4.29 2.38 4.29 5.47v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.23 2H1.77C.79 2 0 2.77 0 3.72v16.56C0 21.23.79 22 1.77 22h20.46c.98 0 1.77-.77 1.77-1.72V3.72C24 2.77 23.21 2 22.23 2z"/>
+                        </svg>
+                    </a>
+                    <div class="nav nav--auth" aria-label="Account">
                         {% if is_logged_in %}
                             <div class="auth-pill" data-auth-menu>
                                 <button
@@ -99,7 +98,7 @@
                                 </div>
                             </div>
                         {% else %}
-                            <a href="{% url 'login' %}" class="nav__link nav__link--pill nav__link--secondary">Login</a>
+                            <a href="{% url 'login' %}" class="nav__link nav__link--pill">Login</a>
                         {% endif %}
                     </div>
                 </div>
@@ -242,7 +241,7 @@
 
     <footer class="footer">
         <div class="shell footer__grid">
-            <div class="footer__col">
+            <div>
                 <div class="brand brand--footer">
                     <div class="brand__mark" aria-hidden="true">S</div>
                     <div class="brand__text">
@@ -252,45 +251,42 @@
                 </div>
                 <p class="muted">Open, transparent ESG and AI governance indicators built for teams who need verifiable signals.</p>
             </div>
-            <div class="footer__col">
-                <h4 class="footer__title">Overview</h4>
-                <div class="footer__links">
-                    <a href="{% url 'home' %}" class="nav__link">Home</a>
-                    <a href="{% url 'ask2:ask2_page' %}" class="nav__link">Ask2 AI</a>
-                    <a href="{% url 'tech100' %}" class="nav__link">AI Gov &amp; Ethics Index</a>
-                    <a href="/ai-regulation/" class="nav__link">Regulatory HeatMap</a>
-                    <a href="{% url 'news' %}" class="nav__link">News</a>
-                    <a href="mailto:info@sustainacore.org" class="nav__link">Contact Us</a>
-                </div>
+            <div class="footer__links">
+                <h3 class="footer__title">Overview</h3>
+                <a href="{% url 'home' %}" class="nav__link">Home</a>
+                <a href="{% url 'ask2:ask2_page' %}" class="nav__link">Ask2 AI</a>
+                <a href="/tech100/index/" class="nav__link">AI Gov &amp; Ethics Index</a>
+                <a href="/ai-regulation/" class="nav__link">Regulatory HeatMap</a>
+                <a href="{% url 'news' %}" class="nav__link">News</a>
+                <a href="mailto:info@sustainacore.org" class="nav__link">Contact Us</a>
             </div>
-            <div class="footer__col">
-                <h4 class="footer__title">Legal</h4>
-                <div class="footer__links">
-                    <a href="{% url 'privacy' %}" class="nav__link">Privacy Policy</a>
-                    <a href="#privacy-settings" class="nav__link" data-consent-open>Privacy settings</a>
-                    <a href="{% url 'terms' %}" class="nav__link">Terms</a>
-                    <a href="{% url 'corrections' %}" class="nav__link">Corrections &amp; Complaints</a>
-                </div>
+            <div class="footer__links">
+                <h3 class="footer__title">Legal</h3>
+                <a href="{% url 'privacy' %}" class="nav__link">Privacy Policy</a>
+                <a href="#privacy-settings" class="nav__link" data-consent-open>Privacy settings</a>
+                <a href="{% url 'terms' %}" class="nav__link">Terms</a>
+                <a href="{% url 'corrections' %}" class="nav__link">Corrections &amp; Complaints</a>
+                <a href="{% url 'tech100_methodology' %}" class="nav__link">Tech100 Methodology</a>
             </div>
-            <div class="footer__col footer__col--social">
-                <h4 class="footer__title">Social</h4>
-                <div class="footer__icons">
-                    <a class="nav__icon-link" href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
-                        <svg viewBox="0 0 24 24" aria-hidden="true" class="nav__icon">
-                            <path fill="currentColor" d="M12 .5a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2.16c-3.34.72-4.04-1.6-4.04-1.6-.55-1.4-1.35-1.78-1.35-1.78-1.1-.76.08-.74.08-.74 1.21.09 1.85 1.24 1.85 1.24 1.08 1.86 2.84 1.32 3.54 1 .11-.79.42-1.32.76-1.62-2.66-.3-5.46-1.33-5.46-5.9 0-1.3.47-2.36 1.24-3.19-.12-.3-.54-1.52.12-3.17 0 0 1-.32 3.3 1.22a11.5 11.5 0 0 1 6 0C17.7 6 18.7 6.33 18.7 6.33c.66 1.65.24 2.87.12 3.17.77.83 1.23 1.9 1.23 3.19 0 4.58-2.8 5.6-5.47 5.89.43.38.81 1.1.81 2.22v3.3c0 .32.22.68.82.57A12 12 0 0 0 12 .5Z"/>
-                        </svg>
-                    </a>
-                    <a class="nav__icon-link" href="https://www.linkedin.com/company/sustainacore-org" target="_blank" rel="noreferrer" aria-label="SustainaCore on LinkedIn">
-                        <svg viewBox="0 0 24 24" aria-hidden="true" class="nav__icon">
-                            <path fill="currentColor" d="M4.98 3.5a2.5 2.5 0 1 1-.02 5 2.5 2.5 0 0 1 .02-5ZM3 8.98h4v12H3zM9 8.98h3.8v1.64h.05c.53-1 1.83-2.05 3.76-2.05 4.02 0 4.76 2.64 4.76 6.07v6.34h-4v-5.62c0-1.34-.03-3.07-1.87-3.07-1.88 0-2.17 1.46-2.17 2.97v5.72H9z"/>
-                        </svg>
-                    </a>
-                </div>
+            <div class="footer__links">
+                <h3 class="footer__title">Social</h3>
+                <a href="https://github.com/joaotovolli/Sustainacore" class="nav__link icon-link" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.54 2.87 8.39 6.84 9.75.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.1-1.5-1.1-1.5-.9-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.57 2.34 1.12 2.9.85.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.08 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.3 9.3 0 0 1 12 6.8c.85 0 1.7.12 2.5.35 1.9-1.33 2.74-1.05 2.74-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.64 1.03 2.76 0 3.95-2.35 4.82-4.58 5.08.36.33.69.97.69 1.96 0 1.41-.01 2.55-.01 2.9 0 .27.18.6.69.49A10.2 10.2 0 0 0 22 12.26C22 6.58 17.52 2 12 2z"/>
+                    </svg>
+                    <span>GitHub</span>
+                </a>
+                <a href="https://www.linkedin.com/company/sustainacore-org" class="nav__link icon-link" target="_blank" rel="noreferrer" aria-label="SustainaCore on LinkedIn">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.03-3.05-1.86-3.05-1.86 0-2.14 1.45-2.14 2.95v5.67H9.33V9h3.42v1.56h.05c.48-.9 1.65-1.86 3.39-1.86 3.62 0 4.29 2.38 4.29 5.47v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.23 2H1.77C.79 2 0 2.77 0 3.72v16.56C0 21.23.79 22 1.77 22h20.46c.98 0 1.77-.77 1.77-1.72V3.72C24 2.77 23.21 2 22.23 2z"/>
+                    </svg>
+                    <span>LinkedIn</span>
+                </a>
             </div>
         </div>
         <div class="shell footer__meta">
             <span>© {% firstof year %}{% if not year %}{% now "Y" %}{% endif %} SustainaCore</span>
-            <span class="muted">Built for accountable AI governance.</span>
+            <span class="muted">Built for accountable AI governance. (UI compare check)</span>
         </div>
     </footer>
 
@@ -305,7 +301,7 @@
     </script>
     <script src="{% static 'js/telemetry.js' %}?v={{ static_version }}"></script>
     <script src="{% static 'js/header_auth.js' %}"></script>
-    <script src="{% static 'js/nav_toggle.js' %}?v={{ static_version }}"></script>
+    <script src="{% static 'js/nav_toggle.js' %}"></script>
     <script src="{% static 'js/download_gate.js' %}?v={{ static_version }}"></script>
 </body>
 </html>
