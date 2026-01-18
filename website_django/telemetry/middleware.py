@@ -37,6 +37,10 @@ class TelemetryMiddleware:
         self._logged_active = False
 
     def __call__(self, request):
+        from django.conf import settings
+
+        if settings.SUSTAINACORE_ENV == "preview" or not getattr(settings, "TELEMETRY_WRITE_ENABLED", True):
+            return self.get_response(request)
         _log_db_health_once()
         if not self._logged_active:
             logging.getLogger(__name__).info("telemetry.middleware_active")

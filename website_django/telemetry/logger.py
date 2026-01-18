@@ -13,6 +13,19 @@ from telemetry.utils import get_ip_fields
 
 logger = logging.getLogger(__name__)
 _HEALTH_LOGGED = False
+_WRITE_ENABLED_LOGGED = False
+
+
+def _writes_enabled() -> bool:
+    return bool(getattr(settings, "TELEMETRY_WRITE_ENABLED", True))
+
+
+def _log_write_disabled_once() -> None:
+    global _WRITE_ENABLED_LOGGED
+    if _WRITE_ENABLED_LOGGED:
+        return
+    logger.info("telemetry.write_disabled")
+    _WRITE_ENABLED_LOGGED = True
 
 
 def _log_db_health_once() -> None:
@@ -54,6 +67,9 @@ def record_consent(
     request,
     user_id: Optional[int] = None,
 ) -> None:
+    if not _writes_enabled():
+        _log_write_disabled_once()
+        return
     ip_trunc, ip_hash = get_ip_fields(request)
     user_agent = request.META.get("HTTP_USER_AGENT", "") or None
     db_alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
@@ -88,6 +104,9 @@ def record_event(
     country_code: Optional[str] = None,
     region_code: Optional[str] = None,
 ) -> None:
+    if not _writes_enabled():
+        _log_write_disabled_once()
+        return
     ip_trunc, ip_hash = get_ip_fields(request)
     user_agent = request.META.get("HTTP_USER_AGENT", "") or None
     referrer = request.META.get("HTTP_REFERER", "") or None
@@ -124,6 +143,9 @@ def touch_session(
     country_code: Optional[str] = None,
     region_code: Optional[str] = None,
 ) -> None:
+    if not _writes_enabled():
+        _log_write_disabled_once()
+        return
     if not session_key:
         return
     ip_trunc, ip_hash = get_ip_fields(request)

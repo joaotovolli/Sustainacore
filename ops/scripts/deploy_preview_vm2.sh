@@ -42,4 +42,16 @@ fi
 
 sudo -n systemctl restart gunicorn-preview.service
 
-curl -sS -o /dev/null -w "%{http_code}\n" --connect-timeout 1 --max-time 2 http://127.0.0.1:8001/
+status="000"
+for attempt in 1 2 3 4 5; do
+  status="$(curl -sS -o /dev/null -w \"%{http_code}\" --connect-timeout 1 --max-time 2 http://127.0.0.1:8001/ || echo 000)"
+  if [[ "$status" != "000" ]]; then
+    break
+  fi
+  sleep 1
+done
+echo "$status"
+if [[ "$status" == "000" ]]; then
+  echo "Preview health check failed on 127.0.0.1:8001." >&2
+  exit 1
+fi

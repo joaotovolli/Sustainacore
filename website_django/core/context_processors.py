@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from django.conf import settings
 from core.auth import (
@@ -11,6 +12,7 @@ from core.auth import (
 
 def seo_defaults(request):
     canonical_url = request.build_absolute_uri(request.path)
+    build_sha = _read_build_sha()
     org_payload = {
         "@context": "https://schema.org",
         "@type": "Organization",
@@ -33,10 +35,47 @@ def seo_defaults(request):
         "default_meta_description": settings.DEFAULT_META_DESCRIPTION,
         "site_url": settings.SITE_URL,
         "static_version": settings.STATIC_VERSION,
+        "build_sha": build_sha,
         "telemetry_policy_version": settings.TELEMETRY_POLICY_VERSION,
         "org_json_ld": json.dumps(org_payload, ensure_ascii=True),
         "site_json_ld": json.dumps(site_payload, ensure_ascii=True),
     }
+
+
+_BUILD_SHA = None
+
+
+def _read_build_sha() -> str:
+    global _BUILD_SHA
+    if _BUILD_SHA is not None:
+        return _BUILD_SHA
+    base_dir = Path(getattr(settings, "BASE_DIR", Path.cwd()))
+    repo_root = base_dir.parent
+    git_path = repo_root / ".git"
+    if git_path.is_file():
+        head_line = git_path.read_text().strip()
+        if head_line.startswith("gitdir:"):
+            git_dir = Path(head_line.split(":", 1)[1].strip())
+        else:
+            git_dir = git_path
+    else:
+        git_dir = git_path
+    head_path = git_dir / "HEAD"
+    try:
+        head_text = head_path.read_text().strip()
+        if head_text.startswith("ref:"):
+            ref_path = repo_root / ".git" / head_text.split(" ", 1)[1].strip()
+            sha = ref_path.read_text().strip()
+        else:
+            sha = head_text
+        _BUILD_SHA = sha[:8] if sha else "unknown"
+    except Exception:
+        _BUILD_SHA = "unknown"
+    return _BUILD_SHA
+
+
+def build_sha(request):
+    return {"build_sha": _read_build_sha()}
 
 
 def preview_context(request):

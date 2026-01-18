@@ -12,6 +12,7 @@ import logging
 import requests
 from django.conf import settings
 from django.core.cache import cache
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,21 @@ def fetch_tech100(
     if search:
         params["search"] = search
 
+    if getattr(settings, "SUSTAINACORE_ENV", "").lower() == "preview":
+        items = _tech100_fixture_items()
+        if sector:
+            items = [item for item in items if item.get("gics_sector") == sector]
+        if search_param:
+            search_lower = search_param.lower()
+            items = [
+                item
+                for item in items
+                if search_lower in (item.get("company_name") or "").lower()
+                or search_lower in (item.get("ticker") or "").lower()
+            ]
+        result = {"items": items, "meta": {"count": len(items), "source": "fixture"}, "error": None}
+        return result
+
     if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
         items = _tech100_fixture_items()
         if sector:
@@ -223,6 +239,9 @@ def fetch_news(
     timeout: float = 8.0,
 ) -> Dict[str, Any]:
     """Fetch news items from VM1 `/api/news` endpoint."""
+
+    if getattr(settings, "SUSTAINACORE_ENV", "").lower() == "preview":
+        return {"items": [], "meta": {"count": 0, "source": "fixture"}, "error": None}
 
     # VM1 `/api/news` accepts limit, days, source, and tag (multi) query params
     # and responds with {"items": [...], "meta": {...}}. Default backend days is 30

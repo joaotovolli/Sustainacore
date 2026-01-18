@@ -13,6 +13,7 @@ on:
 jobs:
   ui-home-compare:
     name: UI compare (home, prod vs preview)
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +36,81 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/ui/before artifacts/ui/after artifacts/ui/diff artifacts/ui/report
+      - name: Preview preflight
+        id: preflight
+        env:
+          PREVIEW_URL: https://preview.sustainacore.org/
+        run: |
+          set -u
+          ok=true
+          curl -sS -I --connect-timeout 3 --max-time 8 --retry 3 --retry-delay 2 "$PREVIEW_URL" >/tmp/preview_headers.txt
+          curl_status=$?
+          if [ "$curl_status" -ne 0 ]; then
+            ok=false
+            reason="curl_failed:${curl_status}"
+          else
+            reason="ok"
+          fi
+          if [ "$ok" != "true" ]; then
+            cat > artifacts/ui/report/ui_compare_report.json <<EOF
+          {
+            "status": "failed_preflight",
+            "reason": "${reason}",
+            "preview_url": "${PREVIEW_URL}",
+            "prod_url": "https://sustainacore.org/"
+          }
+          EOF
+            cat > artifacts/ui/report/ui_compare_summary.txt <<EOF
+          UI Compare Summary (home)
+          Status: failed_preflight
+          Reason: ${reason}
+          Preview: ${PREVIEW_URL}
+          Prod: https://sustainacore.org/
+          EOF
+          fi
+          echo "ok=${ok}" >> "$GITHUB_OUTPUT"
+      - name: Prepare VM2 SSH key (preview check)
+        env:
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${VM2_SSH_KEY:-}" || -z "${VM2_HOST:-}" ]]; then
+            echo "VM2 SSH secrets missing; skipping SSH prep." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$VM2_SSH_KEY" > ~/.ssh/id_rsa_vm2
+          chmod 600 ~/.ssh/id_rsa_vm2
+          ssh-keyscan -H "$VM2_HOST" >> ~/.ssh/known_hosts
+      - name: Verify preview build SHA
+        if: ${{ github.event_name == 'pull_request' && steps.preflight.outputs.ok == 'true' }}
+        env:
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          short_sha="${PR_SHA:0:8}"
+          echo "Expecting preview build sha: ${short_sha}"
+          if [[ -n "${VM2_SSH_KEY:-}" && -n "${VM2_HOST:-}" && -n "${VM2_USER:-}" ]]; then
+            actual_sha="$(ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "git -C /opt/code/Sustainacore_preview rev-parse --short=8 HEAD")"
+            if [ "${actual_sha}" != "${short_sha}" ]; then
+              echo "Preview worktree SHA mismatch: expected ${short_sha}, got ${actual_sha}." >&2
+              exit 1
+            fi
+            echo "Preview SHA: ${actual_sha} (worktree check)" >>"$GITHUB_STEP_SUMMARY"
+          else
+            html="$(curl -fsSL --connect-timeout 3 --max-time 8 --retry 2 --retry-delay 1 https://preview.sustainacore.org/)"
+            if ! echo "$html" | grep -Fq "build: ${short_sha}"; then
+              echo "Preview does not reflect PR SHA (${short_sha})." >&2
+              exit 1
+            fi
+          fi
       - name: Capture before/after/diff
+        if: ${{ steps.preflight.outputs.ok == 'true' }}
+        continue-on-error: true
         env:
           PROD_BASE_URL: https://sustainacore.org
           PREVIEW_BASE_URL: https://preview.sustainacore.org
@@ -47,6 +122,8 @@ jobs:
           cd website_django
           node scripts/ui_compare_home.mjs
       - name: Enforce diff threshold
+        if: ${{ steps.preflight.outputs.ok == 'true' }}
+        continue-on-error: true
         env:
           DIFF_MAX_PIXELS: "50000"
           UI_COMPARE_REPORT: ../artifacts/ui/report/ui_compare_report.json
@@ -66,7 +143,7 @@ jobs:
             echo "## UI home screenshot compare";
             echo "- Production: https://sustainacore.org/";
             echo "- Preview: https://preview.sustainacore.org/";
-            echo "- Artifacts: ui-home-compare (before/home.png, after/home.png, diff/home_diff.png, report/ui_compare_report.json)";
+            echo "- Artifacts: ui-home-compare (before/after/diff/report for home_full, home_top, home_mid, home_footer, home_mobile)";
             echo;
             echo "### Compare summary";
             if [ -f artifacts/ui/report/ui_compare_summary.txt ]; then

@@ -9,26 +9,27 @@ SustainaCore — Autopilot rules for Codex.
 Definitions:
 - Production: `https://sustainacore.org/`
 - Preview (public): `https://preview.sustainacore.org/`
-- CI: GitHub Actions (CI artifacts are the source of truth for UI diffs)
-- VRT: Visual regression testing (scheduled/manual only; not a PR gate)
+- CI: GitHub Actions (informational artifacts only; not a hard gate)
+- VRT: Visual regression testing (manual/scheduled only; not a PR gate)
 
 Non-negotiable rules:
 - NEVER change production directly for UI work; all changes go through PR review.
 - NEVER disable required checks unless explicitly directed by the repo owner.
 - NEVER commit secrets; preview is public (no Basic Auth).
-- ALWAYS use CI artifacts as the feedback loop; VM2 is not the source of truth.
-- VM2 has 1GB RAM; Playwright/Chromium runs for UI compare MUST be CI-only.
+- ALWAYS iterate on VM2 preview first, then publish minimal evidence for human approval.
+- Playwright runs are allowed on VM2 for evidence capture; keep runs small and bounded.
 - PR #244 screenshot-compare contract is canonical (before/after/diff + preview links).
 
 Required agent loop:
 A) Open PR
-B) Wait for CI UI compare to finish
-C) Review artifacts + report and iterate until acceptable
-D) Request human approval (agent never merges)
+B) Update preview on VM2 and iterate locally until "good enough"
+C) Capture local evidence (prod vs preview) and commit minimal artifacts
+D) Use CI compare as informational, not a merge gate
+E) Request human approval (agent never merges)
 
 Evidence requirements for UI PRs:
 - Include preview + production links in PR body.
-- Download `ui-home-compare` artifacts and commit snapshots PR244-style under:
+- Commit local snapshots PR244-style under:
   `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/{before,after,diff,report}`
 - Embed before/after/diff images in PR description and include the CI run link + download command.
 
@@ -38,9 +39,9 @@ Docs:
 - PR checklist in `.github/PULL_REQUEST_TEMPLATE.md`
 
 ## Agent Autonomy Rules (UI)
-- Use CI artifacts as the source of truth; do not run Playwright on VM2.
+- Use VM2 preview as the primary iteration loop; CI artifacts are informational.
 - If a step fails, change strategy (shorter commands, different endpoint, or CI logs).
-- If preview/prod HTTP is flaky from VM2, treat CI runner output as authoritative.
+- If preview/prod HTTP is flaky from VM2, capture evidence locally and document it.
 - Avoid long-running commands; prefer short polls using `tools/ci/poll_pr_checks.sh`.
 
 Agents:

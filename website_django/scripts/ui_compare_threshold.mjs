@@ -10,7 +10,14 @@ if (!fs.existsSync(reportPath)) {
 }
 
 const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-const mismatchPixels = report?.diff?.mismatchPixels ?? null;
+let mismatchPixels = report?.diff?.mismatchPixels ?? null;
+
+if (mismatchPixels === null && Array.isArray(report?.shots)) {
+  mismatchPixels = report.shots.reduce((max, item) => {
+    const value = item?.stats?.mismatchPixels;
+    return Number.isFinite(value) ? Math.max(max, value) : max;
+  }, 0);
+}
 
 if (mismatchPixels === null) {
   console.error("[ui-compare-threshold] report missing diff.mismatchPixels");
