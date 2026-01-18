@@ -1129,8 +1129,17 @@ def home(request):
             decimals = 2
         return f"{pct:.{decimals}f}%"
 
-    tech100_response = fetch_tech100()
-    news_response = fetch_news()
+    try:
+        tech100_response = fetch_tech100()
+    except Exception:
+        logger.exception("TECH100 preview unavailable for home.")
+        tech100_response = {}
+
+    try:
+        news_response = fetch_news()
+    except Exception:
+        logger.exception("News preview unavailable for home.")
+        news_response = {}
 
     raw_tech100_items = tech100_response.get("items", []) or []
     tech100_items = [_normalize_row(item) for item in raw_tech100_items if isinstance(item, dict)]
