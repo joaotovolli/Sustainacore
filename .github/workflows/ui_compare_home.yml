@@ -35,18 +35,41 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/ui/before artifacts/ui/after artifacts/ui/diff artifacts/ui/report
+      - name: Prepare VM2 SSH key (preview check)
+        if: ${{ secrets.VM2_SSH_KEY != '' && secrets.VM2_HOST != '' && secrets.VM2_USER != '' }}
+        env:
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$VM2_SSH_KEY" > ~/.ssh/id_rsa_vm2
+          chmod 600 ~/.ssh/id_rsa_vm2
+          ssh-keyscan -H "$VM2_HOST" >> ~/.ssh/known_hosts
       - name: Verify preview build SHA
         if: ${{ github.event_name == 'pull_request' }}
         env:
           PR_SHA: ${{ github.event.pull_request.head.sha }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
         run: |
           set -euo pipefail
           short_sha="${PR_SHA:0:8}"
           echo "Expecting preview build sha: ${short_sha}"
-          html="$(curl -fsSL --connect-timeout 3 --max-time 8 --retry 2 --retry-delay 1 https://preview.sustainacore.org/)"
-          if ! echo "$html" | grep -Fq "build: ${short_sha}"; then
-            echo "Preview does not reflect PR SHA (${short_sha})." >&2
-            exit 1
+          if [[ -n "${VM2_SSH_KEY:-}" && -n "${VM2_HOST:-}" && -n "${VM2_USER:-}" ]]; then
+            actual_sha="$(ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "git -C /opt/code/Sustainacore_preview rev-parse --short=8 HEAD")"
+            if [ "${actual_sha}" != "${short_sha}" ]; then
+              echo "Preview worktree SHA mismatch: expected ${short_sha}, got ${actual_sha}." >&2
+              exit 1
+            fi
+            echo "Preview SHA: ${actual_sha} (worktree check)" >>"$GITHUB_STEP_SUMMARY"
+          else
+            html="$(curl -fsSL --connect-timeout 3 --max-time 8 --retry 2 --retry-delay 1 https://preview.sustainacore.org/)"
+            if ! echo "$html" | grep -Fq "build: ${short_sha}"; then
+              echo "Preview does not reflect PR SHA (${short_sha})." >&2
+              exit 1
+            fi
           fi
       - name: Capture before/after/diff
         env:
