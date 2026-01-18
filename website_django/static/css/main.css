@@ -142,6 +142,25 @@ h3 {
     justify-content: flex-end;
 }
 
+.nav-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.nav-toggle:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
 .brand {
     display: flex;
     align-items: center;
@@ -205,16 +224,17 @@ h3 {
 .brand__text {
     display: flex;
     flex-direction: column;
+    max-width: 260px;
 }
 
 .brand__name {
     font-weight: 700;
-    font-size: 1rem;
+    font-size: clamp(0.95rem, 1vw, 1.05rem);
     color: inherit;
 }
 
 .brand__tagline {
-    font-size: 0.9rem;
+    font-size: clamp(0.75rem, 0.9vw, 0.9rem);
     color: #dce4ff;
 }
 
@@ -244,6 +264,10 @@ h3 {
     gap: 0.5rem;
 }
 
+.nav--actions .nav--auth {
+    margin-left: 0;
+}
+
 .nav__link {
     color: inherit;
     padding: 0.45rem 0.75rem;
@@ -251,6 +275,87 @@ h3 {
     transition: background 0.2s ease, color 0.2s ease;
     font-weight: 600;
     letter-spacing: 0.01em;
+}
+
+.nav--actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+}
+
+.nav__dropdown {
+    position: relative;
+}
+
+.nav__link--dropdown {
+    list-style: none;
+    cursor: pointer;
+}
+
+.nav__link--dropdown::-webkit-details-marker {
+    display: none;
+}
+
+.nav__link--dropdown::after {
+    content: "▾";
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    opacity: 0.7;
+}
+
+.nav__dropdown[open] .nav__link--dropdown::after {
+    transform: rotate(180deg);
+    display: inline-block;
+}
+
+.nav__dropdown-menu {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    min-width: 220px;
+    padding: 0.4rem;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    color: #0f1c3f;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
+    display: grid;
+    gap: 0.25rem;
+    z-index: 40;
+}
+
+.nav__dropdown-menu a {
+    color: inherit;
+}
+
+.nav__dropdown-link {
+    padding: 0.45rem 0.65rem;
+    border-radius: 10px;
+    font-weight: 600;
+    color: inherit;
+}
+
+.nav__dropdown-link:hover,
+.nav__dropdown-link:focus-visible {
+    background: rgba(15, 28, 63, 0.08);
+    outline: none;
+}
+
+.icon-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: inherit;
+    padding: 0.35rem 0.55rem;
+    border-radius: 999px;
+    font-weight: 600;
+}
+
+.icon-link svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
 }
 
 .nav__label--short {
@@ -1779,32 +1884,38 @@ textarea:focus {
     display: inline-flex;
     align-items: center;
     gap: 0.65rem;
-    padding: 0.85rem 1.1rem;
+    padding: 0.65rem 0.9rem;
     background: linear-gradient(135deg, var(--brand-blue), #3a7be0);
     color: #fff;
     border-radius: 999px;
     box-shadow: 0 16px 30px rgba(31, 95, 191, 0.35);
     font-weight: 700;
     letter-spacing: 0.01em;
-    transition: transform 0.15s ease, box-shadow 0.2s ease;
+    opacity: 0.8;
+    transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
 }
 
 .chat-fab:hover,
 .chat-fab:focus-visible {
     transform: translateY(-1px);
     box-shadow: 0 20px 36px rgba(31, 95, 191, 0.4);
+    opacity: 1;
     outline: none;
 }
 
 .chat-fab__icon {
-    width: 38px;
-    height: 38px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.18);
     display: grid;
     place-items: center;
     font-size: 0.95rem;
     font-weight: 800;
+}
+
+.chat-fab__label {
+    white-space: nowrap;
 }
 
 .status.is-error {
@@ -1876,6 +1987,14 @@ textarea:focus {
     display: grid;
     gap: 0.4rem;
     align-content: start;
+}
+
+.footer__title {
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
 }
 
 .footer__meta {
@@ -2561,10 +2680,9 @@ textarea:focus {
     }
 
     .nav--primary {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 0.35rem;
+        flex-wrap: wrap;
+        overflow: visible;
+        padding-bottom: 0;
     }
 
     .nav__link {
@@ -2575,6 +2693,14 @@ textarea:focus {
 
     .nav__link--aux {
         display: none;
+    }
+
+    .nav__dropdown-menu {
+        position: static;
+        box-shadow: none;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(15, 28, 63, 0.85);
+        color: #fff;
     }
 }
 
@@ -2588,19 +2714,28 @@ textarea:focus {
         align-items: flex-start;
     }
 
+    .nav-toggle {
+        display: inline-flex;
+    }
+
     .topbar__nav {
         width: 100%;
         flex-direction: column;
         align-items: flex-start;
+        display: none;
+    }
+
+    .topbar--open .topbar__nav {
+        display: flex;
     }
 
     .nav {
         width: 100%;
     }
 
-    .nav--auth {
+    .nav--actions {
         width: 100%;
-        justify-content: flex-end;
+        justify-content: space-between;
     }
 
     .nav__label--full {
@@ -2613,12 +2748,6 @@ textarea:focus {
 
     .nav--primary {
         gap: 0.4rem;
-        padding-bottom: 0.25rem;
-        scrollbar-width: none;
-    }
-
-    .nav--primary::-webkit-scrollbar {
-        display: none;
     }
 
     .auth-pill__button {
@@ -2668,7 +2797,11 @@ textarea:focus {
     .chat-fab {
         right: 1rem;
         bottom: 1rem;
-        font-size: 0.95rem;
+        font-size: 0.9rem;
+    }
+
+    .chat-fab__label {
+        display: none;
     }
 
     .tech100-col--rank {
