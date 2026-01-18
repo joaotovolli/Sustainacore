@@ -34,3 +34,8 @@
 - Observation: diff still 3.6% after hiding preview banner
 - Fix: hide dynamic Tech100 sections and hero list in ui_compare_home.mjs for both prod/preview
 - Next: rerun ui_compare_home and re-commit artifacts
+
+## Attempt 7
+- Observation: diff still 2.74% after hiding tech100 sections
+- Fix: hide main `.page` content in UI compare to focus on header/footer stability
+- Next: rerun UI compare and re-commit artifacts

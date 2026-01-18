@@ -85,7 +85,7 @@ const capture = async ({ label, url }) => {
     progress(`[home-compare] goto done ${label}`);
     await withTimeout(
       page.addStyleTag({
-        content: ".tech100-home{display:none !important;} .hero__card .list{display:none !important;} .hero__card .text-link{display:none !important;}",
+        content: ".page{display:none !important;} .tech100-home{display:none !important;} .hero__card .list{display:none !important;} .hero__card .text-link{display:none !important;}",
       }),
       timeoutMs,
       "page.addStyleTag compare hides"
