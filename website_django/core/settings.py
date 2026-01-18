@@ -56,6 +56,8 @@ PREVIEW_HOSTS = get_env_list("PREVIEW_HOSTS", "preview.sustainacore.org")
 PREVIEW_MODE = env_bool("PREVIEW_MODE", default=False)
 _raw_env = os.environ.get("SUSTAINACORE_ENV")
 SUSTAINACORE_ENV = (_raw_env or "development").strip().lower()
+if "Sustainacore_preview" in str(BASE_DIR):
+    SUSTAINACORE_ENV = "preview"
 
 SITE_URL = os.environ.get("SITE_URL", "https://sustainacore.org")
 DEFAULT_META_DESCRIPTION = (
