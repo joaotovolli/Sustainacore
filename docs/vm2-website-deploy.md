@@ -33,6 +33,7 @@ The site also proxies Ask2 traffic to VM1:
   - Enable write test only when needed with `TELEMETRY_VERIFY_WRITE=1`.
 
 ## Deployment Script: `deploy_vm2_website.sh`
+<!-- cspell:ignore sysconfig chgrp -->
 - `cd` to the repository root.
 - Use the same env files as gunicorn for Django management commands (via `sudo -n systemd-run` when available).
 - Run `manage.py migrate --noinput` and `manage.py collectstatic --noinput` inside `website_django/`.
