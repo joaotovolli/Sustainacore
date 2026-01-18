@@ -163,6 +163,24 @@ def fetch_tech100(
 
     payload = _get_json("/api/tech100", timeout=timeout, params=params or None)
     if isinstance(payload, dict) and "error" in payload:
+        if os.getenv("TECH100_ORACLE_FALLBACK", "1") == "1":
+            try:
+                from core.tech100_index_data import fetch_tech100_oracle_fallback
+
+                fallback_items = fetch_tech100_oracle_fallback(
+                    port_date=port_date, sector=sector, search=search_param
+                )
+                if fallback_items:
+                    result = {
+                        "items": fallback_items,
+                        "meta": {"count": len(fallback_items), "source": "oracle_fallback"},
+                        "error": None,
+                    }
+                    cache.set(cache_key, result, CACHE_TTLS["tech100"])
+                    return result
+            except Exception as exc:
+                logger.warning("TECH100 oracle fallback failed: %s", exc)
+
         result = {
             "items": [],
             "meta": {},
@@ -171,7 +189,26 @@ def fetch_tech100(
         cache.set(cache_key, result, CACHE_TTLS["tech100_error"])
         return result
 
-    result = {"items": _extract_items(payload), "meta": _extract_meta(payload), "error": None}
+    items = _extract_items(payload)
+    if not items and os.getenv("TECH100_ORACLE_FALLBACK", "1") == "1":
+        try:
+            from core.tech100_index_data import fetch_tech100_oracle_fallback
+
+            fallback_items = fetch_tech100_oracle_fallback(
+                port_date=port_date, sector=sector, search=search_param
+            )
+            if fallback_items:
+                result = {
+                    "items": fallback_items,
+                    "meta": {"count": len(fallback_items), "source": "oracle_fallback"},
+                    "error": None,
+                }
+                cache.set(cache_key, result, CACHE_TTLS["tech100"])
+                return result
+        except Exception as exc:
+            logger.warning("TECH100 oracle fallback failed: %s", exc)
+
+    result = {"items": items, "meta": _extract_meta(payload), "error": None}
     cache.set(cache_key, result, CACHE_TTLS["tech100"])
     return result
 

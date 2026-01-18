@@ -62,6 +62,126 @@ def _to_date(value) -> Optional[dt.date]:
     return None
 
 
+def _parse_date(value: Optional[str]) -> Optional[dt.date]:
+    if not value:
+        return None
+    if isinstance(value, dt.date):
+        return value
+    try:
+        return dt.date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _tech100_row_dict(columns: list[str], row: tuple) -> dict:
+    data = {columns[idx]: row[idx] for idx in range(min(len(columns), len(row)))}
+    return data
+
+
+def fetch_tech100_oracle_fallback(
+    *,
+    port_date: Optional[str] = None,
+    sector: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 150,
+) -> list[dict]:
+    if _data_mode() == "fixture":
+        return _fixture_constituents()
+
+    as_of_date = _parse_date(port_date) or get_latest_rebalance_date()
+    if not as_of_date:
+        return []
+
+    variants: list[tuple[str, list[str]]] = [
+        (
+            "SELECT ticker, company_name, gics_sector, sector, port_date, "
+            "rank_index, port_weight, aiges_composite, transparency, ethical_principles, "
+            "governance_structure, regulatory_alignment, stakeholder_engagement "
+            "FROM tech11_ai_gov_eth_index "
+            "WHERE port_date = :port_date "
+            "ORDER BY aiges_composite DESC NULLS LAST "
+            "FETCH FIRST :limit ROWS ONLY",
+            [
+                "ticker",
+                "company_name",
+                "gics_sector",
+                "sector",
+                "port_date",
+                "rank_index",
+                "port_weight",
+                "aiges_composite",
+                "transparency",
+                "ethical_principles",
+                "governance_structure",
+                "regulatory_alignment",
+                "stakeholder_engagement",
+            ],
+        ),
+        (
+            "SELECT ticker, company_name, gics_sector, sector, port_date, "
+            "rank_index, port_weight, aiges_composite_average "
+            "FROM tech11_ai_gov_eth_index "
+            "WHERE port_date = :port_date "
+            "ORDER BY aiges_composite_average DESC NULLS LAST "
+            "FETCH FIRST :limit ROWS ONLY",
+            [
+                "ticker",
+                "company_name",
+                "gics_sector",
+                "sector",
+                "port_date",
+                "rank_index",
+                "port_weight",
+                "aiges_composite_average",
+            ],
+        ),
+        (
+            "SELECT ticker, company_name, gics_sector, sector, port_date, "
+            "rank_index, port_weight "
+            "FROM tech11_ai_gov_eth_index "
+            "WHERE port_date = :port_date "
+            "ORDER BY port_weight DESC NULLS LAST "
+            "FETCH FIRST :limit ROWS ONLY",
+            [
+                "ticker",
+                "company_name",
+                "gics_sector",
+                "sector",
+                "port_date",
+                "rank_index",
+                "port_weight",
+            ],
+        ),
+    ]
+
+    rows: list[tuple] = []
+    columns: list[str] = []
+    for sql, cols in variants:
+        try:
+            rows = _execute_rows(sql, {"port_date": as_of_date, "limit": limit})
+            columns = cols
+            break
+        except Exception:
+            continue
+
+    if not rows:
+        return []
+
+    results = [_tech100_row_dict(columns, row) for row in rows]
+
+    if sector:
+        results = [row for row in results if (row.get("sector") or row.get("gics_sector")) == sector]
+    if search:
+        search_lower = search.lower()
+        results = [
+            row
+            for row in results
+            if search_lower in (row.get("company_name") or "").lower()
+            or search_lower in (row.get("ticker") or "").lower()
+        ]
+    return results
+
+
 def _execute_rows(sql: str, params: dict) -> list[tuple]:
     with get_connection() as conn:
         cur = conn.cursor()
