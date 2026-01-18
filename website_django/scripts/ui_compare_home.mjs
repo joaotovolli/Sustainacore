@@ -180,29 +180,15 @@ const capture = async ({ label, url, viewport, shots }) => {
           }
           await withTimeout(page.evaluate((scrollY) => window.scrollTo(0, scrollY), y), timeoutMs, "page.scrollTo");
           await withTimeout(page.waitForTimeout(150), timeoutMs, "page.waitForTimeout");
-          const clip = { x: 0, y, width: viewport.width, height: Math.min(clipHeight, docHeight) };
-          try {
-            await withTimeout(
-              page.screenshot({
-                path: outPath,
-                clip,
-                timeout: timeoutMs,
-              }),
-              timeoutMs + 1000,
-              `page.screenshot clip ${shot.name}`
-            );
-          } catch (error) {
-            progress(`[home-compare] clip failed ${shot.name}, falling back to viewport`);
-            await withTimeout(
-              page.screenshot({
-                path: outPath,
-                fullPage: false,
-                timeout: timeoutMs,
-              }),
-              timeoutMs + 1000,
-              `page.screenshot fallback ${shot.name}`
-            );
-          }
+          await withTimeout(
+            page.screenshot({
+              path: outPath,
+              fullPage: false,
+              timeout: timeoutMs,
+            }),
+            timeoutMs + 1000,
+            `page.screenshot section ${shot.name}`
+          );
         }
         progress(`[home-compare] screenshot done ${outPath}`);
         shotResults.push({ name: shot.name, path: outPath, viewport: shot.viewport });
