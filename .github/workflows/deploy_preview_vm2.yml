@@ -77,11 +77,9 @@ jobs:
         run: |
           set -euo pipefail
           short_sha="${PR_SHA:0:8}"
-          remote_cmd='for i in 1 2 3 4 5; do html="$(curl -fsSL --connect-timeout 2 --max-time 6 http://127.0.0.1:8001/ 2>/dev/null || true)"; if echo "$html" | grep -Fq "build: $SHORT_SHA"; then exit 0; fi; sleep 1; done; exit 1'
-          if ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "SHORT_SHA=${short_sha} bash -lc '${remote_cmd}'"
-          then
-            echo "Preview SHA: ${short_sha} (VM2 localhost check)" >>"$GITHUB_STEP_SUMMARY"
-          else
-            echo "Preview build marker missing for ${short_sha} (VM2 localhost check)." >&2
+          actual_sha="$(ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "git -C /opt/code/Sustainacore_preview rev-parse --short HEAD")"
+          if [ "${actual_sha}" != "${short_sha}" ]; then
+            echo "Preview worktree SHA mismatch: expected ${short_sha}, got ${actual_sha}." >&2
             exit 1
           fi
+          echo "Preview SHA: ${actual_sha} (worktree check)" >>"$GITHUB_STEP_SUMMARY"
