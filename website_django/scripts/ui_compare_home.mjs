@@ -84,7 +84,7 @@ const capture = async ({ label, url, viewport, shots }) => {
     progress(`[home-compare] goto done ${label}`);
     await withTimeout(
       page.addStyleTag({
-        content: "body{font-family: Arial, sans-serif !important;} *{animation:none !important; transition:none !important;} .page{display:none !important;} .tech100-home{display:none !important;} .hero__card{display:none !important;} .news-card{display:none !important;}",
+        content: "*{font-family: Arial, sans-serif !important; animation:none !important; transition:none !important;} .page{display:none !important;} .tech100-home{display:none !important;} .hero__card{display:none !important;} .news-card{display:none !important;}",
       }),
       timeoutMs,
       "page.addStyleTag compare hides"
