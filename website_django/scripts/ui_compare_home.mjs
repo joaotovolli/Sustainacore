@@ -13,6 +13,8 @@ const reportDir = path.join(outRoot, "report");
 const desktopViewport = { width: 1440, height: 900 };
 const mobileViewport = { width: 390, height: 844 };
 const tmpReportPath = "/tmp/ui_home_report.json";
+const navigationRetries = Number(process.env.NAV_RETRIES || "2");
+const navigationBackoffMs = Number(process.env.NAV_RETRY_BACKOFF_MS || "2000");
 
 const progress = (message) => {
   process.stdout.write(`${message}\n`);
@@ -31,6 +33,34 @@ const withTimeout = (promise, ms, label) => {
   return Promise.race([promise, timeout]).finally(() => {
     if (timeoutId) clearTimeout(timeoutId);
   });
+};
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const gotoWithRetries = async (page, url, label) => {
+  let lastError = null;
+  for (let attempt = 1; attempt <= navigationRetries; attempt += 1) {
+    try {
+      lastBeat = `goto ${label} attempt ${attempt}`;
+      progress(`[home-compare] goto start ${label} attempt ${attempt} ${url}`);
+      await withTimeout(
+        page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs }),
+        timeoutMs + 1000,
+        `page.goto ${label} attempt ${attempt}`
+      );
+      progress(`[home-compare] goto done ${label} attempt ${attempt}`);
+      await withTimeout(page.waitForSelector("body", { timeout: timeoutMs }), timeoutMs + 1000, `body ${label}`);
+      await withTimeout(page.waitForTimeout(300), timeoutMs, "page.waitForTimeout settle");
+      return;
+    } catch (err) {
+      lastError = err;
+      progress(`[home-compare] goto error ${label} attempt ${attempt}: ${err.message}`);
+      if (attempt < navigationRetries) {
+        await delay(navigationBackoffMs * attempt);
+      }
+    }
+  }
+  throw lastError;
 };
 
 const readPng = (filePath) => PNG.sync.read(fs.readFileSync(filePath));
@@ -53,7 +83,7 @@ const writeDiff = (beforePath, afterPath, diffPath) => {
   return { mismatchPixels, mismatchPercent, width, height };
 };
 
-const capture = async ({ label, url, viewport, shots }) => {
+const capture = async ({ label, url, viewport, shots, failureLog }) => {
     lastBeat = `launch ${label}`;
     progress(`[home-compare] launch start ${label}`);
     const browser = await withTimeout(
@@ -78,14 +108,20 @@ const capture = async ({ label, url, viewport, shots }) => {
   page.setDefaultTimeout(timeoutMs);
   page.setDefaultNavigationTimeout(timeoutMs);
     try {
-      lastBeat = `goto ${label}`;
-      progress(`[home-compare] goto start ${label} ${url}`);
-      await withTimeout(
-        page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs }),
-        timeoutMs + 1000,
-        `page.goto ${label}`
-      );
-    progress(`[home-compare] goto done ${label}`);
+      try {
+        await gotoWithRetries(page, url, label);
+      } catch (err) {
+        if (failureLog) {
+          failureLog.push({ stage: `goto-${label}`, message: err.message });
+        }
+        const errorShot = path.join(outRoot, label, `home_${label}_error.png`);
+        await withTimeout(
+          page.screenshot({ path: errorShot, fullPage: false, timeout: timeoutMs }),
+          timeoutMs + 1000,
+          `page.screenshot error ${label}`
+        ).catch(() => {});
+        throw err;
+      }
       await withTimeout(
         page.addStyleTag({
           content: "*{font-family: Arial, sans-serif !important; animation:none !important; transition:none !important;} .hero{display:none !important;} .section{display:none !important;} .tech100-home{display:none !important;} .hero__card{display:none !important;} .news-card{display:none !important;} .home-news{display:none !important;} .ask2-fab{display:none !important;}",
@@ -209,6 +245,9 @@ const capture = async ({ label, url, viewport, shots }) => {
       }
       return { shots: shotResults, layoutMetrics };
     } finally {
+    if (failureLog && failureLog.length > 0) {
+      progress(`[home-compare] ${label} failures: ${failureLog.length}`);
+    }
     await withTimeout(page.close(), 5000, "page.close").catch(() => {});
     await withTimeout(context.close(), 5000, "context.close").catch(() => {});
     await withTimeout(browser.close(), 5000, "browser.close").catch(() => {});
@@ -232,34 +271,55 @@ const run = async () => {
   ];
   const mobilePlan = [{ name: "home_mobile", type: "viewport", viewport: "mobile" }];
 
-  const beforeDesktop = await capture({
-    label: "before",
-    url: `${prodBaseUrl}/`,
-    viewport: desktopViewport,
-    shots: shotPlan,
-  });
-  const afterDesktop = await capture({
-    label: "after",
-    url: `${previewBaseUrl}/`,
-    viewport: desktopViewport,
-    shots: shotPlan,
-  });
-  const beforeMobile = await capture({
-    label: "before",
-    url: `${prodBaseUrl}/`,
-    viewport: mobileViewport,
-    shots: mobilePlan,
-  });
-  const afterMobile = await capture({
-    label: "after",
-    url: `${previewBaseUrl}/`,
-    viewport: mobileViewport,
-    shots: mobilePlan,
-  });
+  const errors = [];
+  let beforeDesktop = null;
+  let afterDesktop = null;
+  let beforeMobile = null;
+  let afterMobile = null;
+  try {
+    beforeDesktop = await capture({
+      label: "before",
+      url: `${prodBaseUrl}/`,
+      viewport: desktopViewport,
+      shots: shotPlan,
+      failureLog: errors,
+    });
+    afterDesktop = await capture({
+      label: "after",
+      url: `${previewBaseUrl}/`,
+      viewport: desktopViewport,
+      shots: shotPlan,
+      failureLog: errors,
+    });
+    beforeMobile = await capture({
+      label: "before",
+      url: `${prodBaseUrl}/`,
+      viewport: mobileViewport,
+      shots: mobilePlan,
+      failureLog: errors,
+    });
+    afterMobile = await capture({
+      label: "after",
+      url: `${previewBaseUrl}/`,
+      viewport: mobileViewport,
+      shots: mobilePlan,
+      failureLog: errors,
+    });
+  } catch (err) {
+    errors.push({ stage: "capture", message: err.message });
+  }
 
   const diffEntries = [];
-  for (const beforeShot of [...beforeDesktop.shots, ...beforeMobile.shots]) {
-    const afterShot = [...afterDesktop.shots, ...afterMobile.shots].find(
+  const allBeforeShots = [
+    ...(beforeDesktop ? beforeDesktop.shots : []),
+    ...(beforeMobile ? beforeMobile.shots : []),
+  ];
+  const allAfterShots = [
+    ...(afterDesktop ? afterDesktop.shots : []),
+    ...(afterMobile ? afterMobile.shots : []),
+  ];
+  for (const beforeShot of allBeforeShots) {
+    const afterShot = allAfterShots.find(
       (shot) => shot.name === beforeShot.name && shot.viewport === beforeShot.viewport
     );
     if (!afterShot) continue;
@@ -293,6 +353,8 @@ const run = async () => {
       prod: `${prodBaseUrl}/`,
       preview: `${previewBaseUrl}/`,
     },
+    status: errors.length > 0 ? "failed" : "ok",
+    errors,
     viewports: {
       desktop: desktopViewport,
       mobile: mobileViewport,
@@ -303,8 +365,8 @@ const run = async () => {
     },
     shots: diffEntries,
     layout: {
-      before: beforeDesktop.layoutMetrics,
-      after: afterDesktop.layoutMetrics,
+      before: beforeDesktop ? beforeDesktop.layoutMetrics : null,
+      after: afterDesktop ? afterDesktop.layoutMetrics : null,
     },
   };
   const reportPath = path.join(reportDir, "ui_compare_report.json");
@@ -336,6 +398,9 @@ const run = async () => {
   ].join("\n");
   fs.writeFileSync(summaryPath, `${summary}\n`);
   progress(`[home-compare] report done ${summaryPath}`);
+  if (errors.length > 0) {
+    throw new Error(`Compare failed with ${errors.length} error(s)`);
+  }
   if (Number.isFinite(maxDiffPixels) && maxMismatch > maxDiffPixels) {
     throw new Error(
       `Diff exceeds threshold: ${maxMismatch} > ${maxDiffPixels}`
