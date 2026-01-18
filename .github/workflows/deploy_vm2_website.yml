@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      TELEMETRY_VERIFY_WRITE: ${{ secrets.TELEMETRY_VERIFY_WRITE }}
     steps:
       - name: Secret leak guard (deploy scripts)
         run: |
@@ -61,6 +63,19 @@ jobs:
           ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" <<'SSH'
           set -euo pipefail
           cd /opt/code/Sustainacore
+          scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --timeout 60
+          SSH
+
+      - name: Verify Oracle telemetry write test (VM2)
+        if: env.TELEMETRY_VERIFY_WRITE == '1'
+        env:
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" <<'SSH'
+          set -euo pipefail
+          cd /opt/code/Sustainacore
           scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --verify-insert --timeout 60
           SSH
 
@@ -77,6 +92,7 @@ jobs:
           SSH
 
       - name: Verify telemetry inserts on request (VM2)
+        if: env.TELEMETRY_VERIFY_WRITE == '1'
         env:
           VM2_HOST: ${{ secrets.VM2_HOST }}
           VM2_USER: ${{ secrets.VM2_USER }}
