@@ -101,6 +101,16 @@ const capture = async ({ label, url, viewport, shots }) => {
         timeoutMs,
         "page.addStyleTag preview banner"
       );
+      await withTimeout(
+        page.evaluate(() => {
+          const banner = document.querySelector(".preview-banner");
+          if (banner) banner.remove();
+          const consent = document.querySelector(".consent-banner");
+          if (consent) consent.remove();
+        }),
+        timeoutMs,
+        "page.evaluate remove preview banner"
+      );
     }
     await withTimeout(page.waitForTimeout(250), timeoutMs, "page.waitForTimeout");
       lastBeat = `metrics ${label}`;
