@@ -313,7 +313,7 @@ h3 {
     position: absolute;
     top: calc(100% + 0.5rem);
     left: 0;
-    min-width: 220px;
+    min-width: 230px;
     padding: 0.4rem;
     border-radius: 12px;
     border: 1px solid var(--border);
