@@ -40,6 +40,7 @@ The site also proxies Ask2 traffic to VM1:
 - Apply Oracle schema migrations in `db/migrations/` (SQLcl required):
   - `bash scripts/db_migrate.sh`
 - Fail fast if Oracle is not active in production (`diagnose_db --fail-on-sqlite`).
+- Telemetry write checks only run when `TELEMETRY_VERIFY_WRITE=1` is set.
 - Restart `gunicorn.service` and reload `nginx` via `systemctl`.
 
 Manual deploy commands:
