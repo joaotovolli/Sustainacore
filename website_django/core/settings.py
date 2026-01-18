@@ -126,6 +126,7 @@ TEMPLATES = [
                 'core.context_processors.seo_defaults',
                 'core.context_processors.preview_context',
                 'core.context_processors.auth_context',
+                'core.context_processors.build_sha',
             ],
         },
     },
