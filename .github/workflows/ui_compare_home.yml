@@ -49,7 +49,7 @@ jobs:
       - name: Enforce diff threshold
         env:
           DIFF_MAX_PIXELS: "50000"
-          UI_COMPARE_REPORT: artifacts/ui/report/ui_compare_report.json
+          UI_COMPARE_REPORT: ../artifacts/ui/report/ui_compare_report.json
         run: |
           set -euo pipefail
           cd website_django
