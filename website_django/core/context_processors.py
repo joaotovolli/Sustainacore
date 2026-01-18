@@ -51,7 +51,16 @@ def _read_build_sha() -> str:
         return _BUILD_SHA
     base_dir = Path(getattr(settings, "BASE_DIR", Path.cwd()))
     repo_root = base_dir.parent
-    head_path = repo_root / ".git" / "HEAD"
+    git_path = repo_root / ".git"
+    if git_path.is_file():
+        head_line = git_path.read_text().strip()
+        if head_line.startswith("gitdir:"):
+            git_dir = Path(head_line.split(":", 1)[1].strip())
+        else:
+            git_dir = git_path
+    else:
+        git_dir = git_path
+    head_path = git_dir / "HEAD"
     try:
         head_text = head_path.read_text().strip()
         if head_text.startswith("ref:"):
