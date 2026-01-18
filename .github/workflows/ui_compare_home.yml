@@ -36,12 +36,15 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/ui/before artifacts/ui/after artifacts/ui/diff artifacts/ui/report
       - name: Prepare VM2 SSH key (preview check)
-        if: ${{ secrets.VM2_SSH_KEY != '' && secrets.VM2_HOST != '' && secrets.VM2_USER != '' }}
         env:
           VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
           VM2_HOST: ${{ secrets.VM2_HOST }}
         run: |
           set -euo pipefail
+          if [[ -z "${VM2_SSH_KEY:-}" || -z "${VM2_HOST:-}" ]]; then
+            echo "VM2 SSH secrets missing; skipping SSH prep." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           mkdir -p ~/.ssh
           echo "$VM2_SSH_KEY" > ~/.ssh/id_rsa_vm2
           chmod 600 ~/.ssh/id_rsa_vm2
