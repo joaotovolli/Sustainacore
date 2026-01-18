@@ -127,6 +127,7 @@ const capture = async ({ label, url, viewport, shots, failureLog }) => {
           content: [
             "*{font-family: Arial, sans-serif !important; animation:none !important; transition:none !important;}",
             ".tech100-home{visibility:hidden !important;}",
+            ".hero__card{visibility:hidden !important;}",
             ".news-card{visibility:hidden !important;}",
             ".home-news{visibility:hidden !important;}",
             ".ask2-fab{visibility:hidden !important;}",
