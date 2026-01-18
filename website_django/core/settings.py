@@ -85,6 +85,11 @@ TELEMETRY_GEO_REGION_HEADERS = get_env_list(
 TELEMETRY_GEOIP_ENABLED = env_bool("TELEMETRY_GEOIP_ENABLED", default=False)
 TELEMETRY_GEOIP_DB_PATH = os.environ.get("TELEMETRY_GEOIP_DB_PATH", "")
 
+DEFAULT_SESSION_ENGINE = "django.contrib.sessions.backends.db"
+if SUSTAINACORE_ENV == "preview":
+    DEFAULT_SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+SESSION_ENGINE = os.environ.get("SESSION_ENGINE", DEFAULT_SESSION_ENGINE)
+
 # Application definition
 
 INSTALLED_APPS = [
