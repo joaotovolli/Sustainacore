@@ -6,6 +6,7 @@ on:
       - 'website_django/templates/**'
       - 'website_django/static/**'
       - 'website_django/core/**'
+      - 'website_django/telemetry/**'
       - 'ops/scripts/deploy_preview_vm2.sh'
       - '.github/workflows/deploy_preview_vm2.yml'
 
