@@ -17,3 +17,10 @@
 - Issue: artifacts missing because script wrote to website_django/artifacts/ui but upload path was artifacts/ui
 - Fix: set OUTPUT_DIR to ../artifacts/ui in workflow
 - Next: push fix and re-run ui_compare_home
+
+## Attempt 4
+- Action: reran ui_compare_home (run 21109716658) after artifact path fix
+- Result: run completed but failed threshold; artifacts downloaded and committed to docs/screenshots/ui/home/pr-409/run-21109716658
+- Diff: mismatchPixels=144531, mismatchPercent=11.1521
+- Preview deploy: ops/scripts/deploy_preview_vm2.sh 409 restarted gunicorn-preview; local 127.0.0.1:8001 still timed out
+- Next: review diff images, confirm preview is serving PR branch, adjust UI or deployment verification
