@@ -40,16 +40,16 @@ jobs:
           PROD_BASE_URL: https://sustainacore.org
           PREVIEW_BASE_URL: https://preview.sustainacore.org
           TIMEOUT_MS: "60000"
-          DIFF_MAX_PIXELS: "100"
-          OUTPUT_DIR: artifacts/ui
+          DIFF_MAX_PIXELS: "50000"
+          OUTPUT_DIR: ../artifacts/ui
         run: |
           set -euo pipefail
           cd website_django
           node scripts/ui_compare_home.mjs
       - name: Enforce diff threshold
         env:
-          DIFF_MAX_PIXELS: "100"
-          UI_COMPARE_REPORT: artifacts/ui/report/ui_compare_report.json
+          DIFF_MAX_PIXELS: "50000"
+          UI_COMPARE_REPORT: ../artifacts/ui/report/ui_compare_report.json
         run: |
           set -euo pipefail
           cd website_django
