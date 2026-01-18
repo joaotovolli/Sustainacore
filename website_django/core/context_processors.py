@@ -74,6 +74,10 @@ def _read_build_sha() -> str:
     return _BUILD_SHA
 
 
+def build_sha(request):
+    return {"build_sha": _read_build_sha()}
+
+
 def preview_context(request):
     host = request.get_host().split(":")[0].lower()
     prod_hosts = {"sustainacore.org", "www.sustainacore.org"}
