@@ -1,4 +1,5 @@
 # UI Screenshot Compare Process (CI-only)
+<!-- cspell:ignore mismatchPercent ui-home-compare workflow_dispatch -->
 
 ## What CI does
 - Captures **home page** screenshots from:
@@ -16,7 +17,7 @@ Artifacts (CI) under `artifacts/ui/`:
 
 ## What “pass” means
 - Workflow completes.
-- Diff is within threshold (see report `diff.mismatchPixels`).
+- Diff is within threshold (see report `diff.mismatchPixels` / `diff.mismatchPercent`).
 
 ## What “diff” means
 - Any mismatch indicates a UI change between prod and preview.
@@ -28,10 +29,14 @@ Artifacts (CI) under `artifacts/ui/`:
 gh run download <run_id> -n ui-home-compare
 ```
 2) Inspect `report/ui_compare_report.json`:
-   - `diffPixels` and `diffPct`
-   - `overflowOffendersTop15` for layout issues
-3) Fix preview, push, repeat until diff acceptable.
-4) Poll PR checks using the fast script (avoid long-running `--watch`):
+   - `diff.mismatchPixels`, `diff.mismatchPercent`
+   - `layout.before`/`layout.after` and `overflowOffendersTop15`
+3) Commit snapshots PR244-style:
+```
+docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/...
+```
+4) Fix preview, push, repeat until diff acceptable.
+5) Poll PR checks using the fast script (avoid long-running `--watch`):
 ```
 tools/ci/poll_pr_checks.sh <pr-number>
 ```
@@ -39,3 +44,10 @@ tools/ci/poll_pr_checks.sh <pr-number>
 ## Why CI-only
 VM2 is 1GB RAM and cannot reliably run Playwright. All UI compare runs happen in
 GitHub Actions.
+
+## Manual runs (workflow_dispatch)
+The workflow supports manual runs to generate artifacts even without a UI PR:
+```
+gh workflow run ui_compare_home.yml -R joaotovolli/Sustainacore --ref <branch>
+```
+Then download artifacts and commit snapshots into the PR branch.
