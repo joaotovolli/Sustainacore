@@ -28,8 +28,9 @@ The site also proxies Ask2 traffic to VM1:
 
 ### Oracle Guardrail
 - VM2 production MUST use Oracle (no sqlite).
-- Verify using:
-  - `scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --verify-insert --timeout 60`
+- Verify using (read-only by default):
+  - `scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --timeout 60`
+  - Enable write test only when needed with `TELEMETRY_VERIFY_WRITE=1`.
 
 ## Deployment Script: `deploy_vm2_website.sh`
 - `cd` to the repository root.
