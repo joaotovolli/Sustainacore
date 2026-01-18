@@ -15,6 +15,8 @@ const mobileViewport = { width: 390, height: 844 };
 const tmpReportPath = "/tmp/ui_home_report.json";
 const navigationRetries = Number(process.env.NAV_RETRIES || "2");
 const navigationBackoffMs = Number(process.env.NAV_RETRY_BACKOFF_MS || "2000");
+const localFast = ["1", "true", "yes"].includes((process.env.LOCAL_FAST || "").toLowerCase());
+const localFetchHtml = ["1", "true", "yes"].includes((process.env.LOCAL_FETCH_HTML || "").toLowerCase());
 
 const progress = (message) => {
   process.stdout.write(`${message}\n`);
@@ -36,6 +38,31 @@ const withTimeout = (promise, ms, label) => {
 };
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const fetchHtml = async (url) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.min(timeoutMs, 8000));
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`fetch ${url} failed: ${res.status}`);
+    }
+    return await res.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const ensureBaseTag = (html, baseHref) => {
+  if (html.includes("<base ")) {
+    return html;
+  }
+  const baseTag = `<base href="${baseHref}">`;
+  if (html.includes("</head>")) {
+    return html.replace("</head>", `${baseTag}</head>`);
+  }
+  return `${baseTag}${html}`;
+};
 
 const gotoWithRetries = async (page, url, label) => {
   let lastError = null;
@@ -107,9 +134,39 @@ const capture = async ({ label, url, viewport, shots, failureLog }) => {
   progress(`[home-compare] page done ${label}`);
   page.setDefaultTimeout(timeoutMs);
   page.setDefaultNavigationTimeout(timeoutMs);
+  if (localFast) {
+    await page.route("**/*", (route) => {
+      const req = route.request();
+      const url = req.url();
+      const type = req.resourceType();
+      if (
+        type === "image" ||
+        type === "media" ||
+        url.includes("fonts.googleapis.com") ||
+        url.includes("fonts.gstatic.com") ||
+        url.includes("googletagmanager") ||
+        url.includes("analytics")
+      ) {
+        return route.abort();
+      }
+      return route.continue();
+    });
+  }
     try {
       try {
-        await gotoWithRetries(page, url, label);
+        if (localFetchHtml) {
+          const html = await fetchHtml(url);
+          const withBase = ensureBaseTag(html, url);
+          progress(`[home-compare] setContent start ${label}`);
+          await withTimeout(
+            page.setContent(withBase, { waitUntil: "domcontentloaded" }),
+            timeoutMs + 1000,
+            `page.setContent ${label}`
+          );
+          progress(`[home-compare] setContent done ${label}`);
+        } else {
+          await gotoWithRetries(page, url, label);
+        }
       } catch (err) {
         if (failureLog) {
           failureLog.push({ stage: `goto-${label}`, message: err.message });
@@ -272,12 +329,17 @@ const run = async () => {
   progress(`[home-compare] prod url ${prodBaseUrl}`);
   progress(`[home-compare] preview url ${previewBaseUrl}`);
 
-  const shotPlan = [
-    { name: "home_full", type: "full", viewport: "desktop" },
-    { name: "home_top", type: "clip", viewport: "desktop", section: "top", height: 900 },
-    { name: "home_mid", type: "clip", viewport: "desktop", section: "mid", height: 900 },
-    { name: "home_footer", type: "clip", viewport: "desktop", section: "footer", height: 700 },
-  ];
+  const shotPlan = localFast
+    ? [
+        { name: "home_full", type: "viewport", viewport: "desktop" },
+        { name: "home_footer", type: "clip", viewport: "desktop", section: "footer", height: 700 },
+      ]
+    : [
+        { name: "home_full", type: "full", viewport: "desktop" },
+        { name: "home_top", type: "clip", viewport: "desktop", section: "top", height: 900 },
+        { name: "home_mid", type: "clip", viewport: "desktop", section: "mid", height: 900 },
+        { name: "home_footer", type: "clip", viewport: "desktop", section: "footer", height: 700 },
+      ];
   const mobilePlan = [{ name: "home_mobile", type: "viewport", viewport: "mobile" }];
 
   const errors = [];

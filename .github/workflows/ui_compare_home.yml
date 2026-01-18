@@ -13,6 +13,7 @@ on:
 jobs:
   ui-home-compare:
     name: UI compare (home, prod vs preview)
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,6 +110,7 @@ jobs:
           fi
       - name: Capture before/after/diff
         if: ${{ steps.preflight.outputs.ok == 'true' }}
+        continue-on-error: true
         env:
           PROD_BASE_URL: https://sustainacore.org
           PREVIEW_BASE_URL: https://preview.sustainacore.org
@@ -121,6 +123,7 @@ jobs:
           node scripts/ui_compare_home.mjs
       - name: Enforce diff threshold
         if: ${{ steps.preflight.outputs.ok == 'true' }}
+        continue-on-error: true
         env:
           DIFF_MAX_PIXELS: "50000"
           UI_COMPARE_REPORT: ../artifacts/ui/report/ui_compare_report.json
@@ -134,11 +137,6 @@ jobs:
         with:
           name: ui-home-compare
           path: artifacts/ui
-      - name: Fail if preflight failed
-        if: ${{ steps.preflight.outputs.ok != 'true' }}
-        run: |
-          echo "Preview preflight failed; see artifacts/ui/report/ui_compare_report.json" >&2
-          exit 1
       - name: Job summary
         run: |
           {

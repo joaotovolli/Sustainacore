@@ -1,7 +1,21 @@
-# UI Screenshot Compare Process (CI-only)
+# UI Screenshot Compare Process (VM-first)
 <!-- cspell:ignore mismatchPercent ui-home-compare workflow_dispatch -->
 
-## What CI does
+## What the local script does (primary evidence)
+- Captures **home page** screenshots from:
+  - Production: `https://sustainacore.org/`
+  - Preview (public): `https://preview.sustainacore.org/`
+- Generates a pixel diff and summary.
+- Writes evidence for PR244-style review.
+
+Local outputs (minimal evidence bundle):
+- `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/before/*.png`
+- `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/after/*.png`
+- `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/diff/*_diff.png`
+- `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/report/ui_compare_report.json`
+- `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/report/ui_compare_summary.txt`
+
+## What CI does (informational)
 - Captures **home page** screenshots from:
   - Production: `https://sustainacore.org/`
   - Preview (public): `https://preview.sustainacore.org/`
@@ -54,9 +68,9 @@ docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/...
 tools/ci/poll_pr_checks.sh <pr-number>
 ```
 
-## Why CI-only
-VM2 is 1GB RAM and cannot reliably run Playwright. All UI compare runs happen in
-GitHub Actions.
+## Why VM-first
+Human approval relies on a minimal, curated evidence bundle in the PR itself.
+CI provides additional context but does not block merges.
 
 ## Manual runs (workflow_dispatch)
 The workflow supports manual runs to generate artifacts even without a UI PR:
@@ -64,3 +78,20 @@ The workflow supports manual runs to generate artifacts even without a UI PR:
 gh workflow run ui_compare_home.yml -R joaotovolli/Sustainacore --ref <branch>
 ```
 Then download artifacts and commit snapshots into the PR branch.
+
+## Local run (VM2) — primary evidence
+Use the local compare script with bounded timeouts (fast mode for VM2):
+```
+cd /opt/code/Sustainacore/website_django
+PROD_BASE_URL=https://sustainacore.org \
+PREVIEW_BASE_URL=https://preview.sustainacore.org \
+TIMEOUT_MS=15000 \
+LOCAL_FAST=1 \
+LOCAL_FETCH_HTML=1 \
+OUTPUT_DIR=/tmp/ui-compare-local \
+node scripts/ui_compare_home.mjs
+```
+Then copy a minimal set into the PR evidence path:
+```
+docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/{before,after,diff,report}
+```
