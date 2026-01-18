@@ -49,3 +49,9 @@
 - Failure: threshold step couldn't find report path (running from website_django)
 - Fix: UI_COMPARE_REPORT updated to ../artifacts/ui/report/ui_compare_report.json
 - Next: re-run ui_compare_home
+
+## Attempt 10
+- Run 21109906400 succeeded (threshold 50000)
+- Diff: mismatchPixels=39504, mismatchPercent=3.0481
+- Artifacts committed to docs/screenshots/ui/home/pr-409/run-21109906400
+- Next: update PR body with latest run + images and request human approval
