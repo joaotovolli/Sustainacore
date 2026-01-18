@@ -77,16 +77,8 @@ jobs:
         run: |
           set -euo pipefail
           short_sha="${PR_SHA:0:8}"
-          if ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "SHORT_SHA=${short_sha} bash -s" <<'SSH'
-          for i in 1 2 3 4 5; do
-            html="$(curl -fsSL --connect-timeout 2 --max-time 6 http://127.0.0.1:8001/ 2>/dev/null || true)"
-            if echo "$html" | grep -Fq "build: ${SHORT_SHA}"; then
-              exit 0
-            fi
-            sleep 1
-          done
-          exit 1
-SSH
+          remote_cmd='for i in 1 2 3 4 5; do html="$(curl -fsSL --connect-timeout 2 --max-time 6 http://127.0.0.1:8001/ 2>/dev/null || true)"; if echo "$html" | grep -Fq "build: $SHORT_SHA"; then exit 0; fi; sleep 1; done; exit 1'
+          if ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "SHORT_SHA=${short_sha} bash -lc '${remote_cmd}'"
           then
             echo "Preview SHA: ${short_sha} (VM2 localhost check)" >>"$GITHUB_STEP_SUMMARY"
           else
