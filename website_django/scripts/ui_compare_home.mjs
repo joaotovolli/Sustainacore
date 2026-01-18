@@ -124,7 +124,15 @@ const capture = async ({ label, url, viewport, shots, failureLog }) => {
       }
       await withTimeout(
         page.addStyleTag({
-          content: "*{font-family: Arial, sans-serif !important; animation:none !important; transition:none !important;} .hero{display:none !important;} .section{display:none !important;} .tech100-home{display:none !important;} .hero__card{display:none !important;} .news-card{display:none !important;} .home-news{display:none !important;} .ask2-fab{display:none !important;}",
+          content: [
+            "*{font-family: Arial, sans-serif !important; animation:none !important; transition:none !important;}",
+            ".tech100-home{visibility:hidden !important;}",
+            ".news-card{visibility:hidden !important;}",
+            ".home-news{visibility:hidden !important;}",
+            ".ask2-fab{visibility:hidden !important;}",
+            ".consent-banner{display:none !important;}",
+            ".preview-banner{display:none !important;}",
+          ].join(" "),
         }),
         timeoutMs,
         "page.addStyleTag compare hides"
