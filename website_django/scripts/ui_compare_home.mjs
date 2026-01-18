@@ -83,6 +83,15 @@ const capture = async ({ label, url }) => {
       `page.goto ${label}`
     );
     progress(`[home-compare] goto done ${label}`);
+    if (label === "after") {
+      await withTimeout(
+        page.addStyleTag({
+          content: ".preview-banner{display:none !important;} .consent-banner{display:none !important;}",
+        }),
+        timeoutMs,
+        "page.addStyleTag preview banner"
+      );
+    }
     await withTimeout(page.waitForTimeout(250), timeoutMs, "page.waitForTimeout");
     lastBeat = `metrics ${label}`;
     progress(`[home-compare] metrics start ${label}`);

@@ -24,3 +24,8 @@
 - Diff: mismatchPixels=144531, mismatchPercent=11.1521
 - Preview deploy: ops/scripts/deploy_preview_vm2.sh 409 restarted gunicorn-preview; local 127.0.0.1:8001 still timed out
 - Next: review diff images, confirm preview is serving PR branch, adjust UI or deployment verification
+
+## Attempt 5
+- Hypothesis: diff is dominated by preview banner + consent banner (expected on preview only)
+- Fix: hide .preview-banner and .consent-banner in ui_compare_home.mjs for preview capture
+- Next: rerun UI compare and re-commit artifacts
