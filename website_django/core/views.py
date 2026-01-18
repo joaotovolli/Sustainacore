@@ -1254,7 +1254,11 @@ def home(request):
         "news_preview": news_preview,
         "tech100_snapshot": tech100_snapshot,
     }
-    return render(request, "home.html", context)
+    try:
+        return render(request, "home.html", context)
+    except Exception:
+        logger.exception("Home render failed")
+        raise
 
 
 def tech100(request):
