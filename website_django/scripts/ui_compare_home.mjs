@@ -36,12 +36,16 @@ const withTimeout = (promise, ms, label) => {
 const readPng = (filePath) => PNG.sync.read(fs.readFileSync(filePath));
 
 const writeDiff = (beforePath, afterPath, diffPath) => {
-    const before = readPng(beforePath);
-    const after = readPng(afterPath);
-    const width = Math.min(before.width, after.width);
-    const height = Math.min(before.height, after.height);
-    const diff = new PNG({ width, height });
-  const mismatchPixels = pixelmatch(before.data, after.data, diff.data, width, height, {
+  const before = readPng(beforePath);
+  const after = readPng(afterPath);
+  const width = Math.min(before.width, after.width);
+  const height = Math.min(before.height, after.height);
+  const beforeCrop = new PNG({ width, height });
+  const afterCrop = new PNG({ width, height });
+  PNG.bitblt(before, beforeCrop, 0, 0, width, height, 0, 0);
+  PNG.bitblt(after, afterCrop, 0, 0, width, height, 0, 0);
+  const diff = new PNG({ width, height });
+  const mismatchPixels = pixelmatch(beforeCrop.data, afterCrop.data, diff.data, width, height, {
     threshold: 0.1,
   });
   fs.writeFileSync(diffPath, PNG.sync.write(diff));
