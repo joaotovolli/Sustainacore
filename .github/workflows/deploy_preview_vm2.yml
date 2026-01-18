@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           short_sha="${PR_SHA:0:8}"
-          actual_sha="$(ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "git -C /opt/code/Sustainacore_preview rev-parse --short HEAD")"
+          actual_sha="$(ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "git -C /opt/code/Sustainacore_preview rev-parse --short=8 HEAD")"
           if [ "${actual_sha}" != "${short_sha}" ]; then
             echo "Preview worktree SHA mismatch: expected ${short_sha}, got ${actual_sha}." >&2
             exit 1
