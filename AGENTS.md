@@ -26,10 +26,22 @@ B) Wait for CI UI compare to finish
 C) Review artifacts + report and iterate until acceptable
 D) Request human approval (agent never merges)
 
+Evidence requirements for UI PRs:
+- Include preview + production links in PR body.
+- Download `ui-home-compare` artifacts and commit snapshots PR244-style under:
+  `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/{before,after,diff,report}`
+- Embed before/after/diff images in PR description and include the CI run link + download command.
+
 Docs:
 - `docs/ui_change_workflow.md` (canonical UI change workflow)
 - `docs/ui_screenshot_process.md` (UI compare process + artifact interpretation)
 - PR checklist in `.github/PULL_REQUEST_TEMPLATE.md`
+
+## Agent Autonomy Rules (UI)
+- Use CI artifacts as the source of truth; do not run Playwright on VM2.
+- If a step fails, change strategy (shorter commands, different endpoint, or CI logs).
+- If preview/prod HTTP is flaky from VM2, treat CI runner output as authoritative.
+- Avoid long-running commands; prefer short polls using `tools/ci/poll_pr_checks.sh`.
 
 Agents:
 - vm1-esg-ai: scope esg_ai/**, index/**, oracle_scripts/**, target VM1. Must not modify website_django/**.
@@ -196,7 +208,8 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
   - `git diff --name-only | head`
   - `git diff --name-status | head`
 - If the diff shows mass deletions, unexpected repo-wide changes, vendored folders (venv/, node_modules/, artifacts/, screenshots/, __pycache__/), or large binary files not requested, STOP and fix locally; do not push.
-- Explicit denylist (never commit): venv/, .venv/, node_modules/, artifacts/, docs/screenshots/, playwright screenshots, dist/, build/, __pycache__/, *.pyc, *.sqlite3, *.db-journal, *.log, large tmp files.
+- Explicit denylist (never commit): venv/, .venv/, node_modules/, artifacts/, playwright screenshots, dist/, build/, __pycache__/, *.pyc, *.sqlite3, *.db-journal, *.log, large tmp files.
+  - Exception: `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/...` is allowed for UI evidence only.
 - If any denylist items appear in `git status`, remove/move them or add minimal .gitignore entries (when appropriate).
 - Push discipline: small WIP pushes are allowed only when the diff is small and scoped. No exploratory pushes touching hundreds of files.
 - PR expectation: user-facing changes must open a PR. Docs-only changes should use a PR (required for this change). PR body must be clean Markdown (no literal "\\n") with Summary/Changes/Testing/Notes.

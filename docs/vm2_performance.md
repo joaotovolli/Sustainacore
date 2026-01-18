@@ -16,6 +16,9 @@
 - Do **not** use `gh pr checks --watch` or long `sleep` loops.
 - Use the fast poll script: `tools/ci/poll_pr_checks.sh <pr-number>`.
 
+## Preview public note
+- Preview is public (no Basic Auth). Treat CI artifacts as the source of truth for UI diffs.
+
 ## Report (2026-01-16)
 
 ### Baseline (before cleanup)
