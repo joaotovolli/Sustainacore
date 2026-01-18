@@ -71,13 +71,15 @@ jobs:
       - name: Verify preview build marker
         if: ${{ steps.preflight.outputs.ready == 'true' }}
         env:
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           short_sha="${PR_SHA:0:8}"
-          html="$(curl -fsSL --connect-timeout 3 --max-time 8 --retry 2 --retry-delay 1 https://preview.sustainacore.org/)"
+          html="$(ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "curl -fsSL --connect-timeout 2 --max-time 6 http://127.0.0.1:8001/")"
           if ! echo "$html" | grep -Fq "build: ${short_sha}"; then
-            echo "Preview build marker missing for ${short_sha}." >&2
+            echo "Preview build marker missing for ${short_sha} (VM2 localhost check)." >&2
             exit 1
           fi
-          echo "Preview SHA: ${short_sha}" >>"$GITHUB_STEP_SUMMARY"
+          echo "Preview SHA: ${short_sha} (VM2 localhost check)" >>"$GITHUB_STEP_SUMMARY"
