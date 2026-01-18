@@ -95,3 +95,11 @@ Then copy a minimal set into the PR evidence path:
 ```
 docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/{before,after,diff,report}
 ```
+
+## VM cleanup (required)
+After evidence is committed, remove temporary artifacts:
+```
+find /tmp/ui-compare-local* -type f -delete
+rmdir /tmp/ui-compare-local* 2>/dev/null || true
+rm -f /tmp/ui_compare_local*.log
+```
