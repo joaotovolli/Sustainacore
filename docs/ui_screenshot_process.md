@@ -9,9 +9,21 @@
 - Writes a report with diff stats and overflow offenders.
 
 Artifacts (CI) under `artifacts/ui/`:
-- `before/home.png`
-- `after/home.png`
-- `diff/home_diff.png`
+- `before/home_full.png`
+- `before/home_top.png`
+- `before/home_mid.png`
+- `before/home_footer.png`
+- `before/home_mobile.png`
+- `after/home_full.png`
+- `after/home_top.png`
+- `after/home_mid.png`
+- `after/home_footer.png`
+- `after/home_mobile.png`
+- `diff/home_full_diff.png`
+- `diff/home_top_diff.png`
+- `diff/home_mid_diff.png`
+- `diff/home_footer_diff.png`
+- `diff/home_mobile_diff.png`
 - `report/ui_compare_report.json`
 - `report/ui_compare_summary.txt`
 
@@ -29,7 +41,8 @@ Artifacts (CI) under `artifacts/ui/`:
 gh run download <run_id> -n ui-home-compare
 ```
 2) Inspect `report/ui_compare_report.json`:
-   - `diff.mismatchPixels`, `diff.mismatchPercent`
+   - `diff.mismatchPixels`, `diff.mismatchPercent` (max across shots)
+   - `shots[]` entries for per-shot stats
    - `layout.before`/`layout.after` and `overflowOffendersTop15`
 3) Commit snapshots PR244-style:
 ```

@@ -35,6 +35,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/ui/before artifacts/ui/after artifacts/ui/diff artifacts/ui/report
+      - name: Verify preview build SHA
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          short_sha="${PR_SHA:0:8}"
+          echo "Expecting preview build sha: ${short_sha}"
+          html="$(curl -fsSL --connect-timeout 3 --max-time 8 --retry 2 --retry-delay 1 https://preview.sustainacore.org/)"
+          if ! echo "$html" | grep -Fq "build: ${short_sha}"; then
+            echo "Preview does not reflect PR SHA (${short_sha})." >&2
+            exit 1
+          fi
       - name: Capture before/after/diff
         env:
           PROD_BASE_URL: https://sustainacore.org
@@ -66,7 +79,7 @@ jobs:
             echo "## UI home screenshot compare";
             echo "- Production: https://sustainacore.org/";
             echo "- Preview: https://preview.sustainacore.org/";
-            echo "- Artifacts: ui-home-compare (before/home.png, after/home.png, diff/home_diff.png, report/ui_compare_report.json)";
+            echo "- Artifacts: ui-home-compare (before/after/diff/report for home_full, home_top, home_mid, home_footer, home_mobile)";
             echo;
             echo "### Compare summary";
             if [ -f artifacts/ui/report/ui_compare_summary.txt ]; then

@@ -34,7 +34,8 @@ git push -u origin feature/<ui-change>
 gh pr create --fill
 ```
 
-4) Ensure preview reflects the PR branch (not main). If preview deploy is delayed, re-run deploy or wait for the deploy workflow to complete before comparing.
+4) Ensure preview reflects the PR branch (not main). The preview deploy workflow validates the build marker:
+`<!-- build: <short-sha> -->`.
 
 5) Wait for CI **UI Screenshot Compare (Home)** to finish.
 
