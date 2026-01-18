@@ -1184,60 +1184,65 @@ def home(request):
     tech100_snapshot = {
         "has_data": False,
         "data_error": False,
+        "data_mode": get_data_mode(),
+        "levels": [],
+        "levels_count": 0,
+        "quality_counts": {},
     }
-    try:
-        latest_date = get_latest_trade_date()
-        if latest_date:
-            start_date = latest_date - timedelta(days=90)
-            levels = get_index_levels(start_date, latest_date)
-            stats = get_quality_counts(latest_date)
-            month_start = date(latest_date.year, latest_date.month, 1)
-            ytd_start = date(latest_date.year, 1, 1)
-            drawdown_ytd = get_max_drawdown(ytd_start, latest_date)
-            latest_level = levels[-1][1] if levels else None
-            ret_1d = None
-            if len(levels) >= 2:
-                prev_level = levels[-2][1]
-                if prev_level not in (None, 0) and latest_level is not None:
-                    ret_1d = (latest_level / prev_level) - 1.0
-            ret_mtd = get_return_between(latest_date, month_start)
-            ret_ytd, _ = get_ytd_return(latest_date)
-            vol_30d = get_rolling_vol(latest_date, window=30)
-            ret_ytd_display = _format_percent(ret_ytd)
+    if settings.SUSTAINACORE_ENV != "preview":
+        try:
+            latest_date = get_latest_trade_date()
+            if latest_date:
+                start_date = latest_date - timedelta(days=90)
+                levels = get_index_levels(start_date, latest_date)
+                stats = get_quality_counts(latest_date)
+                month_start = date(latest_date.year, latest_date.month, 1)
+                ytd_start = date(latest_date.year, 1, 1)
+                drawdown_ytd = get_max_drawdown(ytd_start, latest_date)
+                latest_level = levels[-1][1] if levels else None
+                ret_1d = None
+                if len(levels) >= 2:
+                    prev_level = levels[-2][1]
+                    if prev_level not in (None, 0) and latest_level is not None:
+                        ret_1d = (latest_level / prev_level) - 1.0
+                ret_mtd = get_return_between(latest_date, month_start)
+                ret_ytd, _ = get_ytd_return(latest_date)
+                vol_30d = get_rolling_vol(latest_date, window=30)
+                ret_ytd_display = _format_percent(ret_ytd)
+                tech100_snapshot = {
+                    "has_data": True,
+                    "data_error": False,
+                    "as_of": latest_date.isoformat(),
+                    "levels": [
+                        {"date": trade_date.isoformat(), "level": level}
+                        for trade_date, level in levels
+                    ],
+                    "latest_level": latest_level,
+                    "latest_level_display": _format_number(latest_level),
+                    "ret_1d": ret_1d,
+                    "ret_1d_display": _format_percent(ret_1d),
+                    "ret_mtd": ret_mtd,
+                    "ret_mtd_display": _format_percent(ret_mtd),
+                    "ret_ytd": ret_ytd,
+                    "ret_ytd_display": ret_ytd_display,
+                    "vol_30d": vol_30d,
+                    "vol_30d_display": _format_percent(vol_30d),
+                    "drawdown_ytd": drawdown_ytd.drawdown if drawdown_ytd else None,
+                    "drawdown_ytd_display": _format_percent(drawdown_ytd.drawdown if drawdown_ytd else None),
+                    "quality_counts": stats,
+                    "data_mode": get_data_mode(),
+                    "levels_count": len(levels),
+                }
+        except Exception:
+            logger.exception("TECH100 snapshot unavailable for home.")
             tech100_snapshot = {
-                "has_data": True,
-                "data_error": False,
-                "as_of": latest_date.isoformat(),
-                "levels": [
-                    {"date": trade_date.isoformat(), "level": level}
-                    for trade_date, level in levels
-                ],
-                "latest_level": latest_level,
-                "latest_level_display": _format_number(latest_level),
-                "ret_1d": ret_1d,
-                "ret_1d_display": _format_percent(ret_1d),
-                "ret_mtd": ret_mtd,
-                "ret_mtd_display": _format_percent(ret_mtd),
-                "ret_ytd": ret_ytd,
-                "ret_ytd_display": ret_ytd_display,
-                "vol_30d": vol_30d,
-                "vol_30d_display": _format_percent(vol_30d),
-                "drawdown_ytd": drawdown_ytd.drawdown if drawdown_ytd else None,
-                "drawdown_ytd_display": _format_percent(drawdown_ytd.drawdown if drawdown_ytd else None),
-                "quality_counts": stats,
+                "has_data": False,
+                "data_error": True,
                 "data_mode": get_data_mode(),
-                "levels_count": len(levels),
+                "levels": [],
+                "levels_count": 0,
+                "quality_counts": {},
             }
-    except Exception:
-        logger.exception("TECH100 snapshot unavailable for home.")
-        tech100_snapshot = {
-            "has_data": False,
-            "data_error": True,
-            "data_mode": get_data_mode(),
-            "levels": [],
-            "levels_count": 0,
-            "quality_counts": {},
-        }
 
     context = {
         "year": datetime.now().year,
