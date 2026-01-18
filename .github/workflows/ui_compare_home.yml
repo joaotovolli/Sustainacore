@@ -41,7 +41,7 @@ jobs:
           PREVIEW_BASE_URL: https://preview.sustainacore.org
           TIMEOUT_MS: "60000"
           DIFF_MAX_PIXELS: "100"
-          OUTPUT_DIR: artifacts/ui
+          OUTPUT_DIR: ../artifacts/ui
         run: |
           set -euo pipefail
           cd website_django
