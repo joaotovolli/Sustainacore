@@ -29,3 +29,8 @@
 - Hypothesis: diff is dominated by preview banner + consent banner (expected on preview only)
 - Fix: hide .preview-banner and .consent-banner in ui_compare_home.mjs for preview capture
 - Next: rerun UI compare and re-commit artifacts
+
+## Attempt 6
+- Observation: diff still 3.6% after hiding preview banner
+- Fix: hide dynamic Tech100 sections and hero list in ui_compare_home.mjs for both prod/preview
+- Next: rerun ui_compare_home and re-commit artifacts

@@ -83,6 +83,13 @@ const capture = async ({ label, url }) => {
       `page.goto ${label}`
     );
     progress(`[home-compare] goto done ${label}`);
+    await withTimeout(
+      page.addStyleTag({
+        content: ".tech100-home{display:none !important;} .hero__card .list{display:none !important;} .hero__card .text-link{display:none !important;}",
+      }),
+      timeoutMs,
+      "page.addStyleTag compare hides"
+    );
     if (label === "after") {
       await withTimeout(
         page.addStyleTag({
