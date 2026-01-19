@@ -41,12 +41,19 @@ def check_backend_health(timeout: float = 8.0) -> Dict[str, Any]:
         return {"error": "backend_health_failed", "message": "Invalid JSON from backend"}
 
 
-def _post_json(path: str, payload: Dict[str, Any], timeout: float) -> Dict[str, Any]:
+def _post_json(
+    path: str,
+    payload: Dict[str, Any],
+    timeout: float,
+    *,
+    headers: Dict[str, str] | None = None,
+) -> Dict[str, Any]:
     url = f"{_base_url()}{path}"
+    request_headers = headers or _build_headers()
     try:
         response = requests.post(
             url,
-            headers=_build_headers(),
+            headers=request_headers,
             json=payload,
             timeout=(CONNECT_TIMEOUT_SECONDS, timeout),
         )
@@ -73,7 +80,12 @@ def ask2_query(user_message: str, timeout: float = 12.0) -> Dict[str, Any]:
         return result
 
     fallback_payload = {"q": user_message, "k": 4}
-    fallback = _post_json("/ask2_direct", fallback_payload, timeout=timeout)
+    fallback = _post_json(
+        "/ask2_direct",
+        fallback_payload,
+        timeout=timeout,
+        headers={"Content-Type": "application/json"},
+    )
     if not _is_backend_error(fallback):
         if not isinstance(fallback.get("meta"), dict):
             fallback["meta"] = {}

@@ -91,3 +91,7 @@ class TestAsk2Client(SimpleTestCase):
         self.assertEqual(result.get("answer"), "ok")
         self.assertEqual(result.get("meta", {}).get("ask2_fallback"), "ask2_direct")
         self.assertEqual(post_mock.call_count, 2)
+        primary_headers = post_mock.call_args_list[0].kwargs.get("headers", {})
+        fallback_headers = post_mock.call_args_list[1].kwargs.get("headers", {})
+        self.assertIn("Authorization", primary_headers)
+        self.assertNotIn("Authorization", fallback_headers)
