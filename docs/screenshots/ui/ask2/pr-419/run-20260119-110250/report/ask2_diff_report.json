@@ -1,0 +1,8 @@
+{
+  "before": "ask2_prod.png",
+  "after": "ask2_preview.png",
+  "width": 1280,
+  "height": 1808,
+  "mismatchPixels": 325308,
+  "mismatchPercent": 0.14056796183628317
+}
