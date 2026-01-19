@@ -1,6 +1,8 @@
+import os
 from unittest import mock
 
 import requests
+from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
 from core import api_client
@@ -80,6 +82,35 @@ class FetchNewsTests(SimpleTestCase):
         self.assertEqual(result["items"], [])
         self.assertEqual(result["meta"], {})
         self.assertIsNotNone(result["error"])
+
+    @override_settings(BACKEND_API_BASE="https://vm1.example")
+    def test_fetch_news_uses_last_good_on_error(self):
+        cache.clear()
+        cache_key = api_client._cache_key("news", {"limit": 20})
+        last_good = {"items": [{"id": "1"}], "meta": {"count": 1}, "error": None}
+        cache.set(f"{cache_key}:ok", last_good, 600)
+
+        with mock.patch(
+            "core.api_client.requests.get", side_effect=requests.RequestException("boom")
+        ):
+            result = api_client.fetch_news()
+
+        self.assertEqual(result, last_good)
+
+
+class FetchTech100Tests(SimpleTestCase):
+    @override_settings(BACKEND_API_BASE="https://vm1.example")
+    def test_fetch_tech100_uses_last_good_on_error(self):
+        cache.clear()
+        cache_key = api_client._cache_key("tech100", {})
+        last_good = {"items": [{"ticker": "TCH1"}], "meta": {"count": 1}, "error": None}
+        cache.set(f"{cache_key}:ok", last_good, 600)
+
+        with mock.patch.dict(os.environ, {"TECH100_ORACLE_FALLBACK": "0"}):
+            with mock.patch("core.api_client._get_json", return_value={"error": "backend_failure"}):
+                result = api_client.fetch_tech100()
+
+        self.assertEqual(result, last_good)
 
 
 class CreateNewsItemAdminTests(SimpleTestCase):
