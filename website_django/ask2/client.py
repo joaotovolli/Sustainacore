@@ -60,17 +60,21 @@ def _post_json(path: str, payload: Dict[str, Any], timeout: float) -> Dict[str, 
         return {"error": "backend_failure", "message": "Invalid JSON from backend"}
 
 
+def _is_backend_error(payload: Dict[str, Any]) -> bool:
+    return bool(payload.get("error"))
+
+
 def ask2_query(user_message: str, timeout: float = 12.0) -> Dict[str, Any]:
     """Send a question to the VM1 Ask2 endpoint."""
     payload = {"user_message": user_message}
     primary_timeout = min(timeout, PRIMARY_TIMEOUT_SECONDS)
     result = _post_json("/api/ask2", payload, timeout=primary_timeout)
-    if "error" not in result:
+    if not _is_backend_error(result):
         return result
 
     fallback_payload = {"q": user_message, "k": 4}
     fallback = _post_json("/ask2_direct", fallback_payload, timeout=timeout)
-    if "error" not in fallback:
+    if not _is_backend_error(fallback):
         if not isinstance(fallback.get("meta"), dict):
             fallback["meta"] = {}
         fallback["meta"]["ask2_fallback"] = "ask2_direct"
