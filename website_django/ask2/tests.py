@@ -4,9 +4,13 @@ import json
 from unittest import mock
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
+from django.conf import settings
 from telemetry.models import WebAsk2Conversation, WebAsk2Message
+from telemetry.consent import CONSENT_COOKIE, ConsentState, serialize_consent
+from ask2 import client as ask2_client
+import requests
 
 
 class TestAsk2Telemetry(TestCase):
@@ -33,6 +37,13 @@ class TestAsk2Telemetry(TestCase):
         ask2_query_mock.return_value = {"reply": "Hi there"}
         user = get_user_model().objects.create_user(username="ask2user", password="pass")
         self.client.force_login(user)
+        consent = ConsentState(
+            analytics=True,
+            functional=False,
+            policy_version=settings.TELEMETRY_POLICY_VERSION,
+            source="test",
+        )
+        self.client.cookies[CONSENT_COOKIE] = serialize_consent(consent)
         response = self._post_ask2()
         self.assertEqual(response.status_code, 200)
         conversation = WebAsk2Conversation.objects.first()
@@ -59,3 +70,28 @@ class TestAsk2Telemetry(TestCase):
         log_mock.side_effect = RuntimeError("fail")
         response = self._post_ask2()
         self.assertEqual(response.status_code, 200)
+
+
+class TestAsk2Client(SimpleTestCase):
+    @override_settings(BACKEND_API_BASE="https://vm1.example", BACKEND_API_TOKEN="token")
+    def test_fallback_to_direct_endpoint(self):
+        fallback_payload = {"answer": "ok", "meta": {}}
+
+        def post_side_effect(url, headers, json, timeout):
+            if url.endswith("/api/ask2"):
+                raise requests.RequestException("timeout")
+            response = mock.Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = fallback_payload
+            return response
+
+        with mock.patch("ask2.client.requests.post", side_effect=post_side_effect) as post_mock:
+            result = ask2_client.ask2_query("hi", timeout=5.0)
+
+        self.assertEqual(result.get("answer"), "ok")
+        self.assertEqual(result.get("meta", {}).get("ask2_fallback"), "ask2_direct")
+        self.assertEqual(post_mock.call_count, 2)
+        primary_headers = post_mock.call_args_list[0].kwargs.get("headers", {})
+        fallback_headers = post_mock.call_args_list[1].kwargs.get("headers", {})
+        self.assertIn("Authorization", primary_headers)
+        self.assertNotIn("Authorization", fallback_headers)
