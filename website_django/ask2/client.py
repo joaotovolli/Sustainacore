@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 PRIMARY_TIMEOUT_SECONDS = 6.0
 CONNECT_TIMEOUT_SECONDS = 3.0
+PRIMARY_TOP_K = 1
+FALLBACK_TOP_K = 1
 
 
 def _build_headers() -> Dict[str, str]:
@@ -73,13 +75,13 @@ def _is_backend_error(payload: Dict[str, Any]) -> bool:
 
 def ask2_query(user_message: str, timeout: float = 12.0) -> Dict[str, Any]:
     """Send a question to the VM1 Ask2 endpoint."""
-    payload = {"user_message": user_message}
+    payload = {"user_message": user_message, "k": PRIMARY_TOP_K}
     primary_timeout = min(timeout, PRIMARY_TIMEOUT_SECONDS)
     result = _post_json("/api/ask2", payload, timeout=primary_timeout)
     if not _is_backend_error(result):
         return result
 
-    fallback_payload = {"q": user_message, "k": 4}
+    fallback_payload = {"q": user_message, "k": FALLBACK_TOP_K}
     fallback = _post_json(
         "/ask2_direct",
         fallback_payload,
