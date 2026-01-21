@@ -51,6 +51,7 @@ from core.tech100_index_data import (
     get_rolling_vol,
     get_ytd_return,
 )
+from ai_reg import data as ai_reg_data
 from core import sitemaps
 from sc_admin_portal.news_storage import get_news_asset
 from telemetry.consent import get_consent_from_request
@@ -1248,11 +1249,44 @@ def home(request):
                 "quality_counts": {},
             }
 
+    def _score_value(item):
+        raw = item.get("aiges_composite") or item.get("overall") or item.get("score")
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    scored_items = []
+    for item in tech100_items:
+        score = _score_value(item)
+        if score is None:
+            continue
+        scored_items.append({**item, "_score": score})
+    scored_items.sort(key=lambda row: row["_score"], reverse=True)
+    top_items = scored_items[:3]
+    bottom_items = list(reversed(scored_items[-3:])) if len(scored_items) >= 3 else []
+
+    def _format_company(item):
+        return {
+            "company": item.get("company_name") or item.get("company"),
+            "overall": item.get("aiges_composite") or item.get("overall") or item.get("_score"),
+        }
+
+    try:
+        as_of_dates = ai_reg_data.fetch_as_of_dates()
+    except Exception:
+        logger.exception("AI regulation dates unavailable for home.")
+        as_of_dates = []
+
     context = {
         "year": datetime.now().year,
         "tech100_preview": tech100_preview,
         "news_preview": news_preview,
         "tech100_snapshot": tech100_snapshot,
+        "tech100_top": [_format_company(item) for item in top_items],
+        "tech100_bottom": [_format_company(item) for item in bottom_items],
+        "as_of_dates": as_of_dates,
+        "latest_as_of": as_of_dates[0] if as_of_dates else None,
     }
     try:
         return render(request, "home.html", context)

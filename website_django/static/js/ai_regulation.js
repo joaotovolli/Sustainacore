@@ -177,6 +177,32 @@ const fetchJson = async (url) => {
   return response.json();
 };
 
+const hydrateAsOfSelect = async (selectEl) => {
+  if (!selectEl) return null;
+  if (selectEl.options.length > 1) {
+    return selectEl.value || null;
+  }
+  const endpoint = selectEl.dataset.endpoint;
+  if (!endpoint) return selectEl.value || null;
+  try {
+    const payload = await fetchJson(endpoint);
+    const dates = payload.as_of_dates || [];
+    if (!dates.length) return null;
+    selectEl.innerHTML = "";
+    dates.forEach((date) => {
+      const option = document.createElement("option");
+      option.value = date;
+      option.textContent = date;
+      selectEl.appendChild(option);
+    });
+    selectEl.value = dates[0];
+    return dates[0];
+  } catch (error) {
+    logIssue("Unable to fetch as-of dates.", error);
+    return selectEl.value || null;
+  }
+};
+
 const getHeatmap = async (endpoint, asOf) => {
   const cacheKey = `aiRegHeatmap:${asOf}`;
   if (state.heatmapCache.has(cacheKey)) {
@@ -804,7 +830,7 @@ const setup = async () => {
   state.mapErrorEl = root.querySelector('[data-map-error]');
   clearMapError();
 
-  state.asOf = asOfSelect?.value || null;
+  state.asOf = await hydrateAsOfSelect(asOfSelect);
   state.globeTextureUrl = root.dataset.globeTextureUrl || null;
 
   let geoData = null;
@@ -874,6 +900,13 @@ const setup = async () => {
   }
 
   await refreshHeatmap(root, state.asOf);
+
+  const defaultIso = root.dataset.defaultIso;
+  if (defaultIso) {
+    const iso2 = defaultIso.trim().toUpperCase();
+    const jurisdiction = state.heatmapByIso.get(iso2);
+    loadJurisdiction(iso2, jurisdiction?.name || iso2);
+  }
 
   asOfSelect?.addEventListener('change', async (event) => {
     state.asOf = event.target.value;
