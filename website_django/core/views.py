@@ -18,6 +18,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.sitemaps.views import sitemap as django_sitemap
+from django.contrib.staticfiles.storage import staticfiles_storage
 from django.core.cache import cache
 from django.http import FileResponse, HttpResponse, JsonResponse, Http404
 from django.shortcuts import redirect, render
@@ -1840,17 +1841,44 @@ def news_admin(request):
 
 
 def robots_txt(request):
-    lines = [
-        "User-agent: *",
-        "Allow: /",
-        "Disallow: /admin/",
-        "Disallow: /news/admin/",
-        "Disallow: /api/",
-        "Disallow: /ask2/api/",
-        "Sitemap: https://www.sustainacore.org/sitemap.xml",
-        "",
-    ]
+    if _is_preview_request(request):
+        lines = [
+            "User-agent: *",
+            "Disallow: /",
+            "",
+        ]
+    else:
+        sitemap_url = f"{settings.SITE_URL.rstrip('/')}/sitemap.xml"
+        lines = [
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /admin/",
+            "Disallow: /news/admin/",
+            "Disallow: /api/",
+            "Disallow: /ask2/api/",
+            f"Sitemap: {sitemap_url}",
+            "",
+        ]
     return HttpResponse("\n".join(lines), content_type="text/plain")
+
+
+def favicon(request):
+    try:
+        favicon_file = staticfiles_storage.open("favicon.ico")
+    except FileNotFoundError as exc:
+        raise Http404("favicon not found") from exc
+    response = FileResponse(favicon_file, content_type="image/x-icon")
+    response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+    return response
+
+
+def _is_preview_request(request) -> bool:
+    host = request.get_host().split(":")[0].lower()
+    prod_hosts = {"sustainacore.org", "www.sustainacore.org"}
+    preview_hosts = {h.lower() for h in settings.PREVIEW_HOSTS}
+    host_is_preview = host in preview_hosts or host.startswith("preview.") or ".preview." in host
+    env_is_preview = settings.SUSTAINACORE_ENV == "preview" or settings.PREVIEW_MODE
+    return (host not in prod_hosts) and (env_is_preview or host_is_preview)
 
 
 def sitemap_xml(request):

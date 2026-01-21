@@ -18,9 +18,21 @@ class SeoFoundationsTests(SimpleTestCase):
                 self.assertTrue(response["Content-Type"].startswith("text/plain"))
                 content = response.content.decode("utf-8")
                 self.assertIn("Sitemap:", content)
-                self.assertIn("Sitemap: https://www.sustainacore.org/sitemap.xml", content)
+                self.assertIn("Sitemap: https://sustainacore.org/sitemap.xml", content)
                 self.assertEqual(content.count("Sitemap:"), 1)
                 self.assertIn("Disallow: /admin/", content)
+
+    def test_preview_robots_txt_blocks_all(self):
+        response = self.client.get("/robots.txt", HTTP_HOST="preview.sustainacore.org", follow=True)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Disallow: /", content)
+        self.assertNotIn("Allow: /", content)
+
+    def test_favicon_served(self):
+        response = self.client.get("/favicon.ico", follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response["Content-Type"].startswith("image/"))
 
     def test_sitemap_xml(self):
         canonical_base = "http://sustainacore.org/"

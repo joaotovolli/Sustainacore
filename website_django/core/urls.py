@@ -29,9 +29,9 @@ sitemaps_config = {
 }
 
 urlpatterns = [
+    path("favicon.ico", views.favicon, name="favicon"),
     path("robots.txt", views.robots_txt, name="robots_txt"),
     path("sitemap.xml", views.sitemap_xml, name="sitemap"),
-    path("sitemap.xml", sitemap, {"sitemaps": sitemaps_config}, name="sitemap"),
     path("", views.home, name="home"),
     path("press/", views.press_index, name="press_index"),
     path("press/tech100/", views.press_tech100, name="press_tech100"),
