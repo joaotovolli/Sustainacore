@@ -10,14 +10,30 @@ from core.auth import (
 )
 
 
+def _absolute_static_url(path: str) -> str:
+    base = settings.SITE_URL.rstrip("/")
+    static_url = settings.STATIC_URL or "/static/"
+    if not static_url.startswith("/"):
+        static_url = f"/{static_url}"
+    return f"{base}{static_url}{path.lstrip('/')}"
+
+
 def seo_defaults(request):
     canonical_url = request.build_absolute_uri(request.path)
     build_sha = _read_build_sha()
+    logo_url = _absolute_static_url("img/sustainacore_logo_512.png")
     org_payload = {
         "@context": "https://schema.org",
         "@type": "Organization",
         "name": "SustainaCore",
         "url": settings.SITE_URL,
+        "logo": {
+            "@type": "ImageObject",
+            "url": logo_url,
+            "width": 512,
+            "height": 512,
+        },
+        "image": logo_url,
         "contactPoint": {
             "@type": "ContactPoint",
             "email": "info@sustainacore.org",
@@ -28,6 +44,7 @@ def seo_defaults(request):
         "@context": "https://schema.org",
         "@type": "WebSite",
         "name": "SustainaCore",
+        "alternateName": "SustainaCore.org",
         "url": settings.SITE_URL,
     }
     return {
@@ -39,6 +56,8 @@ def seo_defaults(request):
         "telemetry_policy_version": settings.TELEMETRY_POLICY_VERSION,
         "org_json_ld": json.dumps(org_payload, ensure_ascii=True),
         "site_json_ld": json.dumps(site_payload, ensure_ascii=True),
+        "seo_logo_url": logo_url,
+        "seo_og_image_url": logo_url,
     }
 
 
