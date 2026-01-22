@@ -19,12 +19,12 @@ const NAME_ALIASES = new Map([
 const GEOJSON_REMOTE_FALLBACK =
   'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
 const ISO2_PROPERTY_CANDIDATES = ['ISO_A2', 'iso_a2', 'ISO2', 'iso2', 'ISO_2'];
+const EU_CANONICAL_ISO2 = 'EU';
 const EU_MEMBER_ISO2 = new Set([
   'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR',
   'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK',
   'SI', 'ES', 'SE'
 ]);
-const EU_CANONICAL_ISO2 = 'EU';
 const DEFAULT_POV = { lat: 20, lng: 0, altitude: 2.1 };
 const FOCUS_POV = { altitude: 1.65 };
 
@@ -296,7 +296,7 @@ const colorForCount = (count, max) => {
   const r = Math.round(low[0] + (high[0] - low[0]) * ratio);
   const g = Math.round(low[1] + (high[1] - low[1]) * ratio);
   const b = Math.round(low[2] + (high[2] - low[2]) * ratio);
-  const alpha = 0.2 + ratio * 0.7;
+  const alpha = 0.35 + ratio * 0.55;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
@@ -318,7 +318,7 @@ const initGlobe = async (container, tooltip, textureUrl) => {
     .polygonStrokeColor((feature) => {
       const iso2 = getIso2FromFeature(feature);
       if (state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2)) {
-        return 'rgba(250, 204, 21, 0.95)';
+        return 'rgba(20, 184, 166, 0.9)';
       }
       return 'rgba(255,255,255,0.35)';
     })
@@ -637,7 +637,7 @@ const updateMapColors = (jurisdictions) => {
       .polygonCapColor((feature) => {
         const iso2 = getIso2FromFeature(feature);
         if (state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2)) {
-          return 'rgba(250, 204, 21, 0.85)';
+          return 'rgba(20, 184, 166, 0.8)';
         }
         const data = resolveJurisdiction(feature);
         return colorForCount(getInstrumentCount(data), state.heatmapMax);
@@ -649,7 +649,7 @@ const updateMapColors = (jurisdictions) => {
       const highlighted = state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2);
       const data = resolveJurisdiction(feature);
       element.setAttribute('fill', colorForCount(getInstrumentCount(data), state.heatmapMax));
-      element.setAttribute('stroke', highlighted ? 'rgba(250, 204, 21, 0.9)' : 'rgba(255,255,255,0.35)');
+      element.setAttribute('stroke', highlighted ? 'rgba(20, 184, 166, 0.85)' : 'rgba(255,255,255,0.35)');
       element.setAttribute('stroke-width', highlighted ? '1.2' : '0.4');
     });
   }

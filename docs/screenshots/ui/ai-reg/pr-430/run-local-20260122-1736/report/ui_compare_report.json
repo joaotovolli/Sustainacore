@@ -1,0 +1,17 @@
+{
+  "run": "local-20260122-1736",
+  "viewports": [
+    {"name": "desktop", "size": "1440x900"},
+    {"name": "mobile", "size": "390x844"}
+  ],
+  "pages": [
+    {"name": "home", "before": "before/home_desktop.png", "after": "after/home_desktop.png"},
+    {"name": "home_mobile", "before": "before/home_mobile.png", "after": "after/home_mobile.png"},
+    {"name": "ai_reg_desktop", "before": "before/ai_reg_desktop.png", "after": "after/ai_reg_desktop.png"},
+    {"name": "ai_reg_mobile", "before": "before/ai_reg_mobile.png", "after": "after/ai_reg_mobile.png"}
+  ],
+  "notes": [
+    "EU selected for ai-regulation captures via dropdown selection",
+    "No automated diff computed; images provided for human review"
+  ]
+}
