@@ -9,6 +9,8 @@ from django.core.cache import cache
 from core.oracle_db import get_connection
 
 HEATMAP_CACHE_TTL = 600
+EU_ISO_ALIASES = {"EU", "EUR"}
+EU_NAME_ALIASES = {"EUROPEAN UNION", "EU"}
 
 
 def _to_plain(value: Any) -> Any:
@@ -32,6 +34,15 @@ def _to_date(value: Any) -> dt.date | None:
     if isinstance(value, dt.date):
         return value
     return None
+
+
+def _normalize_jurisdiction(iso_code: str | None, name: str | None) -> tuple[str, str]:
+    iso_text = str(iso_code or "").strip().upper()
+    name_text = str(name or "").strip()
+    name_upper = name_text.upper()
+    if iso_text in EU_ISO_ALIASES or name_upper in EU_NAME_ALIASES or "EUROPEAN UNION" in name_upper:
+        return "EU", "European Union"
+    return iso_text, name_text
 
 
 def _execute_rows(sql: str, params: dict) -> list[tuple]:
@@ -96,26 +107,38 @@ def fetch_heatmap(as_of_date: dt.date) -> List[Dict[str, object]]:
     milestone_rows = _execute_rows(milestones_sql, {"as_of": as_of_date})
     milestones_by_iso = {str(_to_plain(iso) or "").upper(): int(count or 0) for iso, count in milestone_rows}
 
-    results: List[Dict[str, object]] = []
+    results_by_iso: Dict[str, Dict[str, object]] = {}
     for iso_code, name, total, primary, secondary, no_instrument, without_source in rows:
-        iso_text = str(_to_plain(iso_code) or "").upper()
+        iso_text, name_text = _normalize_jurisdiction(_to_plain(iso_code), _to_plain(name))
         snapshots_without_source = int(without_source or 0)
-        results.append(
-            {
+        payload = results_by_iso.get(iso_text)
+        if not payload:
+            payload = {
                 "iso2": iso_text,
-                "name": _to_plain(name) or "",
-                "instruments_count": int(total or 0),
-                "instrument_count": int(total or 0),
-                "primary_verified_count": int(primary or 0),
-                "secondary_only_count": int(secondary or 0),
-                "no_instrument_found_count": int(no_instrument or 0),
+                "name": name_text,
+                "instruments_count": 0,
+                "instrument_count": 0,
+                "primary_verified_count": 0,
+                "secondary_only_count": 0,
+                "no_instrument_found_count": 0,
                 "milestones_upcoming_count": int(milestones_by_iso.get(iso_text, 0)),
                 "data_quality": {
-                    "snapshots_without_source": snapshots_without_source,
-                    "flag": snapshots_without_source > 0,
+                    "snapshots_without_source": 0,
+                    "flag": False,
                 },
             }
-        )
+            results_by_iso[iso_text] = payload
+
+        payload["instruments_count"] = int(payload["instruments_count"]) + int(total or 0)
+        payload["instrument_count"] = int(payload["instrument_count"]) + int(total or 0)
+        payload["primary_verified_count"] = int(payload["primary_verified_count"]) + int(primary or 0)
+        payload["secondary_only_count"] = int(payload["secondary_only_count"]) + int(secondary or 0)
+        payload["no_instrument_found_count"] = int(payload["no_instrument_found_count"]) + int(no_instrument or 0)
+        dq = payload["data_quality"]
+        dq["snapshots_without_source"] = int(dq["snapshots_without_source"]) + snapshots_without_source
+        dq["flag"] = dq["snapshots_without_source"] > 0
+
+    results: List[Dict[str, object]] = list(results_by_iso.values())
 
     cache.set(cache_key, results, HEATMAP_CACHE_TTL)
     return results
