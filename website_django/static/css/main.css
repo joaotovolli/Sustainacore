@@ -2552,6 +2552,20 @@ textarea:focus {
     gap: 1rem 1.5rem;
 }
 
+.tech100-home__facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.tech100-home__fact {
+    padding: 0.75rem;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface-muted);
+}
+
 .tech100-home__quality {
     display: flex;
     gap: 0.75rem;
@@ -2643,6 +2657,10 @@ textarea:focus {
 
     .tech100-home__grid {
         grid-template-columns: 1fr;
+    }
+
+    .tech100-home__facts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .tech100-nav {
@@ -3082,11 +3100,12 @@ textarea:focus {
 .attr-bar__value {
     font-size: 0.85rem;
     color: var(--muted);
+    text-align: right;
 }
 
 .attr-bar__track {
     grid-column: 1 / -1;
-    height: 8px;
+    height: 10px;
     border-radius: 999px;
     background: rgba(148, 163, 184, 0.25);
     overflow: hidden;
@@ -3199,5 +3218,9 @@ textarea:focus {
 @media (max-width: 700px) {
     .chat-fab__label {
         display: none;
+    }
+
+    .tech100-home__facts {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
