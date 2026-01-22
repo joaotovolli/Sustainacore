@@ -35,6 +35,8 @@ FK_PATTERN = re.compile(
     r"FOREIGN KEY\s*\(([^\)]+)\)\s+REFERENCES\s+(\w+)\s*\(([^\)]+)\)",
     re.IGNORECASE,
 )
+EU_ISO_ALIASES = {"EU", "EUR"}
+EU_NAME_ALIASES = {"EUROPEAN UNION", "EU"}
 
 
 @dataclass(frozen=True)
@@ -204,6 +206,41 @@ def _normalize_value(raw: str, col_type: Optional[str]) -> object:
     return text
 
 
+def _normalize_jurisdiction_fields(iso_value: object, name_value: object) -> tuple[object, object]:
+    iso_text = str(iso_value or "").strip().upper()
+    name_text = str(name_value or "").strip()
+    name_upper = name_text.upper()
+    if iso_text in EU_ISO_ALIASES or name_upper in EU_NAME_ALIASES or "EUROPEAN UNION" in name_upper:
+        return "EU", "European Union"
+    return iso_value, name_value
+
+
+def _apply_jurisdiction_normalization(
+    table_name: str,
+    columns_upper: Sequence[str],
+    values: List[object],
+) -> None:
+    table = table_name.upper()
+    iso_idx = None
+    name_idx = None
+    if table == "DIM_JURISDICTION":
+        iso_idx = columns_upper.index("ISO_CODE") if "ISO_CODE" in columns_upper else None
+        name_idx = columns_upper.index("NAME") if "NAME" in columns_upper else None
+    elif table == "STG_AI_REG_RECORD_RAW":
+        iso_idx = columns_upper.index("JURISDICTION_ISO_CODE") if "JURISDICTION_ISO_CODE" in columns_upper else None
+        name_idx = columns_upper.index("JURISDICTION_NAME") if "JURISDICTION_NAME" in columns_upper else None
+
+    if iso_idx is None and name_idx is None:
+        return
+    iso_value = values[iso_idx] if iso_idx is not None else None
+    name_value = values[name_idx] if name_idx is not None else None
+    iso_norm, name_norm = _normalize_jurisdiction_fields(iso_value, name_value)
+    if iso_idx is not None:
+        values[iso_idx] = iso_norm
+    if name_idx is not None:
+        values[name_idx] = name_norm
+
+
 def _reader_from_bundle(bundle_file: BundleFile) -> Iterator[List[str]]:
     with bundle_file.opener() as handle:
         reader = csv.reader(handle)
@@ -299,6 +336,7 @@ def _load_table(
                 _normalize_value(row[idx], table.columns.get(columns_upper[idx]))
                 for idx in range(len(columns_upper))
             ]
+            _apply_jurisdiction_normalization(table.name, columns_upper, values)
             batch.append(values)
             if len(batch) >= batch_size:
                 cur.executemany(insert_sql, batch)
