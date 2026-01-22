@@ -658,6 +658,9 @@ const renderDrilldown = (panel, data) => {
   const sources = data.sources || [];
   const milestones = data.timeline || [];
   const jurisdiction = data.jurisdiction || {};
+  const root = document.querySelector('[data-ai-reg-root]');
+  const externalSources = root?.querySelector('[data-ai-reg-sources]');
+  const sourcesLimit = externalSources ? 5 : null;
 
   const instrumentsList = instruments
     .map(
@@ -682,6 +685,7 @@ const renderDrilldown = (panel, data) => {
     .join('');
 
   const sourcesList = sources
+    .slice(0, sourcesLimit || sources.length)
     .map(
       (item) => `
         <li>
@@ -690,6 +694,33 @@ const renderDrilldown = (panel, data) => {
       `
     )
     .join('');
+
+  const sourcesFullList = sources
+    .map(
+      (item) => `
+        <li>
+          <a href="${escapeHtml(item.url || '#')}" target="_blank" rel="noreferrer">${escapeHtml(item.title || 'Source')}</a>
+        </li>
+      `
+    )
+    .join('');
+
+  if (externalSources) {
+    const hasMore = sources.length > (sourcesLimit || 0);
+    externalSources.innerHTML = `
+      <div class="card card--lined ai-reg__sources-card" data-sources-block ${hasMore ? '' : 'data-expanded="true"'}>
+        <div class="card__header card__header--split">
+          <div>
+            <h4 class="h6">Sources</h4>
+            <p class="muted">Reference links for the selected jurisdiction.</p>
+          </div>
+          ${hasMore ? '<button class="btn btn--ghost btn--sm" type="button" data-sources-toggle>Show more</button>' : ''}
+        </div>
+        ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
+        ${hasMore ? `<div class="ai-reg__sources-full" hidden><ul class="ai-reg__list">${sourcesFullList}</ul></div>` : ''}
+      </div>
+    `;
+  }
 
   const dataQualityFlag = jurisdiction.data_quality?.flag
     ? '<span class="ai-reg__pill">Data quality flag</span>'
@@ -720,10 +751,11 @@ const renderDrilldown = (panel, data) => {
         <h5 class="h6">Instruments</h5>
         ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
       </div>
+      ${externalSources ? '' : `
       <div class="ai-reg__panel-section">
         <h5 class="h6">Sources</h5>
         ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
-      </div>
+      </div>`}
     </div>
   `;
 };
@@ -962,6 +994,19 @@ const setup = async () => {
 
   zoomInButton?.addEventListener('click', () => adjustZoom('in'));
   zoomOutButton?.addEventListener('click', () => adjustZoom('out'));
+
+  root.addEventListener('click', (event) => {
+    const toggle = event.target.closest('[data-sources-toggle]');
+    if (!toggle) return;
+    const block = toggle.closest('[data-sources-block]');
+    if (!block) return;
+    const full = block.querySelector('.ai-reg__sources-full');
+    if (!full) return;
+    const expanded = block.getAttribute('data-expanded') === 'true';
+    block.setAttribute('data-expanded', expanded ? 'false' : 'true');
+    full.hidden = expanded;
+    toggle.textContent = expanded ? 'Show more' : 'Show less';
+  });
 };
 
 document.addEventListener('DOMContentLoaded', () => {

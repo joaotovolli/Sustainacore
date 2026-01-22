@@ -19,13 +19,20 @@ Non-negotiable rules:
 - ALWAYS iterate on VM2 preview first, then publish minimal evidence for human approval.
 - Playwright runs are allowed on VM2 for evidence capture; keep runs small and bounded.
 - PR #244 screenshot-compare contract is canonical (before/after/diff + preview links).
+- One UI PR at a time. If the target PR is merged/closed, create a new branch + PR.
+- Preflight PR check before any UI work:
+  - `gh pr view <PR> --json state,mergedAt`
+  - If not OPEN, do not reuse it.
 
 Required agent loop:
 A) Open PR
-B) Update preview on VM2 and iterate locally until "good enough"
-C) Capture local evidence (prod vs preview) and commit minimal artifacts
-D) Use CI compare as informational, not a merge gate
-E) Request human approval (agent never merges)
+B) Confirm PR is OPEN before doing any work:
+   - `gh pr view <PR> --json state,mergedAt`
+   - If `state` is CLOSED/MERGED, create a new branch + PR (do not reuse merged PRs).
+C) Update preview on VM2 and iterate locally until "good enough"
+D) Capture local evidence (prod vs preview) and commit minimal artifacts
+E) Use CI compare as informational, not a merge gate
+F) Request human approval (agent never merges)
 
 Evidence requirements for UI PRs:
 - Include preview + production links in PR body.
