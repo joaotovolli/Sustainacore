@@ -44,6 +44,7 @@ from core.terms_acceptance import (
 from core.countries import get_country_lists, resolve_country_name
 from core.tech100_index_data import (
     get_data_mode,
+    get_attribution_table,
     get_index_levels,
     get_latest_trade_date,
     get_max_drawdown,
@@ -1250,28 +1251,60 @@ def home(request):
                 "quality_counts": {},
             }
 
-    def _score_value(item):
-        raw = item.get("aiges_composite") or item.get("overall") or item.get("score")
+    attribution_snapshot = {
+        "has_data": False,
+        "data_mode": get_data_mode(),
+        "as_of": None,
+        "ranges": {"1d": {"top": [], "worst": []}, "mtd": {"top": [], "worst": []}, "ytd": {"top": [], "worst": []}},
+    }
+
+    def _safe_float(value):
         try:
-            return float(raw)
+            return float(value)
         except (TypeError, ValueError):
             return None
 
-    scored_items = []
-    for item in tech100_items:
-        score = _score_value(item)
-        if score is None:
-            continue
-        scored_items.append({**item, "_score": score})
-    scored_items.sort(key=lambda row: row["_score"], reverse=True)
-    top_items = scored_items[:3]
-    bottom_items = list(reversed(scored_items[-3:])) if len(scored_items) >= 3 else []
+    def _build_contrib_rows(rows, key: str):
+        items = []
+        for row in rows:
+            value = _safe_float(row.get(key))
+            if value is None:
+                continue
+            items.append(
+                {
+                    "name": row.get("name") or row.get("company_name") or row.get("ticker") or "—",
+                    "value": value,
+                    "value_display": _format_percent(value),
+                }
+            )
+        items.sort(key=lambda item: item["value"], reverse=True)
+        top = items[:5]
+        worst = list(reversed(items[-5:])) if items else []
+        return {"top": top, "worst": worst}
 
-    def _format_company(item):
-        return {
-            "company": item.get("company_name") or item.get("company"),
-            "overall": item.get("aiges_composite") or item.get("overall") or item.get("_score"),
-        }
+    try:
+        if get_data_mode() == "fixture":
+            as_of = date.today()
+        else:
+            as_of = get_latest_trade_date()
+        if as_of:
+            mtd_start = date(as_of.year, as_of.month, 1)
+            ytd_start = date(as_of.year, 1, 1)
+            attr_rows = get_attribution_table(as_of, mtd_start, ytd_start)
+            attribution_snapshot = {
+                "has_data": bool(attr_rows),
+                "data_mode": get_data_mode(),
+                "as_of": as_of.isoformat(),
+                "ranges": {
+                    "1d": _build_contrib_rows(attr_rows, "contribution"),
+                    "mtd": _build_contrib_rows(attr_rows, "contrib_mtd"),
+                    "ytd": _build_contrib_rows(attr_rows, "contrib_ytd"),
+                },
+            }
+    except Exception:
+        logger.exception("TECH100 attribution snapshot unavailable for home.")
+
+    attribution_default = attribution_snapshot.get("ranges", {}).get("1d", {"top": [], "worst": []})
 
     try:
         as_of_dates = ai_reg_data.fetch_as_of_dates()
@@ -1284,8 +1317,8 @@ def home(request):
         "tech100_preview": tech100_preview,
         "news_preview": news_preview,
         "tech100_snapshot": tech100_snapshot,
-        "tech100_top": [_format_company(item) for item in top_items],
-        "tech100_bottom": [_format_company(item) for item in bottom_items],
+        "attribution_snapshot": attribution_snapshot,
+        "attribution_default": attribution_default,
         "as_of_dates": as_of_dates,
         "latest_as_of": as_of_dates[0] if as_of_dates else None,
     }

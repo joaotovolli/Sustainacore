@@ -11,7 +11,7 @@
 
 .ai-reg__grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
   gap: 24px;
   margin-top: 20px;
 }
@@ -24,6 +24,8 @@
 .ai-reg__map-shell {
   position: relative;
   height: clamp(360px, 55vh, 640px);
+  width: 100%;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -46,6 +48,7 @@
 .ai-reg__globe canvas {
   width: 100% !important;
   height: 100% !important;
+  max-width: 100%;
   display: block;
 }
 
