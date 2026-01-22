@@ -22,6 +22,12 @@ Use this for **any** change that impacts what users see on sustainacore.org
 - PR #244 screenshot-compare contract is canonical for UI changes.
 
 ## Step-by-step (agent)
+0) Confirm target PR is OPEN:
+```
+gh pr view <PR> --json state,mergedAt
+```
+If merged/closed: create a new branch + new PR. Never update merged PRs.
+
 1) Create a branch:
 ```
 git checkout -b feature/<ui-change>

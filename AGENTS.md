@@ -22,6 +22,9 @@ Non-negotiable rules:
 
 Required agent loop:
 A) Open PR
+B) Confirm PR is OPEN before doing any work:
+   - `gh pr view <PR> --json state,mergedAt`
+   - If `state` is CLOSED/MERGED, create a new branch + PR (do not reuse merged PRs).
 B) Update preview on VM2 and iterate locally until "good enough"
 C) Capture local evidence (prod vs preview) and commit minimal artifacts
 D) Use CI compare as informational, not a merge gate
