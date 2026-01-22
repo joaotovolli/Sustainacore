@@ -23,9 +23,7 @@
 }
 
 .ai-reg__lists {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
+  display: block;
   margin-top: 20px;
 }
 
@@ -38,6 +36,22 @@
 .ai-reg__list-full {
   border-top: 1px solid var(--border);
   padding-top: 12px;
+}
+
+.ai-reg__combined-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-reg__combined-section + .ai-reg__combined-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.ai-reg__list-toggle {
+  align-self: flex-start;
 }
 
 .ai-reg__map-shell {

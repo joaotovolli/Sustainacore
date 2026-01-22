@@ -3066,6 +3066,11 @@ textarea:focus {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
+.tech100-home__attribution-grid canvas {
+    width: 100% !important;
+    height: 160px !important;
+}
+
 .attr-block {
     display: flex;
     flex-direction: column;
