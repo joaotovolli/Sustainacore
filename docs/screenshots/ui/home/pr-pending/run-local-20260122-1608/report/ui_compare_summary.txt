@@ -1,0 +1,4 @@
+Local UI evidence capture (home + ai-regulation)
+- Method: Playwright single-shot (local 127.0.0.1), JS enabled, blocked fonts/images.
+- Viewports: desktop 1366x768, mobile 390x844.
+- Notes: Diffs are pixelmatch outputs (threshold 0.1). Review images for layout changes.
