@@ -73,33 +73,6 @@
                 <!-- news_debug id={{ article.id }} field={{ body_source }} len={{ body_length }} -->
                 {% endif %}
             </div>
-            <aside class="news-detail__aside">
-                <div class="news-detail__card">
-                    <h3>Story snapshot</h3>
-                    <dl class="news-detail__list">
-                        <dt>Source</dt>
-                        <dd>{{ article.source|default:"SustainaCore" }}</dd>
-                        <dt>Published</dt>
-                        <dd>
-                            {% if published_at %}
-                                {{ published_at|date:"M j, Y" }}
-                            {% elif article.published_at %}
-                                {{ article.published_at }}
-                            {% else %}
-                                Unavailable
-                            {% endif %}
-                        </dd>
-                        {% if tickers %}
-                        <dt>Tickers</dt>
-                        <dd>{{ tickers|join:", " }}</dd>
-                        {% endif %}
-                        {% if tags %}
-                        <dt>Tags</dt>
-                        <dd>{{ tags|join:", " }}</dd>
-                        {% endif %}
-                    </dl>
-                </div>
-            </aside>
         </div>
         {% else %}
         <div class="news-detail__empty" data-news-empty-state>
