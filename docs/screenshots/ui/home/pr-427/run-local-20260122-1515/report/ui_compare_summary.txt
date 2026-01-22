@@ -1,0 +1,8 @@
+home_desktop: 0 px (0%)
+home_mobile: 0 px (0%)
+home_performance: 0 px (0%)
+home_reg_demo: 0 px (0%)
+ai_reg_desktop: captured
+ai_reg_mobile: captured
+ai_reg_lists_desktop: captured
+ai_reg_lists_mobile: captured
