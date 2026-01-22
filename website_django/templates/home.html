@@ -111,6 +111,20 @@
                             <p class="kpi-value">{{ tech100_snapshot.ret_ytd_display|default:"—" }}</p>
                         </div>
                     </div>
+                    <div class="tech100-home__facts">
+                        <div class="tech100-home__fact">
+                            <p class="kpi-label">30D volatility</p>
+                            <p class="kpi-value">{{ tech100_snapshot.vol_30d_display|default:"—" }}</p>
+                        </div>
+                        <div class="tech100-home__fact">
+                            <p class="kpi-label">YTD drawdown</p>
+                            <p class="kpi-value">{{ tech100_snapshot.drawdown_ytd_display|default:"—" }}</p>
+                        </div>
+                        <div class="tech100-home__fact">
+                            <p class="kpi-label">Data points</p>
+                            <p class="kpi-value">{{ tech100_snapshot.quality_counts.REAL|default:0 }}</p>
+                        </div>
+                    </div>
                 </div>
                 <div class="card tech100-home__attribution" data-attribution-panel>
                     <div class="tech100-home__attribution-header">
@@ -256,7 +270,10 @@
                     </div>
                 </aside>
             </div>
-            <div class="ai-reg__sources" data-ai-reg-sources></div>
+            <div class="ai-reg__lists">
+                <div class="ai-reg__instruments" data-ai-reg-instruments></div>
+                <div class="ai-reg__sources" data-ai-reg-sources></div>
+            </div>
         </div>
     </div>
 </section>

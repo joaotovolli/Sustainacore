@@ -7,6 +7,7 @@
 .ai-reg__card {
   max-width: clamp(960px, 92vw, 1400px);
   margin: 0 auto;
+  overflow-x: hidden;
 }
 
 .ai-reg__grid {
@@ -19,6 +20,24 @@
 .ai-reg__map,
 .ai-reg__panel {
   min-width: 0;
+}
+
+.ai-reg__lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.ai-reg__list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-reg__list-full {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
 }
 
 .ai-reg__map-shell {
@@ -186,19 +205,17 @@
   margin-top: 20px;
 }
 
-.ai-reg__sources-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.ai-reg__sources {
+  min-width: 0;
 }
 
-.ai-reg__sources-full {
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
+.ai-reg__instruments {
+  min-width: 0;
 }
 
 .ai-reg__list {
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .ai-reg__summary {
@@ -254,6 +271,10 @@
 
   .ai-reg__summary {
     text-align: left;
+  }
+
+  .ai-reg__lists {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

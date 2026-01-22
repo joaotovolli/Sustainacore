@@ -660,9 +660,23 @@ const renderDrilldown = (panel, data) => {
   const jurisdiction = data.jurisdiction || {};
   const root = document.querySelector('[data-ai-reg-root]');
   const externalSources = root?.querySelector('[data-ai-reg-sources]');
+  const externalInstruments = root?.querySelector('[data-ai-reg-instruments]');
   const sourcesLimit = externalSources ? 5 : null;
+  const instrumentsLimit = externalInstruments ? 5 : null;
 
   const instrumentsList = instruments
+    .slice(0, instrumentsLimit || instruments.length)
+    .map(
+      (item) => `
+        <li>
+          <strong>${escapeHtml(item.title_english || item.title_official || 'Untitled')}</strong>
+          <div class="muted">${escapeHtml(item.instrument_type || 'Unknown type')} · ${escapeHtml(item.status || 'Unknown status')}</div>
+        </li>
+      `
+    )
+    .join('');
+
+  const instrumentsFullList = instruments
     .map(
       (item) => `
         <li>
@@ -705,19 +719,36 @@ const renderDrilldown = (panel, data) => {
     )
     .join('');
 
+  if (externalInstruments) {
+    const hasMore = instruments.length > (instrumentsLimit || 0);
+    externalInstruments.innerHTML = `
+      <div class="card card--lined ai-reg__list-card" data-list-block="instruments" ${hasMore ? '' : 'data-expanded="true"'}>
+        <div class="card__header card__header--split">
+          <div>
+            <h4 class="h6">Instruments</h4>
+            <p class="muted">Key regulatory instruments for the selected jurisdiction.</p>
+          </div>
+          ${hasMore ? '<button class="btn btn--ghost btn--sm" type="button" data-list-toggle="instruments">Show more</button>' : ''}
+        </div>
+        ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
+        ${hasMore ? `<div class="ai-reg__list-full" data-list-full="instruments" hidden><ul class="ai-reg__list">${instrumentsFullList}</ul></div>` : ''}
+      </div>
+    `;
+  }
+
   if (externalSources) {
     const hasMore = sources.length > (sourcesLimit || 0);
     externalSources.innerHTML = `
-      <div class="card card--lined ai-reg__sources-card" data-sources-block ${hasMore ? '' : 'data-expanded="true"'}>
+      <div class="card card--lined ai-reg__list-card" data-list-block="sources" ${hasMore ? '' : 'data-expanded="true"'}>
         <div class="card__header card__header--split">
           <div>
             <h4 class="h6">Sources</h4>
             <p class="muted">Reference links for the selected jurisdiction.</p>
           </div>
-          ${hasMore ? '<button class="btn btn--ghost btn--sm" type="button" data-sources-toggle>Show more</button>' : ''}
+          ${hasMore ? '<button class="btn btn--ghost btn--sm" type="button" data-list-toggle="sources">Show more</button>' : ''}
         </div>
         ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
-        ${hasMore ? `<div class="ai-reg__sources-full" hidden><ul class="ai-reg__list">${sourcesFullList}</ul></div>` : ''}
+        ${hasMore ? `<div class="ai-reg__list-full" data-list-full="sources" hidden><ul class="ai-reg__list">${sourcesFullList}</ul></div>` : ''}
       </div>
     `;
   }
@@ -746,6 +777,7 @@ const renderDrilldown = (panel, data) => {
       <h5 class="h6">Upcoming milestones</h5>
       ${milestonesList ? `<ul class="ai-reg__list">${milestonesList}</ul>` : '<div class="muted">No milestones available.</div>'}
     </div>
+    ${externalInstruments ? '' : `
     <div class="ai-reg__panel-columns">
       <div class="ai-reg__panel-section">
         <h5 class="h6">Instruments</h5>
@@ -756,7 +788,7 @@ const renderDrilldown = (panel, data) => {
         <h5 class="h6">Sources</h5>
         ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
       </div>`}
-    </div>
+    </div>`}
   `;
 };
 
@@ -996,11 +1028,12 @@ const setup = async () => {
   zoomOutButton?.addEventListener('click', () => adjustZoom('out'));
 
   root.addEventListener('click', (event) => {
-    const toggle = event.target.closest('[data-sources-toggle]');
+    const toggle = event.target.closest('[data-list-toggle]');
     if (!toggle) return;
-    const block = toggle.closest('[data-sources-block]');
+    const listType = toggle.getAttribute('data-list-toggle');
+    const block = toggle.closest('[data-list-block]');
     if (!block) return;
-    const full = block.querySelector('.ai-reg__sources-full');
+    const full = block.querySelector(`[data-list-full=\"${listType}\"]`);
     if (!full) return;
     const expanded = block.getAttribute('data-expanded') === 'true';
     block.setAttribute('data-expanded', expanded ? 'false' : 'true');
