@@ -662,28 +662,22 @@ const renderDrilldown = (panel, data) => {
   const externalLists = root?.querySelector('[data-ai-reg-lists]');
   const listLimit = externalLists ? 5 : null;
 
-  const instrumentsList = instruments
-    .slice(0, listLimit || instruments.length)
-    .map(
-      (item) => `
-        <li>
-          <strong>${escapeHtml(item.title_english || item.title_official || 'Untitled')}</strong>
-          <div class="muted">${escapeHtml(item.instrument_type || 'Unknown type')} · ${escapeHtml(item.status || 'Unknown status')}</div>
+  const buildCombinedList = (items, sourceItems, limit) =>
+    items.slice(0, limit || items.length).map((item, idx) => {
+      const source = sourceItems[idx];
+      const sourceMarkup = source
+        ? `<div class="ai-reg__combined-source"><a href="${escapeHtml(source.url || '#')}" target="_blank" rel="noreferrer">${escapeHtml(source.title || 'Source')}</a></div>`
+        : `<div class="ai-reg__combined-source muted">Source pending</div>`;
+      return `
+        <li class="ai-reg__combined-item">
+          <div class="ai-reg__combined-title">
+            <strong>${escapeHtml(item.title_english || item.title_official || 'Untitled')}</strong>
+            <span class="muted">${escapeHtml(item.instrument_type || 'Unknown type')} · ${escapeHtml(item.status || 'Unknown status')}</span>
+          </div>
+          ${sourceMarkup}
         </li>
-      `
-    )
-    .join('');
-
-  const instrumentsFullList = instruments
-    .map(
-      (item) => `
-        <li>
-          <strong>${escapeHtml(item.title_english || item.title_official || 'Untitled')}</strong>
-          <div class="muted">${escapeHtml(item.instrument_type || 'Unknown type')} · ${escapeHtml(item.status || 'Unknown status')}</div>
-        </li>
-      `
-    )
-    .join('');
+      `;
+    }).join('');
 
   const milestonesList = milestones
     .map(
@@ -696,57 +690,22 @@ const renderDrilldown = (panel, data) => {
     )
     .join('');
 
-  const sourcesList = sources
-    .slice(0, listLimit || sources.length)
-    .map(
-      (item) => `
-        <li>
-          <a href="${escapeHtml(item.url || '#')}" target="_blank" rel="noreferrer">${escapeHtml(item.title || 'Source')}</a>
-        </li>
-      `
-    )
-    .join('');
-
-  const sourcesFullList = sources
-    .map(
-      (item) => `
-        <li>
-          <a href="${escapeHtml(item.url || '#')}" target="_blank" rel="noreferrer">${escapeHtml(item.title || 'Source')}</a>
-        </li>
-      `
-    )
-    .join('');
+  const combinedList = buildCombinedList(instruments, sources, listLimit);
+  const combinedFullList = buildCombinedList(instruments, sources, null);
 
   if (externalLists) {
-    const hasMore =
-      instruments.length > (listLimit || 0) || sources.length > (listLimit || 0);
+    const hasMore = instruments.length > (listLimit || 0);
     externalLists.innerHTML = `
       <div class="card card--lined ai-reg__list-card" data-list-block ${hasMore ? '' : 'data-expanded="true"'}>
         <div class="card__header">
           <div>
             <h4 class="h6">Instruments &amp; sources</h4>
-            <p class="muted">Key instruments paired with reference sources for the selected jurisdiction.</p>
+            <p class="muted">Compact view of instruments paired with reference sources.</p>
           </div>
         </div>
-        <div class="ai-reg__combined-section">
-          <h5 class="h6">Instruments</h5>
-          ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
-        </div>
-        <div class="ai-reg__combined-section">
-          <h5 class="h6">Sources</h5>
-          ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
-        </div>
-        ${hasMore ? `<div class="ai-reg__list-full" data-list-full hidden>
-          <div class="ai-reg__combined-section">
-            <h5 class="h6">Instruments (all)</h5>
-            ${instrumentsFullList ? `<ul class="ai-reg__list">${instrumentsFullList}</ul>` : '<div class="muted">No instruments listed.</div>'}
-          </div>
-          <div class="ai-reg__combined-section">
-            <h5 class="h6">Sources (all)</h5>
-            ${sourcesFullList ? `<ul class="ai-reg__list">${sourcesFullList}</ul>` : '<div class="muted">No sources listed.</div>'}
-          </div>
-        </div>
-        <button class="btn btn--ghost btn--sm ai-reg__list-toggle" type="button" data-list-toggle>Show more</button>` : ''}
+        ${combinedList ? `<ul class="ai-reg__combined-list">${combinedList}</ul>` : '<div class="muted">No instruments listed.</div>'}
+        ${hasMore ? `<div class="ai-reg__list-full" data-list-full hidden><ul class="ai-reg__combined-list">${combinedFullList}</ul></div>` : ''}
+        ${hasMore ? '<button class="btn btn--ghost btn--sm ai-reg__list-toggle" type="button" data-list-toggle>Show more</button>' : ''}
       </div>
     `;
   }
@@ -775,18 +734,7 @@ const renderDrilldown = (panel, data) => {
       <h5 class="h6">Upcoming milestones</h5>
       ${milestonesList ? `<ul class="ai-reg__list">${milestonesList}</ul>` : '<div class="muted">No milestones available.</div>'}
     </div>
-    ${externalLists ? '' : `
-    <div class="ai-reg__panel-columns">
-      <div class="ai-reg__panel-section">
-        <h5 class="h6">Instruments</h5>
-        ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
-      </div>
-      ${externalLists ? '' : `
-      <div class="ai-reg__panel-section">
-        <h5 class="h6">Sources</h5>
-        ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
-      </div>`}
-    </div>`}
+    ${''}
   `;
 };
 
