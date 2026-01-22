@@ -232,6 +232,42 @@
   word-break: break-word;
 }
 
+.ai-reg__combined-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-reg__combined-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  min-width: 0;
+}
+
+.ai-reg__combined-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ai-reg__combined-source {
+  font-size: 0.82rem;
+  color: var(--muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .ai-reg__summary {
   display: flex;
   gap: 24px;
