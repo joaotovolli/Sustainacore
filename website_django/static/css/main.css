@@ -3028,6 +3028,14 @@ textarea:focus {
     gap: 1rem;
 }
 
+.tech100-home__attribution-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
 .tech100-home__attribution-controls {
     display: flex;
     gap: 0.5rem;
@@ -3037,30 +3045,77 @@ textarea:focus {
 .tech100-home__attribution-grid {
     display: grid;
     gap: 1rem;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
-.tech100-home__list {
+.attr-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.attr-bars {
     list-style: none;
     padding: 0;
     margin: 0;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 0.5rem;
 }
 
-.tech100-home__list li {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
+.attr-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 0.3rem 0.75rem;
+    align-items: center;
+}
+
+.attr-bar__label {
     font-weight: 600;
+    font-size: 0.92rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attr-bar__value {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.attr-bar__track {
+    grid-column: 1 / -1;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.25);
+    overflow: hidden;
+}
+
+.attr-bar__fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(56, 189, 248, 0.7), rgba(37, 99, 235, 0.95));
+}
+
+.attr-bars--negative .attr-bar__fill {
+    background: linear-gradient(90deg, rgba(248, 113, 113, 0.8), rgba(239, 68, 68, 0.95));
 }
 
 .ai-reg-home .ai-reg__grid {
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
+    align-items: stretch;
 }
 
 .ai-reg-home .ai-reg__map {
     min-height: 360px;
+}
+
+.ai-reg-home .ai-reg__panel,
+.ai-reg-home .ai-reg__map {
+    min-width: 0;
 }
 
 .ai-reg-home .ai-reg__panel {
@@ -3122,6 +3177,10 @@ textarea:focus {
 @media (max-width: 900px) {
     .tech100-home__grid {
         grid-template-columns: 1fr;
+    }
+
+    .ai-reg-home .ai-reg__grid {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .ai-reg-home .ai-reg__grid {
