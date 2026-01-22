@@ -1421,7 +1421,7 @@ body.has-consent-banner .chat-fab {
 .news-detail__grid {
     display: grid;
     gap: 1.75rem;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .news-detail__main {
@@ -1430,6 +1430,9 @@ body.has-consent-banner .chat-fab {
     border-radius: var(--radius);
     padding: 1.75rem;
     box-shadow: var(--shadow);
+    max-width: 1100px;
+    width: 100%;
+    margin: 0 auto;
 }
 
 .news-detail__meta {
@@ -1515,11 +1518,6 @@ body.has-consent-banner .chat-fab {
 
 .news-detail__cta {
     margin-top: 1.25rem;
-}
-
-.news-detail__aside {
-    display: grid;
-    gap: 1rem;
 }
 
 .news-detail__card {
