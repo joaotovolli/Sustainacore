@@ -3124,6 +3124,14 @@ textarea:focus {
 
 .ai-reg__card--home .ai-reg__map-shell {
     height: clamp(260px, 45vh, 420px);
+    width: 100%;
+    max-width: 100%;
+}
+
+.ai-reg__card--home .ai-reg__globe,
+.ai-reg__card--home .ai-reg__globe canvas {
+    width: 100%;
+    max-width: 100%;
 }
 
 .ai-reg__card--home .ai-reg__filters {

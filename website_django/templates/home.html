@@ -122,17 +122,17 @@
                             <button class="btn btn--ghost btn--sm is-active" type="button" role="tab" aria-selected="true" data-attr-range="1d">1D</button>
                             <button class="btn btn--ghost btn--sm" type="button" role="tab" aria-selected="false" data-attr-range="mtd">MTD</button>
                             <button class="btn btn--ghost btn--sm" type="button" role="tab" aria-selected="false" data-attr-range="ytd">YTD</button>
-                            <a class="btn btn--ghost btn--sm" href="/tech100/attribution/">Download CSV</a>
+                            <a class="btn btn--ghost btn--sm" href="/tech100/performance/export/?kind=attribution">Download CSV</a>
                         </div>
                     </div>
                     <div class="tech100-home__attribution-grid">
                         <div class="attr-block">
                             <p class="kpi-label">Top contributors</p>
-                            <ul class="attr-bars" data-attr-bars>
-                                {% for company in tech100_top|slice:":5" %}
-                                <li class="attr-bar" data-value="{{ company.overall|default:'0' }}">
-                                    <span class="attr-bar__label">{{ company.company }}</span>
-                                    <span class="attr-bar__value">{{ company.overall }}</span>
+                            <ul class="attr-bars" data-attr-bars data-attr-list="top">
+                                {% for row in attribution_default.top %}
+                                <li class="attr-bar" data-value="{{ row.value|default:'0' }}">
+                                    <span class="attr-bar__label">{{ row.name }}</span>
+                                    <span class="attr-bar__value">{{ row.value_display|default:"—" }}</span>
                                     <span class="attr-bar__track"><span class="attr-bar__fill"></span></span>
                                 </li>
                                 {% empty %}
@@ -142,11 +142,11 @@
                         </div>
                         <div class="attr-block">
                             <p class="kpi-label">Worst contributors</p>
-                            <ul class="attr-bars attr-bars--negative" data-attr-bars>
-                                {% for company in tech100_bottom|slice:":5" %}
-                                <li class="attr-bar" data-value="{{ company.overall|default:'0' }}">
-                                    <span class="attr-bar__label">{{ company.company }}</span>
-                                    <span class="attr-bar__value">{{ company.overall }}</span>
+                            <ul class="attr-bars attr-bars--negative" data-attr-bars data-attr-list="worst">
+                                {% for row in attribution_default.worst %}
+                                <li class="attr-bar" data-value="{{ row.value|default:'0' }}">
+                                    <span class="attr-bar__label">{{ row.name }}</span>
+                                    <span class="attr-bar__value">{{ row.value_display|default:"—" }}</span>
                                     <span class="attr-bar__track"><span class="attr-bar__fill"></span></span>
                                 </li>
                                 {% empty %}
@@ -171,7 +171,7 @@
             <div>
                 <span class="pill pill--soft">AI Regulation</span>
                 <h2>Regulatory heat map demo</h2>
-                <p class="muted">Track where AI rules are emerging, compare jurisdictions, and open the full map for deeper detail.</p>
+                <p class="muted">Explore where AI rules are accelerating, then drill into a jurisdiction to see instruments, milestones, and sources.</p>
             </div>
             <a class="text-link" href="/ai-regulation/">Open AI Regulation →</a>
         </div>
@@ -379,6 +379,7 @@
 </section>
 
 {{ tech100_snapshot.levels|default:"[]"|json_script:"tech100-home-levels" }}
+{{ attribution_snapshot|json_script:"tech100-attribution-snapshot" }}
 {% endblock %}
 
 {% block extra_scripts %}
@@ -389,7 +390,10 @@
   <script type="module" src="{% static 'js/ai_regulation.js' %}?v={{ static_version }}"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      document.querySelectorAll('[data-attr-bars]').forEach((list) => {
+      const snapshotEl = document.getElementById('tech100-attribution-snapshot');
+      const snapshot = snapshotEl ? JSON.parse(snapshotEl.textContent || '{}') : null;
+
+      const updateBarWidths = (list) => {
         const items = Array.from(list.querySelectorAll('.attr-bar'));
         const values = items.map((item) => {
           const raw = parseFloat(item.dataset.value);
@@ -403,7 +407,42 @@
           const pct = Math.min(100, (value / max) * 100);
           fill.style.width = `${pct.toFixed(1)}%`;
         });
-      });
+      };
+
+      const renderAttrList = (list, rows) => {
+        if (!rows || !rows.length) {
+          list.innerHTML = '<li class="muted">No data available.</li>';
+          return;
+        }
+        list.innerHTML = rows
+          .map(
+            (row) => `
+              <li class="attr-bar" data-value="${row.value ?? 0}">
+                <span class="attr-bar__label">${row.name || '—'}</span>
+                <span class="attr-bar__value">${row.value_display || '—'}</span>
+                <span class="attr-bar__track"><span class="attr-bar__fill"></span></span>
+              </li>
+            `
+          )
+          .join('');
+        updateBarWidths(list);
+      };
+
+      const renderAttribution = (range) => {
+        if (!snapshot?.ranges) {
+          document.querySelectorAll('[data-attr-bars]').forEach(updateBarWidths);
+          return;
+        }
+        const payload = snapshot.ranges[range] || { top: [], worst: [] };
+        document.querySelectorAll('[data-attr-list="top"]').forEach((list) => {
+          renderAttrList(list, payload.top || []);
+        });
+        document.querySelectorAll('[data-attr-list="worst"]').forEach((list) => {
+          renderAttrList(list, payload.worst || []);
+        });
+      };
+
+      renderAttribution('1d');
 
       document.querySelectorAll('[data-attr-range]').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -413,6 +452,7 @@
           });
           btn.classList.add('is-active');
           btn.setAttribute('aria-selected', 'true');
+          renderAttribution(btn.dataset.attrRange || '1d');
         });
       });
     });
