@@ -19,6 +19,12 @@ const NAME_ALIASES = new Map([
 const GEOJSON_REMOTE_FALLBACK =
   'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
 const ISO2_PROPERTY_CANDIDATES = ['ISO_A2', 'iso_a2', 'ISO2', 'iso2', 'ISO_2'];
+const EU_MEMBER_ISO2 = new Set([
+  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR',
+  'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK',
+  'SI', 'ES', 'SE'
+]);
+const EU_CANONICAL_ISO2 = 'EU';
 const DEFAULT_POV = { lat: 20, lng: 0, altitude: 2.1 };
 const FOCUS_POV = { altitude: 1.65 };
 
@@ -35,6 +41,8 @@ const state = {
   heatmapIndex: new Map(),
   heatmapByIso: new Map(),
   heatmapMax: 1,
+  selectedIso2: null,
+  highlightIsoSet: null,
   globe: null,
   flatMap: null,
   hover: null,
@@ -59,6 +67,25 @@ const normalizeName = (name) => {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
   return NAME_ALIASES.get(normalized) || normalized;
+};
+
+const normalizeIso2 = (iso2) => String(iso2 || '').trim().toUpperCase();
+
+const isEuSelection = (iso2) => normalizeIso2(iso2) === EU_CANONICAL_ISO2;
+
+const getEuCentroid = () => {
+  const centroids = [];
+  EU_MEMBER_ISO2.forEach((iso2) => {
+    const feature = state.featureByIso.get(iso2);
+    const centroid = getFeatureCentroid(feature);
+    if (centroid) centroids.push(centroid);
+  });
+  if (!centroids.length) return { lat: 54, lng: 12 };
+  const avg = centroids.reduce(
+    (acc, item) => ({ lat: acc.lat + item.lat, lng: acc.lng + item.lng }),
+    { lat: 0, lng: 0 }
+  );
+  return { lat: avg.lat / centroids.length, lng: avg.lng / centroids.length };
 };
 
 const logIssue = (message, error) => {
@@ -264,8 +291,8 @@ const isWebGLAvailable = () => {
 const colorForCount = (count, max) => {
   const safeCount = Number.isFinite(count) ? count : 0;
   const ratio = max > 0 ? Math.min(safeCount / max, 1) : 0;
-  const low = [56, 189, 248];
-  const high = [37, 99, 235];
+  const low = [148, 197, 253];
+  const high = [30, 64, 175];
   const r = Math.round(low[0] + (high[0] - low[0]) * ratio);
   const g = Math.round(low[1] + (high[1] - low[1]) * ratio);
   const b = Math.round(low[2] + (high[2] - low[2]) * ratio);
@@ -286,9 +313,15 @@ const initGlobe = async (container, tooltip, textureUrl) => {
   const globe = window.Globe()(container)
     .backgroundColor('rgba(0,0,0,0)')
     .showAtmosphere(true)
-    .atmosphereColor('rgba(56, 189, 248, 0.35)')
-    .atmosphereAltitude(0.25)
-    .polygonStrokeColor(() => 'rgba(255,255,255,0.35)')
+    .atmosphereColor('rgba(14, 165, 233, 0.38)')
+    .atmosphereAltitude(0.22)
+    .polygonStrokeColor((feature) => {
+      const iso2 = getIso2FromFeature(feature);
+      if (state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2)) {
+        return 'rgba(250, 204, 21, 0.95)';
+      }
+      return 'rgba(255,255,255,0.35)';
+    })
     .polygonAltitude((feature) => {
       const data = resolveJurisdiction(feature);
       const count = getInstrumentCount(data);
@@ -578,25 +611,46 @@ const setHeatmapIndex = (jurisdictions) => {
   state.heatmapMax = max || 1;
 };
 
+const buildHighlightSet = () => {
+  if (!state.selectedIso2) return null;
+  if (isEuSelection(state.selectedIso2)) {
+    return EU_MEMBER_ISO2;
+  }
+  return new Set([state.selectedIso2]);
+};
+
 const updateMapColors = (jurisdictions) => {
   setHeatmapIndex(jurisdictions);
+  state.highlightIsoSet = buildHighlightSet();
   if (state.globe) {
     state.globe
       .polygonAltitude((feature) => {
         const data = resolveJurisdiction(feature);
         const count = getInstrumentCount(data);
+        const iso2 = getIso2FromFeature(feature);
+        if (state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2)) {
+          return 0.06;
+        }
         if (!count) return 0.01;
-        return 0.01 + count / state.heatmapMax * 0.2;
+        return 0.01 + (count / state.heatmapMax) * 0.2;
       })
       .polygonCapColor((feature) => {
+        const iso2 = getIso2FromFeature(feature);
+        if (state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2)) {
+          return 'rgba(250, 204, 21, 0.85)';
+        }
         const data = resolveJurisdiction(feature);
         return colorForCount(getInstrumentCount(data), state.heatmapMax);
       });
   }
   if (state.flatMap?.paths) {
     state.flatMap.paths.forEach(({ element, feature }) => {
+      const iso2 = getIso2FromFeature(feature);
+      const highlighted = state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2);
       const data = resolveJurisdiction(feature);
       element.setAttribute('fill', colorForCount(getInstrumentCount(data), state.heatmapMax));
+      element.setAttribute('stroke', highlighted ? 'rgba(250, 204, 21, 0.9)' : 'rgba(255,255,255,0.35)');
+      element.setAttribute('stroke-width', highlighted ? '1.2' : '0.4');
     });
   }
 };
@@ -619,10 +673,16 @@ const renderCountryOptions = (select, jurisdictions) => {
     select.disabled = true;
     return;
   }
+  const priorityRank = (iso2) => {
+    const normalized = normalizeIso2(iso2);
+    if (normalized === 'US') return 0;
+    if (normalized === EU_CANONICAL_ISO2) return 1;
+    return 2;
+  };
   const sorted = [...jurisdictions].sort((a, b) => {
-    const aCount = getInstrumentCount(a);
-    const bCount = getInstrumentCount(b);
-    if (bCount !== aCount) return bCount - aCount;
+    const rankA = priorityRank(a.iso2);
+    const rankB = priorityRank(b.iso2);
+    if (rankA !== rankB) return rankA - rankB;
     return String(a.name || '').localeCompare(String(b.name || ''));
   });
   const options = sorted
@@ -642,7 +702,15 @@ const updateCountrySelect = (select, iso2) => {
 
 const focusOnIso = (iso2) => {
   if (!iso2) return;
-  const feature = state.featureByIso.get(String(iso2).toUpperCase());
+  const normalized = normalizeIso2(iso2);
+  if (isEuSelection(normalized)) {
+    const centroid = getEuCentroid();
+    if (state.globe && centroid) {
+      state.globe.pointOfView({ ...centroid, altitude: FOCUS_POV.altitude }, 700);
+    }
+    return;
+  }
+  const feature = state.featureByIso.get(normalized);
   if (!feature) return;
   const centroid = getFeatureCentroid(feature);
   if (state.globe && centroid) {
@@ -713,12 +781,17 @@ const renderDrilldown = (panel, data) => {
   const dataQualityFlag = jurisdiction.data_quality?.flag
     ? '<span class="ai-reg__pill">Data quality flag</span>'
     : '';
+  const isEu = isEuSelection(jurisdiction.iso2);
+  const euFlag = isEu ? '<span class="ai-reg__pill">Aggregated region</span>' : '';
+  const euNote = isEu ? '<div class="muted">Aggregated member-state coverage</div>' : '';
 
   panel.innerHTML = `
     <div class="ai-reg__panel-header">
       <h4 class="h5">${escapeHtml(jurisdiction.name || 'Jurisdiction')}</h4>
       <div class="muted">ISO: ${escapeHtml(jurisdiction.iso2 || '--')}</div>
       ${dataQualityFlag}
+      ${euFlag}
+      ${euNote}
     </div>
     <div class="ai-reg__panel-metrics">
       <div class="ai-reg__stat">
@@ -741,6 +814,10 @@ const renderDrilldown = (panel, data) => {
 const loadJurisdiction = async (iso2, nameOverride) => {
   const root = document.querySelector('[data-ai-reg-root]');
   if (!root) return;
+  state.selectedIso2 = normalizeIso2(iso2);
+  if (state.jurisdictions) {
+    updateMapColors(state.jurisdictions);
+  }
   const panelBody = root.querySelector('[data-drilldown-body]');
   const countrySelect = root.querySelector('[data-country-select]');
   if (!panelBody) return;
@@ -804,6 +881,7 @@ const refreshHeatmap = async (root, asOf) => {
     }
     const data = await getHeatmap(heatmapEndpoint, asOf);
     const jurisdictions = data.jurisdictions || [];
+    state.jurisdictions = jurisdictions;
     if (state.geoData) {
       clearMapError();
     }
@@ -900,7 +978,7 @@ const setup = async () => {
     scheduleResize();
     state.globe
       .polygonsData(geoData.features)
-      .polygonSideColor(() => 'rgba(15, 23, 42, 0.2)')
+      .polygonSideColor(() => 'rgba(15, 23, 42, 0.12)')
       .polygonsTransitionDuration(400);
     state.globe.pointOfView(state.defaultPov, 0);
     const controls = state.globe.controls();
@@ -925,7 +1003,13 @@ const setup = async () => {
 
   countrySelect?.addEventListener('change', (event) => {
     const iso2 = event.target.value;
-    if (!iso2) return;
+    if (!iso2) {
+      state.selectedIso2 = null;
+      if (state.jurisdictions) {
+        updateMapColors(state.jurisdictions);
+      }
+      return;
+    }
     const jurisdiction = state.heatmapByIso.get(String(iso2).toUpperCase());
     loadJurisdiction(iso2, jurisdiction?.name || iso2);
   });

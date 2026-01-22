@@ -1,0 +1,5 @@
+Local UI evidence capture: home + ai-regulation
+- Method: Playwright single-shot via local gunicorn (127.0.0.1:8000/8001).
+- Viewports: desktop 1366x768, mobile 390x844.
+- Diffs: pixelmatch threshold 0.1.
+- EU selection screenshots captured (desktop + mobile).

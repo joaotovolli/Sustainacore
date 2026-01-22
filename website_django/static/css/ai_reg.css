@@ -62,7 +62,8 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  background: radial-gradient(circle at top, rgba(59, 130, 246, 0.18), rgba(226, 232, 240, 0.6));
+  background: radial-gradient(circle at top, rgba(14, 165, 233, 0.25), rgba(226, 232, 240, 0.7));
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
 }
 
 .ai-reg__globe,
@@ -83,6 +84,7 @@
   height: 100% !important;
   max-width: 100%;
   display: block;
+  max-height: 100%;
 }
 
 .ai-reg__fallback {

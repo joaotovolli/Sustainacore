@@ -1,0 +1,7 @@
+EU_DIM_ROWS=3
+EU_DIM_ROW=42|EU|European Union
+EU_DIM_ROW=108|EU_OLD|European Union (legacy)
+EU_DIM_ROW=141|EU_OLD|European Union (legacy)
+EU_CANONICAL_COUNT=1
+EU_SNAPSHOT_ROWS=4
+EU_STG_ROWS=4
