@@ -1,0 +1,74 @@
+{
+  "prodBase": "https://sustainacore.org",
+  "previewBase": "https://preview.sustainacore.org",
+  "shots": [
+    {
+      "key": "home_desktop",
+      "before": "/tmp/ui_evidence/before/home_desktop.png",
+      "after": "/tmp/ui_evidence/after/home_desktop.png",
+      "diff": "/tmp/ui_evidence/diff/home_desktop_diff.png",
+      "metrics": {
+        "mismatchPixels": 0,
+        "mismatchPercent": 0,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "key": "home_mobile",
+      "before": "/tmp/ui_evidence/before/home_mobile.png",
+      "after": "/tmp/ui_evidence/after/home_mobile.png",
+      "diff": "/tmp/ui_evidence/diff/home_mobile_diff.png",
+      "metrics": {
+        "mismatchPixels": 0,
+        "mismatchPercent": 0,
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "key": "home_performance",
+      "before": "/tmp/ui_evidence/before/home_performance.png",
+      "after": "/tmp/ui_evidence/after/home_performance.png",
+      "diff": "/tmp/ui_evidence/diff/home_performance_diff.png",
+      "metrics": {
+        "mismatchPixels": 0,
+        "mismatchPercent": 0,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "key": "home_reg_demo",
+      "before": "/tmp/ui_evidence/before/home_reg_demo.png",
+      "after": "/tmp/ui_evidence/after/home_reg_demo.png",
+      "diff": "/tmp/ui_evidence/diff/home_reg_demo_diff.png",
+      "metrics": {
+        "mismatchPixels": 0,
+        "mismatchPercent": 0,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "key": "ai_reg_desktop",
+      "before": "/tmp/ui_evidence/before/ai_reg_desktop.png",
+      "after": "/tmp/ui_evidence/after/ai_reg_desktop.png"
+    },
+    {
+      "key": "ai_reg_mobile",
+      "before": "/tmp/ui_evidence/before/ai_reg_mobile.png",
+      "after": "/tmp/ui_evidence/after/ai_reg_mobile.png"
+    },
+    {
+      "key": "ai_reg_lists_desktop",
+      "before": "/tmp/ui_evidence/before/ai_reg_lists_desktop.png",
+      "after": "/tmp/ui_evidence/after/ai_reg_lists_desktop.png"
+    },
+    {
+      "key": "ai_reg_lists_mobile",
+      "before": "/tmp/ui_evidence/before/ai_reg_lists_mobile.png",
+      "after": "/tmp/ui_evidence/after/ai_reg_lists_mobile.png"
+    }
+  ]
+}

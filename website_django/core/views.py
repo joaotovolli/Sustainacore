@@ -1272,6 +1272,7 @@ def home(request):
                 continue
             items.append(
                 {
+                    "ticker": row.get("ticker"),
                     "name": row.get("name") or row.get("company_name") or row.get("ticker") or "—",
                     "value": value,
                     "value_display": _format_percent(value),

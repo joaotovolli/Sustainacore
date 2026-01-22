@@ -140,33 +140,13 @@
                         </div>
                     </div>
                     <div class="tech100-home__attribution-grid">
-                        <div class="attr-block">
-                            <p class="kpi-label">Top contributors</p>
-                            <ul class="attr-bars" data-attr-bars data-attr-list="top">
-                                {% for row in attribution_default.top %}
-                                <li class="attr-bar" data-value="{{ row.value|default:'0' }}">
-                                    <span class="attr-bar__label">{{ row.name }}</span>
-                                    <span class="attr-bar__value">{{ row.value_display|default:"—" }}</span>
-                                    <span class="attr-bar__track"><span class="attr-bar__fill"></span></span>
-                                </li>
-                                {% empty %}
-                                <li class="muted">No data available.</li>
-                                {% endfor %}
-                            </ul>
+                        <div>
+                            <h4 class="h6">Top contributors</h4>
+                            <canvas id="tech100-home-top-chart" role="img" aria-label="Top contributors"></canvas>
                         </div>
-                        <div class="attr-block">
-                            <p class="kpi-label">Worst contributors</p>
-                            <ul class="attr-bars attr-bars--negative" data-attr-bars data-attr-list="worst">
-                                {% for row in attribution_default.worst %}
-                                <li class="attr-bar" data-value="{{ row.value|default:'0' }}">
-                                    <span class="attr-bar__label">{{ row.name }}</span>
-                                    <span class="attr-bar__value">{{ row.value_display|default:"—" }}</span>
-                                    <span class="attr-bar__track"><span class="attr-bar__fill"></span></span>
-                                </li>
-                                {% empty %}
-                                <li class="muted">No data available.</li>
-                                {% endfor %}
-                            </ul>
+                        <div>
+                            <h4 class="h6">Worst contributors</h4>
+                            <canvas id="tech100-home-worst-chart" role="img" aria-label="Worst contributors"></canvas>
                         </div>
                     </div>
                 </div>
@@ -270,10 +250,7 @@
                     </div>
                 </aside>
             </div>
-            <div class="ai-reg__lists">
-                <div class="ai-reg__instruments" data-ai-reg-instruments></div>
-                <div class="ai-reg__sources" data-ai-reg-sources></div>
-            </div>
+            <div class="ai-reg__lists" data-ai-reg-lists></div>
         </div>
     </div>
 </section>
@@ -409,57 +386,45 @@
     document.addEventListener('DOMContentLoaded', () => {
       const snapshotEl = document.getElementById('tech100-attribution-snapshot');
       const snapshot = snapshotEl ? JSON.parse(snapshotEl.textContent || '{}') : null;
+      if (!snapshot || !window.Chart) return;
 
-      const updateBarWidths = (list) => {
-        const items = Array.from(list.querySelectorAll('.attr-bar'));
-        const values = items.map((item) => {
-          const raw = parseFloat(item.dataset.value);
-          return Number.isFinite(raw) ? Math.abs(raw) : 0;
-        });
-        const max = Math.max(...values, 1);
-        items.forEach((item, idx) => {
-          const fill = item.querySelector('.attr-bar__fill');
-          if (!fill) return;
-          const value = values[idx] || 0;
-          const pct = Math.min(100, (value / max) * 100);
-          fill.style.width = `${pct.toFixed(1)}%`;
+      const toSeries = (rows) => {
+        const safeRows = (rows || []).slice(0, 5);
+        return {
+          labels: safeRows.map((row) => row.ticker || row.name || '—'),
+          values: safeRows.map((row) => (row.value || 0) * 10000),
+        };
+      };
+
+      const buildChart = (canvasId, series, color) => {
+        const el = document.getElementById(canvasId);
+        if (!el) return null;
+        return new Chart(el.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: series.labels,
+            datasets: [
+              {
+                label: 'Contribution (bp)',
+                data: series.values,
+                backgroundColor: color,
+              }
+            ],
+          },
+          options: {
+            indexAxis: 'y',
+            animation: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { callback: (val) => `${val}` } },
+            },
+          },
         });
       };
 
-      const renderAttrList = (list, rows) => {
-        if (!rows || !rows.length) {
-          list.innerHTML = '<li class="muted">No data available.</li>';
-          return;
-        }
-        list.innerHTML = rows
-          .map(
-            (row) => `
-              <li class="attr-bar" data-value="${row.value ?? 0}">
-                <span class="attr-bar__label">${row.name || '—'}</span>
-                <span class="attr-bar__value">${row.value_display || '—'}</span>
-                <span class="attr-bar__track"><span class="attr-bar__fill"></span></span>
-              </li>
-            `
-          )
-          .join('');
-        updateBarWidths(list);
-      };
-
-      const renderAttribution = (range) => {
-        if (!snapshot?.ranges) {
-          document.querySelectorAll('[data-attr-bars]').forEach(updateBarWidths);
-          return;
-        }
-        const payload = snapshot.ranges[range] || { top: [], worst: [] };
-        document.querySelectorAll('[data-attr-list="top"]').forEach((list) => {
-          renderAttrList(list, payload.top || []);
-        });
-        document.querySelectorAll('[data-attr-list="worst"]').forEach((list) => {
-          renderAttrList(list, payload.worst || []);
-        });
-      };
-
-      renderAttribution('1d');
+      const getRange = (range) => snapshot.ranges?.[range] || { top: [], worst: [] };
+      let topChart = buildChart('tech100-home-top-chart', toSeries(getRange('1d').top), '#2f6f6f');
+      let worstChart = buildChart('tech100-home-worst-chart', toSeries(getRange('1d').worst), '#b44a3c');
 
       document.querySelectorAll('[data-attr-range]').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -469,7 +434,24 @@
           });
           btn.classList.add('is-active');
           btn.setAttribute('aria-selected', 'true');
-          renderAttribution(btn.dataset.attrRange || '1d');
+          const range = btn.dataset.attrRange || '1d';
+          const payload = getRange(range);
+          const topSeries = toSeries(payload.top);
+          const worstSeries = toSeries(payload.worst);
+          if (topChart) {
+            topChart.data.labels = topSeries.labels;
+            topChart.data.datasets[0].data = topSeries.values;
+            topChart.update();
+          } else {
+            topChart = buildChart('tech100-home-top-chart', topSeries, '#2f6f6f');
+          }
+          if (worstChart) {
+            worstChart.data.labels = worstSeries.labels;
+            worstChart.data.datasets[0].data = worstSeries.values;
+            worstChart.update();
+          } else {
+            worstChart = buildChart('tech100-home-worst-chart', worstSeries, '#b44a3c');
+          }
         });
       });
     });

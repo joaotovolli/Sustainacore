@@ -659,13 +659,11 @@ const renderDrilldown = (panel, data) => {
   const milestones = data.timeline || [];
   const jurisdiction = data.jurisdiction || {};
   const root = document.querySelector('[data-ai-reg-root]');
-  const externalSources = root?.querySelector('[data-ai-reg-sources]');
-  const externalInstruments = root?.querySelector('[data-ai-reg-instruments]');
-  const sourcesLimit = externalSources ? 5 : null;
-  const instrumentsLimit = externalInstruments ? 5 : null;
+  const externalLists = root?.querySelector('[data-ai-reg-lists]');
+  const listLimit = externalLists ? 5 : null;
 
   const instrumentsList = instruments
-    .slice(0, instrumentsLimit || instruments.length)
+    .slice(0, listLimit || instruments.length)
     .map(
       (item) => `
         <li>
@@ -699,7 +697,7 @@ const renderDrilldown = (panel, data) => {
     .join('');
 
   const sourcesList = sources
-    .slice(0, sourcesLimit || sources.length)
+    .slice(0, listLimit || sources.length)
     .map(
       (item) => `
         <li>
@@ -719,36 +717,36 @@ const renderDrilldown = (panel, data) => {
     )
     .join('');
 
-  if (externalInstruments) {
-    const hasMore = instruments.length > (instrumentsLimit || 0);
-    externalInstruments.innerHTML = `
-      <div class="card card--lined ai-reg__list-card" data-list-block="instruments" ${hasMore ? '' : 'data-expanded="true"'}>
-        <div class="card__header card__header--split">
+  if (externalLists) {
+    const hasMore =
+      instruments.length > (listLimit || 0) || sources.length > (listLimit || 0);
+    externalLists.innerHTML = `
+      <div class="card card--lined ai-reg__list-card" data-list-block ${hasMore ? '' : 'data-expanded="true"'}>
+        <div class="card__header">
           <div>
-            <h4 class="h6">Instruments</h4>
-            <p class="muted">Key regulatory instruments for the selected jurisdiction.</p>
+            <h4 class="h6">Instruments &amp; sources</h4>
+            <p class="muted">Key instruments paired with reference sources for the selected jurisdiction.</p>
           </div>
-          ${hasMore ? '<button class="btn btn--ghost btn--sm" type="button" data-list-toggle="instruments">Show more</button>' : ''}
         </div>
-        ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
-        ${hasMore ? `<div class="ai-reg__list-full" data-list-full="instruments" hidden><ul class="ai-reg__list">${instrumentsFullList}</ul></div>` : ''}
-      </div>
-    `;
-  }
-
-  if (externalSources) {
-    const hasMore = sources.length > (sourcesLimit || 0);
-    externalSources.innerHTML = `
-      <div class="card card--lined ai-reg__list-card" data-list-block="sources" ${hasMore ? '' : 'data-expanded="true"'}>
-        <div class="card__header card__header--split">
-          <div>
-            <h4 class="h6">Sources</h4>
-            <p class="muted">Reference links for the selected jurisdiction.</p>
+        <div class="ai-reg__combined-section">
+          <h5 class="h6">Instruments</h5>
+          ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
+        </div>
+        <div class="ai-reg__combined-section">
+          <h5 class="h6">Sources</h5>
+          ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
+        </div>
+        ${hasMore ? `<div class="ai-reg__list-full" data-list-full hidden>
+          <div class="ai-reg__combined-section">
+            <h5 class="h6">Instruments (all)</h5>
+            ${instrumentsFullList ? `<ul class="ai-reg__list">${instrumentsFullList}</ul>` : '<div class="muted">No instruments listed.</div>'}
           </div>
-          ${hasMore ? '<button class="btn btn--ghost btn--sm" type="button" data-list-toggle="sources">Show more</button>' : ''}
+          <div class="ai-reg__combined-section">
+            <h5 class="h6">Sources (all)</h5>
+            ${sourcesFullList ? `<ul class="ai-reg__list">${sourcesFullList}</ul>` : '<div class="muted">No sources listed.</div>'}
+          </div>
         </div>
-        ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
-        ${hasMore ? `<div class="ai-reg__list-full" data-list-full="sources" hidden><ul class="ai-reg__list">${sourcesFullList}</ul></div>` : ''}
+        <button class="btn btn--ghost btn--sm ai-reg__list-toggle" type="button" data-list-toggle>Show more</button>` : ''}
       </div>
     `;
   }
@@ -777,13 +775,13 @@ const renderDrilldown = (panel, data) => {
       <h5 class="h6">Upcoming milestones</h5>
       ${milestonesList ? `<ul class="ai-reg__list">${milestonesList}</ul>` : '<div class="muted">No milestones available.</div>'}
     </div>
-    ${externalInstruments ? '' : `
+    ${externalLists ? '' : `
     <div class="ai-reg__panel-columns">
       <div class="ai-reg__panel-section">
         <h5 class="h6">Instruments</h5>
         ${instrumentsList ? `<ul class="ai-reg__list">${instrumentsList}</ul>` : '<div class="muted">No instruments listed.</div>'}
       </div>
-      ${externalSources ? '' : `
+      ${externalLists ? '' : `
       <div class="ai-reg__panel-section">
         <h5 class="h6">Sources</h5>
         ${sourcesList ? `<ul class="ai-reg__list">${sourcesList}</ul>` : '<div class="muted">No sources listed.</div>'}
@@ -1030,10 +1028,9 @@ const setup = async () => {
   root.addEventListener('click', (event) => {
     const toggle = event.target.closest('[data-list-toggle]');
     if (!toggle) return;
-    const listType = toggle.getAttribute('data-list-toggle');
     const block = toggle.closest('[data-list-block]');
     if (!block) return;
-    const full = block.querySelector(`[data-list-full=\"${listType}\"]`);
+    const full = block.querySelector('[data-list-full]');
     if (!full) return;
     const expanded = block.getAttribute('data-expanded') === 'true';
     block.setAttribute('data-expanded', expanded ? 'false' : 'true');
