@@ -17,6 +17,14 @@
 - Static files are served from `/opt/code/Sustainacore/website_django/static/` via Nginx.
 - HTTP (80) redirects to HTTPS (443).
 
+## Tech100 API routing
+- `/api/tech100/company/` and `/api/tech100/companies` are served by the VM2 Django app (local Gunicorn).
+- The remaining `/api/tech100/` routes continue to proxy to the VM1 backend.
+- Keep `/etc/nginx/sites-available/sustainacore` in sync with `infra/nginx/sustainacore.conf`, then run:
+  ```bash
+  sudo nginx -t && sudo systemctl reload nginx
+  ```
+
 ## HTTPS / Certbot
 - Let’s Encrypt certificates managed by Certbot:
   - `ssl_certificate`: `/etc/letsencrypt/live/sustainacore.org/fullchain.pem`
