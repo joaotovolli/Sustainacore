@@ -258,7 +258,7 @@
     <div class="shell">
         <div class="section__header section__header--split">
             <div>
-                <h2>Latest from the TECH100</h2>
+                <h2>Latest from Tech100 AI Ethics &amp; Gov Index</h2>
                 <p class="muted">A snapshot of company scores before you dive into the full index.</p>
             </div>
             <a class="text-link" href="{% url 'tech100' %}">Open TECH100 →</a>
@@ -268,19 +268,19 @@
                 <div class="table__row table__row--head" role="row">
                     <div class="table__cell" role="columnheader">Company</div>
                     <div class="table__cell" role="columnheader">Sector</div>
-                    <div class="table__cell" role="columnheader">Region</div>
                     <div class="table__cell table__cell--right" role="columnheader">Transparency</div>
                     <div class="table__cell table__cell--right" role="columnheader">Ethical Principles</div>
                     <div class="table__cell table__cell--right" role="columnheader">Governance Structure</div>
                     <div class="table__cell table__cell--right" role="columnheader">Regulatory Alignment</div>
                     <div class="table__cell table__cell--right" role="columnheader">Stakeholder Engagement</div>
-                    <div class="table__cell table__cell--right" role="columnheader">Composite AI Governance &amp; Ethics Score</div>
+                    <div class="table__cell table__cell--right" role="columnheader">Composite AI Gov &amp; Ethics</div>
                 </div>
                 {% for company in tech100_preview %}
                 <div class="table__row" role="row">
-                    <div class="table__cell" role="cell">{{ company.company }}</div>
+                    <div class="table__cell" role="cell">
+                        {{ company.company }}{% if company.ticker %} ({{ company.ticker }}){% endif %}
+                    </div>
                     <div class="table__cell" role="cell">{{ company.sector }}</div>
-                    <div class="table__cell" role="cell">{{ company.region }}</div>
                     <div class="table__cell table__cell--right" role="cell">{{ company.transparency|default:"—" }}</div>
                     <div class="table__cell table__cell--right" role="cell">{{ company.ethical_principles|default:"—" }}</div>
                     <div class="table__cell table__cell--right" role="cell">{{ company.governance_structure|default:"—" }}</div>
@@ -305,7 +305,7 @@
             </div>
             <a class="text-link" href="{% url 'news' %}">See all news →</a>
         </div>
-        <div class="cards cards--list">
+        <div class="cards cards--three">
             {% for item in news_preview %}
             <article class="news-card">
                 <div class="news-card__meta">{{ item.source }} · {{ item.published_at|date:"M j, Y" }}</div>

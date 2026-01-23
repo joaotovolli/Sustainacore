@@ -1138,7 +1138,7 @@ def home(request):
         except Exception:
             logger.exception("TECH100 preview unavailable for home.")
             tech100_response = {}
-        news_response = {}
+        news_response = {"items": _news_fixture_items()}
     else:
         try:
             tech100_response = fetch_tech100()
@@ -1157,8 +1157,8 @@ def home(request):
     tech100_preview = [
         {
             "company": item.get("company_name") or item.get("company"),
+            "ticker": item.get("ticker"),
             "sector": item.get("sector") or item.get("gics_sector"),
-            "region": item.get("region"),
             "transparency": _format_score(item.get("transparency")),
             "ethical_principles": _format_score(item.get("ethical_principles")),
             "governance_structure": _format_score(item.get("governance_structure")),
@@ -1168,11 +1168,13 @@ def home(request):
         }
         for item in tech100_items[:25]
     ]
-    news_items = news_response.get("items", [])
+    news_items = [item for item in news_response.get("items", []) if isinstance(item, dict)]
+    news_items.sort(
+        key=lambda item: _parse_news_datetime(item.get("published_at")) or datetime.min,
+        reverse=True,
+    )
     news_preview = []
     for item in news_items[:3]:
-        if not isinstance(item, dict):
-            continue
         item_id = item.get("id")
         detail_url = reverse("news_detail", args=[item_id]) if item_id else reverse("news")
         raw_text = (

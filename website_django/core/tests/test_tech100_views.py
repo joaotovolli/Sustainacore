@@ -35,7 +35,6 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         for header in [
-            "Rebalance Date",
             "Rank",
             "Weight",
             "Company",

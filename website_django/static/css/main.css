@@ -873,7 +873,30 @@ h3 {
 }
 
 .tech100-home-table .table__row {
-    grid-template-columns: 1.8fr 1.2fr 1.1fr repeat(6, 0.7fr);
+    grid-template-columns: 1.9fr 1.1fr repeat(6, 0.7fr);
+}
+
+.tech100-table {
+    min-width: 1250px;
+}
+
+.tech100-table-wrap {
+    position: relative;
+}
+
+.tech100-table-wrap::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 36px;
+    height: 100%;
+    pointer-events: none;
+    background: linear-gradient(
+        to left,
+        rgba(247, 248, 250, 0.95),
+        rgba(247, 248, 250, 0)
+    );
 }
 
 .table__row:last-child {
