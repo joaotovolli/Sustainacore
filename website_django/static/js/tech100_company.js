@@ -7,14 +7,24 @@
 
   const summaryUrl = `/api/tech100/company/${ticker}/summary`;
   const historyUrl = `/api/tech100/company/${ticker}/history`;
-  const seriesUrl = (metric, range) =>
-    `/api/tech100/company/${ticker}/series?metric=${encodeURIComponent(metric)}&baseline=top25_avg&range=${encodeURIComponent(range)}`;
+  const seriesUrl = (companyTicker, metric, range) =>
+    `/api/tech100/company/${companyTicker}/series?metric=${encodeURIComponent(metric)}&baseline=top25_avg&range=${encodeURIComponent(range)}`;
+  const companiesUrl = "/api/tech100/companies";
 
   const metricSelect = document.getElementById("company-metric");
   const rangeButtons = Array.from(document.querySelectorAll("[data-range]"));
   const historyBody = document.getElementById("company-history-body");
   const sortButton = document.getElementById("history-sort");
   const chartCanvas = document.getElementById("company-series-chart");
+  const companySelector = document.getElementById("company-selector");
+  const compareSelector = document.getElementById("company-compare");
+  const companyOptions = document.getElementById("tech100-company-options");
+  const chartStatus = document.querySelector("[data-chart-status]");
+  const historyStatus = document.querySelector("[data-history-status]");
+  const retryChartButton = document.querySelector("[data-retry-chart]");
+  const retryHistoryButton = document.querySelector("[data-retry-history]");
+  const compareLegend = document.querySelector("[data-compare-legend]");
+  const compareLabel = document.querySelector("[data-compare-label]");
 
   const formatScore = (value) => {
     if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -46,6 +56,18 @@
     if (el) el.textContent = value ?? "—";
   };
 
+  const setStatus = (container, message, showRetry, retryButton) => {
+    if (!container) return;
+    if (!message) {
+      container.hidden = true;
+      return;
+    }
+    const textEl = container.querySelector(".tech100-company__status-text");
+    if (textEl) textEl.textContent = message;
+    if (retryButton) retryButton.hidden = !showRetry;
+    container.hidden = false;
+  };
+
   const updateSummary = async () => {
     try {
       const resp = await fetch(summaryUrl);
@@ -68,13 +90,19 @@
     sortDesc: true,
     chart: null,
     series: [],
+    compareSeries: [],
+    compareTicker: null,
+    compareLabel: null,
+    companies: [],
+    companyLookup: new Map(),
+    labelLookup: new Map(),
     history: [],
   };
 
   const renderHistory = () => {
     if (!historyBody) return;
     historyBody.innerHTML = "";
-    if (!state.history.length) {
+    if (!state.history?.length) {
       historyBody.innerHTML = '<tr><td colspan="9" class="muted">No history available.</td></tr>';
       return;
     }
@@ -107,46 +135,36 @@
   };
 
   const loadHistory = async () => {
+    setStatus(historyStatus, "Loading history…", false, retryHistoryButton);
     try {
       const resp = await fetch(historyUrl);
       if (!resp.ok) throw new Error(`history ${resp.status}`);
       const data = await resp.json();
       state.history = data.history || [];
       renderHistory();
+      setStatus(historyStatus, null, false, retryHistoryButton);
     } catch (err) {
       console.warn("Company history failed", err);
       if (historyBody) {
         historyBody.innerHTML = '<tr><td colspan="9" class="muted">History unavailable.</td></tr>';
       }
+      const statusCode = err?.message?.match(/\d{3}/)?.[0];
+      setStatus(
+        historyStatus,
+        `Couldn't load history${statusCode ? ` (HTTP ${statusCode})` : ""}.`,
+        true,
+        retryHistoryButton
+      );
     }
   };
 
-  const buildChart = (series) => {
+  const buildChart = (labels, datasets, series) => {
     if (!chartCanvas || !window.Chart) return null;
-    const labels = series.map((point) => point.date);
-    const companyValues = series.map((point) => point.company);
-    const baselineValues = series.map((point) => point.baseline);
-
     return new Chart(chartCanvas.getContext("2d"), {
       type: "line",
       data: {
         labels,
-        datasets: [
-          {
-            label: "Company",
-            data: companyValues,
-            borderColor: "#1f5fbf",
-            backgroundColor: "rgba(31, 95, 191, 0.1)",
-            tension: 0.25,
-          },
-          {
-            label: "Top 25 average",
-            data: baselineValues,
-            borderColor: "#9aa4b2",
-            backgroundColor: "rgba(154, 164, 178, 0.15)",
-            tension: 0.25,
-          },
-        ],
+        datasets,
       },
       options: {
         responsive: true,
@@ -187,30 +205,155 @@
     });
   };
 
-  const updateChart = (series) => {
+  const updateChart = (series, compareSeries) => {
     if (!chartCanvas || !window.Chart) return;
+    const labels = series.map((point) => point.date);
+    const baselineValues = series.map((point) => point.baseline);
+    const compareMap = new Map(
+      (compareSeries || []).map((point) => [point.date, point.company])
+    );
+
+    const datasets = [
+      {
+        label: "Company",
+        data: series.map((point) => point.company),
+        borderColor: "#1f5fbf",
+        backgroundColor: "rgba(31, 95, 191, 0.1)",
+        tension: 0.25,
+      },
+      {
+        label: "Top 25 average",
+        data: baselineValues,
+        borderColor: "#9aa4b2",
+        backgroundColor: "rgba(154, 164, 178, 0.15)",
+        tension: 0.25,
+      },
+    ];
+
+    if (state.compareTicker) {
+      datasets.push({
+        label: state.compareLabel || "Compare",
+        data: labels.map((date) => compareMap.get(date) ?? null),
+        borderColor: "#c0841f",
+        backgroundColor: "rgba(192, 132, 31, 0.12)",
+        tension: 0.25,
+      });
+    }
+
     if (!state.chart) {
-      state.chart = buildChart(series);
+      state.chart = buildChart(labels, datasets, series);
       return;
     }
-    state.chart.data.labels = series.map((point) => point.date);
-    state.chart.data.datasets[0].data = series.map((point) => point.company);
-    state.chart.data.datasets[1].data = series.map((point) => point.baseline);
+
+    state.chart.data.labels = labels;
+    state.chart.data.datasets = datasets;
     state.chart.update();
   };
 
+  const fetchSeries = async (companyTicker, metric, range) => {
+    const resp = await fetch(seriesUrl(companyTicker, metric, range));
+    if (!resp.ok) throw new Error(`series ${resp.status}`);
+    const data = await resp.json();
+    return data.series || [];
+  };
+
   const loadSeries = async () => {
-    const range = state.range;
-    const metric = state.metric;
+    setStatus(chartStatus, "Loading series…", false, retryChartButton);
     try {
-      const resp = await fetch(seriesUrl(metric, range));
-      if (!resp.ok) throw new Error(`series ${resp.status}`);
-      const data = await resp.json();
-      state.series = data.series || [];
-      updateChart(state.series);
+      const [series, compareSeries] = await Promise.all([
+        fetchSeries(ticker, state.metric, state.range),
+        state.compareTicker ? fetchSeries(state.compareTicker, state.metric, state.range) : Promise.resolve([]),
+      ]);
+      state.series = series;
+      state.compareSeries = compareSeries;
+      updateChart(series, compareSeries);
+      setStatus(chartStatus, null, false, retryChartButton);
     } catch (err) {
       console.warn("Company series failed", err);
+      const statusCode = err?.message?.match(/\d{3}/)?.[0];
+      setStatus(
+        chartStatus,
+        `Couldn't load series${statusCode ? ` (HTTP ${statusCode})` : ""}.`,
+        true,
+        retryChartButton
+      );
     }
+  };
+
+  const formatCompanyLabel = (company) => {
+    const name = company.company_name || company.ticker || "";
+    const symbol = (company.ticker || "").toUpperCase();
+    return symbol ? `${name} (${symbol})` : name;
+  };
+
+  const extractTicker = (value) => {
+    if (!value) return "";
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    const match = trimmed.match(/\(([^)]+)\)\s*$/);
+    if (match) return match[1].trim().toUpperCase();
+    if (state.labelLookup.has(trimmed.toLowerCase())) {
+      return state.labelLookup.get(trimmed.toLowerCase());
+    }
+    return trimmed.toUpperCase();
+  };
+
+  const updateCompareLegend = () => {
+    if (!compareLegend || !compareLabel) return;
+    if (state.compareTicker) {
+      compareLegend.hidden = false;
+      compareLabel.textContent = state.compareLabel || state.compareTicker;
+    } else {
+      compareLegend.hidden = true;
+    }
+  };
+
+  const loadCompanies = async () => {
+    if (!companyOptions) return;
+    try {
+      const resp = await fetch(companiesUrl);
+      if (!resp.ok) throw new Error(`companies ${resp.status}`);
+      const data = await resp.json();
+      state.companies = data.companies || [];
+      companyOptions.innerHTML = "";
+      state.companyLookup.clear();
+      state.labelLookup.clear();
+      const fragment = document.createDocumentFragment();
+      state.companies.forEach((company) => {
+        const symbol = (company.ticker || "").toUpperCase();
+        const label = formatCompanyLabel(company);
+        if (!symbol) return;
+        state.companyLookup.set(symbol, label);
+        state.labelLookup.set(label.toLowerCase(), symbol);
+        const option = document.createElement("option");
+        option.value = label;
+        fragment.appendChild(option);
+      });
+      companyOptions.appendChild(fragment);
+    } catch (err) {
+      console.warn("Company list failed", err);
+    }
+  };
+
+  const handleCompanyChange = (event) => {
+    const nextTicker = extractTicker(event.target.value);
+    if (!nextTicker || nextTicker === ticker) return;
+    window.location.assign(`/tech100/company/${nextTicker}/`);
+  };
+
+  const handleCompareChange = async (event) => {
+    const nextTicker = extractTicker(event.target.value);
+    if (!nextTicker || nextTicker === ticker) {
+      state.compareTicker = null;
+      state.compareLabel = null;
+      updateCompareLegend();
+      loadSeries();
+      return;
+    }
+    state.compareTicker = nextTicker;
+    state.compareLabel = state.companyLookup.get(nextTicker) || nextTicker;
+    updateCompareLegend();
+    loadSeries();
   };
 
   metricSelect?.addEventListener("change", (event) => {
@@ -232,7 +375,13 @@
     renderHistory();
   });
 
+  companySelector?.addEventListener("change", handleCompanyChange);
+  compareSelector?.addEventListener("change", handleCompareChange);
+  retryChartButton?.addEventListener("click", loadSeries);
+  retryHistoryButton?.addEventListener("click", loadHistory);
+
   updateSummary();
+  loadCompanies();
   loadHistory();
   loadSeries();
 })();

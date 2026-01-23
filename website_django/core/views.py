@@ -55,6 +55,7 @@ from core.tech100_index_data import (
 )
 from core.tech100_company_data import (
     METRIC_COLUMNS as TECH100_COMPANY_METRICS,
+    get_company_list,
     get_company_history,
     get_company_series,
     get_company_summary,
@@ -1629,6 +1630,10 @@ def api_tech100_company_history(request, ticker: str):
     if history is None:
         return JsonResponse({"error": "not_found"}, status=404)
     return JsonResponse({"ticker": (ticker or "").upper(), "history": history})
+
+
+def api_tech100_companies(request):
+    return JsonResponse({"companies": get_company_list()})
 
 
 @require_login_for_download
