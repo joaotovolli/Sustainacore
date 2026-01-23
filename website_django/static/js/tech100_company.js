@@ -283,16 +283,6 @@
     }
   };
 
-  const updateCompareLegend = () => {
-    if (!compareLegend || !compareLabel) return;
-    if (state.compareTicker) {
-      compareLegend.hidden = false;
-      compareLabel.textContent = state.compareLabel || state.compareTicker;
-    } else {
-      compareLegend.hidden = true;
-    }
-  };
-
   const populateCompanies = (companies) => {
     if (!companyOptions) return;
     if (!Array.isArray(companies)) return;
