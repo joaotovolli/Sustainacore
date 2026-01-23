@@ -94,22 +94,21 @@ def fetch_tech100_oracle_fallback(
 
     variants: list[tuple[str, list[str]]] = [
         (
-            "SELECT ticker, company_name, gics_sector, sector, port_date, "
-            "rank_index, port_weight, aiges_composite, transparency, ethical_principles, "
+            "SELECT ticker, company_name, gics_sector, port_date, "
+            "rank_index, port_weight, aiges_composite_average, transparency, ethical_principles, "
             "governance_structure, regulatory_alignment, stakeholder_engagement "
             "FROM tech11_ai_gov_eth_index "
             "WHERE port_date = :port_date "
-            "ORDER BY aiges_composite DESC NULLS LAST "
+            "ORDER BY aiges_composite_average DESC NULLS LAST "
             "FETCH FIRST :limit ROWS ONLY",
             [
                 "ticker",
                 "company_name",
                 "gics_sector",
-                "sector",
                 "port_date",
                 "rank_index",
                 "port_weight",
-                "aiges_composite",
+                "aiges_composite_average",
                 "transparency",
                 "ethical_principles",
                 "governance_structure",
@@ -118,7 +117,7 @@ def fetch_tech100_oracle_fallback(
             ],
         ),
         (
-            "SELECT ticker, company_name, gics_sector, sector, port_date, "
+            "SELECT ticker, company_name, gics_sector, port_date, "
             "rank_index, port_weight, aiges_composite_average "
             "FROM tech11_ai_gov_eth_index "
             "WHERE port_date = :port_date "
@@ -128,7 +127,6 @@ def fetch_tech100_oracle_fallback(
                 "ticker",
                 "company_name",
                 "gics_sector",
-                "sector",
                 "port_date",
                 "rank_index",
                 "port_weight",
@@ -136,7 +134,7 @@ def fetch_tech100_oracle_fallback(
             ],
         ),
         (
-            "SELECT ticker, company_name, gics_sector, sector, port_date, "
+            "SELECT ticker, company_name, gics_sector, port_date, "
             "rank_index, port_weight "
             "FROM tech11_ai_gov_eth_index "
             "WHERE port_date = :port_date "
@@ -146,7 +144,6 @@ def fetch_tech100_oracle_fallback(
                 "ticker",
                 "company_name",
                 "gics_sector",
-                "sector",
                 "port_date",
                 "rank_index",
                 "port_weight",
