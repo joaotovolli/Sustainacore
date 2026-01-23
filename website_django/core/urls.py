@@ -72,6 +72,7 @@ urlpatterns = [
     path("api/tech100/company/<str:ticker>/summary", views.api_tech100_company_summary),
     path("api/tech100/company/<str:ticker>/series", views.api_tech100_company_series),
     path("api/tech100/company/<str:ticker>/history", views.api_tech100_company_history),
+    path("api/tech100/company/<str:ticker>/bundle", views.api_tech100_company_bundle),
     path("api/tech100/companies", views.api_tech100_companies),
     path("tech100/index-levels/", tech100_index_views.api_tech100_index_levels, name="tech100_index_levels_api"),
     path(

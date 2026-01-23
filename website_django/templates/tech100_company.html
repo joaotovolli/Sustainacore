@@ -51,9 +51,14 @@
           <a class="text-link" href="/tech100/">Back to index →</a>
           <a class="text-link" href="/tech100/company/{{ ticker }}/download.csv">Download company CSV →</a>
         </div>
+        <div class="tech100-nav__breadcrumb tech100-company__breadcrumb">
+          <a href="/tech100/">Tech100</a>
+          <span class="tech100-nav__separator">→</span>
+          <span>Company</span>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ company_name }} ({{ ticker }})</span>
+        </div>
       </div>
-
-      {% include "partials/tech100_nav.html" %}
 
       <div class="card">
         <div class="card__header card__header--split">
@@ -111,6 +116,12 @@
           <div>
             <h2 class="h4">History</h2>
             <p class="muted">Full company history across Tech100 rebalances.</p>
+            <div class="tech100-company__history-meta">
+              <span class="muted">Last updated</span>
+              <strong data-history-updated>—</strong>
+              <span class="muted">· Rows</span>
+              <strong data-history-count>—</strong>
+            </div>
           </div>
           <div class="card__actions">
             <button class="btn btn--ghost btn--sm" type="button" id="history-sort">Sort by date</button>
@@ -151,5 +162,5 @@
 
 {% block extra_scripts %}
   <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
-  <script src="{% static 'js/tech100_company.js' %}?v=20260123-3" defer></script>
+  <script src="{% static 'js/tech100_company.js' %}?v=20260123-5" defer></script>
 {% endblock %}

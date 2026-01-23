@@ -5,11 +5,15 @@
   const ticker = (root.dataset.ticker || "").trim().toUpperCase();
   if (!ticker) return;
 
-  const summaryUrl = `/api/tech100/company/${ticker}/summary`;
-  const historyUrl = `/api/tech100/company/${ticker}/history`;
-  const seriesUrl = (companyTicker, metric, range) =>
-    `/api/tech100/company/${companyTicker}/series?metric=${encodeURIComponent(metric)}&baseline=top25_avg&range=${encodeURIComponent(range)}`;
-  const companiesUrl = "/api/tech100/companies";
+  const bundleUrl = (metric, range, compare, includeCompanies) => {
+    const params = new URLSearchParams({
+      metric: metric || "composite",
+      range: range || "6m",
+    });
+    if (compare) params.set("compare", compare);
+    if (includeCompanies) params.set("companies", "1");
+    return `/api/tech100/company/${ticker}/bundle?${params.toString()}`;
+  };
 
   const metricSelect = document.getElementById("company-metric");
   const rangeButtons = Array.from(document.querySelectorAll("[data-range]"));
@@ -25,6 +29,8 @@
   const retryHistoryButton = document.querySelector("[data-retry-history]");
   const compareLegend = document.querySelector("[data-compare-legend]");
   const compareLabel = document.querySelector("[data-compare-label]");
+  const historyCountEl = document.querySelector("[data-history-count]");
+  const historyUpdatedEl = document.querySelector("[data-history-updated]");
 
   const formatScore = (value) => {
     if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -90,22 +96,6 @@
     container.hidden = false;
   };
 
-  const updateSummary = async () => {
-    try {
-      const resp = await fetchWithTimeout(summaryUrl);
-      if (!resp.ok) return;
-      const data = await resp.json();
-      if (!data) return;
-      const scores = data.latest_scores || {};
-      setText("[data-company-name]", data.company_name || data.ticker);
-      setText("[data-company-sector]", data.sector || "—");
-      setText("[data-company-latest-date]", formatDate(data.latest_date));
-      setBadge("[data-company-latest-composite]", formatScore(scores.composite));
-    } catch (err) {
-      console.warn("Company summary failed", err);
-    }
-  };
-
   const state = {
     metric: metricSelect?.value || "composite",
     range: "6m",
@@ -119,6 +109,15 @@
     companyLookup: new Map(),
     labelLookup: new Map(),
     history: [],
+  };
+
+  const applySummary = (summary) => {
+    if (!summary) return;
+    const scores = summary.latest_scores || {};
+    setText("[data-company-name]", summary.company_name || summary.ticker);
+    setText("[data-company-sector]", summary.sector || "—");
+    setText("[data-company-latest-date]", formatDate(summary.latest_date));
+    setBadge("[data-company-latest-composite]", formatScore(scores.composite));
   };
 
   const renderHistory = () => {
@@ -156,27 +155,11 @@
     window.SCDateFormat?.applyDateFormatting?.(historyBody);
   };
 
-  const loadHistory = async () => {
-    setStatus(historyStatus, "Loading history…", false, retryHistoryButton);
-    try {
-      const resp = await fetchWithTimeout(historyUrl);
-      if (!resp.ok) throw new Error(`history ${resp.status}`);
-      const data = await resp.json();
-      state.history = data.history || [];
-      renderHistory();
-      setStatus(historyStatus, null, false, retryHistoryButton);
-    } catch (err) {
-      console.warn("Company history failed", err);
-      if (historyBody) {
-        historyBody.innerHTML = '<tr><td colspan="9" class="muted">History unavailable.</td></tr>';
-      }
-      const statusLabel = describeFetchError(err);
-      setStatus(
-        historyStatus,
-        `Couldn't load history (${statusLabel}).`,
-        true,
-        retryHistoryButton
-      );
+  const updateHistoryMeta = (history, latestDate) => {
+    if (historyCountEl) historyCountEl.textContent = history?.length ? String(history.length) : "0";
+    if (historyUpdatedEl) {
+      const value = latestDate || history?.[0]?.date;
+      historyUpdatedEl.textContent = formatDate(value);
     }
   };
 
@@ -272,36 +255,6 @@
     state.chart.update();
   };
 
-  const fetchSeries = async (companyTicker, metric, range) => {
-    const resp = await fetchWithTimeout(seriesUrl(companyTicker, metric, range));
-    if (!resp.ok) throw new Error(`series ${resp.status}`);
-    const data = await resp.json();
-    return data.series || [];
-  };
-
-  const loadSeries = async () => {
-    setStatus(chartStatus, "Loading series…", false, retryChartButton);
-    try {
-      const [series, compareSeries] = await Promise.all([
-        fetchSeries(ticker, state.metric, state.range),
-        state.compareTicker ? fetchSeries(state.compareTicker, state.metric, state.range) : Promise.resolve([]),
-      ]);
-      state.series = series;
-      state.compareSeries = compareSeries;
-      updateChart(series, compareSeries);
-      setStatus(chartStatus, null, false, retryChartButton);
-    } catch (err) {
-      console.warn("Company series failed", err);
-      const statusLabel = describeFetchError(err);
-      setStatus(
-        chartStatus,
-        `Couldn't load series (${statusLabel}).`,
-        true,
-        retryChartButton
-      );
-    }
-  };
-
   const formatCompanyLabel = (company) => {
     const name = company.company_name || company.ticker || "";
     const symbol = (company.ticker || "").toUpperCase();
@@ -330,30 +283,53 @@
     }
   };
 
-  const loadCompanies = async () => {
+  const populateCompanies = (companies) => {
     if (!companyOptions) return;
+    if (!Array.isArray(companies)) return;
+    state.companies = companies;
+    companyOptions.innerHTML = "";
+    state.companyLookup.clear();
+    state.labelLookup.clear();
+    const fragment = document.createDocumentFragment();
+    companies.forEach((company) => {
+      const symbol = (company.ticker || "").toUpperCase();
+      const label = formatCompanyLabel(company);
+      if (!symbol) return;
+      state.companyLookup.set(symbol, label);
+      state.labelLookup.set(label.toLowerCase(), symbol);
+      const option = document.createElement("option");
+      option.value = label;
+      fragment.appendChild(option);
+    });
+    companyOptions.appendChild(fragment);
+  };
+
+  const loadBundle = async (includeCompanies = false) => {
+    setStatus(chartStatus, "Loading series…", false, retryChartButton);
+    setStatus(historyStatus, "Loading history…", false, retryHistoryButton);
     try {
-      const resp = await fetchWithTimeout(companiesUrl);
-      if (!resp.ok) throw new Error(`companies ${resp.status}`);
+      const resp = await fetchWithTimeout(
+        bundleUrl(state.metric, state.range, state.compareTicker, includeCompanies)
+      );
+      if (!resp.ok) throw new Error(`bundle ${resp.status}`);
       const data = await resp.json();
-      state.companies = data.companies || [];
-      companyOptions.innerHTML = "";
-      state.companyLookup.clear();
-      state.labelLookup.clear();
-      const fragment = document.createDocumentFragment();
-      state.companies.forEach((company) => {
-        const symbol = (company.ticker || "").toUpperCase();
-        const label = formatCompanyLabel(company);
-        if (!symbol) return;
-        state.companyLookup.set(symbol, label);
-        state.labelLookup.set(label.toLowerCase(), symbol);
-        const option = document.createElement("option");
-        option.value = label;
-        fragment.appendChild(option);
-      });
-      companyOptions.appendChild(fragment);
+      applySummary(data.summary);
+      state.history = data.history || [];
+      state.series = data.series || [];
+      state.compareSeries = data.compare_series || [];
+      updateHistoryMeta(state.history, data.summary?.latest_date);
+      renderHistory();
+      updateChart(state.series, state.compareSeries);
+      if (includeCompanies && data.companies) {
+        populateCompanies(data.companies);
+      }
+      setStatus(chartStatus, null, false, retryChartButton);
+      setStatus(historyStatus, null, false, retryHistoryButton);
     } catch (err) {
-      console.warn("Company list failed", err);
+      console.warn("Company bundle failed", err);
+      const statusLabel = describeFetchError(err);
+      setStatus(chartStatus, `Couldn't load series (${statusLabel}).`, true, retryChartButton);
+      setStatus(historyStatus, `Couldn't load history (${statusLabel}).`, true, retryHistoryButton);
     }
   };
 
@@ -363,24 +339,24 @@
     window.location.assign(`/tech100/company/${nextTicker}/`);
   };
 
-  const handleCompareChange = async (event) => {
+  const handleCompareChange = (event) => {
     const nextTicker = extractTicker(event.target.value);
     if (!nextTicker || nextTicker === ticker) {
       state.compareTicker = null;
       state.compareLabel = null;
       updateCompareLegend();
-      loadSeries();
+      loadBundle(false);
       return;
     }
     state.compareTicker = nextTicker;
     state.compareLabel = state.companyLookup.get(nextTicker) || nextTicker;
     updateCompareLegend();
-    loadSeries();
+    loadBundle(false);
   };
 
   metricSelect?.addEventListener("change", (event) => {
     state.metric = event.target.value;
-    loadSeries();
+    loadBundle(false);
   });
 
   rangeButtons.forEach((button) => {
@@ -388,7 +364,7 @@
       rangeButtons.forEach((el) => el.classList.remove("is-active"));
       button.classList.add("is-active");
       state.range = button.dataset.range || "6m";
-      loadSeries();
+      loadBundle(false);
     });
   });
 
@@ -399,11 +375,8 @@
 
   companySelector?.addEventListener("change", handleCompanyChange);
   compareSelector?.addEventListener("change", handleCompareChange);
-  retryChartButton?.addEventListener("click", loadSeries);
-  retryHistoryButton?.addEventListener("click", loadHistory);
+  retryChartButton?.addEventListener("click", () => loadBundle(false));
+  retryHistoryButton?.addEventListener("click", () => loadBundle(false));
 
-  updateSummary();
-  loadCompanies();
-  loadHistory();
-  loadSeries();
+  loadBundle(true);
 })();

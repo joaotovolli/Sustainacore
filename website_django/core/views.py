@@ -55,6 +55,7 @@ from core.tech100_index_data import (
 )
 from core.tech100_company_data import (
     METRIC_COLUMNS as TECH100_COMPANY_METRICS,
+    get_company_bundle,
     get_company_list,
     get_company_history,
     get_company_series,
@@ -1631,6 +1632,29 @@ def api_tech100_company_history(request, ticker: str):
     if history is None:
         return JsonResponse({"error": "not_found"}, status=404)
     return JsonResponse({"ticker": (ticker or "").upper(), "history": history})
+
+
+def api_tech100_company_bundle(request, ticker: str):
+    metric = (request.GET.get("metric") or "composite").lower()
+    range_key = (request.GET.get("range") or "6m").lower()
+    compare = (request.GET.get("compare") or "").strip()
+    include_companies = (request.GET.get("companies") or "").strip() == "1"
+
+    if metric not in TECH100_COMPANY_METRICS:
+        return JsonResponse({"error": "invalid_metric"}, status=400)
+
+    bundle = get_company_bundle(
+        ticker=ticker,
+        metric=metric,
+        range_key=range_key,
+        compare_ticker=compare or None,
+        include_companies=include_companies,
+    )
+    if not bundle:
+        return JsonResponse({"error": "not_found"}, status=404)
+    bundle["ticker"] = (ticker or "").upper()
+    bundle["compare"] = (compare or "").upper() if compare else None
+    return JsonResponse(bundle)
 
 
 def api_tech100_companies(request):
