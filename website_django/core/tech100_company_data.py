@@ -34,6 +34,13 @@ def _execute_rows(sql: str, params: dict) -> list[tuple]:
         return cur.fetchall()
 
 
+def _execute_rows_with_fallback(sql: str, params: dict, fallback_sql: str) -> list[tuple]:
+    rows = _execute_rows(sql, params)
+    if rows:
+        return rows
+    return _execute_rows(fallback_sql, params)
+
+
 def _normalize_ticker(ticker: str) -> str:
     return (ticker or "").strip().upper()
 
@@ -85,10 +92,11 @@ def get_company_summary(ticker: str) -> Optional[dict]:
         "aiges_composite_average, transparency, ethical_principles, governance_structure, "
         "regulatory_alignment, stakeholder_engagement "
         "FROM tech11_ai_gov_eth_index "
-        "WHERE UPPER(ticker) = :ticker "
+        "WHERE ticker = :ticker "
         "ORDER BY port_date DESC FETCH FIRST 1 ROWS ONLY"
     )
-    rows = _execute_rows(sql, {"ticker": normalized})
+    fallback_sql = sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+    rows = _execute_rows_with_fallback(sql, {"ticker": normalized}, fallback_sql)
     if not rows:
         return None
 
@@ -142,10 +150,11 @@ def get_company_history(ticker: str) -> Optional[list[dict]]:
         "transparency, ethical_principles, governance_structure, "
         "regulatory_alignment, stakeholder_engagement "
         "FROM tech11_ai_gov_eth_index "
-        "WHERE UPPER(ticker) = :ticker "
+        "WHERE ticker = :ticker "
         "ORDER BY port_date DESC"
     )
-    rows = _execute_rows(sql, {"ticker": normalized})
+    fallback_sql = sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+    rows = _execute_rows_with_fallback(sql, {"ticker": normalized}, fallback_sql)
     if not rows:
         return None
 
@@ -213,11 +222,12 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
     company_sql = (
         f"SELECT port_date, {metric_col} "
         "FROM tech11_ai_gov_eth_index "
-        "WHERE UPPER(ticker) = :ticker AND "
+        "WHERE ticker = :ticker AND "
         f"{date_filter} "
         "ORDER BY port_date"
     )
-    company_rows = _execute_rows(company_sql, params)
+    fallback_company_sql = company_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+    company_rows = _execute_rows_with_fallback(company_sql, params, fallback_company_sql)
     if not company_rows:
         return None
 
@@ -268,3 +278,28 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
 
     cache.set(series_key, series, CACHE_TTLS["series"])
     return series
+
+
+def get_company_list() -> list[dict]:
+    key = _cache_key("companies")
+    cached = cache.get(key)
+    if isinstance(cached, list):
+        return cached
+
+    sql = (
+        "SELECT ticker, company_name, gics_sector "
+        "FROM ("
+        "SELECT ticker, company_name, gics_sector, "
+        "ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY port_date DESC) AS rn "
+        "FROM tech11_ai_gov_eth_index "
+        "WHERE ticker IS NOT NULL"
+        ") "
+        "WHERE rn = 1 "
+        "ORDER BY ticker"
+    )
+    rows = _execute_rows(sql, {})
+    companies = [
+        {"ticker": row[0], "company_name": row[1], "sector": row[2]} for row in rows if row[0]
+    ]
+    cache.set(key, companies, 900)
+    return companies
