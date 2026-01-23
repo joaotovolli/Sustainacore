@@ -1,0 +1,107 @@
+{
+  "urls": {
+    "prod": "https://sustainacore.org/",
+    "preview": "https://preview.sustainacore.org/"
+  },
+  "status": "ok",
+  "errors": [],
+  "viewports": {
+    "desktop": {
+      "width": 1440,
+      "height": 900
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "diff": {
+    "mismatchPixels": 322404,
+    "mismatchPercent": 4.4736
+  },
+  "shots": [
+    {
+      "name": "home_full",
+      "viewport": "desktop",
+      "before": "before/home_full.png",
+      "after": "after/home_full.png",
+      "diff": "diff/home_full_diff.png",
+      "stats": {
+        "mismatchPixels": 322404,
+        "mismatchPercent": 3.5561,
+        "width": 1440,
+        "height": 6296
+      }
+    },
+    {
+      "name": "home_top",
+      "viewport": "desktop",
+      "before": "before/home_top.png",
+      "after": "after/home_top.png",
+      "diff": "diff/home_top_diff.png",
+      "stats": {
+        "mismatchPixels": 50,
+        "mismatchPercent": 0.0039,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "name": "home_mid",
+      "viewport": "desktop",
+      "before": "before/home_mid.png",
+      "after": "after/home_mid.png",
+      "diff": "diff/home_mid_diff.png",
+      "stats": {
+        "mismatchPixels": 26824,
+        "mismatchPercent": 2.0698,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "name": "home_footer",
+      "viewport": "desktop",
+      "before": "before/home_footer.png",
+      "after": "after/home_footer.png",
+      "diff": "diff/home_footer_diff.png",
+      "stats": {
+        "mismatchPixels": 57978,
+        "mismatchPercent": 4.4736,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "name": "home_mobile",
+      "viewport": "mobile",
+      "before": "before/home_mobile.png",
+      "after": "after/home_mobile.png",
+      "diff": "diff/home_mobile_diff.png",
+      "stats": {
+        "mismatchPixels": 0,
+        "mismatchPercent": 0,
+        "width": 390,
+        "height": 844
+      }
+    }
+  ],
+  "layout": {
+    "before": {
+      "viewportWidth": 1440,
+      "viewportHeight": 900,
+      "docScrollWidth": 1440,
+      "docClientWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowOffendersTop15": []
+    },
+    "after": {
+      "viewportWidth": 1440,
+      "viewportHeight": 900,
+      "docScrollWidth": 1440,
+      "docClientWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowOffendersTop15": []
+    }
+  }
+}

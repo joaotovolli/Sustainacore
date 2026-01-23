@@ -58,7 +58,7 @@
       <div class="tech100-filters-row">
         <form method="get" class="filters">
           <label>
-            Rebalance Date
+            As-of date
             <select name="port_date">
               {% for d in port_date_options %}
                 <option value="{{ d }}" {% if filters.port_date == d %}selected{% endif %}>{{ d }}</option>
@@ -104,11 +104,10 @@
         </div>
       </div>
 
-      <div class="table-wrapper table-wrap">
+      <div class="table-wrapper table-wrap tech100-table-wrap">
           <table id="tech100-data" class="table table--wide tech100-table" aria-label="TECH100 index">
             <thead>
               <tr>
-                <th class="text-left" scope="col">Rebalance Date</th>
                 <th class="text-center tech100-col--rank" scope="col">Rank</th>
                 <th class="text-center" scope="col">Weight</th>
                 <th class="text-left" scope="col">Company</th>
@@ -125,9 +124,6 @@
               {% if companies %}
                 {% for c in companies %}
                   <tr class="tech100-row">
-                    <td class="text-left" data-order="{{ c.port_date_str|default:'' }}">
-                      <span data-date-format="as-of" data-date-value="{{ c.port_date_str }}">{{ c.port_date_str|default:"—" }}</span>
-                    </td>
                     <td class="text-center tech100-col--rank" data-order="{{ c.rank_index|default_if_none:'' }}">
                       {% if c.rank_index or c.rank_index == 0 %}
                         {{ c.rank_index|floatformat:0 }}
@@ -234,7 +230,7 @@
                             <table class="table tech100-history-table" aria-label="Historical AIGES data for {{ c.company_name }}">
                               <thead>
                                 <tr>
-                                  <th>Rebalance Date</th>
+                                  <th>As-of date</th>
                                   <th class="text-right">Transparency</th>
                                   <th class="text-right">Ethical Principles</th>
                                   <th class="text-right">Governance Structure</th>
@@ -308,7 +304,7 @@
                 {% endfor %}
               {% else %}
                 <tr>
-                  <td colspan="6" class="muted">Data currently unavailable.</td>
+                  <td colspan="10" class="muted">Data currently unavailable.</td>
                 </tr>
               {% endif %}
             </tbody>

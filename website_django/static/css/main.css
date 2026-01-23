@@ -873,7 +873,7 @@ h3 {
 }
 
 .tech100-home-table .table__row {
-    grid-template-columns: 1.8fr 1.2fr 1.1fr repeat(6, 0.7fr);
+    grid-template-columns: 1.9fr 1.1fr repeat(6, 0.7fr);
 }
 
 .table__row:last-child {
@@ -2052,8 +2052,24 @@ textarea:focus {
     max-height: 70vh;
 }
 
+.tech100-table-wrap {
+    position: relative;
+}
+
+.tech100-table-wrap::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 48px;
+    height: 100%;
+    pointer-events: none;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0), var(--card));
+}
+
 .tech100-page .tech100-table {
     width: 100%;
+    min-width: 1350px;
     border-collapse: separate;
     border-spacing: 0;
 }
@@ -2094,6 +2110,21 @@ textarea:focus {
 .tech100-page .tech100-table th:nth-child(6),
 .tech100-page .tech100-table td:nth-child(6) {
     text-align: center;
+}
+
+.tech100-page .tech100-table th.text-left,
+.tech100-page .tech100-table td.text-left {
+    text-align: left;
+}
+
+.tech100-page .tech100-table th.text-center,
+.tech100-page .tech100-table td.text-center {
+    text-align: center;
+}
+
+.tech100-page .tech100-table th.text-right,
+.tech100-page .tech100-table td.text-right {
+    text-align: right;
 }
 
 .tech100-constituents__summary {
