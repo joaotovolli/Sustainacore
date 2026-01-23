@@ -2138,6 +2138,39 @@ textarea:focus {
     }
 }
 
+@media (min-width: 1200px) {
+    .tech100-page .tech100-table {
+        min-width: 0;
+        font-size: 0.86rem;
+        table-layout: fixed;
+    }
+
+    .tech100-page .tech100-table th,
+    .tech100-page .tech100-table td {
+        padding: 8px 8px !important;
+    }
+
+    .tech100-page .tech100-table thead th {
+        line-height: 1.15;
+        white-space: normal;
+    }
+
+    .tech100-page .tech100-table td {
+        white-space: nowrap;
+    }
+
+    .tech100-page .tech100-table th:nth-child(3),
+    .tech100-page .tech100-table td:nth-child(3) {
+        width: 22%;
+        white-space: normal;
+    }
+
+    .tech100-page .tech100-table th:nth-child(10),
+    .tech100-page .tech100-table td:nth-child(10) {
+        width: 6%;
+    }
+}
+
 .tech100-constituents__summary {
     display: flex;
     align-items: center;
