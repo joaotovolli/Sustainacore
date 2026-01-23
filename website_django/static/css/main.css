@@ -2217,6 +2217,10 @@ textarea:focus {
     margin-top: 0.75rem;
 }
 
+.tech100-company__breadcrumb {
+    margin-top: 0.75rem;
+}
+
 .tech100-company__selectors {
     margin-top: 0.75rem;
     max-width: 360px;
@@ -2243,6 +2247,14 @@ textarea:focus {
     margin-top: 1rem;
     min-height: 320px;
     position: relative;
+}
+
+.tech100-company__history-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
+    font-size: 0.85rem;
 }
 
 .tech100-company__status {

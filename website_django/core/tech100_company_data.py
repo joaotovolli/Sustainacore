@@ -31,9 +31,13 @@ def _cache_key(*parts: str) -> str:
 
 def _execute_rows(sql: str, params: dict) -> list[tuple]:
     with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, params)
-        return cur.fetchall()
+        return _execute_rows_on_conn(conn, sql, params)
+
+
+def _execute_rows_on_conn(conn, sql: str, params: dict) -> list[tuple]:
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    return cur.fetchall()
 
 
 def _execute_rows_with_fallback(sql: str, params: dict, fallback_sql: str) -> list[tuple]:
@@ -232,6 +236,75 @@ def _cached_baseline(metric_key: str, dates: list[dt.date]) -> Optional[dict]:
     return None
 
 
+def _build_baseline_map_on_conn(
+    conn,
+    metric_key: str,
+    metric_col: str,
+    dates: list[dt.date],
+    date_filter: str,
+    baseline_params: dict,
+) -> dict:
+    baseline_map = _cached_baseline(metric_key, dates) or {}
+    if baseline_map:
+        return baseline_map
+
+    baseline_rows: list[tuple] = []
+    if 0 < len(dates) <= 120:
+        placeholders, date_params = _build_date_binds(dates)
+        baseline_sql = (
+            "WITH ranked AS ("
+            "SELECT port_date, "
+            f"{metric_col} AS metric, "
+            "rank_index, port_weight, aiges_composite_average, "
+            "ROW_NUMBER() OVER (PARTITION BY port_date ORDER BY "
+            "CASE WHEN rank_index IS NULL THEN 999999 ELSE rank_index END, "
+            "port_weight DESC NULLS LAST, "
+            "aiges_composite_average DESC NULLS LAST) AS rn "
+            "FROM tech11_ai_gov_eth_index "
+            f"WHERE port_date IN ({placeholders})"
+            ") "
+            "SELECT port_date, AVG(metric) AS baseline "
+            "FROM ranked "
+            "WHERE rn <= 25 AND metric IS NOT NULL "
+            "GROUP BY port_date "
+            "ORDER BY port_date"
+        )
+        baseline_rows = _execute_rows_on_conn(conn, baseline_sql, date_params)
+    else:
+        baseline_sql = (
+            "WITH ranked AS ("
+            "SELECT port_date, "
+            f"{metric_col} AS metric, "
+            "rank_index, port_weight, aiges_composite_average, "
+            "ROW_NUMBER() OVER (PARTITION BY port_date ORDER BY "
+            "CASE WHEN rank_index IS NULL THEN 999999 ELSE rank_index END, "
+            "port_weight DESC NULLS LAST, "
+            "aiges_composite_average DESC NULLS LAST) AS rn "
+            "FROM tech11_ai_gov_eth_index "
+            f"WHERE {date_filter}"
+            ") "
+            "SELECT port_date, AVG(metric) AS baseline "
+            "FROM ranked "
+            "WHERE rn <= 25 AND metric IS NOT NULL "
+            "GROUP BY port_date "
+            "ORDER BY port_date"
+        )
+        baseline_rows = _execute_rows_on_conn(conn, baseline_sql, baseline_params)
+
+    baseline_map = {
+        _to_date(row[0]).isoformat(): _float_or_none(row[1])
+        for row in baseline_rows
+        if _to_date(row[0]) is not None
+    }
+    if dates:
+        cache.set(
+            _cache_key("baseline", metric_key, ",".join([d.isoformat() for d in dates])),
+            baseline_map,
+            CACHE_TTLS["baseline"],
+        )
+    return baseline_map
+
+
 def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[list[dict]]:
     normalized = _normalize_ticker(ticker)
     if not normalized:
@@ -273,62 +346,10 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
         return None
 
     date_list = sorted({_to_date(row[0]) for row in company_rows if _to_date(row[0]) is not None})
-    baseline_map = _cached_baseline(metric_key, date_list) or {}
-    if not baseline_map:
-        baseline_rows = []
-        if 0 < len(date_list) <= 120:
-            placeholders, date_params = _build_date_binds(date_list)
-            baseline_sql = (
-                "WITH ranked AS ("
-                "SELECT port_date, "
-                f"{metric_col} AS metric, "
-                "rank_index, port_weight, aiges_composite_average, "
-                "ROW_NUMBER() OVER (PARTITION BY port_date ORDER BY "
-                "CASE WHEN rank_index IS NULL THEN 999999 ELSE rank_index END, "
-                "port_weight DESC NULLS LAST, "
-                "aiges_composite_average DESC NULLS LAST) AS rn "
-                "FROM tech11_ai_gov_eth_index "
-                f"WHERE port_date IN ({placeholders})"
-                ") "
-                "SELECT port_date, AVG(metric) AS baseline "
-                "FROM ranked "
-                "WHERE rn <= 25 AND metric IS NOT NULL "
-                "GROUP BY port_date "
-                "ORDER BY port_date"
-            )
-            baseline_rows = _execute_rows(baseline_sql, date_params)
-        else:
-            baseline_sql = (
-                "WITH ranked AS ("
-                "SELECT port_date, "
-                f"{metric_col} AS metric, "
-                "rank_index, port_weight, aiges_composite_average, "
-                "ROW_NUMBER() OVER (PARTITION BY port_date ORDER BY "
-                "CASE WHEN rank_index IS NULL THEN 999999 ELSE rank_index END, "
-                "port_weight DESC NULLS LAST, "
-                "aiges_composite_average DESC NULLS LAST) AS rn "
-                "FROM tech11_ai_gov_eth_index "
-                f"WHERE {date_filter}"
-                ") "
-                "SELECT port_date, AVG(metric) AS baseline "
-                "FROM ranked "
-                "WHERE rn <= 25 AND metric IS NOT NULL "
-                "GROUP BY port_date "
-                "ORDER BY port_date"
-            )
-            baseline_rows = _execute_rows(baseline_sql, baseline_params)
-
-        baseline_map = {
-            _to_date(row[0]).isoformat(): _float_or_none(row[1])
-            for row in baseline_rows
-            if _to_date(row[0]) is not None
-        }
-        if date_list:
-            cache.set(
-                _cache_key("baseline", metric_key, ",".join([d.isoformat() for d in date_list])),
-                baseline_map,
-                CACHE_TTLS["baseline"],
-            )
+    with get_connection() as conn:
+        baseline_map = _build_baseline_map_on_conn(
+            conn, metric_key, metric_col, date_list, date_filter, baseline_params
+        )
 
     series: list[dict] = []
     for port_date, metric_value in company_rows:
@@ -352,6 +373,211 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
 
     cache.set(series_key, series, CACHE_TTLS["series"])
     return series
+
+
+def get_company_bundle(
+    ticker: str,
+    metric: str,
+    range_key: str,
+    compare_ticker: Optional[str] = None,
+    include_companies: bool = False,
+) -> Optional[dict]:
+    normalized = _normalize_ticker(ticker)
+    if not normalized:
+        return None
+
+    metric_key = (metric or "").lower()
+    metric_col = METRIC_COLUMNS.get(metric_key)
+    if not metric_col:
+        return None
+
+    summary_key = _cache_key("summary", normalized)
+    history_key = _cache_key("history", normalized)
+
+    with get_connection() as conn:
+        summary = cache.get(summary_key)
+        if not isinstance(summary, dict):
+            summary_sql = (
+                "SELECT ticker, company_name, gics_sector, port_date, rank_index, port_weight, "
+                "aiges_composite_average, transparency, ethical_principles, governance_structure, "
+                "regulatory_alignment, stakeholder_engagement "
+                "FROM tech11_ai_gov_eth_index "
+                "WHERE ticker = :ticker "
+                "ORDER BY port_date DESC FETCH FIRST 1 ROWS ONLY"
+            )
+            fallback_summary_sql = summary_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+            summary_rows = _execute_rows_on_conn(conn, summary_sql, {"ticker": normalized})
+            if not summary_rows:
+                summary_rows = _execute_rows_on_conn(conn, fallback_summary_sql, {"ticker": normalized})
+            if not summary_rows:
+                return None
+            (
+                _ticker_val,
+                company_name,
+                sector,
+                port_date,
+                rank_index,
+                port_weight,
+                composite,
+                transparency,
+                ethical_principles,
+                governance_structure,
+                regulatory_alignment,
+                stakeholder_engagement,
+            ) = summary_rows[0]
+            latest_date = _to_date(port_date)
+            summary = {
+                "ticker": normalized,
+                "company_name": company_name,
+                "sector": sector,
+                "latest_date": latest_date.isoformat() if latest_date else None,
+                "latest_rank": _float_or_none(rank_index),
+                "latest_weight": _float_or_none(port_weight),
+                "latest_scores": {
+                    "composite": _float_or_none(composite),
+                    "transparency": _float_or_none(transparency),
+                    "ethical_principles": _float_or_none(ethical_principles),
+                    "governance_structure": _float_or_none(governance_structure),
+                    "regulatory_alignment": _float_or_none(regulatory_alignment),
+                    "stakeholder_engagement": _float_or_none(stakeholder_engagement),
+                },
+            }
+            cache.set(summary_key, summary, CACHE_TTLS["summary"])
+
+        if not summary.get("latest_date"):
+            return None
+
+        history = cache.get(history_key)
+        if not isinstance(history, list):
+            history_sql = (
+                "SELECT port_date, rank_index, port_weight, aiges_composite_average, "
+                "transparency, ethical_principles, governance_structure, "
+                "regulatory_alignment, stakeholder_engagement "
+                "FROM tech11_ai_gov_eth_index "
+                "WHERE ticker = :ticker "
+                "ORDER BY port_date DESC"
+            )
+            fallback_history_sql = history_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+            history_rows = _execute_rows_on_conn(conn, history_sql, {"ticker": normalized})
+            if not history_rows:
+                history_rows = _execute_rows_on_conn(conn, fallback_history_sql, {"ticker": normalized})
+            history = []
+            for (
+                port_date,
+                rank_index,
+                port_weight,
+                composite,
+                transparency,
+                ethical_principles,
+                governance_structure,
+                regulatory_alignment,
+                stakeholder_engagement,
+            ) in history_rows:
+                date_val = _to_date(port_date)
+                history.append(
+                    {
+                        "date": date_val.isoformat() if date_val else None,
+                        "rank": _float_or_none(rank_index),
+                        "weight": _float_or_none(port_weight),
+                        "composite": _float_or_none(composite),
+                        "transparency": _float_or_none(transparency),
+                        "ethical_principles": _float_or_none(ethical_principles),
+                        "governance_structure": _float_or_none(governance_structure),
+                        "regulatory_alignment": _float_or_none(regulatory_alignment),
+                        "stakeholder_engagement": _float_or_none(stakeholder_engagement),
+                    }
+                )
+            cache.set(history_key, history, CACHE_TTLS["history"])
+
+        latest_date = dt.date.fromisoformat(summary["latest_date"])
+        start_date, end_date = _resolve_range(range_key, latest_date)
+
+        params: dict = {"ticker": normalized, "end_date": end_date}
+        date_filter = "port_date <= :end_date"
+        if start_date:
+            params["start_date"] = start_date
+            date_filter = "port_date >= :start_date AND port_date <= :end_date"
+
+        company_sql = (
+            f"SELECT port_date, {metric_col} "
+            "FROM tech11_ai_gov_eth_index "
+            "WHERE ticker = :ticker AND "
+            f"{date_filter} AND {metric_col} IS NOT NULL "
+            "ORDER BY port_date"
+        )
+        fallback_company_sql = company_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+        company_rows = _execute_rows_on_conn(conn, company_sql, params)
+        if not company_rows:
+            company_rows = _execute_rows_on_conn(conn, fallback_company_sql, params)
+        if not company_rows:
+            return None
+
+        date_list = sorted({_to_date(row[0]) for row in company_rows if _to_date(row[0]) is not None})
+        baseline_map = _build_baseline_map_on_conn(
+            conn, metric_key, metric_col, date_list, date_filter, params
+        )
+
+        compare_series: list[dict] = []
+        normalized_compare = _normalize_ticker(compare_ticker) if compare_ticker else None
+        if normalized_compare and normalized_compare != normalized and date_list:
+            placeholders, date_params = _build_date_binds(date_list)
+            compare_params = {"ticker": normalized_compare, **date_params}
+            compare_sql = (
+                f"SELECT port_date, {metric_col} "
+                "FROM tech11_ai_gov_eth_index "
+                "WHERE ticker = :ticker "
+                f"AND port_date IN ({placeholders}) "
+                "ORDER BY port_date"
+            )
+            fallback_compare_sql = compare_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+            compare_rows = _execute_rows_on_conn(conn, compare_sql, compare_params)
+            if not compare_rows:
+                compare_rows = _execute_rows_on_conn(conn, fallback_compare_sql, compare_params)
+            compare_map = {
+                _to_date(row[0]).isoformat(): _float_or_none(row[1])
+                for row in compare_rows
+                if _to_date(row[0]) is not None
+            }
+            for date_val in date_list:
+                date_key = date_val.isoformat()
+                compare_series.append(
+                    {
+                        "date": date_key,
+                        "company": compare_map.get(date_key),
+                    }
+                )
+
+    series: list[dict] = []
+    for port_date, metric_value in company_rows:
+        date_val = _to_date(port_date)
+        if not date_val:
+            continue
+        date_key = date_val.isoformat()
+        company_val = _float_or_none(metric_value)
+        baseline_val = baseline_map.get(date_key)
+        delta_val = None
+        if company_val is not None and baseline_val is not None:
+            delta_val = company_val - baseline_val
+        series.append(
+            {
+                "date": date_key,
+                "company": company_val,
+                "baseline": baseline_val,
+                "delta": delta_val,
+            }
+        )
+
+    payload = {
+        "summary": summary,
+        "history": history,
+        "series": series,
+        "compare_series": compare_series,
+        "metric": metric_key,
+        "range": range_key,
+    }
+    if include_companies:
+        payload["companies"] = get_company_list()
+    return payload
 
 
 def get_company_list() -> list[dict]:
