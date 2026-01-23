@@ -131,6 +131,7 @@
                   <th class="text-right">Price</th>
                   <th class="text-right">1D Return (%)</th>
                   <th class="text-right">Contribution (bp)</th>
+                  <th class="text-right">AI Governance &amp; Ethics Score</th>
                 </tr>
               </thead>
               <tbody id="tech100-constituents-body">
@@ -142,10 +143,11 @@
                     <td class="text-right">{{ row.price|default:"—"|floatformat:2 }}</td>
                     <td class="text-right">{% if row.ret_1d_pct or row.ret_1d_pct == 0 %}{{ row.ret_1d_pct|floatformat:2 }}{% else %}—{% endif %}</td>
                     <td class="text-right">{% if row.contribution_bp or row.contribution_bp == 0 %}{{ row.contribution_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if row.aiges_composite or row.aiges_composite == 0 %}{{ row.aiges_composite|floatformat:1 }}{% else %}—{% endif %}</td>
                   </tr>
                 {% empty %}
                   <tr>
-                    <td colspan="6" class="text-center muted">No constituents available.</td>
+                    <td colspan="7" class="text-center muted">No constituents available.</td>
                   </tr>
                 {% endfor %}
               </tbody>

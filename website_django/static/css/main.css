@@ -868,6 +868,14 @@ h3 {
     border-bottom: 1px solid var(--border);
 }
 
+.tech100-home-table {
+    min-width: 1100px;
+}
+
+.tech100-home-table .table__row {
+    grid-template-columns: 1.8fr 1.2fr 1.1fr repeat(6, 0.7fr);
+}
+
 .table__row:last-child {
     border-bottom: none;
 }

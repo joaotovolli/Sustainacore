@@ -1133,7 +1133,11 @@ def home(request):
         return f"{pct:.{decimals}f}%"
 
     if settings.SUSTAINACORE_ENV == "preview":
-        tech100_response = {}
+        try:
+            tech100_response = fetch_tech100()
+        except Exception:
+            logger.exception("TECH100 preview unavailable for home.")
+            tech100_response = {}
         news_response = {}
     else:
         try:
@@ -1155,9 +1159,14 @@ def home(request):
             "company": item.get("company_name") or item.get("company"),
             "sector": item.get("sector") or item.get("gics_sector"),
             "region": item.get("region"),
-            "overall": item.get("aiges_composite") or item.get("overall"),
+            "transparency": _format_score(item.get("transparency")),
+            "ethical_principles": _format_score(item.get("ethical_principles")),
+            "governance_structure": _format_score(item.get("governance_structure")),
+            "regulatory_alignment": _format_score(item.get("regulatory_alignment")),
+            "stakeholder_engagement": _format_score(item.get("stakeholder_engagement")),
+            "composite": _format_score(item.get("aiges_composite") or item.get("overall")),
         }
-        for item in tech100_items[:3]
+        for item in tech100_items[:25]
     ]
     news_items = news_response.get("items", [])
     news_preview = []

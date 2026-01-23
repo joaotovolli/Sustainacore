@@ -112,7 +112,12 @@
                 <th class="text-center tech100-col--rank" scope="col">Rank</th>
                 <th class="text-center" scope="col">Weight</th>
                 <th class="text-left" scope="col">Company</th>
-                <th class="text-center" scope="col">AIGES Composite</th>
+                <th class="text-center" scope="col">Transparency</th>
+                <th class="text-center" scope="col">Ethical Principles</th>
+                <th class="text-center" scope="col">Governance Structure</th>
+                <th class="text-center" scope="col">Regulatory Alignment</th>
+                <th class="text-center" scope="col">Stakeholder Engagement</th>
+                <th class="text-center" scope="col">Composite AI Governance &amp; Ethics Score</th>
                 <th class="text-center" scope="col">Details</th>
               </tr>
             </thead>
@@ -150,6 +155,41 @@
                           <span class="tech100-company__ticker">({{ c.ticker }})</span>
                         {% endif %}
                       </div>
+                    </td>
+                    <td class="text-center" data-order="{{ c.transparency|default_if_none:'' }}">
+                      {% if c.transparency or c.transparency == 0 %}
+                        {{ c.transparency|floatformat:1 }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="text-center" data-order="{{ c.ethical_principles|default_if_none:'' }}">
+                      {% if c.ethical_principles or c.ethical_principles == 0 %}
+                        {{ c.ethical_principles|floatformat:1 }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="text-center" data-order="{{ c.governance_structure|default_if_none:'' }}">
+                      {% if c.governance_structure or c.governance_structure == 0 %}
+                        {{ c.governance_structure|floatformat:1 }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="text-center" data-order="{{ c.regulatory_alignment|default_if_none:'' }}">
+                      {% if c.regulatory_alignment or c.regulatory_alignment == 0 %}
+                        {{ c.regulatory_alignment|floatformat:1 }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="text-center" data-order="{{ c.stakeholder_engagement|default_if_none:'' }}">
+                      {% if c.stakeholder_engagement or c.stakeholder_engagement == 0 %}
+                        {{ c.stakeholder_engagement|floatformat:1 }}
+                      {% else %}
+                        —
+                      {% endif %}
                     </td>
                     <td class="text-center" data-order="{{ c.aiges_composite|default_if_none:'' }}">
                       {% if c.aiges_composite or c.aiges_composite == 0 %}
