@@ -1161,6 +1161,7 @@ def home(request):
         tech100_preview.append(
             {
                 "company": name or ticker or "—",
+                "ticker": ticker or "",
                 "company_display": company_display,
                 "sector": item.get("sector") or item.get("gics_sector"),
                 "transparency": _format_score(item.get("transparency")),

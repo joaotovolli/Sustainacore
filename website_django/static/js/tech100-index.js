@@ -697,10 +697,33 @@
     });
   };
 
+  const initHomeCompanyLinks = () => {
+    const rows = document.querySelectorAll("[data-company-link]");
+    if (!rows.length) return;
+
+    const handleActivate = (event, row) => {
+      const href = row.dataset.companyLink;
+      if (!href) return;
+      if (event?.target?.closest("a")) return;
+      window.location.assign(href);
+    };
+
+    rows.forEach((row) => {
+      row.addEventListener("click", (event) => handleActivate(event, row));
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleActivate(event, row);
+        }
+      });
+    });
+  };
+
   initOverview();
   initHomeSnapshot();
   initPerformance();
   initConstituents();
   initAttribution();
   initStats();
+  initHomeCompanyLinks();
 })();

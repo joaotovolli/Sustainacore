@@ -276,8 +276,23 @@
                     <div class="table__cell table__cell--right" role="columnheader">Composite AI Gov &amp; Ethics</div>
                 </div>
                 {% for company in tech100_preview %}
-                <div class="table__row" role="row">
-                    <div class="table__cell" role="cell">{{ company.company_display|default:company.company }}</div>
+                <div class="table__row{% if company.ticker %} table__row--clickable{% endif %}"
+                     role="row"
+                     {% if company.ticker %}
+                     data-company-link="/tech100/company/{{ company.ticker }}/"
+                     title="Click to view company report"
+                     tabindex="0"
+                     aria-label="View {{ company.company_display|default:company.company }} report"
+                     {% endif %}>
+                    <div class="table__cell" role="cell">
+                        {% if company.ticker %}
+                        <a class="table__link" href="/tech100/company/{{ company.ticker }}/">
+                            {{ company.company_display|default:company.company }}
+                        </a>
+                        {% else %}
+                            {{ company.company_display|default:company.company }}
+                        {% endif %}
+                    </div>
                     <div class="table__cell" role="cell">{{ company.sector }}</div>
                     <div class="table__cell table__cell--right" role="cell">{{ company.transparency|default:"—" }}</div>
                     <div class="table__cell table__cell--right" role="cell">{{ company.ethical_principles|default:"—" }}</div>
@@ -398,7 +413,7 @@
 
 {% block extra_scripts %}
   <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
-  <script src="{% static 'js/tech100-index.js' %}?v=20251221" defer></script>
+  <script src="{% static 'js/tech100-index.js' %}?v=20260123-3" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js" crossorigin="anonymous" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.29.2/dist/globe.gl.min.js" crossorigin="anonymous" defer></script>
   <script type="module" src="{% static 'js/ai_regulation.js' %}?v={{ static_version }}"></script>

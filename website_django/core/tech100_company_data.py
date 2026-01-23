@@ -20,6 +20,8 @@ CACHE_TTLS = {
     "summary": 300,
     "history": 600,
     "series": 300,
+    "latest_date": 600,
+    "baseline": 900,
 }
 
 
@@ -136,6 +138,26 @@ def get_company_summary(ticker: str) -> Optional[dict]:
     return payload
 
 
+def get_company_latest_date(ticker: str) -> Optional[dt.date]:
+    normalized = _normalize_ticker(ticker)
+    if not normalized:
+        return None
+    key = _cache_key("latest_date", normalized)
+    cached = cache.get(key)
+    if isinstance(cached, str):
+        try:
+            return dt.date.fromisoformat(cached)
+        except ValueError:
+            cache.delete(key)
+
+    sql = "SELECT MAX(port_date) FROM tech11_ai_gov_eth_index WHERE ticker = :ticker"
+    fallback_sql = sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+    rows = _execute_rows_with_fallback(sql, {"ticker": normalized}, fallback_sql)
+    latest_date = _to_date(rows[0][0]) if rows else None
+    cache.set(key, latest_date.isoformat() if latest_date else None, CACHE_TTLS["latest_date"])
+    return latest_date
+
+
 def get_company_history(ticker: str) -> Optional[list[dict]]:
     normalized = _normalize_ticker(ticker)
     if not normalized:
@@ -189,6 +211,27 @@ def get_company_history(ticker: str) -> Optional[list[dict]]:
     return history
 
 
+def _build_date_binds(dates: list[dt.date]) -> tuple[str, dict]:
+    bindings = {}
+    placeholders = []
+    for idx, value in enumerate(dates):
+        key = f"d{idx}"
+        placeholders.append(f":{key}")
+        bindings[key] = value
+    return ", ".join(placeholders), bindings
+
+
+def _cached_baseline(metric_key: str, dates: list[dt.date]) -> Optional[dict]:
+    if not dates:
+        return None
+    date_key = ",".join([d.isoformat() for d in dates])
+    cache_key = _cache_key("baseline", metric_key, date_key)
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+    return None
+
+
 def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[list[dict]]:
     normalized = _normalize_ticker(ticker)
     if not normalized:
@@ -199,11 +242,9 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
     if not metric_col:
         return None
 
-    summary = get_company_summary(normalized)
-    if not summary or not summary.get("latest_date"):
+    latest_date = get_company_latest_date(normalized)
+    if not latest_date:
         return None
-
-    latest_date = dt.date.fromisoformat(summary["latest_date"])
     start_date, end_date = _resolve_range(range_key, latest_date)
 
     series_key = _cache_key("series", normalized, metric_key, range_key or "")
@@ -223,7 +264,7 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
         f"SELECT port_date, {metric_col} "
         "FROM tech11_ai_gov_eth_index "
         "WHERE ticker = :ticker AND "
-        f"{date_filter} "
+        f"{date_filter} AND {metric_col} IS NOT NULL "
         "ORDER BY port_date"
     )
     fallback_company_sql = company_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
@@ -231,30 +272,63 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
     if not company_rows:
         return None
 
-    baseline_sql = (
-        "WITH ranked AS ("
-        "SELECT port_date, "
-        f"{metric_col} AS metric, "
-        "rank_index, port_weight, aiges_composite_average, "
-        "ROW_NUMBER() OVER (PARTITION BY port_date ORDER BY "
-        "CASE WHEN rank_index IS NULL THEN 999999 ELSE rank_index END, "
-        "port_weight DESC NULLS LAST, "
-        "aiges_composite_average DESC NULLS LAST) AS rn "
-        "FROM tech11_ai_gov_eth_index "
-        f"WHERE {date_filter}"
-        ") "
-        "SELECT port_date, AVG(metric) AS baseline "
-        "FROM ranked "
-        "WHERE rn <= 25 AND metric IS NOT NULL "
-        "GROUP BY port_date "
-        "ORDER BY port_date"
-    )
-    baseline_rows = _execute_rows(baseline_sql, baseline_params)
-    baseline_map = {
-        _to_date(row[0]).isoformat(): _float_or_none(row[1])
-        for row in baseline_rows
-        if _to_date(row[0]) is not None
-    }
+    date_list = sorted({_to_date(row[0]) for row in company_rows if _to_date(row[0]) is not None})
+    baseline_map = _cached_baseline(metric_key, date_list) or {}
+    if not baseline_map:
+        baseline_rows = []
+        if 0 < len(date_list) <= 120:
+            placeholders, date_params = _build_date_binds(date_list)
+            baseline_sql = (
+                "WITH ranked AS ("
+                "SELECT port_date, "
+                f"{metric_col} AS metric, "
+                "rank_index, port_weight, aiges_composite_average, "
+                "ROW_NUMBER() OVER (PARTITION BY port_date ORDER BY "
+                "CASE WHEN rank_index IS NULL THEN 999999 ELSE rank_index END, "
+                "port_weight DESC NULLS LAST, "
+                "aiges_composite_average DESC NULLS LAST) AS rn "
+                "FROM tech11_ai_gov_eth_index "
+                f"WHERE port_date IN ({placeholders})"
+                ") "
+                "SELECT port_date, AVG(metric) AS baseline "
+                "FROM ranked "
+                "WHERE rn <= 25 AND metric IS NOT NULL "
+                "GROUP BY port_date "
+                "ORDER BY port_date"
+            )
+            baseline_rows = _execute_rows(baseline_sql, date_params)
+        else:
+            baseline_sql = (
+                "WITH ranked AS ("
+                "SELECT port_date, "
+                f"{metric_col} AS metric, "
+                "rank_index, port_weight, aiges_composite_average, "
+                "ROW_NUMBER() OVER (PARTITION BY port_date ORDER BY "
+                "CASE WHEN rank_index IS NULL THEN 999999 ELSE rank_index END, "
+                "port_weight DESC NULLS LAST, "
+                "aiges_composite_average DESC NULLS LAST) AS rn "
+                "FROM tech11_ai_gov_eth_index "
+                f"WHERE {date_filter}"
+                ") "
+                "SELECT port_date, AVG(metric) AS baseline "
+                "FROM ranked "
+                "WHERE rn <= 25 AND metric IS NOT NULL "
+                "GROUP BY port_date "
+                "ORDER BY port_date"
+            )
+            baseline_rows = _execute_rows(baseline_sql, baseline_params)
+
+        baseline_map = {
+            _to_date(row[0]).isoformat(): _float_or_none(row[1])
+            for row in baseline_rows
+            if _to_date(row[0]) is not None
+        }
+        if date_list:
+            cache.set(
+                _cache_key("baseline", metric_key, ",".join([d.isoformat() for d in date_list])),
+                baseline_map,
+                CACHE_TTLS["baseline"],
+            )
 
     series: list[dict] = []
     for port_date, metric_value in company_rows:
