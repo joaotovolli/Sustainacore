@@ -2069,7 +2069,7 @@ textarea:focus {
 
 .tech100-page .tech100-table {
     width: 100%;
-    min-width: 1350px;
+    min-width: 1200px;
     border-collapse: separate;
     border-spacing: 0;
 }
@@ -2125,6 +2125,17 @@ textarea:focus {
 .tech100-page .tech100-table th.text-right,
 .tech100-page .tech100-table td.text-right {
     text-align: right;
+}
+
+@media (min-width: 960px) {
+    .tech100-page .tech100-table {
+        font-size: 0.94rem;
+    }
+
+    .tech100-page .tech100-table th,
+    .tech100-page .tech100-table td {
+        padding: 10px 10px !important;
+    }
 }
 
 .tech100-constituents__summary {
