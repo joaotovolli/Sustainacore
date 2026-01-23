@@ -270,9 +270,6 @@ def fetch_news(
 ) -> Dict[str, Any]:
     """Fetch news items from VM1 `/api/news` endpoint."""
 
-    if getattr(settings, "SUSTAINACORE_ENV", "").lower() == "preview":
-        return {"items": [], "meta": {"count": 0, "source": "fixture"}, "error": None}
-
     # VM1 `/api/news` accepts limit, days, source, and tag (multi) query params
     # and responds with {"items": [...], "meta": {...}}. Default backend days is 30
     # when the param is omitted. The backend requires `Authorization: Bearer` with the

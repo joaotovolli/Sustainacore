@@ -27,7 +27,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_POST
 
-from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+from core.api_client import create_news_item_admin, fetch_tech100
 from core.news_data import NewsDataError, fetch_filter_options
 from core.news_data import fetch_news_detail as fetch_news_detail_oracle
 from core.news_data import fetch_news_list
@@ -1132,49 +1132,57 @@ def home(request):
             decimals = 2
         return f"{pct:.{decimals}f}%"
 
-    if settings.SUSTAINACORE_ENV == "preview":
-        try:
-            tech100_response = fetch_tech100()
-        except Exception:
-            logger.exception("TECH100 preview unavailable for home.")
-            tech100_response = {}
-        news_response = {}
-    else:
-        try:
-            tech100_response = fetch_tech100()
-        except Exception:
-            logger.exception("TECH100 preview unavailable for home.")
-            tech100_response = {}
+    try:
+        tech100_response = fetch_tech100()
+    except Exception:
+        logger.exception("TECH100 preview unavailable for home.")
+        tech100_response = {}
 
-        try:
-            news_response = fetch_news()
-        except Exception:
-            logger.exception("News preview unavailable for home.")
-            news_response = {}
+    try:
+        news_response = fetch_news_list(limit=3, offset=0, date_range="all")
+    except NewsDataError:
+        logger.exception("News preview unavailable for home.")
+        news_response = {}
 
     raw_tech100_items = tech100_response.get("items", []) or []
     tech100_items = [_normalize_row(item) for item in raw_tech100_items if isinstance(item, dict)]
-    tech100_preview = [
-        {
-            "company": item.get("company_name") or item.get("company"),
-            "sector": item.get("sector") or item.get("gics_sector"),
-            "region": item.get("region"),
-            "transparency": _format_score(item.get("transparency")),
-            "ethical_principles": _format_score(item.get("ethical_principles")),
-            "governance_structure": _format_score(item.get("governance_structure")),
-            "regulatory_alignment": _format_score(item.get("regulatory_alignment")),
-            "stakeholder_engagement": _format_score(item.get("stakeholder_engagement")),
-            "composite": _format_score(item.get("aiges_composite") or item.get("overall")),
-        }
-        for item in tech100_items[:25]
-    ]
-    news_items = news_response.get("items", [])
+    tech100_preview = []
+    for item in tech100_items[:25]:
+        name = item.get("company_name") or item.get("company") or ""
+        ticker = item.get("ticker") or ""
+        company_display = f"{name} ({ticker})" if name and ticker else (name or ticker or "—")
+        tech100_preview.append(
+            {
+                "company": name or ticker or "—",
+                "company_display": company_display,
+                "sector": item.get("sector") or item.get("gics_sector"),
+                "transparency": _format_score(item.get("transparency")),
+                "ethical_principles": _format_score(item.get("ethical_principles")),
+                "governance_structure": _format_score(item.get("governance_structure")),
+                "regulatory_alignment": _format_score(item.get("regulatory_alignment")),
+                "stakeholder_engagement": _format_score(item.get("stakeholder_engagement")),
+                "composite": _format_score(item.get("aiges_composite") or item.get("overall")),
+            }
+        )
+
+    news_items = [item for item in (news_response.get("items", []) or []) if isinstance(item, dict)]
+    news_items.sort(
+        key=lambda item: _parse_news_datetime(item.get("published_at")) or datetime.min,
+        reverse=True,
+    )
     news_preview = []
     for item in news_items[:3]:
         if not isinstance(item, dict):
             continue
         item_id = item.get("id")
-        detail_url = reverse("news_detail", args=[item_id]) if item_id else reverse("news")
+        has_full_body = item.get("has_full_body")
+        external_url = item.get("url")
+        if item_id and has_full_body:
+            detail_url = reverse("news_detail", args=[item_id])
+        elif external_url:
+            detail_url = external_url
+        else:
+            detail_url = reverse("news")
         raw_text = (
             item.get("summary")
             or item.get("body")
@@ -1194,6 +1202,7 @@ def home(request):
                 "tags": item.get("tags") or [],
                 "snippet": snippet,
                 "detail_url": detail_url,
+                "external": bool(external_url and not (item_id and has_full_body)),
             }
         )
 
@@ -1513,7 +1522,6 @@ def tech100_export(request):
     response["Content-Disposition"] = "attachment; filename=tech100.csv"
 
     headers = [
-        "PORT_DATE",
         "RANK_INDEX",
         "WEIGHT",
         "COMPANY_NAME",
@@ -1538,7 +1546,6 @@ def tech100_export(request):
 
         writer.writerow(
             [
-                company.get("port_date") or "",
                 company.get("rank_index") or "",
                 _format_port_weight(weight_value),
                 company.get("company_name") or "",
