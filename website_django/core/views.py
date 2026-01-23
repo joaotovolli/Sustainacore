@@ -53,6 +53,12 @@ from core.tech100_index_data import (
     get_rolling_vol,
     get_ytd_return,
 )
+from core.tech100_company_data import (
+    METRIC_COLUMNS as TECH100_COMPANY_METRICS,
+    get_company_history,
+    get_company_series,
+    get_company_summary,
+)
 from ai_reg import data as ai_reg_data
 from core import sitemaps
 from sc_admin_portal.news_storage import get_news_asset
@@ -1558,6 +1564,108 @@ def tech100_export(request):
                 _format_score(company.get("regulatory_alignment")),
                 _format_score(company.get("stakeholder_engagement")),
                 company.get("summary") or "",
+            ]
+        )
+
+    return response
+
+
+def tech100_company(request, ticker: str):
+    summary = get_company_summary(ticker)
+    if not summary:
+        raise Http404("Company not found.")
+
+    latest_scores = summary.get("latest_scores") or {}
+    latest_scores_display = {key: _format_score(value) for key, value in latest_scores.items()}
+
+    context = {
+        "year": datetime.now().year,
+        "company_name": summary.get("company_name") or summary.get("ticker"),
+        "ticker": summary.get("ticker"),
+        "sector": summary.get("sector"),
+        "latest_date": summary.get("latest_date"),
+        "latest_rank": summary.get("latest_rank"),
+        "latest_weight": summary.get("latest_weight"),
+        "latest_scores": latest_scores,
+        "latest_scores_display": latest_scores_display,
+        "metric_options": list(TECH100_COMPANY_METRICS.keys()),
+    }
+    return render(request, "tech100_company.html", context)
+
+
+def api_tech100_company_summary(request, ticker: str):
+    summary = get_company_summary(ticker)
+    if not summary:
+        return JsonResponse({"error": "not_found"}, status=404)
+    return JsonResponse(summary)
+
+
+def api_tech100_company_series(request, ticker: str):
+    metric = (request.GET.get("metric") or "composite").lower()
+    baseline = (request.GET.get("baseline") or "top25_avg").lower()
+    range_key = (request.GET.get("range") or "6m").lower()
+
+    if baseline != "top25_avg":
+        return JsonResponse({"error": "invalid_baseline"}, status=400)
+    if metric not in TECH100_COMPANY_METRICS:
+        return JsonResponse({"error": "invalid_metric"}, status=400)
+
+    series = get_company_series(ticker, metric, range_key)
+    if series is None:
+        return JsonResponse({"error": "not_found"}, status=404)
+
+    payload = {
+        "ticker": (ticker or "").upper(),
+        "metric": metric,
+        "baseline": baseline,
+        "range": range_key,
+        "series": series,
+    }
+    return JsonResponse(payload)
+
+
+def api_tech100_company_history(request, ticker: str):
+    history = get_company_history(ticker)
+    if history is None:
+        return JsonResponse({"error": "not_found"}, status=404)
+    return JsonResponse({"ticker": (ticker or "").upper(), "history": history})
+
+
+@require_login_for_download
+def tech100_company_download(request, ticker: str):
+    history = get_company_history(ticker)
+    if history is None:
+        raise Http404("Company not found.")
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f"attachment; filename=tech100_{(ticker or '').upper()}.csv"
+
+    headers = [
+        "PORT_DATE",
+        "RANK_INDEX",
+        "WEIGHT",
+        "COMPOSITE",
+        "TRANSPARENCY",
+        "ETHICAL_PRINCIPLES",
+        "GOVERNANCE_STRUCTURE",
+        "REGULATORY_ALIGNMENT",
+        "STAKEHOLDER_ENGAGEMENT",
+    ]
+    writer = csv.writer(response)
+    writer.writerow(headers)
+
+    for row in history:
+        writer.writerow(
+            [
+                row.get("date") or "",
+                row.get("rank") or "",
+                _format_port_weight(row.get("weight")),
+                _format_score(row.get("composite")),
+                _format_score(row.get("transparency")),
+                _format_score(row.get("ethical_principles")),
+                _format_score(row.get("governance_structure")),
+                _format_score(row.get("regulatory_alignment")),
+                _format_score(row.get("stakeholder_engagement")),
             ]
         )
 

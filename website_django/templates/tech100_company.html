@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ company_name }} ({{ ticker }}) | Tech100 Company | SustainaCore{% endblock %}
+{% block meta_description %}Deep dive into {{ company_name }} AI governance scores, history, and Tech100 benchmarks.{% endblock %}
+
+{% block extra_head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="tech100-company-page" id="tech100-company-root" data-ticker="{{ ticker }}">
+  <section class="section section--with-header">
+    <div class="shell">
+      <div class="section__header">
+        <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</span>
+        <h1>
+          <span data-company-name>{{ company_name }}</span>
+          <span class="muted">({{ ticker }})</span>
+        </h1>
+        <div class="tech100-company__meta">
+          <div>
+            <span class="muted">Latest as-of</span>
+            <strong data-company-latest-date data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</strong>
+          </div>
+          <div>
+            <span class="muted">Composite score</span>
+            <span class="badge" data-company-latest-composite>{{ latest_scores_display.composite|default:"—" }}</span>
+          </div>
+          {% if sector %}
+          <div>
+            <span class="muted">Sector</span>
+            <strong data-company-sector>{{ sector }}</strong>
+          </div>
+          {% endif %}
+        </div>
+        <div class="tech100-company__links">
+          <a class="text-link" href="/tech100/">Back to index →</a>
+          <a class="text-link" href="/tech100/company/{{ ticker }}/download.csv">Download company CSV →</a>
+        </div>
+      </div>
+
+      {% include "partials/tech100_nav.html" %}
+
+      <div class="card">
+        <div class="card__header card__header--split">
+          <div>
+            <h2 class="h4">Score explorer</h2>
+            <p class="muted">Compare {{ company_name }} with the Tech100 top 25 average.</p>
+          </div>
+          <div class="tech100-company__controls">
+            <label class="form-field">
+              <span>Metric</span>
+              <select id="company-metric">
+                <option value="composite" selected>Composite</option>
+                <option value="transparency">Transparency</option>
+                <option value="ethical_principles">Ethical Principles</option>
+                <option value="governance_structure">Governance Structure</option>
+                <option value="regulatory_alignment">Regulatory Alignment</option>
+                <option value="stakeholder_engagement">Stakeholder Engagement</option>
+              </select>
+            </label>
+            <div class="tech100-company__range" role="tablist" aria-label="Range">
+              <button class="btn btn--ghost btn--sm" data-range="3m">3M</button>
+              <button class="btn btn--ghost btn--sm is-active" data-range="6m">6M</button>
+              <button class="btn btn--ghost btn--sm" data-range="1y">1Y</button>
+              <button class="btn btn--ghost btn--sm" data-range="ytd">YTD</button>
+              <button class="btn btn--ghost btn--sm" data-range="max">Max</button>
+            </div>
+          </div>
+        </div>
+        <div class="tech100-company__chart">
+          <canvas id="company-series-chart" role="img" aria-label="Company score chart"></canvas>
+        </div>
+        <div class="tech100-company__legend">
+          <span class="legend-item"><span class="legend-dot legend-dot--company"></span>{{ company_name }}</span>
+          <span class="legend-item"><span class="legend-dot legend-dot--baseline"></span>Top 25 average</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__header card__header--split">
+          <div>
+            <h2 class="h4">History</h2>
+            <p class="muted">Full company history across Tech100 rebalances.</p>
+          </div>
+          <div class="card__actions">
+            <button class="btn btn--ghost btn--sm" type="button" id="history-sort">Sort by date</button>
+          </div>
+        </div>
+        <div class="table-wrapper table-wrap">
+          <table class="table table--wide tech100-table tech100-company-table" aria-label="Company history">
+            <thead>
+              <tr>
+                <th class="text-left"><button class="table-sort" type="button" data-sort="date">As-of date</button></th>
+                <th class="text-center">Rank</th>
+                <th class="text-right">Weight</th>
+                <th class="text-right">Composite</th>
+                <th class="text-right">Transparency</th>
+                <th class="text-right">Ethical Principles</th>
+                <th class="text-right">Governance Structure</th>
+                <th class="text-right">Regulatory Alignment</th>
+                <th class="text-right">Stakeholder Engagement</th>
+              </tr>
+            </thead>
+            <tbody id="company-history-body">
+              <tr>
+                <td colspan="9" class="muted">Loading history…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
+  <script src="{% static 'js/tech100_company.js' %}?v=20260123" defer></script>
+{% endblock %}

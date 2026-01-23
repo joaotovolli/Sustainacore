@@ -2178,6 +2178,81 @@ textarea:focus {
     margin-bottom: 1rem;
 }
 
+.tech100-company__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    margin: 0.75rem 0 0.5rem;
+}
+
+.tech100-company__meta > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.tech100-company__links {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    margin-top: 0.75rem;
+}
+
+.tech100-company__controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.tech100-company__range {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.tech100-company__chart {
+    margin-top: 1rem;
+    min-height: 320px;
+}
+
+.tech100-company__legend {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    display: inline-block;
+}
+
+.legend-dot--company {
+    background: #1f5fbf;
+}
+
+.legend-dot--baseline {
+    background: #9aa4b2;
+}
+
+@media (max-width: 720px) {
+    .tech100-company__meta {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+}
+
 .constituents-locked {
     position: relative;
     margin-top: 1.25rem;
