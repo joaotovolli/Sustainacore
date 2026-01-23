@@ -886,6 +886,25 @@ h3 {
     color: var(--text);
 }
 
+.table__row--clickable {
+    cursor: pointer;
+}
+
+.table__row--clickable:hover,
+.table__row--clickable:focus-within {
+    background: rgba(15, 23, 42, 0.04);
+}
+
+.table__row--clickable .table__link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.table__row--clickable .table__link:hover,
+.table__row--clickable .table__link:focus {
+    text-decoration: underline;
+}
+
 .table__cell {
     text-align: left;
     color: var(--text);

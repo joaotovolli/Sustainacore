@@ -46,6 +46,28 @@
     return value || "—";
   };
 
+  const fetchWithTimeout = async (url, options = {}, timeoutMs = 8000) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, { ...options, signal: controller.signal });
+      return resp;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
+  const describeFetchError = (err) => {
+    if (err?.name === "AbortError") {
+      return "Request timed out";
+    }
+    const statusCode = err?.message?.match(/\d{3}/)?.[0];
+    if (statusCode) {
+      return `HTTP ${statusCode}`;
+    }
+    return "Request failed";
+  };
+
   const setText = (selector, value) => {
     const el = document.querySelector(selector);
     if (el) el.textContent = value ?? "—";
@@ -70,7 +92,7 @@
 
   const updateSummary = async () => {
     try {
-      const resp = await fetch(summaryUrl);
+      const resp = await fetchWithTimeout(summaryUrl);
       if (!resp.ok) return;
       const data = await resp.json();
       if (!data) return;
@@ -137,7 +159,7 @@
   const loadHistory = async () => {
     setStatus(historyStatus, "Loading history…", false, retryHistoryButton);
     try {
-      const resp = await fetch(historyUrl);
+      const resp = await fetchWithTimeout(historyUrl);
       if (!resp.ok) throw new Error(`history ${resp.status}`);
       const data = await resp.json();
       state.history = data.history || [];
@@ -148,10 +170,10 @@
       if (historyBody) {
         historyBody.innerHTML = '<tr><td colspan="9" class="muted">History unavailable.</td></tr>';
       }
-      const statusCode = err?.message?.match(/\d{3}/)?.[0];
+      const statusLabel = describeFetchError(err);
       setStatus(
         historyStatus,
-        `Couldn't load history${statusCode ? ` (HTTP ${statusCode})` : ""}.`,
+        `Couldn't load history (${statusLabel}).`,
         true,
         retryHistoryButton
       );
@@ -251,7 +273,7 @@
   };
 
   const fetchSeries = async (companyTicker, metric, range) => {
-    const resp = await fetch(seriesUrl(companyTicker, metric, range));
+    const resp = await fetchWithTimeout(seriesUrl(companyTicker, metric, range));
     if (!resp.ok) throw new Error(`series ${resp.status}`);
     const data = await resp.json();
     return data.series || [];
@@ -270,10 +292,10 @@
       setStatus(chartStatus, null, false, retryChartButton);
     } catch (err) {
       console.warn("Company series failed", err);
-      const statusCode = err?.message?.match(/\d{3}/)?.[0];
+      const statusLabel = describeFetchError(err);
       setStatus(
         chartStatus,
-        `Couldn't load series${statusCode ? ` (HTTP ${statusCode})` : ""}.`,
+        `Couldn't load series (${statusLabel}).`,
         true,
         retryChartButton
       );
@@ -311,7 +333,7 @@
   const loadCompanies = async () => {
     if (!companyOptions) return;
     try {
-      const resp = await fetch(companiesUrl);
+      const resp = await fetchWithTimeout(companiesUrl);
       if (!resp.ok) throw new Error(`companies ${resp.status}`);
       const data = await resp.json();
       state.companies = data.companies || [];
