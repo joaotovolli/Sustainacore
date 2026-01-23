@@ -34,7 +34,19 @@ class Tech100ViewTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
-        for header in ["Rebalance Date", "Rank", "Weight", "Company", "AIGES Composite", "Details"]:
+        for header in [
+            "Rebalance Date",
+            "Rank",
+            "Weight",
+            "Company",
+            "Transparency",
+            "Ethical Principles",
+            "Governance Structure",
+            "Regulatory Alignment",
+            "Stakeholder Engagement",
+            "Composite AI Governance & Ethics Score",
+            "Details",
+        ]:
             self.assertIn(header, content)
         self.assertIn('aria-label="View details for', content)
         self.assertIn("Transparency", content)

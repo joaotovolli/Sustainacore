@@ -695,7 +695,11 @@ def get_constituents(as_of_date: dt.date) -> list[dict]:
             "(SELECT t.company_name "
             " FROM tech11_ai_gov_eth_index t "
             " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
-            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS company_name, "
+            "(SELECT t.aiges_composite_average "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS aiges_composite "
             "FROM SC_IDX_CONSTITUENT_DAILY c "
             "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY a "
             "ON a.trade_date = c.trade_date AND a.ticker = c.ticker "
@@ -704,7 +708,11 @@ def get_constituents(as_of_date: dt.date) -> list[dict]:
         )
         sql_basic = (
             "SELECT c.ticker, c.weight, c.price_used, c.price_quality, "
-            "a.ret_1d, a.contribution "
+            "a.ret_1d, a.contribution, "
+            "(SELECT t.aiges_composite_average "
+            " FROM tech11_ai_gov_eth_index t "
+            " WHERE t.ticker = c.ticker AND t.port_date <= :trade_date "
+            " ORDER BY t.port_date DESC FETCH FIRST 1 ROWS ONLY) AS aiges_composite "
             "FROM SC_IDX_CONSTITUENT_DAILY c "
             "LEFT JOIN SC_IDX_CONTRIBUTION_DAILY a "
             "ON a.trade_date = c.trade_date AND a.ticker = c.ticker "
@@ -728,6 +736,9 @@ def get_constituents(as_of_date: dt.date) -> list[dict]:
                     "ret_1d": row[4],
                     "contribution": row[5] if len(row) > 5 else None,
                     "name": row[6] if has_name and len(row) > 6 else None,
+                    "aiges_composite": row[7]
+                    if has_name and len(row) > 7
+                    else (row[6] if not has_name and len(row) > 6 else None),
                 }
             )
         return results
