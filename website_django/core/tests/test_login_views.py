@@ -3,7 +3,7 @@ import json
 from unittest import mock
 
 import requests
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 
@@ -58,6 +58,17 @@ class LoginViewsTests(TestCase):
         response = self.client.post(reverse("logout"))
         self.assertEqual(response.status_code, 302)
         self.assertIn("sc_session", response.cookies)
+
+    def test_logout_requires_post(self):
+        response = self.client.get(reverse("logout"))
+        self.assertEqual(response.status_code, 405)
+
+    def test_logout_requires_csrf_token(self):
+        csrf_client = Client(enforce_csrf_checks=True)
+        response = csrf_client.get(reverse("login"))
+        token = response.cookies["csrftoken"].value
+        response = csrf_client.post(reverse("logout"), {"csrfmiddlewaretoken": token})
+        self.assertEqual(response.status_code, 302)
 
     def test_header_shows_login_when_logged_out(self):
         self.client.cookies.clear()

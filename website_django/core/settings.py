@@ -191,6 +191,9 @@ if PRODUCTION_MODE and not ORACLE_CONFIGURED:
         "(or ORACLE_USER/ORACLE_PASSWORD/ORACLE_DSN/ORACLE_CONNECT_STRING)."
     )
 
+# Trust Nginx's forwarded scheme for secure request detection.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 if ORACLE_CONFIGURED:
     oracle_db = {
         "ENGINE": "django.db.backends.oracle",
