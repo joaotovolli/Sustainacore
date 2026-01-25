@@ -4,6 +4,12 @@
 The preview environment is a protected clone of the production Django site for testing changes with real Oracle data.
 It is **public** and **noindex** by both Nginx and Django.
 
+## Login code delivery (preview)
+If SMTP is not configured for the backend API, preview falls back to logging one-time
+login codes server-side instead of sending real emails. This is intentional and
+deterministic to avoid leaking emails from preview. Production should still use
+real SMTP delivery.
+
 ## DNS
 Create an A record in IONOS:
 - `preview` → `141.147.76.55`

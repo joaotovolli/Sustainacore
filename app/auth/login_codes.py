@@ -117,6 +117,7 @@ def send_login_email(to_email: str, code: str) -> bool:
             "If you didn't request this, ignore",
         ]
     )
+    env_label = os.getenv("SUSTAINACORE_ENV", "").strip().lower()
     delivery_mode = os.getenv("EMAIL_DELIVERY_MODE", "").strip().lower()
     if delivery_mode == "log":
         _LOGGER.warning(
@@ -125,6 +126,22 @@ def send_login_email(to_email: str, code: str) -> bool:
             _mask_code(code),
         )
         return True
+    smtp_ready = bool(os.getenv("SMTP_USER") and os.getenv("SMTP_PASS"))
+    if not smtp_ready:
+        if env_label in {"preview", "development"}:
+            _LOGGER.warning(
+                "login_code_delivery=log reason=smtp_not_configured env=%s email=%s code_masked=%s",
+                env_label,
+                _redact_email(to_email),
+                _mask_code(code),
+            )
+            return True
+        _LOGGER.warning(
+            "login_code_delivery_failed reason=smtp_not_configured env=%s email=%s",
+            env_label or "unknown",
+            _redact_email(to_email),
+        )
+        return False
     return send_email_to(to_email, subject, body, mail_from=MAIL_FROM_LOGIN)
 
 
