@@ -25,6 +25,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import cache_page
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_POST
 
 from core.api_client import create_news_item_admin, fetch_tech100
@@ -556,6 +557,8 @@ def ux_event(request):
     return JsonResponse({"ok": True})
 
 
+@csrf_protect
+@require_POST
 def logout(request):
     request.session.pop("login_email", None)
     request.session.pop("login_notice", None)
