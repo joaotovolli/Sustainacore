@@ -1,0 +1,63 @@
+name: UI Screenshot Compare (Ask2)
+
+on:
+  pull_request:
+    paths:
+      - 'website_django/templates/ask2.html'
+      - 'website_django/static/js/ask2.js'
+      - 'website_django/static/css/main.css'
+      - 'website_django/scripts/ask2_smoke.mjs'
+      - 'website_django/scripts/ui_compare_ask2.mjs'
+  workflow_dispatch: {}
+
+jobs:
+  ui-ask2-compare:
+    name: UI compare (ask2, prod vs preview)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: website_django/package-lock.json
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          cd website_django
+          npm ci
+      - name: Install Playwright Chromium
+        run: |
+          set -euo pipefail
+          cd website_django
+          npx playwright install --with-deps chromium
+      - name: Prepare artifact directories
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ui_ask2/before artifacts/ui_ask2/after artifacts/ui_ask2/diff artifacts/ui_ask2/report
+      - name: Capture before/after/diff
+        continue-on-error: true
+        env:
+          PROD_BASE_URL: https://sustainacore.org
+          PREVIEW_BASE_URL: https://preview.sustainacore.org
+          TIMEOUT_MS: "60000"
+          OUTPUT_DIR: ../artifacts/ui_ask2
+        run: |
+          set -euo pipefail
+          cd website_django
+          node scripts/ui_compare_ask2.mjs
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-ask2-compare
+          path: artifacts/ui_ask2
+      - name: Job summary
+        run: |
+          {
+            echo "## UI ask2 screenshot compare";
+            echo "- Production: https://sustainacore.org/ask2/";
+            echo "- Preview: https://preview.sustainacore.org/ask2/";
+            echo "- Artifacts: ui-ask2-compare (before/after/diff/report for ask2_page)";
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -19,6 +19,7 @@ const expect = (condition, message) => {
 const buildLongAnswer = () => {
   const longParagraph = Array.from({ length: 120 }, () => "Long answer text").join(" ");
   return [
+    "Note. See sources.",
     "**Answer summary**",
     "",
     "Here is a quick overview with a markdown link to [SustainaCore](https://sustainacore.org) and a citation [1].",
@@ -40,8 +41,9 @@ const mockPayload = {
   sources: [
     {
       title: "TECH100 methodology",
-      url: "https://sustainacore.org/tech100/",
-      snippet: "Methodology overview and index construction details.",
+      url: "local://TECH100_AI_Governance_Methodology_v1.0.pdf",
+      snippet:
+        "Methodology overview with additional detail on eligibility thresholds and total-return construction that ends midwor",
     },
   ],
 };
@@ -121,6 +123,67 @@ const run = async () => {
     return style.overflow === "hidden" || style.overflowY === "hidden" || style.maxHeight !== "none";
   });
   expect(!overflowHidden, "Expected expanded content to avoid overflow clipping");
+
+  const renderedText = await page.evaluate(() => {
+    const bubbles = document.querySelectorAll(".bubble--assistant");
+    const last = bubbles[bubbles.length - 1];
+    const content = last?.querySelector(".ask2-bubble__content");
+    return content?.textContent || "";
+  });
+  const normalize = (value) => value.replace(/\s+/g, " ").trim();
+  const normalizeReply = (value) =>
+    normalize(
+      value
+        .replace(/```/g, "")
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/\*([^*]+)\*/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/^\s*[-*]\s+/gm, "")
+        .replace(/^\s*\d+\.\s+/gm, "")
+    );
+  const normalizedRendered = normalize(renderedText);
+  const normalizedReply = normalizeReply(mockPayload.reply);
+  process.stdout.write(`[ask2-smoke] reply_head=${normalizedReply.slice(0, 120)}\n`);
+  process.stdout.write(`[ask2-smoke] render_head=${normalizedRendered.slice(0, 120)}\n`);
+  expect(
+    normalizedRendered.includes("Note. See sources."),
+    "Expected rendered answer to include the leading sentence"
+  );
+  expect(
+    normalizedRendered.includes("Answer summary"),
+    "Expected rendered answer to include the answer summary heading"
+  );
+  expect(
+    normalizedRendered.includes("Long answer text"),
+    "Expected rendered answer to include the long answer body"
+  );
+  expect(
+    !/\\bte\\. See sources\\./i.test(normalizedRendered),
+    "Unexpected 'te. See sources.' artifact in assistant text"
+  );
+
+  const snippetCheck = await page.evaluate(() => {
+    const bubbles = document.querySelectorAll(".bubble--assistant");
+    const last = bubbles[bubbles.length - 1];
+    const snippet = last?.querySelector(".ask2-source__snippet");
+    const link = last?.querySelector(".ask2-sources a");
+    return {
+      snippetText: snippet?.textContent || "",
+      href: link?.getAttribute("href") || "",
+    };
+  });
+  expect(
+    snippetCheck.snippetText.endsWith("…"),
+    "Expected truncated snippet to end with an ellipsis"
+  );
+  expect(
+    !snippetCheck.snippetText.toLowerCase().endsWith("midwor…"),
+    "Expected snippet to avoid mid-word truncation"
+  );
+  expect(
+    snippetCheck.href.startsWith("http") || snippetCheck.href.startsWith("/"),
+    "Expected source href to be a real URL"
+  );
 
   try {
     await context.close();

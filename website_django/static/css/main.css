@@ -1921,9 +1921,17 @@ textarea:focus {
     text-decoration: underline;
 }
 
+.ask2-source__note {
+    display: inline-flex;
+    margin-left: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
 .ask2-source__snippet {
     color: var(--muted);
     font-size: 0.9rem;
+    overflow-wrap: anywhere;
 }
 
 .ask2-h {
