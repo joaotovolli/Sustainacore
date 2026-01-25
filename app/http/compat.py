@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 __all__ = [
@@ -76,6 +77,67 @@ def _normalize_score(value: Any) -> Optional[float]:
     return max(0.0, min(1.0, score))
 
 
+def _resolve_source_url(title: str, url: str) -> str:
+    cleaned_url = (url or "").strip()
+    if cleaned_url.startswith(("local://", "file://", "internal://", "sustainacore://")):
+        cleaned_url = ""
+    if cleaned_url:
+        if cleaned_url.startswith("/"):
+            return f"https://sustainacore.org{cleaned_url}"
+        if cleaned_url.startswith("http://") or cleaned_url.startswith("https://"):
+            return cleaned_url
+        if cleaned_url.startswith("www."):
+            return f"https://{cleaned_url}"
+        if cleaned_url.startswith("sustainacore.org"):
+            return f"https://{cleaned_url}"
+
+    lower_title = (title or "").lower()
+    ticker_match = re.search(r"\(([A-Z]{1,6})\)", title or "")
+    if ticker_match:
+        return f"https://sustainacore.org/tech100/company/{ticker_match.group(1).lower()}/"
+    if "methodology" in lower_title:
+        return "https://sustainacore.org/tech100/methodology/"
+    if "rebalance" in lower_title:
+        return "https://sustainacore.org/press/tech100/"
+    if "constituent" in lower_title or "membership" in lower_title or "rank" in lower_title:
+        return "https://sustainacore.org/tech100/constituents/"
+    if "performance" in lower_title:
+        return "https://sustainacore.org/tech100/performance/"
+    if "attribution" in lower_title:
+        return "https://sustainacore.org/tech100/attribution/"
+    if "stats" in lower_title or "score" in lower_title or "metrics" in lower_title:
+        return "https://sustainacore.org/tech100/stats/"
+    if "tech100" in lower_title or "index" in lower_title:
+        return "https://sustainacore.org/tech100/"
+    if "news" in lower_title or "headline" in lower_title:
+        return "https://sustainacore.org/news/"
+    if "press" in lower_title:
+        return "https://sustainacore.org/press/"
+    if "contact" in lower_title:
+        return "https://sustainacore.org/contact/"
+    if "about" in lower_title or "sustainacore" in lower_title:
+        return "https://sustainacore.org/"
+    return ""
+
+
+def _clean_snippet(text: str, *, max_len: int = 240) -> str:
+    if not isinstance(text, str):
+        return ""
+    cleaned = " ".join(text.split()).strip()
+    if not cleaned:
+        return ""
+    if len(cleaned) <= max_len:
+        return cleaned
+    snippet = cleaned[: max_len + 1]
+    last_space = snippet.rfind(" ")
+    if last_space > max_len - 20:
+        snippet = snippet[:last_space]
+    else:
+        snippet = snippet[:max_len]
+    snippet = snippet.rstrip(" ,;:.")
+    return f"{snippet}…"
+
+
 def _extract_snippet(entry: Dict[str, Any]) -> str:
     for key in ("chunk_text", "snippet", "text", "content"):
         snippet = entry.get(key)
@@ -99,7 +161,8 @@ def _dedupe_snippets(snippets: Iterable[Dict[str, Any]], limit: int = 5) -> Tupl
             or entry.get("similarity")
             or entry.get("confidence")
         )
-        snippet = _extract_snippet(entry)
+        snippet = _clean_snippet(_extract_snippet(entry))
+        url = _resolve_source_url(title, url)
         key = (title.lower(), url.lower())
         if key in seen:
             continue
@@ -124,7 +187,7 @@ def _format_sources(snippets: List[Dict[str, Any]]) -> List[str]:
     formatted: List[str] = []
     for idx, entry in enumerate(snippets, start=1):
         title = str(entry.get("title") or "Source").strip() or "Source"
-        url = str(entry.get("url") or entry.get("source_url") or "").strip()
+        url = _resolve_source_url(title, str(entry.get("url") or entry.get("source_url") or "").strip())
         if url:
             formatted.append(f"Source {idx}: {title} ({url})")
         else:
@@ -137,13 +200,16 @@ def _synthesize_answer(snippets: List[Dict[str, Any]]) -> str:
         return ""
     top = snippets[0]
     snippet_text = top.get("snippet", "").strip()
-    if snippet_text:
+    if snippet_text and len(snippet_text) >= 30:
         sentence = snippet_text.split(". ", 1)[0].strip()
         if len(sentence) > 200:
-            sentence = sentence[:197].rstrip() + "…"
-        if sentence and not sentence.endswith("."):
+            cut = sentence.rfind(" ", 0, 200)
+            sentence = sentence[:cut].rstrip() if cut > 50 else sentence[:197].rstrip()
+            sentence = sentence.rstrip(" ,;:.") + "…"
+        if sentence and not sentence.endswith((".", "!", "?", "…")):
             sentence += "."
-        return f"{sentence} See sources."
+        if len(sentence) >= 30:
+            return f"{sentence} See sources."
     title = (top.get("title") or "Relevant Sustainacore context").strip()
     return f"{title} — see sources."
 

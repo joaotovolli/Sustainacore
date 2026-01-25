@@ -55,22 +55,115 @@
 
     const COLLAPSE_THRESHOLD = 1200;
     const COLLAPSE_CLASS = 'is-collapsed';
+    const SNIPPET_MAX_CHARS = 240;
+    const INTERNAL_SOURCE_SCHEMES = ['local://', 'file://', 'internal://', 'sustainacore://'];
 
     function stripInternalIds(text) {
       return text.replace(/\(ID:[^)]+\)/gi, '').trim();
     }
 
-    function sanitizeUrl(rawUrl) {
-      if (!rawUrl) return null;
-      try {
-        const url = new URL(rawUrl, window.location.origin);
-        if (url.protocol === 'http:' || url.protocol === 'https:') {
-          return url.href;
-        }
-      } catch (_) {
-        return null;
+    function cleanReplyText(rawText) {
+      const cleaned = stripInternalIds(rawText || '').replace(/\r\n/g, '\n');
+      if (/^te\.\s+see sources\./i.test(cleaned)) {
+        return cleaned.replace(/^te\.\s+/i, '');
       }
-      return null;
+      return cleaned;
+    }
+
+    function isInternalScheme(value) {
+      return INTERNAL_SOURCE_SCHEMES.some((scheme) => value.startsWith(scheme));
+    }
+
+    function normalizeUrl(rawUrl) {
+      if (!rawUrl) return '';
+      const trimmed = String(rawUrl).trim();
+      if (!trimmed || trimmed.includes(' ')) return '';
+      if (isInternalScheme(trimmed)) return '';
+      if (/^https?:\/\//i.test(trimmed)) return trimmed;
+      if (trimmed.startsWith('/')) {
+        return new URL(trimmed, window.location.origin).href;
+      }
+      if (/^www\./i.test(trimmed)) {
+        return `https://${trimmed}`;
+      }
+      if (/^sustainacore\.org/i.test(trimmed)) {
+        return `https://${trimmed.replace(/^https?:\/\//i, '')}`;
+      }
+      try {
+        return new URL(trimmed, window.location.origin).href;
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function resolveSourceUrl(title, rawUrl) {
+      const urlCandidate = normalizeUrl(rawUrl);
+      if (urlCandidate) return urlCandidate;
+      const lowerTitle = (title || '').toLowerCase();
+      const tickerMatch = (title || '').match(/\(([A-Z]{1,6})\)/);
+      if (tickerMatch) {
+        return `${window.location.origin}/tech100/company/${tickerMatch[1].toLowerCase()}/`;
+      }
+      if (lowerTitle.includes('methodology')) {
+        return `${window.location.origin}/tech100/methodology/`;
+      }
+      if (lowerTitle.includes('rebalance')) {
+        return `${window.location.origin}/press/tech100/`;
+      }
+      if (lowerTitle.includes('constituent') || lowerTitle.includes('membership') || lowerTitle.includes('rank')) {
+        return `${window.location.origin}/tech100/constituents/`;
+      }
+      if (lowerTitle.includes('performance')) {
+        return `${window.location.origin}/tech100/performance/`;
+      }
+      if (lowerTitle.includes('attribution')) {
+        return `${window.location.origin}/tech100/attribution/`;
+      }
+      if (lowerTitle.includes('stats') || lowerTitle.includes('score') || lowerTitle.includes('metrics')) {
+        return `${window.location.origin}/tech100/stats/`;
+      }
+      if (lowerTitle.includes('tech100') || lowerTitle.includes('index')) {
+        return `${window.location.origin}/tech100/`;
+      }
+      if (lowerTitle.includes('news') || lowerTitle.includes('headline')) {
+        return `${window.location.origin}/news/`;
+      }
+      if (lowerTitle.includes('press')) {
+        return `${window.location.origin}/press/`;
+      }
+      if (lowerTitle.includes('contact')) {
+        return `${window.location.origin}/contact/`;
+      }
+      if (lowerTitle.includes('about') || lowerTitle.includes('sustainacore')) {
+        return `${window.location.origin}/`;
+      }
+      return '';
+    }
+
+    function truncateSnippet(rawSnippet) {
+      if (!rawSnippet) return '';
+      const cleaned = String(rawSnippet).replace(/\s+/g, ' ').trim();
+      if (!cleaned) return '';
+      let snippet = cleaned;
+      let truncated = false;
+      if (snippet.length > SNIPPET_MAX_CHARS) {
+        snippet = snippet.slice(0, SNIPPET_MAX_CHARS + 1);
+        const lastSpace = snippet.lastIndexOf(' ');
+        if (lastSpace > SNIPPET_MAX_CHARS - 20) {
+          snippet = snippet.slice(0, lastSpace);
+        } else {
+          snippet = snippet.slice(0, SNIPPET_MAX_CHARS);
+        }
+        truncated = true;
+      }
+      const endsWithEllipsis = snippet.endsWith('…') || snippet.endsWith('...');
+      if ((truncated || /[a-z0-9]$/i.test(snippet)) && !endsWithEllipsis) {
+        const trimmed = snippet.replace(/\s+\S*$/, '').trim();
+        snippet = trimmed.length > 40 ? trimmed : snippet;
+        snippet = snippet.replace(/[.,;:!?]+$/, '');
+        snippet = `${snippet}…`;
+      }
+      return snippet;
     }
 
     function normalizeSources(payload) {
@@ -78,10 +171,29 @@
       if (!Array.isArray(candidates)) return [];
       return candidates
         .map((source, index) => {
+          if (typeof source === 'string') {
+            const labelMatch = source.match(/Source\\s*\\d+:\\s*(.+?)(?:\\s*\\(([^)]+)\\))?$/i);
+            const title = (labelMatch ? labelMatch[1] : source).trim();
+            const url = resolveSourceUrl(title, labelMatch ? labelMatch[2] || '' : '');
+            if (!url && typeof window !== 'undefined') {
+              const host = window.location.hostname || '';
+              if (host === 'localhost' || host === '127.0.0.1') {
+                console.warn('Ask2 source missing URL', title);
+              }
+            }
+            return { title, url, snippet: '', score: null };
+          }
           if (!source || typeof source !== 'object') return null;
           const title = String(source.title || source.name || source.label || `Source ${index + 1}`).trim();
-          const url = sanitizeUrl(source.url || source.link || source.href || '');
-          const snippet = String(source.snippet || source.summary || '').trim();
+          const rawUrl = source.url || source.link || source.href || '';
+          const url = resolveSourceUrl(title, rawUrl);
+          if (!url && typeof window !== 'undefined') {
+            const host = window.location.hostname || '';
+            if (host === 'localhost' || host === '127.0.0.1') {
+              console.warn('Ask2 source missing URL', title);
+            }
+          }
+          const snippet = truncateSnippet(source.snippet || source.summary || source.text || '');
           return { title, url, snippet, score: source.score };
         })
         .filter((source) => source && (source.title || source.url || source.snippet));
@@ -106,7 +218,7 @@
         if (token.startsWith('[') && token.includes('](')) {
           const parts = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
           const label = parts ? parts[1].trim() : token;
-          const url = parts ? sanitizeUrl(parts[2].trim()) : null;
+          const url = parts ? normalizeUrl(parts[2].trim()) : '';
           if (url) {
             const link = document.createElement('a');
             link.href = url;
@@ -147,7 +259,7 @@
             trailing = url.slice(-1) + trailing;
             url = url.slice(0, -1);
           }
-          const safeUrl = sanitizeUrl(url);
+          const safeUrl = normalizeUrl(url);
           if (safeUrl) {
             const link = document.createElement('a');
             link.href = safeUrl;
@@ -173,7 +285,7 @@
 
     function renderAsk2Message(rawText, sourceCount = 0) {
       const fragment = document.createDocumentFragment();
-      const cleaned = stripInternalIds(rawText || '').replace(/\r\n/g, '\n');
+      const cleaned = cleanReplyText(rawText || '');
       const lines = cleaned.split('\n');
       let i = 0;
 
@@ -305,6 +417,12 @@
           title.rel = 'noopener noreferrer';
         }
         li.appendChild(title);
+        if (!source.url) {
+          const note = document.createElement('span');
+          note.className = 'ask2-source__note';
+          note.textContent = 'No link available';
+          li.appendChild(note);
+        }
         if (source.snippet) {
           const snippet = document.createElement('div');
           snippet.className = 'ask2-source__snippet';
@@ -318,24 +436,27 @@
     }
 
     function renderAssistantBubble(bubble, replyText, sources) {
+      const cleanedReply = cleanReplyText(replyText || '');
       const container = document.createElement('div');
       container.className = 'ask2-bubble';
       const content = document.createElement('div');
+      content.id = `ask2-answer-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
       content.className = 'ask2-bubble__content';
-      content.appendChild(renderAsk2Message(replyText, sources.length));
+      content.appendChild(renderAsk2Message(cleanedReply, sources.length));
       const fade = document.createElement('div');
       fade.className = 'ask2-bubble__fade';
       content.appendChild(fade);
       container.appendChild(content);
 
       let toggle = null;
-      const shouldCollapse = replyText.length > COLLAPSE_THRESHOLD;
+      const shouldCollapse = cleanedReply.length > COLLAPSE_THRESHOLD;
       if (shouldCollapse) {
         bubble.classList.add(COLLAPSE_CLASS);
         toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = 'ask2-bubble__toggle';
         toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-controls', content.id);
         toggle.textContent = 'Show more';
         toggle.addEventListener('click', () => {
           const isCollapsed = bubble.classList.toggle(COLLAPSE_CLASS);
