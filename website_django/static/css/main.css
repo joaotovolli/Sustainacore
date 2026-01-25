@@ -1799,6 +1799,133 @@ textarea:focus {
     margin-bottom: 0;
 }
 
+.bubble--assistant .ask2-bubble {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.ask2-bubble__content {
+    display: grid;
+    gap: 0.75rem;
+    position: relative;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.bubble--assistant.is-collapsed .ask2-bubble__content {
+    max-height: 360px;
+    overflow: hidden;
+    padding-bottom: 1rem;
+}
+
+.ask2-bubble__fade {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3.5rem;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff 70%);
+    pointer-events: none;
+}
+
+.bubble--assistant.is-collapsed .ask2-bubble__fade {
+    display: block;
+}
+
+.ask2-bubble__toggle {
+    justify-self: start;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--brand-blue-strong);
+    border-radius: 999px;
+    padding: 0.3rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ask2-bubble__toggle:hover,
+.ask2-bubble__toggle:focus {
+    border-color: rgba(31, 95, 191, 0.6);
+}
+
+.ask2-bubble__content code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    background: rgba(31, 95, 191, 0.08);
+    padding: 0.1rem 0.35rem;
+    border-radius: 6px;
+}
+
+.ask2-bubble__content pre {
+    margin: 0 0 0.75rem;
+    padding: 0.75rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    overflow-x: auto;
+    white-space: pre-wrap;
+}
+
+.ask2-bubble__content pre code {
+    background: transparent;
+    padding: 0;
+}
+
+.ask2-bubble__content a,
+.ask2-sources a,
+.ask2-citation {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.ask2-citation {
+    font-weight: 600;
+    color: var(--brand-blue-strong);
+    text-decoration: none;
+    margin-left: 0.1rem;
+}
+
+.ask2-citation:hover,
+.ask2-citation:focus-visible {
+    text-decoration: underline;
+}
+
+.ask2-sources {
+    display: grid;
+    gap: 0.5rem;
+    border-top: 1px dashed var(--border);
+    padding-top: 0.75rem;
+}
+
+.ask2-sources__title {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.ask2-sources__list {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: grid;
+    gap: 0.5rem;
+}
+
+.ask2-source__title {
+    font-weight: 600;
+    color: var(--brand-blue-strong);
+    text-decoration: none;
+}
+
+.ask2-source__title:hover,
+.ask2-source__title:focus-visible {
+    text-decoration: underline;
+}
+
+.ask2-source__snippet {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
 .ask2-h {
     font-weight: 700;
     margin: 0 0 0.5rem;
