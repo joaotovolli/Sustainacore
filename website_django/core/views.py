@@ -1637,21 +1637,37 @@ def api_tech100_company_history(request, ticker: str):
 
 
 def api_tech100_company_bundle(request, ticker: str):
-    metric = (request.GET.get("metric") or "composite").lower()
-    range_key = (request.GET.get("range") or "6m").lower()
     compare = (request.GET.get("compare") or "").strip()
     include_companies = (request.GET.get("companies") or "").strip() == "1"
+    metrics_param = (request.GET.get("metrics") or "").strip()
 
-    if metric not in TECH100_COMPANY_METRICS:
-        return JsonResponse({"error": "invalid_metric"}, status=400)
+    metrics_list = [value.strip().lower() for value in metrics_param.split(",") if value.strip()] if metrics_param else []
+    if metrics_list:
+        invalid = [metric for metric in metrics_list if metric not in TECH100_COMPANY_METRICS]
+        if invalid:
+            return JsonResponse({"error": "invalid_metric"}, status=400)
 
-    bundle = get_company_bundle(
-        ticker=ticker,
-        metric=metric,
-        range_key=range_key,
-        compare_ticker=compare or None,
-        include_companies=include_companies,
-    )
+    if metrics_list:
+        bundle = get_company_bundle(
+            ticker=ticker,
+            metric=None,
+            range_key=None,
+            metrics=metrics_list,
+            compare_ticker=compare or None,
+            include_companies=include_companies,
+        )
+    else:
+        metric = (request.GET.get("metric") or "composite").lower()
+        range_key = (request.GET.get("range") or "6m").lower()
+        if metric not in TECH100_COMPANY_METRICS:
+            return JsonResponse({"error": "invalid_metric"}, status=400)
+        bundle = get_company_bundle(
+            ticker=ticker,
+            metric=metric,
+            range_key=range_key,
+            compare_ticker=compare or None,
+            include_companies=include_companies,
+        )
     if not bundle:
         return JsonResponse({"error": "not_found"}, status=404)
     bundle["ticker"] = (ticker or "").upper()

@@ -5,32 +5,35 @@
   const ticker = (root.dataset.ticker || "").trim().toUpperCase();
   if (!ticker) return;
 
-  const bundleUrl = (metric, range, compare, includeCompanies) => {
+  const METRICS = [
+    { key: "composite", label: "Composite AI Gov & Ethics" },
+    { key: "transparency", label: "Transparency" },
+    { key: "ethical_principles", label: "Ethical Principles" },
+    { key: "governance_structure", label: "Governance Structure" },
+    { key: "regulatory_alignment", label: "Regulatory Alignment" },
+    { key: "stakeholder_engagement", label: "Stakeholder Engagement" },
+  ];
+  const METRIC_KEYS = METRICS.map((metric) => metric.key);
+
+  const bundleUrl = (compare, includeCompanies) => {
     const params = new URLSearchParams({
-      metric: metric || "composite",
-      range: range || "6m",
+      metrics: METRIC_KEYS.join(","),
     });
     if (compare) params.set("compare", compare);
     if (includeCompanies) params.set("companies", "1");
     return `/api/tech100/company/${ticker}/bundle?${params.toString()}`;
   };
 
-  const metricSelect = document.getElementById("company-metric");
-  const rangeButtons = Array.from(document.querySelectorAll("[data-range]"));
   const historyBody = document.getElementById("company-history-body");
   const sortButton = document.getElementById("history-sort");
-  const chartCanvas = document.getElementById("company-series-chart");
   const companySelector = document.getElementById("company-selector");
   const compareSelector = document.getElementById("company-compare");
   const companyOptions = document.getElementById("tech100-company-options");
-  const chartStatus = document.querySelector("[data-chart-status]");
-  const historyStatus = document.querySelector("[data-history-status]");
-  const retryChartButton = document.querySelector("[data-retry-chart]");
-  const retryHistoryButton = document.querySelector("[data-retry-history]");
   const compareLegend = document.querySelector("[data-compare-legend]");
   const compareLabel = document.querySelector("[data-compare-label]");
   const historyCountEl = document.querySelector("[data-history-count]");
   const historyUpdatedEl = document.querySelector("[data-history-updated]");
+  const summaryBody = document.getElementById("company-summary-body");
 
   const formatScore = (value) => {
     if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -52,7 +55,7 @@
     return value || "—";
   };
 
-  const fetchWithTimeout = async (url, options = {}, timeoutMs = 8000) => {
+  const fetchWithTimeout = async (url, options = {}, timeoutMs = 10000) => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -74,16 +77,6 @@
     return "Request failed";
   };
 
-  const setText = (selector, value) => {
-    const el = document.querySelector(selector);
-    if (el) el.textContent = value ?? "—";
-  };
-
-  const setBadge = (selector, value) => {
-    const el = document.querySelector(selector);
-    if (el) el.textContent = value ?? "—";
-  };
-
   const setStatus = (container, message, showRetry, retryButton) => {
     if (!container) return;
     if (!message) {
@@ -96,28 +89,25 @@
     container.hidden = false;
   };
 
+  const chartStatuses = new Map();
+  document.querySelectorAll("[data-chart-status]").forEach((el) => {
+    const key = el.getAttribute("data-chart-status");
+    if (key) chartStatuses.set(key, el);
+  });
+  const historyStatus = document.querySelector("[data-history-status]");
+  const retryChartButtons = Array.from(document.querySelectorAll("[data-retry-chart]"));
+  const retryHistoryButton = document.querySelector("[data-retry-history]");
+
   const state = {
-    metric: metricSelect?.value || "composite",
-    range: "6m",
     sortDesc: true,
-    chart: null,
-    series: [],
-    compareSeries: [],
+    charts: new Map(),
     compareTicker: null,
     compareLabel: null,
     companies: [],
     companyLookup: new Map(),
     labelLookup: new Map(),
     history: [],
-  };
-
-  const applySummary = (summary) => {
-    if (!summary) return;
-    const scores = summary.latest_scores || {};
-    setText("[data-company-name]", summary.company_name || summary.ticker);
-    setText("[data-company-sector]", summary.sector || "—");
-    setText("[data-company-latest-date]", formatDate(summary.latest_date));
-    setBadge("[data-company-latest-composite]", formatScore(scores.composite));
+    summaryHistory: [],
   };
 
   const renderHistory = () => {
@@ -155,6 +145,53 @@
     window.SCDateFormat?.applyDateFormatting?.(historyBody);
   };
 
+  const truncateText = (text, maxLen = 280) => {
+    if (!text) return { short: "—", full: "" };
+    if (text.length <= maxLen) return { short: text, full: text };
+    return { short: `${text.slice(0, maxLen).trim()}…`, full: text };
+  };
+
+  const renderSummaryHistory = () => {
+    if (!summaryBody) return;
+    summaryBody.innerHTML = "";
+    if (!state.summaryHistory?.length) {
+      summaryBody.innerHTML = '<tr><td colspan="5" class="muted">No summaries available.</td></tr>';
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    state.summaryHistory.forEach((row) => {
+      const tr = document.createElement("tr");
+      const text = row.summary || "";
+      const { short, full } = truncateText(text, 300);
+      const isTruncated = full.length > short.length;
+      const summaryCell = document.createElement("td");
+      summaryCell.className = "summary-cell";
+      const summarySpan = document.createElement("span");
+      summarySpan.className = "summary-text";
+      summarySpan.textContent = short;
+      summarySpan.dataset.full = full;
+      summarySpan.dataset.short = short;
+      summaryCell.appendChild(summarySpan);
+      if (isTruncated) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "summary-toggle text-link";
+        toggle.textContent = "Expand";
+        summaryCell.appendChild(toggle);
+      }
+      tr.innerHTML = `
+        <td class="text-left" data-date-format="as-of" data-date-value="${row.date || ""}">${formatDate(row.date)}</td>
+        <td class="text-center">${row.rank ?? "—"}</td>
+        <td class="text-right">${formatWeight(row.weight)}</td>
+        <td class="text-right">${formatScore(row.composite)}</td>
+      `;
+      tr.appendChild(summaryCell);
+      fragment.appendChild(tr);
+    });
+    summaryBody.appendChild(fragment);
+    window.SCDateFormat?.applyDateFormatting?.(summaryBody);
+  };
+
   const updateHistoryMeta = (history, latestDate) => {
     if (historyCountEl) historyCountEl.textContent = history?.length ? String(history.length) : "0";
     if (historyUpdatedEl) {
@@ -163,9 +200,9 @@
     }
   };
 
-  const buildChart = (labels, datasets, series) => {
-    if (!chartCanvas || !window.Chart) return null;
-    return new Chart(chartCanvas.getContext("2d"), {
+  const buildChart = (canvas, labels, datasets, series) => {
+    if (!canvas || !window.Chart) return null;
+    return new Chart(canvas.getContext("2d"), {
       type: "line",
       data: {
         labels,
@@ -173,6 +210,7 @@
       },
       options: {
         responsive: true,
+        maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { display: false },
@@ -210,14 +248,10 @@
     });
   };
 
-  const updateChart = (series, compareSeries) => {
-    if (!chartCanvas || !window.Chart) return;
+  const updateChart = (metricKey, series) => {
+    const canvas = document.getElementById(`company-chart-${metricKey}`);
+    if (!canvas || !window.Chart) return;
     const labels = series.map((point) => point.date);
-    const baselineValues = series.map((point) => point.baseline);
-    const compareMap = new Map(
-      (compareSeries || []).map((point) => [point.date, point.company])
-    );
-
     const datasets = [
       {
         label: "Company",
@@ -228,31 +262,29 @@
       },
       {
         label: "Top 25 average",
-        data: baselineValues,
+        data: series.map((point) => point.baseline),
         borderColor: "#9aa4b2",
         backgroundColor: "rgba(154, 164, 178, 0.15)",
         tension: 0.25,
       },
     ];
-
     if (state.compareTicker) {
       datasets.push({
         label: state.compareLabel || "Compare",
-        data: labels.map((date) => compareMap.get(date) ?? null),
+        data: series.map((point) => point.compare ?? null),
         borderColor: "#c0841f",
         backgroundColor: "rgba(192, 132, 31, 0.12)",
         tension: 0.25,
       });
     }
-
-    if (!state.chart) {
-      state.chart = buildChart(labels, datasets, series);
+    if (!state.charts.has(metricKey)) {
+      state.charts.set(metricKey, buildChart(canvas, labels, datasets, series));
       return;
     }
-
-    state.chart.data.labels = labels;
-    state.chart.data.datasets = datasets;
-    state.chart.update();
+    const chart = state.charts.get(metricKey);
+    chart.data.labels = labels;
+    chart.data.datasets = datasets;
+    chart.update();
   };
 
   const formatCompanyLabel = (company) => {
@@ -304,31 +336,40 @@
     companyOptions.appendChild(fragment);
   };
 
+  const setChartStatuses = (message, showRetry) => {
+    chartStatuses.forEach((container) => {
+      setStatus(container, message, showRetry, container.querySelector("[data-retry-chart]"));
+    });
+  };
+
   const loadBundle = async (includeCompanies = false) => {
-    setStatus(chartStatus, "Loading series…", false, retryChartButton);
+    setChartStatuses("Loading charts…", false);
     setStatus(historyStatus, "Loading history…", false, retryHistoryButton);
     try {
-      const resp = await fetchWithTimeout(
-        bundleUrl(state.metric, state.range, state.compareTicker, includeCompanies)
-      );
+      const resp = await fetchWithTimeout(bundleUrl(state.compareTicker, includeCompanies));
       if (!resp.ok) throw new Error(`bundle ${resp.status}`);
       const data = await resp.json();
-      applySummary(data.summary);
       state.history = data.history || [];
-      state.series = data.series || [];
-      state.compareSeries = data.compare_series || [];
+      state.summaryHistory = data.summary_history || [];
       updateHistoryMeta(state.history, data.summary?.latest_date);
       renderHistory();
-      updateChart(state.series, state.compareSeries);
+      renderSummaryHistory();
+
+      const seriesByMetric = data.series || {};
+      METRIC_KEYS.forEach((metricKey) => {
+        const series = seriesByMetric[metricKey] || [];
+        updateChart(metricKey, series);
+      });
+
       if (includeCompanies && data.companies) {
         populateCompanies(data.companies);
       }
-      setStatus(chartStatus, null, false, retryChartButton);
+      setChartStatuses(null, false);
       setStatus(historyStatus, null, false, retryHistoryButton);
     } catch (err) {
       console.warn("Company bundle failed", err);
       const statusLabel = describeFetchError(err);
-      setStatus(chartStatus, `Couldn't load series (${statusLabel}).`, true, retryChartButton);
+      setChartStatuses(`Couldn't load charts (${statusLabel}).`, true);
       setStatus(historyStatus, `Couldn't load history (${statusLabel}).`, true, retryHistoryButton);
     }
   };
@@ -354,29 +395,25 @@
     loadBundle(false);
   };
 
-  metricSelect?.addEventListener("change", (event) => {
-    state.metric = event.target.value;
-    loadBundle(false);
-  });
-
-  rangeButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      rangeButtons.forEach((el) => el.classList.remove("is-active"));
-      button.classList.add("is-active");
-      state.range = button.dataset.range || "6m";
-      loadBundle(false);
-    });
-  });
-
   sortButton?.addEventListener("click", () => {
     state.sortDesc = !state.sortDesc;
     renderHistory();
   });
 
+  summaryBody?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!target || !target.classList.contains("summary-toggle")) return;
+    const cell = target.closest(".summary-cell");
+    const textEl = cell?.querySelector(".summary-text");
+    if (!textEl) return;
+    const isExpanded = textEl.classList.toggle("is-expanded");
+    textEl.textContent = isExpanded ? textEl.dataset.full : textEl.dataset.short;
+    target.textContent = isExpanded ? "Collapse" : "Expand";
+  });
+
   companySelector?.addEventListener("change", handleCompanyChange);
   compareSelector?.addEventListener("change", handleCompareChange);
-  retryChartButton?.addEventListener("click", () => loadBundle(false));
+  retryChartButtons.forEach((btn) => btn.addEventListener("click", () => loadBundle(false)));
   retryHistoryButton?.addEventListener("click", () => loadBundle(false));
-
   loadBundle(true);
 })();
