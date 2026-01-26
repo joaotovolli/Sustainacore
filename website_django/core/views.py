@@ -17,7 +17,6 @@ import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.contrib.sitemaps.views import sitemap as django_sitemap
 from django.contrib.staticfiles.storage import staticfiles_storage
 from django.core.cache import cache
 from django.http import FileResponse, HttpResponse, JsonResponse, Http404
@@ -2072,8 +2071,8 @@ def _is_preview_request(request) -> bool:
     return (host not in prod_hosts) and (env_is_preview or host_is_preview)
 
 
-def sitemap_xml(request):
-    cache_key = "sitemap_xml"
+def sitemap_index(request):
+    cache_key = "sitemap_index_xml"
     cached = cache.get(cache_key)
     if cached:
         response = HttpResponse(cached["content"], content_type=cached["content_type"])
@@ -2081,9 +2080,44 @@ def sitemap_xml(request):
             response.headers["Last-Modified"] = cached["last_modified"]
         return response
 
-    response = django_sitemap(request, sitemaps=sitemaps.SITEMAPS)
-    response.headers.pop("X-Robots-Tag", None)
-    response.render()
+    section_entries = sitemaps.get_section_index_entries()
+    content = sitemaps.render_sitemap_index(section_entries)
+    response = HttpResponse(content, content_type="application/xml")
+    last_modified = max(
+        [entry.get("lastmod") for entry in section_entries if entry.get("lastmod")],
+        default=None,
+    )
+    if last_modified:
+        response.headers["Last-Modified"] = last_modified
+    cache.set(
+        cache_key,
+        {
+            "content": response.content,
+            "content_type": response.get("Content-Type", "application/xml"),
+            "last_modified": response.headers.get("Last-Modified"),
+        },
+        timeout=settings.SITEMAP_CACHE_SECONDS,
+    )
+    return response
+
+
+def sitemap_section(request, section: str):
+    cache_key = f"sitemap_section_{section}"
+    cached = cache.get(cache_key)
+    if cached:
+        response = HttpResponse(cached["content"], content_type=cached["content_type"])
+        if cached.get("last_modified"):
+            response.headers["Last-Modified"] = cached["last_modified"]
+        return response
+
+    entries = sitemaps.get_section_entries(section)
+    if not entries:
+        raise Http404("Sitemap section not found")
+    content = sitemaps.render_urlset(entries)
+    response = HttpResponse(content, content_type="application/xml")
+    last_modified = sitemaps.get_section_lastmod(section)
+    if last_modified:
+        response.headers["Last-Modified"] = last_modified
     cache.set(
         cache_key,
         {

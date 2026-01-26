@@ -1,6 +1,7 @@
 import re
 from unittest import mock
 
+from django.conf import settings
 from django.test import SimpleTestCase
 from django.urls import reverse
 
@@ -34,8 +35,8 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response["Content-Type"].startswith("image/"))
 
-    def test_sitemap_xml(self):
-        canonical_base = "http://sustainacore.org/"
+    def test_sitemap_index(self):
+        canonical_base = f"{settings.SITE_URL.rstrip('/')}/"
         for host in ("sustainacore.org", "www.sustainacore.org"):
             with self.subTest(host=host):
                 response = self.client.get("/sitemap.xml", HTTP_HOST=host, follow=True)
@@ -47,16 +48,34 @@ class SeoFoundationsTests(SimpleTestCase):
                 self.assertTrue("xml" in response["Content-Type"])
                 self.assertNotIn("X-Robots-Tag", response.headers)
                 content = response.content.decode("utf-8")
-                self.assertIn(canonical_base, content)
-                self.assertIn(f"{canonical_base}tech100/index/", content)
-                self.assertIn(f"{canonical_base}tech100/performance/", content)
-                self.assertIn(f"{canonical_base}tech100/constituents/", content)
-                self.assertIn(f"{canonical_base}tech100/attribution/", content)
-                self.assertIn(f"{canonical_base}tech100/stats/", content)
-                self.assertIn(f"{canonical_base}tech100/", content)
-                self.assertIn(f"{canonical_base}news/", content)
-                self.assertIn(f"{canonical_base}press/", content)
-                self.assertGreater(content.count("<loc>"), 10)
+                self.assertIn("<sitemapindex", content)
+                self.assertIn(f"{canonical_base}sitemaps/static.xml", content)
+                self.assertIn(f"{canonical_base}sitemaps/tech100.xml", content)
+                self.assertIn(f"{canonical_base}sitemaps/news.xml", content)
+
+    def test_sitemap_sections(self):
+        canonical_base = f"{settings.SITE_URL.rstrip('/')}/"
+        response = self.client.get("/sitemaps/static.xml", HTTP_HOST="sustainacore.org", follow=True)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn(f"{canonical_base}press/", content)
+        self.assertIn(f"{canonical_base}privacy/", content)
+        self.assertIn(f"{canonical_base}corrections/", content)
+
+        response = self.client.get("/sitemaps/tech100.xml", HTTP_HOST="sustainacore.org", follow=True)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn(f"{canonical_base}tech100/index/", content)
+        self.assertIn(f"{canonical_base}tech100/performance/", content)
+        self.assertIn(f"{canonical_base}tech100/constituents/", content)
+        self.assertIn(f"{canonical_base}tech100/attribution/", content)
+        self.assertIn(f"{canonical_base}tech100/stats/", content)
+        self.assertIn(f"{canonical_base}tech100/methodology/", content)
+
+        response = self.client.get("/sitemaps/news.xml", HTTP_HOST="sustainacore.org", follow=True)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn(f"{canonical_base}news/", content)
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")
@@ -74,7 +93,7 @@ class SeoFoundationsTests(SimpleTestCase):
         match = re.search(r'rel="canonical" href="([^"]+)"', content)
         self.assertIsNotNone(match)
         canonical_url = match.group(1)
-        self.assertEqual(canonical_url, "http://testserver/tech100/")
+        self.assertEqual(canonical_url, f"{settings.SITE_URL.rstrip('/')}/tech100/")
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")

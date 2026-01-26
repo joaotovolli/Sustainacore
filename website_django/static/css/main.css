@@ -833,6 +833,29 @@ h3 {
     flex-wrap: wrap;
 }
 
+.page-breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
+}
+
+.page-breadcrumbs a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.page-breadcrumbs__separator {
+    opacity: 0.6;
+}
+
+.page-breadcrumbs__current {
+    color: var(--text);
+    font-weight: 600;
+}
+
 .muted {
     color: var(--muted);
 }

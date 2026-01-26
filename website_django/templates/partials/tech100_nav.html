@@ -1,44 +1,136 @@
 <nav class="tech100-nav" aria-label="TECH100 navigation">
-  <a
-    class="tech100-nav__link {% if request.path == '/tech100/index/' %}is-active{% endif %}"
-    href="/tech100/index/"
-    {% if request.path == '/tech100/index/' %}aria-current="page"{% endif %}
-  >
-    Index overview
-  </a>
-  <a
-    class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"
-    href="/tech100/performance/"
-    {% if request.path == '/tech100/performance/' %}aria-current="page"{% endif %}
-  >
-    Performance
-  </a>
-  <a
-    class="tech100-nav__link {% if request.path == '/tech100/constituents/' %}is-active{% endif %}"
-    href="/tech100/constituents/"
-    {% if request.path == '/tech100/constituents/' %}aria-current="page"{% endif %}
-  >
-    Constituents
-  </a>
-  <a
-    class="tech100-nav__link {% if request.path == '/tech100/attribution/' %}is-active{% endif %}"
-    href="/tech100/attribution/"
-    {% if request.path == '/tech100/attribution/' %}aria-current="page"{% endif %}
-  >
-    Attribution
-  </a>
-  <a
-    class="tech100-nav__link {% if request.path == '/tech100/stats/' %}is-active{% endif %}"
-    href="/tech100/stats/"
-    {% if request.path == '/tech100/stats/' %}aria-current="page"{% endif %}
-  >
-    Stats
-  </a>
-  <a
-    class="tech100-nav__link {% if request.path == '/tech100/' %}is-active{% endif %}"
-    href="/tech100/"
-    {% if request.path == '/tech100/' %}aria-current="page"{% endif %}
-  >
-    Governance scores
-  </a>
+  {% if tech100_current %}
+    {% with current_label=tech100_current %}
+      <div class="tech100-nav__breadcrumb">
+        <a href="/">Home</a>
+        <span class="tech100-nav__separator">→</span>
+        <a href="/tech100/">TECH100</a>
+        <span class="tech100-nav__separator">→</span>
+        <span class="tech100-nav__current">{{ current_label }}</span>
+      </div>
+    {% endwith %}
+  {% else %}
+    {% if request.path == '/tech100/index/' %}
+      {% with current_label="Index overview" %}
+        <div class="tech100-nav__breadcrumb">
+          <a href="/">Home</a>
+          <span class="tech100-nav__separator">→</span>
+          <a href="/tech100/">TECH100</a>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ current_label }}</span>
+        </div>
+      {% endwith %}
+    {% elif request.path == '/tech100/performance/' %}
+      {% with current_label="Performance" %}
+        <div class="tech100-nav__breadcrumb">
+          <a href="/">Home</a>
+          <span class="tech100-nav__separator">→</span>
+          <a href="/tech100/">TECH100</a>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ current_label }}</span>
+        </div>
+      {% endwith %}
+    {% elif request.path == '/tech100/constituents/' %}
+      {% with current_label="Constituents" %}
+        <div class="tech100-nav__breadcrumb">
+          <a href="/">Home</a>
+          <span class="tech100-nav__separator">→</span>
+          <a href="/tech100/">TECH100</a>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ current_label }}</span>
+        </div>
+      {% endwith %}
+    {% elif request.path == '/tech100/attribution/' %}
+      {% with current_label="Attribution" %}
+        <div class="tech100-nav__breadcrumb">
+          <a href="/">Home</a>
+          <span class="tech100-nav__separator">→</span>
+          <a href="/tech100/">TECH100</a>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ current_label }}</span>
+        </div>
+      {% endwith %}
+    {% elif request.path == '/tech100/stats/' %}
+      {% with current_label="Stats" %}
+        <div class="tech100-nav__breadcrumb">
+          <a href="/">Home</a>
+          <span class="tech100-nav__separator">→</span>
+          <a href="/tech100/">TECH100</a>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ current_label }}</span>
+        </div>
+      {% endwith %}
+    {% elif request.path == '/tech100/methodology/' %}
+      {% with current_label="Methodology" %}
+        <div class="tech100-nav__breadcrumb">
+          <a href="/">Home</a>
+          <span class="tech100-nav__separator">→</span>
+          <a href="/tech100/">TECH100</a>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ current_label }}</span>
+        </div>
+      {% endwith %}
+    {% else %}
+      {% with current_label="Governance scores" %}
+        <div class="tech100-nav__breadcrumb">
+          <a href="/">Home</a>
+          <span class="tech100-nav__separator">→</span>
+          <a href="/tech100/">TECH100</a>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ current_label }}</span>
+        </div>
+      {% endwith %}
+    {% endif %}
+  {% endif %}
+  <div class="tech100-nav__links">
+    <a
+      class="tech100-nav__link {% if request.path == '/tech100/index/' %}is-active{% endif %}"
+      href="/tech100/index/"
+      {% if request.path == '/tech100/index/' %}aria-current="page"{% endif %}
+    >
+      Index overview
+    </a>
+    <a
+      class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"
+      href="/tech100/performance/"
+      {% if request.path == '/tech100/performance/' %}aria-current="page"{% endif %}
+    >
+      Performance
+    </a>
+    <a
+      class="tech100-nav__link {% if request.path == '/tech100/constituents/' %}is-active{% endif %}"
+      href="/tech100/constituents/"
+      {% if request.path == '/tech100/constituents/' %}aria-current="page"{% endif %}
+    >
+      Constituents
+    </a>
+    <a
+      class="tech100-nav__link {% if request.path == '/tech100/attribution/' %}is-active{% endif %}"
+      href="/tech100/attribution/"
+      {% if request.path == '/tech100/attribution/' %}aria-current="page"{% endif %}
+    >
+      Attribution
+    </a>
+    <a
+      class="tech100-nav__link {% if request.path == '/tech100/stats/' %}is-active{% endif %}"
+      href="/tech100/stats/"
+      {% if request.path == '/tech100/stats/' %}aria-current="page"{% endif %}
+    >
+      Stats
+    </a>
+    <a
+      class="tech100-nav__link {% if request.path == '/tech100/methodology/' %}is-active{% endif %}"
+      href="/tech100/methodology/"
+      {% if request.path == '/tech100/methodology/' %}aria-current="page"{% endif %}
+    >
+      Methodology
+    </a>
+    <a
+      class="tech100-nav__link {% if request.path == '/tech100/' %}is-active{% endif %}"
+      href="/tech100/"
+      {% if request.path == '/tech100/' %}aria-current="page"{% endif %}
+    >
+      Governance scores
+    </a>
+  </div>
 </nav>

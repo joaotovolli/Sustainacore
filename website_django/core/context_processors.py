@@ -19,14 +19,22 @@ def _absolute_static_url(path: str) -> str:
 
 
 def seo_defaults(request):
-    canonical_url = request.build_absolute_uri(request.path)
+    site_base = settings.SITE_URL.rstrip("/")
+    canonical_url = f"{site_base}{request.path}"
     build_sha = _read_build_sha()
     logo_url = _absolute_static_url("img/sustainacore_logo_512.png")
+    org_id = f"{site_base}/#organization"
+    site_id = f"{site_base}/#website"
+    org_same_as = [
+        "https://www.linkedin.com/company/sustainacore-org/",
+        "https://github.com/joaotovolli/Sustainacore",
+    ]
     org_payload = {
         "@context": "https://schema.org",
         "@type": "Organization",
+        "@id": org_id,
         "name": "SustainaCore",
-        "url": settings.SITE_URL,
+        "url": site_base,
         "logo": {
             "@type": "ImageObject",
             "url": logo_url,
@@ -40,12 +48,16 @@ def seo_defaults(request):
             "contactType": "info",
         },
     }
+    if org_same_as:
+        org_payload["sameAs"] = org_same_as
     site_payload = {
         "@context": "https://schema.org",
         "@type": "WebSite",
+        "@id": site_id,
         "name": "SustainaCore",
         "alternateName": "SustainaCore.org",
-        "url": settings.SITE_URL,
+        "url": site_base,
+        "publisher": {"@id": org_id},
     }
     return {
         "canonical_url": canonical_url,
