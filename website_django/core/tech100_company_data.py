@@ -71,6 +71,17 @@ def _float_or_none(value) -> Optional[float]:
         return None
 
 
+def _text_or_none(value) -> Optional[str]:
+    if value is None:
+        return None
+    if hasattr(value, "read"):
+        value = value.read()
+    if isinstance(value, bytes):
+        value = value.decode(errors="ignore")
+    text = str(value).strip()
+    return text or None
+
+
 def _resolve_range(range_key: str, latest_date: dt.date) -> tuple[Optional[dt.date], dt.date]:
     normalized = (range_key or "").lower()
     if normalized == "ytd":
@@ -103,25 +114,32 @@ def get_company_summary(ticker: str) -> Optional[dict]:
         "ORDER BY port_date DESC FETCH FIRST 1 ROWS ONLY"
     )
     fallback_sql = sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
-    rows = _execute_rows_with_fallback(sql, {"ticker": normalized}, fallback_sql)
-    if not rows:
-        return None
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"ticker": normalized})
+        row = cur.fetchone()
+        if not row:
+            cur.execute(fallback_sql, {"ticker": normalized})
+            row = cur.fetchone()
+        if not row:
+            return None
 
-    (
-        ticker_val,
-        company_name,
-        sector,
-        port_date,
-        rank_index,
-        port_weight,
-        composite,
-        transparency,
-        ethical_principles,
-        governance_structure,
-        regulatory_alignment,
-        stakeholder_engagement,
-        summary_text,
-    ) = rows[0]
+        (
+            ticker_val,
+            company_name,
+            sector,
+            port_date,
+            rank_index,
+            port_weight,
+            composite,
+            transparency,
+            ethical_principles,
+            governance_structure,
+            regulatory_alignment,
+            stakeholder_engagement,
+            summary_text,
+        ) = row
+        summary_str = _text_or_none(summary_text)
 
     latest_date = _to_date(port_date)
     payload = {
@@ -131,7 +149,7 @@ def get_company_summary(ticker: str) -> Optional[dict]:
         "latest_date": latest_date.isoformat() if latest_date else None,
         "latest_rank": _float_or_none(rank_index),
         "latest_weight": _float_or_none(port_weight),
-        "summary": (summary_text or "").strip() or None,
+        "summary": summary_str,
         "latest_scores": {
             "composite": _float_or_none(composite),
             "transparency": _float_or_none(transparency),
@@ -161,22 +179,28 @@ def get_company_summary_history(ticker: str) -> Optional[list[dict]]:
         "ORDER BY port_date DESC"
     )
     fallback_sql = sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
-    rows = _execute_rows_with_fallback(sql, {"ticker": normalized}, fallback_sql)
-    if not rows:
-        return None
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, {"ticker": normalized})
+        rows = cur.fetchall()
+        if not rows:
+            cur.execute(fallback_sql, {"ticker": normalized})
+            rows = cur.fetchall()
+        if not rows:
+            return None
 
-    history: list[dict] = []
-    for port_date, rank_index, port_weight, composite, summary_text in rows:
-        date_val = _to_date(port_date)
-        history.append(
-            {
-                "date": date_val.isoformat() if date_val else None,
-                "rank": _float_or_none(rank_index),
-                "weight": _float_or_none(port_weight),
-                "composite": _float_or_none(composite),
-                "summary": (summary_text or "").strip() or None,
-            }
-        )
+        history: list[dict] = []
+        for port_date, rank_index, port_weight, composite, summary_text in rows:
+            date_val = _to_date(port_date)
+            history.append(
+                {
+                    "date": date_val.isoformat() if date_val else None,
+                    "rank": _float_or_none(rank_index),
+                    "weight": _float_or_none(port_weight),
+                    "composite": _float_or_none(composite),
+                    "summary": _text_or_none(summary_text),
+                }
+            )
 
     cache.set(key, history, CACHE_TTLS["summary_history"])
     return history
@@ -478,7 +502,7 @@ def get_company_bundle(
                     "latest_date": latest_date.isoformat() if latest_date else None,
                     "latest_rank": _float_or_none(rank_index),
                     "latest_weight": _float_or_none(port_weight),
-                    "summary": (summary_text or "").strip() or None,
+                "summary": _text_or_none(summary_text),
                     "latest_scores": {
                         "composite": _float_or_none(composite),
                         "transparency": _float_or_none(transparency),
