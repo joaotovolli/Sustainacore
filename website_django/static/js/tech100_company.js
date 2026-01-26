@@ -34,7 +34,6 @@
   const historyCountEl = document.querySelector("[data-history-count]");
   const historyUpdatedEl = document.querySelector("[data-history-updated]");
   const summaryBody = document.getElementById("company-summary-body");
-  const summaryTextEl = document.querySelector("[data-company-summary]");
 
   const formatScore = (value) => {
     if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -78,16 +77,6 @@
     return "Request failed";
   };
 
-  const setText = (selector, value) => {
-    const el = document.querySelector(selector);
-    if (el) el.textContent = value ?? "—";
-  };
-
-  const setBadge = (selector, value) => {
-    const el = document.querySelector(selector);
-    if (el) el.textContent = value ?? "—";
-  };
-
   const setStatus = (container, message, showRetry, retryButton) => {
     if (!container) return;
     if (!message) {
@@ -106,10 +95,8 @@
     if (key) chartStatuses.set(key, el);
   });
   const historyStatus = document.querySelector("[data-history-status]");
-  const summaryStatus = document.querySelector("[data-summary-status]");
   const retryChartButtons = Array.from(document.querySelectorAll("[data-retry-chart]"));
   const retryHistoryButton = document.querySelector("[data-retry-history]");
-  const retrySummaryButton = document.querySelector("[data-retry-summary]");
 
   const state = {
     sortDesc: true,
@@ -121,18 +108,6 @@
     labelLookup: new Map(),
     history: [],
     summaryHistory: [],
-  };
-
-  const applySummary = (summary) => {
-    if (!summary) return;
-    const scores = summary.latest_scores || {};
-    setText("[data-company-name]", summary.company_name || summary.ticker);
-    setText("[data-company-sector]", summary.sector || "—");
-    setText("[data-company-latest-date]", formatDate(summary.latest_date));
-    setBadge("[data-company-latest-composite]", formatScore(scores.composite));
-    if (summaryTextEl) {
-      summaryTextEl.textContent = summary.summary || "Summary not available yet.";
-    }
   };
 
   const renderHistory = () => {
@@ -370,12 +345,10 @@
   const loadBundle = async (includeCompanies = false) => {
     setChartStatuses("Loading charts…", false);
     setStatus(historyStatus, "Loading history…", false, retryHistoryButton);
-    setStatus(summaryStatus, "Loading summaries…", false, retrySummaryButton);
     try {
       const resp = await fetchWithTimeout(bundleUrl(state.compareTicker, includeCompanies));
       if (!resp.ok) throw new Error(`bundle ${resp.status}`);
       const data = await resp.json();
-      applySummary(data.summary);
       state.history = data.history || [];
       state.summaryHistory = data.summary_history || [];
       updateHistoryMeta(state.history, data.summary?.latest_date);
@@ -393,13 +366,11 @@
       }
       setChartStatuses(null, false);
       setStatus(historyStatus, null, false, retryHistoryButton);
-      setStatus(summaryStatus, null, false, retrySummaryButton);
     } catch (err) {
       console.warn("Company bundle failed", err);
       const statusLabel = describeFetchError(err);
       setChartStatuses(`Couldn't load charts (${statusLabel}).`, true);
       setStatus(historyStatus, `Couldn't load history (${statusLabel}).`, true, retryHistoryButton);
-      setStatus(summaryStatus, `Couldn't load summaries (${statusLabel}).`, true, retrySummaryButton);
     }
   };
 
@@ -444,7 +415,5 @@
   compareSelector?.addEventListener("change", handleCompareChange);
   retryChartButtons.forEach((btn) => btn.addEventListener("click", () => loadBundle(false)));
   retryHistoryButton?.addEventListener("click", () => loadBundle(false));
-  retrySummaryButton?.addEventListener("click", () => loadBundle(false));
-
   loadBundle(true);
 })();

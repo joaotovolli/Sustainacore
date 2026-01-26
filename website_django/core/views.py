@@ -1593,7 +1593,6 @@ def tech100_company(request, ticker: str):
         "latest_weight": summary.get("latest_weight"),
         "latest_scores": latest_scores,
         "latest_scores_display": latest_scores_display,
-        "summary_text": summary.get("summary") or "Summary not available yet.",
         "metric_options": list(TECH100_COMPANY_METRICS.keys()),
     }
     return render(request, "tech100_company.html", context)

@@ -2388,17 +2388,6 @@ textarea:focus {
     min-width: 220px;
 }
 
-.tech100-company__summary {
-    margin-top: 1rem;
-}
-
-.tech100-company__summary-text {
-    margin: 0;
-    color: var(--text);
-    line-height: 1.6;
-    font-size: 1rem;
-}
-
 .tech100-company__controls {
     display: flex;
     align-items: center;
