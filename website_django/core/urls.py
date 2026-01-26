@@ -15,23 +15,18 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path
 from django.views.decorators.csrf import csrf_exempt
 
 from . import views
-from . import sitemaps
 from . import tech100_index_views
 from telemetry import views as telemetry_views
-
-sitemaps_config = {
-    "static": sitemaps.StaticViewSitemap,
-}
 
 urlpatterns = [
     path("favicon.ico", views.favicon, name="favicon"),
     path("robots.txt", views.robots_txt, name="robots_txt"),
-    path("sitemap.xml", views.sitemap_xml, name="sitemap"),
+    path("sitemap.xml", views.sitemap_index, name="sitemap_index"),
+    path("sitemaps/<str:section>.xml", views.sitemap_section, name="sitemap_section"),
     path("", views.home, name="home"),
     path("press/", views.press_index, name="press_index"),
     path("press/tech100/", views.press_tech100, name="press_tech100"),

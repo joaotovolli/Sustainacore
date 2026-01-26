@@ -383,6 +383,38 @@
 
 </section>
 
+<section class="section">
+    <div class="shell">
+        <div class="section__header">
+            <h2>Trust &amp; transparency</h2>
+            <p class="muted">Understand how SustainaCore operates, how the TECH100 methodology is built, and how to request corrections.</p>
+        </div>
+        <div class="cards cards--three">
+            <div class="card">
+                <p class="pill pill--soft">Methodology</p>
+                <h3>TECH100 framework</h3>
+                <p class="muted">Read the full methodology, limitations, and research design.</p>
+                <a class="btn btn--secondary" href="/tech100/methodology/">View methodology</a>
+            </div>
+            <div class="card">
+                <p class="pill pill--soft">Press</p>
+                <h3>Media resources</h3>
+                <p class="muted">Access press materials, background, and TECH100 context.</p>
+                <a class="btn btn--secondary" href="{% url 'press_index' %}">Press room</a>
+            </div>
+            <div class="card">
+                <p class="pill pill--soft">Policies</p>
+                <h3>Privacy &amp; corrections</h3>
+                <p class="muted">Review privacy practices and submit corrections or complaints.</p>
+                <div class="card__actions">
+                    <a class="btn btn--secondary" href="{% url 'privacy' %}">Privacy policy</a>
+                    <a class="btn btn--ghost" href="{% url 'corrections' %}">Corrections</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
 <section class="section section--alt">
     <div class="shell">
         <div class="section__header">
