@@ -55,24 +55,22 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card tech100-company__summary">
+        <div class="card__header">
+          <h2 class="h4">Summary</h2>
+        </div>
+        <p class="tech100-company__summary-text" data-company-summary>
+          {{ summary_text|default:"Summary not available yet." }}
+        </p>
+      </div>
+
+      <div class="card tech100-company__dashboard">
         <div class="card__header card__header--split">
           <div>
-            <h2 class="h4">Score explorer</h2>
-            <p class="muted">Compare {{ company_name }} with the Tech100 top 25 average.</p>
+            <h2 class="h4">Score dashboard</h2>
+            <p class="muted">Full rebalance history with Tech100 top 25 benchmarks.</p>
           </div>
           <div class="tech100-company__controls">
-            <label class="form-field">
-              <span>Metric</span>
-              <select id="company-metric">
-                <option value="composite" selected>Composite</option>
-                <option value="transparency">Transparency</option>
-                <option value="ethical_principles">Ethical Principles</option>
-                <option value="governance_structure">Governance Structure</option>
-                <option value="regulatory_alignment">Regulatory Alignment</option>
-                <option value="stakeholder_engagement">Stakeholder Engagement</option>
-              </select>
-            </label>
             <label class="form-field">
               <span>Compare with</span>
               <input
@@ -83,26 +81,74 @@
                 autocomplete="off"
               />
             </label>
-            <div class="tech100-company__range" role="tablist" aria-label="Range">
-              <button class="btn btn--ghost btn--sm" data-range="3m">3M</button>
-              <button class="btn btn--ghost btn--sm is-active" data-range="6m">6M</button>
-              <button class="btn btn--ghost btn--sm" data-range="1y">1Y</button>
-              <button class="btn btn--ghost btn--sm" data-range="ytd">YTD</button>
-              <button class="btn btn--ghost btn--sm" data-range="max">Max</button>
-            </div>
-          </div>
-        </div>
-        <div class="tech100-company__chart">
-          <canvas id="company-series-chart" role="img" aria-label="Company score chart"></canvas>
-          <div class="tech100-company__status" data-chart-status hidden>
-            <span class="tech100-company__status-text"></span>
-            <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
           </div>
         </div>
         <div class="tech100-company__legend">
           <span class="legend-item"><span class="legend-dot legend-dot--company"></span>{{ company_name }}</span>
           <span class="legend-item"><span class="legend-dot legend-dot--baseline"></span>Top 25 average</span>
           <span class="legend-item" data-compare-legend hidden><span class="legend-dot legend-dot--compare"></span><span data-compare-label>Compare</span></span>
+        </div>
+        <div class="tech100-company__dashboard-grid">
+          <div class="tech100-company__chart-card tech100-company__chart-card--wide" data-chart-metric="composite">
+            <div class="tech100-company__chart-header">Composite AI Gov &amp; Ethics</div>
+            <div class="tech100-company__chart">
+              <canvas id="company-chart-composite" role="img" aria-label="Composite score chart"></canvas>
+              <div class="tech100-company__status" data-chart-status="composite" hidden>
+                <span class="tech100-company__status-text"></span>
+                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
+              </div>
+            </div>
+          </div>
+          <div class="tech100-company__chart-card" data-chart-metric="transparency">
+            <div class="tech100-company__chart-header">Transparency</div>
+            <div class="tech100-company__chart tech100-company__chart--compact">
+              <canvas id="company-chart-transparency" role="img" aria-label="Transparency score chart"></canvas>
+              <div class="tech100-company__status" data-chart-status="transparency" hidden>
+                <span class="tech100-company__status-text"></span>
+                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
+              </div>
+            </div>
+          </div>
+          <div class="tech100-company__chart-card" data-chart-metric="ethical_principles">
+            <div class="tech100-company__chart-header">Ethical Principles</div>
+            <div class="tech100-company__chart tech100-company__chart--compact">
+              <canvas id="company-chart-ethical_principles" role="img" aria-label="Ethical Principles chart"></canvas>
+              <div class="tech100-company__status" data-chart-status="ethical_principles" hidden>
+                <span class="tech100-company__status-text"></span>
+                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
+              </div>
+            </div>
+          </div>
+          <div class="tech100-company__chart-card" data-chart-metric="governance_structure">
+            <div class="tech100-company__chart-header">Governance Structure</div>
+            <div class="tech100-company__chart tech100-company__chart--compact">
+              <canvas id="company-chart-governance_structure" role="img" aria-label="Governance Structure chart"></canvas>
+              <div class="tech100-company__status" data-chart-status="governance_structure" hidden>
+                <span class="tech100-company__status-text"></span>
+                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
+              </div>
+            </div>
+          </div>
+          <div class="tech100-company__chart-card" data-chart-metric="regulatory_alignment">
+            <div class="tech100-company__chart-header">Regulatory Alignment</div>
+            <div class="tech100-company__chart tech100-company__chart--compact">
+              <canvas id="company-chart-regulatory_alignment" role="img" aria-label="Regulatory Alignment chart"></canvas>
+              <div class="tech100-company__status" data-chart-status="regulatory_alignment" hidden>
+                <span class="tech100-company__status-text"></span>
+                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
+              </div>
+            </div>
+          </div>
+          <div class="tech100-company__chart-card" data-chart-metric="stakeholder_engagement">
+            <div class="tech100-company__chart-header">Stakeholder Engagement</div>
+            <div class="tech100-company__chart tech100-company__chart--compact">
+              <canvas id="company-chart-stakeholder_engagement" role="img" aria-label="Stakeholder Engagement chart"></canvas>
+              <div class="tech100-company__status" data-chart-status="stakeholder_engagement" hidden>
+                <span class="tech100-company__status-text"></span>
+                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -144,6 +190,37 @@
             <tbody id="company-history-body">
               <tr>
                 <td colspan="9" class="muted">Loading history…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__header card__header--split">
+          <div>
+            <h2 class="h4">Rebalance notes &amp; summaries</h2>
+            <p class="muted">Narrative summaries captured at each rebalance.</p>
+          </div>
+        </div>
+        <div class="table-wrapper table-wrap">
+          <div class="tech100-company__status" data-summary-status hidden>
+            <span class="tech100-company__status-text"></span>
+            <button class="btn btn--ghost btn--sm" type="button" data-retry-summary hidden>Retry</button>
+          </div>
+          <table class="table table--wide tech100-table tech100-company-table tech100-summary-table" aria-label="Company summaries">
+            <thead>
+              <tr>
+                <th class="text-left">As-of date</th>
+                <th class="text-center">Rank</th>
+                <th class="text-right">Weight</th>
+                <th class="text-right">Composite</th>
+                <th class="text-left">Summary</th>
+              </tr>
+            </thead>
+            <tbody id="company-summary-body">
+              <tr>
+                <td colspan="5" class="muted">Loading summaries…</td>
               </tr>
             </tbody>
           </table>

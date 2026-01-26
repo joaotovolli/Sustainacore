@@ -22,6 +22,7 @@ CACHE_TTLS = {
     "series": 300,
     "latest_date": 600,
     "baseline": 900,
+    "summary_history": 600,
 }
 
 
@@ -90,13 +91,13 @@ def get_company_summary(ticker: str) -> Optional[dict]:
         return None
     key = _cache_key("summary", normalized)
     cached = cache.get(key)
-    if isinstance(cached, dict):
+    if isinstance(cached, dict) and "summary" in cached:
         return cached
 
     sql = (
         "SELECT ticker, company_name, gics_sector, port_date, rank_index, port_weight, "
         "aiges_composite_average, transparency, ethical_principles, governance_structure, "
-        "regulatory_alignment, stakeholder_engagement "
+        "regulatory_alignment, stakeholder_engagement, summary "
         "FROM tech11_ai_gov_eth_index "
         "WHERE ticker = :ticker "
         "ORDER BY port_date DESC FETCH FIRST 1 ROWS ONLY"
@@ -119,6 +120,7 @@ def get_company_summary(ticker: str) -> Optional[dict]:
         governance_structure,
         regulatory_alignment,
         stakeholder_engagement,
+        summary_text,
     ) = rows[0]
 
     latest_date = _to_date(port_date)
@@ -129,6 +131,7 @@ def get_company_summary(ticker: str) -> Optional[dict]:
         "latest_date": latest_date.isoformat() if latest_date else None,
         "latest_rank": _float_or_none(rank_index),
         "latest_weight": _float_or_none(port_weight),
+        "summary": (summary_text or "").strip() or None,
         "latest_scores": {
             "composite": _float_or_none(composite),
             "transparency": _float_or_none(transparency),
@@ -140,6 +143,43 @@ def get_company_summary(ticker: str) -> Optional[dict]:
     }
     cache.set(key, payload, CACHE_TTLS["summary"])
     return payload
+
+
+def get_company_summary_history(ticker: str) -> Optional[list[dict]]:
+    normalized = _normalize_ticker(ticker)
+    if not normalized:
+        return None
+    key = _cache_key("summary_history", normalized)
+    cached = cache.get(key)
+    if isinstance(cached, list):
+        return cached
+
+    sql = (
+        "SELECT port_date, rank_index, port_weight, aiges_composite_average, summary "
+        "FROM tech11_ai_gov_eth_index "
+        "WHERE ticker = :ticker "
+        "ORDER BY port_date DESC"
+    )
+    fallback_sql = sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+    rows = _execute_rows_with_fallback(sql, {"ticker": normalized}, fallback_sql)
+    if not rows:
+        return None
+
+    history: list[dict] = []
+    for port_date, rank_index, port_weight, composite, summary_text in rows:
+        date_val = _to_date(port_date)
+        history.append(
+            {
+                "date": date_val.isoformat() if date_val else None,
+                "rank": _float_or_none(rank_index),
+                "weight": _float_or_none(port_weight),
+                "composite": _float_or_none(composite),
+                "summary": (summary_text or "").strip() or None,
+            }
+        )
+
+    cache.set(key, history, CACHE_TTLS["summary_history"])
+    return history
 
 
 def get_company_latest_date(ticker: str) -> Optional[dt.date]:
@@ -377,8 +417,9 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
 
 def get_company_bundle(
     ticker: str,
-    metric: str,
-    range_key: str,
+    metric: Optional[str],
+    range_key: Optional[str],
+    metrics: Optional[list[str]] = None,
     compare_ticker: Optional[str] = None,
     include_companies: bool = False,
 ) -> Optional[dict]:
@@ -386,17 +427,230 @@ def get_company_bundle(
     if not normalized:
         return None
 
+    metrics_list: Optional[list[str]] = None
+    if metrics:
+        metrics_list = [m.lower() for m in metrics if m and m.lower() in METRIC_COLUMNS]
+        if not metrics_list:
+            return None
+
+    summary_key = _cache_key("summary", normalized)
+    history_key = _cache_key("history", normalized)
+    summary_history_key = _cache_key("summary_history", normalized)
+
+    if metrics_list is not None:
+        with get_connection() as conn:
+            summary = cache.get(summary_key)
+            if not isinstance(summary, dict) or "summary" not in summary:
+                summary_sql = (
+                    "SELECT ticker, company_name, gics_sector, port_date, rank_index, port_weight, "
+                    "aiges_composite_average, transparency, ethical_principles, governance_structure, "
+                    "regulatory_alignment, stakeholder_engagement, summary "
+                    "FROM tech11_ai_gov_eth_index "
+                    "WHERE ticker = :ticker "
+                    "ORDER BY port_date DESC FETCH FIRST 1 ROWS ONLY"
+                )
+                fallback_summary_sql = summary_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+                summary_rows = _execute_rows_on_conn(conn, summary_sql, {"ticker": normalized})
+                if not summary_rows:
+                    summary_rows = _execute_rows_on_conn(conn, fallback_summary_sql, {"ticker": normalized})
+                if not summary_rows:
+                    return None
+                (
+                    _ticker_val,
+                    company_name,
+                    sector,
+                    port_date,
+                    rank_index,
+                    port_weight,
+                    composite,
+                    transparency,
+                    ethical_principles,
+                    governance_structure,
+                    regulatory_alignment,
+                    stakeholder_engagement,
+                    summary_text,
+                ) = summary_rows[0]
+                latest_date = _to_date(port_date)
+                summary = {
+                    "ticker": normalized,
+                    "company_name": company_name,
+                    "sector": sector,
+                    "latest_date": latest_date.isoformat() if latest_date else None,
+                    "latest_rank": _float_or_none(rank_index),
+                    "latest_weight": _float_or_none(port_weight),
+                    "summary": (summary_text or "").strip() or None,
+                    "latest_scores": {
+                        "composite": _float_or_none(composite),
+                        "transparency": _float_or_none(transparency),
+                        "ethical_principles": _float_or_none(ethical_principles),
+                        "governance_structure": _float_or_none(governance_structure),
+                        "regulatory_alignment": _float_or_none(regulatory_alignment),
+                        "stakeholder_engagement": _float_or_none(stakeholder_engagement),
+                    },
+                }
+                cache.set(summary_key, summary, CACHE_TTLS["summary"])
+
+            if not summary.get("latest_date"):
+                return None
+
+            history = cache.get(history_key)
+            if not isinstance(history, list):
+                history_sql = (
+                    "SELECT port_date, rank_index, port_weight, aiges_composite_average, "
+                    "transparency, ethical_principles, governance_structure, "
+                    "regulatory_alignment, stakeholder_engagement "
+                    "FROM tech11_ai_gov_eth_index "
+                    "WHERE ticker = :ticker "
+                    "ORDER BY port_date DESC"
+                )
+                fallback_history_sql = history_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+                history_rows = _execute_rows_on_conn(conn, history_sql, {"ticker": normalized})
+                if not history_rows:
+                    history_rows = _execute_rows_on_conn(conn, fallback_history_sql, {"ticker": normalized})
+                history = []
+                for (
+                    port_date,
+                    rank_index,
+                    port_weight,
+                    composite,
+                    transparency,
+                    ethical_principles,
+                    governance_structure,
+                    regulatory_alignment,
+                    stakeholder_engagement,
+                ) in history_rows:
+                    date_val = _to_date(port_date)
+                    history.append(
+                        {
+                            "date": date_val.isoformat() if date_val else None,
+                            "rank": _float_or_none(rank_index),
+                            "weight": _float_or_none(port_weight),
+                            "composite": _float_or_none(composite),
+                            "transparency": _float_or_none(transparency),
+                            "ethical_principles": _float_or_none(ethical_principles),
+                            "governance_structure": _float_or_none(governance_structure),
+                            "regulatory_alignment": _float_or_none(regulatory_alignment),
+                            "stakeholder_engagement": _float_or_none(stakeholder_engagement),
+                        }
+                    )
+                cache.set(history_key, history, CACHE_TTLS["history"])
+
+            summary_history = cache.get(summary_history_key)
+            if not isinstance(summary_history, list):
+                summary_history = get_company_summary_history(normalized) or []
+
+            company_sql = (
+                "SELECT port_date, aiges_composite_average, transparency, ethical_principles, "
+                "governance_structure, regulatory_alignment, stakeholder_engagement "
+                "FROM tech11_ai_gov_eth_index "
+                "WHERE ticker = :ticker "
+                "ORDER BY port_date"
+            )
+            fallback_company_sql = company_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+            company_rows = _execute_rows_on_conn(conn, company_sql, {"ticker": normalized})
+            if not company_rows:
+                company_rows = _execute_rows_on_conn(conn, fallback_company_sql, {"ticker": normalized})
+            if not company_rows:
+                return None
+
+            date_list = sorted({_to_date(row[0]) for row in company_rows if _to_date(row[0]) is not None})
+            company_map = {}
+            for row in company_rows:
+                date_val = _to_date(row[0])
+                if not date_val:
+                    continue
+                company_map[date_val.isoformat()] = {
+                    "composite": _float_or_none(row[1]),
+                    "transparency": _float_or_none(row[2]),
+                    "ethical_principles": _float_or_none(row[3]),
+                    "governance_structure": _float_or_none(row[4]),
+                    "regulatory_alignment": _float_or_none(row[5]),
+                    "stakeholder_engagement": _float_or_none(row[6]),
+                }
+
+            if not date_list:
+                return None
+
+            compare_map = {}
+            normalized_compare = _normalize_ticker(compare_ticker) if compare_ticker else None
+            if normalized_compare and normalized_compare != normalized and date_list:
+                placeholders, date_params = _build_date_binds(date_list)
+                compare_params = {"ticker": normalized_compare, **date_params}
+                compare_sql = (
+                    "SELECT port_date, aiges_composite_average, transparency, ethical_principles, "
+                    "governance_structure, regulatory_alignment, stakeholder_engagement "
+                    "FROM tech11_ai_gov_eth_index "
+                    "WHERE ticker = :ticker "
+                    f"AND port_date IN ({placeholders}) "
+                    "ORDER BY port_date"
+                )
+                fallback_compare_sql = compare_sql.replace("ticker = :ticker", "UPPER(ticker) = :ticker")
+                compare_rows = _execute_rows_on_conn(conn, compare_sql, compare_params)
+                if not compare_rows:
+                    compare_rows = _execute_rows_on_conn(conn, fallback_compare_sql, compare_params)
+                for row in compare_rows:
+                    date_val = _to_date(row[0])
+                    if not date_val:
+                        continue
+                    compare_map[date_val.isoformat()] = {
+                        "composite": _float_or_none(row[1]),
+                        "transparency": _float_or_none(row[2]),
+                        "ethical_principles": _float_or_none(row[3]),
+                        "governance_structure": _float_or_none(row[4]),
+                        "regulatory_alignment": _float_or_none(row[5]),
+                        "stakeholder_engagement": _float_or_none(row[6]),
+                    }
+
+            series_by_metric: dict[str, list[dict]] = {}
+            for metric_key in metrics_list:
+                metric_col = METRIC_COLUMNS[metric_key]
+                baseline_map = _build_baseline_map_on_conn(
+                    conn,
+                    metric_key,
+                    metric_col,
+                    date_list,
+                    "port_date <= :end_date",
+                    {"end_date": max(date_list)},
+                )
+                metric_series: list[dict] = []
+                for date_val in date_list:
+                    date_key = date_val.isoformat()
+                    company_val = (company_map.get(date_key) or {}).get(metric_key)
+                    baseline_val = baseline_map.get(date_key)
+                    compare_val = (compare_map.get(date_key) or {}).get(metric_key)
+                    delta_val = None
+                    if company_val is not None and baseline_val is not None:
+                        delta_val = company_val - baseline_val
+                    metric_series.append(
+                        {
+                            "date": date_key,
+                            "company": company_val,
+                            "baseline": baseline_val,
+                            "compare": compare_val,
+                            "delta": delta_val,
+                        }
+                    )
+                series_by_metric[metric_key] = metric_series
+
+        payload = {
+            "summary": summary,
+            "history": history,
+            "summary_history": summary_history,
+            "metrics": metrics_list,
+            "series": series_by_metric,
+        }
+        if include_companies:
+            payload["companies"] = get_company_list()
+        return payload
+
     metric_key = (metric or "").lower()
     metric_col = METRIC_COLUMNS.get(metric_key)
     if not metric_col:
         return None
 
-    summary_key = _cache_key("summary", normalized)
-    history_key = _cache_key("history", normalized)
-
     with get_connection() as conn:
         summary = cache.get(summary_key)
-        if not isinstance(summary, dict):
+        if not isinstance(summary, dict) or "summary" not in summary:
             summary_sql = (
                 "SELECT ticker, company_name, gics_sector, port_date, rank_index, port_weight, "
                 "aiges_composite_average, transparency, ethical_principles, governance_structure, "

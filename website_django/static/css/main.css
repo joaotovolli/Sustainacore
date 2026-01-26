@@ -2388,6 +2388,17 @@ textarea:focus {
     min-width: 220px;
 }
 
+.tech100-company__summary {
+    margin-top: 1rem;
+}
+
+.tech100-company__summary-text {
+    margin: 0;
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 1rem;
+}
+
 .tech100-company__controls {
     display: flex;
     align-items: center;
@@ -2395,16 +2406,44 @@ textarea:focus {
     flex-wrap: wrap;
 }
 
-.tech100-company__range {
-    display: flex;
-    gap: 0.35rem;
-    flex-wrap: wrap;
-}
-
 .tech100-company__chart {
     margin-top: 1rem;
-    min-height: 320px;
+    min-height: 340px;
+    height: 340px;
     position: relative;
+}
+
+.tech100-company__chart--compact {
+    min-height: 220px;
+    height: 220px;
+    margin-top: 0.75rem;
+}
+
+.tech100-company__dashboard-grid {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.tech100-company__chart-card {
+    padding: 1rem;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.03);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.tech100-company__chart-card--wide {
+    grid-column: 1 / -1;
+}
+
+.tech100-company__chart-header {
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
 }
 
 .tech100-company__history-meta {
@@ -2439,6 +2478,22 @@ textarea:focus {
     font-weight: 600;
 }
 
+.tech100-summary-table .summary-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.tech100-summary-table .summary-text {
+    color: var(--text);
+    line-height: 1.5;
+}
+
+.tech100-summary-table .summary-toggle {
+    align-self: flex-start;
+    font-size: 0.85rem;
+}
+
 .legend-item {
     display: inline-flex;
     align-items: center;
@@ -2468,6 +2523,16 @@ textarea:focus {
     .tech100-company__meta {
         flex-direction: column;
         gap: 0.75rem;
+    }
+
+    .tech100-company__chart {
+        min-height: 280px;
+        height: 280px;
+    }
+
+    .tech100-company__chart--compact {
+        min-height: 200px;
+        height: 200px;
     }
 }
 
