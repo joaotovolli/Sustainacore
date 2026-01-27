@@ -8,7 +8,7 @@ import logging
 import os
 import random
 import time
-import http.client  # preload stdlib http to avoid app.http shadowing
+import http.client  # preload stdlib http to avoid local http shadowing
 import urllib.error
 import urllib.parse
 import urllib.request

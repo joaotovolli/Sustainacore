@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import http.client  # preload stdlib http to avoid app.http shadowing
+import http.client  # preload stdlib http to avoid local http shadowing
 import pathlib
 import sys
 

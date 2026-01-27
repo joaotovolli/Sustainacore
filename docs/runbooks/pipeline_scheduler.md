@@ -30,6 +30,7 @@ Do not print env contents in logs or docs.
 ## Lock + runtime guardrails
 - Ingest + pipeline use a shared file lock: `/tmp/sc_idx_pipeline.lock` via `flock -n`.
 - Runtime limits (systemd): `RuntimeMaxSec=7200` for ingest, `RuntimeMaxSec=3600` for pipeline.
+- Restart limits (systemd): the pipeline unit sets StartLimit to prevent restart storms if a failure repeats.
 
 ## Status + logs
 ```bash

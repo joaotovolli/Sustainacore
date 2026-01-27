@@ -54,9 +54,12 @@ def start_run(
     meta = meta or {}
     run_id = meta.get("run_id") or str(uuid.uuid4())
     sql = (
-        "INSERT INTO SC_IDX_JOB_RUNS "
-        "(run_id, job_name, started_at, start_date, end_date, provider, oracle_user, usage_current, usage_limit, "
-        "usage_remaining, credit_buffer, max_provider_calls, status) "
+        "MERGE INTO SC_IDX_JOB_RUNS dst "
+        "USING (SELECT :run_id AS run_id FROM dual) src "
+        "ON (dst.run_id = src.run_id) "
+        "WHEN NOT MATCHED THEN "
+        "INSERT (run_id, job_name, started_at, start_date, end_date, provider, oracle_user, usage_current, "
+        "usage_limit, usage_remaining, credit_buffer, max_provider_calls, status) "
         "VALUES (:run_id, :job_name, SYSTIMESTAMP, :start_date, :end_date, :provider, :oracle_user, "
         ":usage_current, :usage_limit, :usage_remaining, :credit_buffer, :max_provider_calls, 'STARTED')"
     )
