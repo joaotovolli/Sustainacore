@@ -5,7 +5,7 @@ Follow it for every frontend change to ensure consistent validation and review a
 
 ## Environments
 - Production: `https://sustainacore.org`
-- Preview: `https://preview.sustainacore.org` (Basic Auth, noindex, PREVIEW banner)
+- Preview: `https://preview.sustainacore.org` (public, noindex, PREVIEW banner)
 - Local automation: `http://127.0.0.1` (Nginx/Gunicorn on VM2)
 - Runserver (branch-only): `http://127.0.0.1:<port>` (used when new routes exist)
 
@@ -53,6 +53,17 @@ TECH100_SCREENSHOT_MODE=after TECH100_UI_DATA_MODE=oracle node scripts/run_tech1
 
 7) Iterate until PASS, then open PR with artifacts and preview link.
 
+## PR Gate (Home Only)
+PRs run a lightweight home-page screenshot compare (prod vs preview) in GitHub Actions.
+Workflow: `.github/workflows/ui_compare_home.yml`.
+
+Required secrets (names only):
+
+Artifacts:
+- `ui-home-compare` (before/after/diff under `artifacts/ui_home/`)
+- `artifacts/ui_home/report/ui_compare_report.json`
+- `artifacts/ui_home/report/ui_compare_summary.txt`
+
 ## Fixture mode vs Oracle-backed mode
 - Fixture mode (deterministic, recommended for screenshots):
   - `TECH100_UI_DATA_MODE=fixture`
@@ -67,7 +78,7 @@ To avoid transient runserver issues for baseline screenshots:
 This uses Nginx/Gunicorn instead of spawning a runserver unit.
 
 ## Preview screenshots (clickable review)
-Use preview with Basic Auth for external review:
+Use preview for external review:
 ```bash
 TECH100_SCREENSHOT_DIR=preview \
 TECH100_BASE_URL=https://preview.sustainacore.org \
@@ -128,7 +139,7 @@ NPM aliases (from `website_django/package.json`):
 - <what changed>
 
 ## Preview
-- https://preview.sustainacore.org (Basic Auth: <<<USER>>> / <<<PASS>>>)
+- https://preview.sustainacore.org
 
 ## Screenshots
 - Before: docs/screenshots/<area>/before/...
@@ -149,5 +160,5 @@ NPM aliases (from `website_django/package.json`):
 - 404 path: check `tech100_url_candidates.mjs` and confirm URL patterns.
 - 500 errors: ensure `DJANGO_DEBUG=1` during runs; see `/tmp/tech100_500_body_<port>.html`.
 - Oracle issues: verify wallet perms and `TNS_ADMIN`; check smoke log in `/tmp/tech100_oracle_smoke_<port>.log`.
-- Basic Auth: verify credentials in `TECH100_BASIC_AUTH_USER/PASS` or `/etc/nginx/.htpasswd_preview_sustainacore`.
+- Basic Auth: not required for preview. Tech100-specific credentials still apply where documented.
 - “No data available” in UI: run fixture mode and confirm Oracle connectivity separately.

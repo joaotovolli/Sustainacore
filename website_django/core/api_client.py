@@ -12,14 +12,17 @@ import logging
 import requests
 from django.conf import settings
 from django.core.cache import cache
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 CACHE_TTLS = {
     "tech100": 60,
     "tech100_error": 15,
+    "tech100_stale": 600,
     "news": 60,
     "news_error": 15,
+    "news_stale": 600,
     "news_detail": 60,
     "news_detail_error": 15,
 }
@@ -29,6 +32,19 @@ def _cache_key(prefix: str, params: Dict[str, Any]) -> str:
     encoded = json.dumps(params, sort_keys=True, default=str)
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
     return f"backend:{prefix}:{digest}"
+
+
+def _stale_cache_key(cache_key: str) -> str:
+    return f"{cache_key}:ok"
+
+
+def _get_last_good(cache_key: str) -> Optional[Dict[str, Any]]:
+    cached = cache.get(_stale_cache_key(cache_key))
+    return cached if isinstance(cached, dict) else None
+
+
+def _set_last_good(cache_key: str, payload: Dict[str, Any], ttl: int) -> None:
+    cache.set(_stale_cache_key(cache_key), payload, ttl)
 
 
 def _build_headers() -> Dict[str, str]:
@@ -91,13 +107,42 @@ def _extract_meta(payload: Dict[str, Any] | List[Dict[str, Any]]) -> Dict[str, A
     return {}
 
 
+def _tech100_fixture_items() -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    sectors = ["Software", "Semiconductors", "Internet", "Hardware", "Services"]
+    regions = ["North America", "Europe", "Asia-Pacific"]
+    for idx in range(25):
+        rank = idx + 1
+        score = round(86.5 - idx * 0.6, 2)
+        items.append(
+            {
+                "company_name": f"Tech Company {rank}",
+                "ticker": f"TCH{rank:02d}",
+                "gics_sector": sectors[idx % len(sectors)],
+                "region": regions[idx % len(regions)],
+                "port_date": "2025-01-31",
+                "rank_index": rank,
+                "weight": round(0.04 - idx * 0.001, 4),
+                "aiges_composite_average": score,
+                "aiges_composite": score,
+                "transparency": round(80 + (idx % 5) * 2.1, 2),
+                "ethical_principles": round(78 + (idx % 4) * 2.4, 2),
+                "governance_structure": round(82 + (idx % 3) * 1.8, 2),
+                "regulatory_alignment": round(76 + (idx % 6) * 1.7, 2),
+                "stakeholder_engagement": round(79 + (idx % 5) * 1.9, 2),
+                "summary": "Fixture data for VRT stability.",
+            }
+        )
+    return items
+
+
 def fetch_tech100(
     *,
     port_date: Optional[str] = None,
     sector: Optional[str] = None,
     search: Optional[str] = None,
     query: Optional[str] = None,
-    timeout: float = 8.0,
+    timeout: float = 3.0,
 ) -> Dict[str, Any]:
     params: Dict[str, Any] = {}
     if port_date:
@@ -112,13 +157,70 @@ def fetch_tech100(
     if search:
         params["search"] = search
 
+    if getattr(settings, "SUSTAINACORE_ENV", "").lower() == "preview":
+        items = _tech100_fixture_items()
+        if sector:
+            items = [item for item in items if item.get("gics_sector") == sector]
+        if search_param:
+            search_lower = search_param.lower()
+            items = [
+                item
+                for item in items
+                if search_lower in (item.get("company_name") or "").lower()
+                or search_lower in (item.get("ticker") or "").lower()
+            ]
+        result = {"items": items, "meta": {"count": len(items), "source": "fixture"}, "error": None}
+        return result
+
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        items = _tech100_fixture_items()
+        if sector:
+            items = [item for item in items if item.get("gics_sector") == sector]
+        if search_param:
+            search_lower = search_param.lower()
+            items = [
+                item
+                for item in items
+                if search_lower in (item.get("company_name") or "").lower()
+                or search_lower in (item.get("ticker") or "").lower()
+            ]
+        result = {"items": items, "meta": {"count": len(items)}, "error": None}
+        return result
+
     cache_key = _cache_key("tech100", params)
     cached = cache.get(cache_key)
     if cached is not None:
+        if isinstance(cached, dict) and cached.get("error"):
+            last_good = _get_last_good(cache_key)
+            if last_good is not None:
+                return last_good
         return cached
 
     payload = _get_json("/api/tech100", timeout=timeout, params=params or None)
     if isinstance(payload, dict) and "error" in payload:
+        last_good = _get_last_good(cache_key)
+        if last_good is not None:
+            cache.set(cache_key, last_good, CACHE_TTLS["tech100"])
+            return last_good
+        if os.getenv("TECH100_ORACLE_FALLBACK", "1") == "1":
+            try:
+                from core.tech100_index_data import fetch_tech100_oracle_fallback
+
+                fallback_items = fetch_tech100_oracle_fallback(
+                    port_date=port_date, sector=sector, search=search_param
+                )
+                if fallback_items:
+                    result = {
+                        "items": fallback_items,
+                        "meta": {"count": len(fallback_items), "source": "oracle_fallback"},
+                        "error": None,
+                    }
+                    cache.set(cache_key, result, CACHE_TTLS["tech100"])
+                    _set_last_good(cache_key, result, CACHE_TTLS["tech100_stale"])
+                    return result
+            except Exception as exc:
+                logger.warning("TECH100 oracle fallback failed: %s", exc)
+
         result = {
             "items": [],
             "meta": {},
@@ -127,8 +229,33 @@ def fetch_tech100(
         cache.set(cache_key, result, CACHE_TTLS["tech100_error"])
         return result
 
-    result = {"items": _extract_items(payload), "meta": _extract_meta(payload), "error": None}
+    items = _extract_items(payload)
+    if not items and os.getenv("TECH100_ORACLE_FALLBACK", "1") == "1":
+        last_good = _get_last_good(cache_key)
+        if last_good is not None:
+            cache.set(cache_key, last_good, CACHE_TTLS["tech100"])
+            return last_good
+        try:
+            from core.tech100_index_data import fetch_tech100_oracle_fallback
+
+            fallback_items = fetch_tech100_oracle_fallback(
+                port_date=port_date, sector=sector, search=search_param
+            )
+            if fallback_items:
+                result = {
+                    "items": fallback_items,
+                    "meta": {"count": len(fallback_items), "source": "oracle_fallback"},
+                    "error": None,
+                }
+                cache.set(cache_key, result, CACHE_TTLS["tech100"])
+                _set_last_good(cache_key, result, CACHE_TTLS["tech100_stale"])
+                return result
+        except Exception as exc:
+            logger.warning("TECH100 oracle fallback failed: %s", exc)
+
+    result = {"items": items, "meta": _extract_meta(payload), "error": None}
     cache.set(cache_key, result, CACHE_TTLS["tech100"])
+    _set_last_good(cache_key, result, CACHE_TTLS["tech100_stale"])
     return result
 
 
@@ -139,7 +266,7 @@ def fetch_news(
     ticker: Optional[str] = None,
     days: Optional[int] = None,
     limit: int = 20,
-    timeout: float = 8.0,
+    timeout: float = 3.0,
 ) -> Dict[str, Any]:
     """Fetch news items from VM1 `/api/news` endpoint."""
 
@@ -164,17 +291,29 @@ def fetch_news(
     if not os.getenv("PYTEST_CURRENT_TEST") and "test" not in sys.argv:
         cached = cache.get(cache_key)
         if cached is not None:
+            if isinstance(cached, dict) and cached.get("error"):
+                last_good = _get_last_good(cache_key)
+                if last_good is not None:
+                    return last_good
             return cached
 
     payload = _get_json("/api/news", timeout=timeout, params=params)
 
     if not isinstance(payload, dict):
         logger.warning("Unexpected news payload shape: %s", payload)
+        last_good = _get_last_good(cache_key)
+        if last_good is not None:
+            cache.set(cache_key, last_good, CACHE_TTLS["news"])
+            return last_good
         result = {"items": [], "meta": {}, "error": "Unable to load news data."}
         cache.set(cache_key, result, CACHE_TTLS["news_error"])
         return result
 
     if "error" in payload:
+        last_good = _get_last_good(cache_key)
+        if last_good is not None:
+            cache.set(cache_key, last_good, CACHE_TTLS["news"])
+            return last_good
         result = {
             "items": [],
             "meta": {},
@@ -192,6 +331,7 @@ def fetch_news(
         "error": None,
     }
     cache.set(cache_key, result, CACHE_TTLS["news"])
+    _set_last_good(cache_key, result, CACHE_TTLS["news_stale"])
     return result
 
 

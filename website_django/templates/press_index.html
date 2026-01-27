@@ -8,6 +8,11 @@
     <div class="shell">
         <div class="section__header">
             <p class="eyebrow">Press</p>
+            <nav class="page-breadcrumbs" aria-label="Breadcrumb">
+                <a href="/">Home</a>
+                <span class="page-breadcrumbs__separator">→</span>
+                <span class="page-breadcrumbs__current">Press</span>
+            </nav>
             <h1>Resources for journalists and partners.</h1>
             <p class="muted">Contact our team, access TECH100 background, and request data or interviews.</p>
         </div>
@@ -31,6 +36,17 @@
                 <p class="muted">Request supporting data, methodology notes, or analyst briefings.</p>
                 <a class="btn btn--secondary" href="{% url 'tech100' %}">Explore TECH100</a>
             </div>
+        </div>
+
+        <div class="card card--lined press-about">
+            <h2>About SustainaCore</h2>
+            <p class="muted">SustainaCore is an open research project focused on AI governance, transparency, and accountable technology signals.</p>
+            <p>
+                Start here:
+                <a class="text-link" href="/tech100/index/">TECH100 Index overview</a>,
+                <a class="text-link" href="/tech100/methodology/">Methodology</a>,
+                <a class="text-link" href="/corrections/">Corrections &amp; Complaints</a>.
+            </p>
         </div>
     </div>
 </section>

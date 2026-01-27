@@ -9,3 +9,4 @@ numpy==1.26.*
 fastembed==0.3.*
 faiss-cpu==1.8.*
 Django==4.2.27
+geoip2==5.2.0

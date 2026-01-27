@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Global AI Regulation | SustainaCore{% endblock %}
+{% block meta_description %}Explore AI regulation snapshots by jurisdiction with global coverage and drilldowns.{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/ai_reg.css' %}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+  <div class="shell">
+    <div class="section__header">
+      <div>
+        <span class="pill pill--soft">Global AI Regulation</span>
+        <h1>Regulatory coverage by jurisdiction</h1>
+        <p class="muted">Snapshots of AI regulation status, evidence coverage, and milestones across the world.</p>
+      </div>
+    </div>
+
+    <div
+      class="card ai-reg__card"
+      data-ai-reg-root
+      data-heatmap-endpoint="/ai-regulation/data/heatmap"
+      data-jurisdiction-endpoint="/ai-regulation/data/jurisdiction"
+      data-geojson-url="{% static 'geo/world_countries_simplified.geojson' %}"
+      data-globe-texture-url="{% static 'geo/earth_texture.svg' %}"
+    >
+      <div class="card__header card__header--split">
+        <div>
+          <h2 class="h4">Explore the global dataset</h2>
+          <p class="muted">Select a snapshot date and drill down into a jurisdiction to inspect instruments and sources.</p>
+        </div>
+        <div class="card__actions ai-reg__filters">
+          <label>
+            As-of date
+            <select name="as_of" id="ai-reg-as-of" data-endpoint="/ai-regulation/data/as-of-dates">
+              {% if as_of_dates %}
+                {% for d in as_of_dates %}
+                  <option value="{{ d }}" {% if d == latest_as_of %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="">No snapshots available</option>
+              {% endif %}
+            </select>
+          </label>
+          <label>
+            Country
+            <select name="country" id="ai-reg-country" data-country-select disabled>
+              <option value="">Loading countries…</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select name="status" disabled>
+              <option value="">Not available yet</option>
+            </select>
+          </label>
+          <label>
+            Instrument type
+            <select name="type" disabled>
+              <option value="">Not available yet</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="ai-reg__grid">
+        <div class="card card--lined ai-reg__map">
+          <div class="card__header">
+            <div>
+              <h3 class="h5">Global snapshot</h3>
+              <p class="muted">Drag to rotate • Scroll to zoom • Select a country to view the drilldown.</p>
+            </div>
+            <div class="ai-reg__summary">
+              <div>
+                <span class="muted">Jurisdictions</span>
+                <strong data-ai-reg-summary-jurisdictions>--</strong>
+              </div>
+              <div>
+                <span class="muted">Total instruments</span>
+                <strong data-ai-reg-summary-instruments>--</strong>
+              </div>
+            </div>
+          </div>
+          <div class="ai-reg__map-shell" data-map-container>
+            <div class="ai-reg__globe" data-globe></div>
+            <div class="ai-reg__fallback" data-fallback hidden>
+              <div class="ai-reg__fallback-label" data-fallback-label>2D fallback map (WebGL unavailable)</div>
+            </div>
+            <div class="ai-reg__tooltip" data-tooltip hidden></div>
+            <div class="ai-reg__loading" data-map-loading hidden>Loading heatmap…</div>
+            <div class="ai-reg__error" data-map-error hidden></div>
+          </div>
+          <div class="ai-reg__legend">
+            <span class="muted">Low</span>
+            <div class="ai-reg__legend-bar" aria-hidden="true"></div>
+            <span class="muted">High</span>
+            <div class="ai-reg__controls">
+              <button type="button" class="btn btn--ghost btn--sm" data-zoom-in>
+                Zoom in
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" data-zoom-out>
+                Zoom out
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm ai-reg__reset" data-reset-view>
+                Reset view
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside class="card card--lined ai-reg__panel" data-drilldown-panel>
+          <div class="card__header">
+            <div>
+              <h3 class="h5">Jurisdiction drilldown</h3>
+              <p class="muted">Select a country to load instruments, milestones, and sources.</p>
+            </div>
+          </div>
+          <div class="ai-reg__panel-body" data-drilldown-body>
+            <div class="muted">Waiting for a jurisdiction selection.</div>
+          </div>
+        </aside>
+      </div>
+      <div class="ai-reg__lists" data-ai-reg-lists></div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.29.2/dist/globe.gl.min.js" crossorigin="anonymous"></script>
+  <script type="module" src="{% static 'js/ai_regulation.js' %}?v={{ static_version }}"></script>
+{% endblock %}

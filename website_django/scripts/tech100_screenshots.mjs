@@ -54,6 +54,14 @@ const targets = dedupeTargets(
       ]
 );
 
+const filterList = (process.env.TECH100_SCREENSHOT_PAGES || "")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+const targetsToRun = filterList.length
+  ? targets.filter((target) => filterList.includes(target.name.replace(".png", "").toLowerCase()))
+  : targets;
+
 const validateTech100Data = async (page) => {
   const emptyState = await page.$("[data-tech100-empty-state]");
   if (emptyState) {
@@ -137,9 +145,9 @@ const run = async () => {
     content: "* { transition: none !important; animation: none !important; }",
   });
 
-  for (const target of targets) {
+  for (const target of targetsToRun) {
     const url = `${baseUrl}${target.path}`;
-    const resp = await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
+    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     if (resp) {
       const status = resp.status();
       if (status >= 500) {
@@ -190,7 +198,7 @@ const run = async () => {
       await page.waitForTimeout(300);
     }
     const outPath = path.join(outDir, target.name);
-    await page.screenshot({ path: outPath, fullPage: true, timeout: 60000 });
+    await page.screenshot({ path: outPath, fullPage: true, timeout: timeoutMs });
     process.stdout.write(`saved ${outPath}\n`);
   }
 

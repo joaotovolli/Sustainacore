@@ -27,6 +27,10 @@ Client-side (only if analytics consent = yes):
 - `ask2_opened`
 - `tab_changed`
 
+Analytics identifiers (only if analytics consent = yes):
+- `session_key`: server session key used to group events
+- `user_id`: anonymous numeric ID derived from the first-party analytics cookie
+
 Ask2 content (stored in Oracle):
 - Ask2 user and assistant messages are stored in `W_WEB_ASK2_CONVERSATION` and `W_WEB_ASK2_MESSAGE`.
 - Content is truncated to 20,000 characters per message.
@@ -36,6 +40,10 @@ Ask2 content (stored in Oracle):
 - `ip_trunc`: IPv4 /24 or IPv6 /48
 - `ip_hash`: salted hash (uses `TELEMETRY_HASH_SALT` or `SECRET_KEY`)
 - User agent and referrer are stored when present.
+
+IP selection (server-side):
+- Preferred order: `X-Forwarded-For` (first public IP), `X-Real-IP`, then `REMOTE_ADDR`.
+- Private/reserved/bogon ranges are ignored unless all candidates are non-public.
 
 ## Retention
 - Default retention is 180 days for telemetry events.
@@ -63,6 +71,29 @@ Environment variables (optional):
 - `TELEMETRY_POLICY_VERSION` (default `2025-12-30`)
 - `TELEMETRY_HASH_SALT` (default `SECRET_KEY`)
 - `TELEMETRY_RETENTION_DAYS` (default `180`)
-- `TELEMETRY_TRUST_X_FORWARDED_FOR` (`1` to trust proxy headers)
+- `TELEMETRY_TRUST_X_FORWARDED_FOR` (`1` to trust proxy headers; default on)
 - `TELEMETRY_STORE_ASK2_TEXT` (`1` to store Ask2 message text; default OFF)
 - `ASK2_STORE_CONVERSATIONS` (`1` to store Ask2 prompts + replies in events; default OFF)
+- `TELEMETRY_GEO_COUNTRY_HEADERS` (comma-separated header names for country code)
+- `TELEMETRY_GEO_REGION_HEADERS` (comma-separated header names for region code)
+- `TELEMETRY_DEBUG_HEADERS` (`1` to expose a local-only header presence endpoint)
+- `TELEMETRY_GEOIP_ENABLED` (`1` to enable GeoIP fallback; default OFF)
+- `TELEMETRY_GEOIP_DB_PATH` (filesystem path to the GeoIP database file)
+
+## Geo enablement
+- Country/region enrichment requires upstream headers (set in `TELEMETRY_GEO_COUNTRY_HEADERS` and
+  `TELEMETRY_GEO_REGION_HEADERS`).
+- For local verification, enable `TELEMETRY_DEBUG_HEADERS=1` and call
+  `/telemetry/debug/headers/` to see which header names are present (values are not returned).
+- If header values include comma-separated values, only the first entry is used.
+- To enable geo enrichment, configure the edge/reverse proxy to inject
+  `X-Country-Code` / `X-Region-Code` (or equivalent) and then set
+  `TELEMETRY_GEO_COUNTRY_HEADERS` / `TELEMETRY_GEO_REGION_HEADERS` accordingly.
+- Optional GeoIP fallback (off by default):
+  - Provision a GeoIP database file on the VM (outside the repo).
+  - Set `TELEMETRY_GEOIP_ENABLED=1` and `TELEMETRY_GEOIP_DB_PATH=/path/to/db`.
+  - Restart `gunicorn.service` to pick up the environment changes.
+  - Current ops configuration uses DB-IP Lite City MMDB from:
+    - https://db-ip.com/db/download/ip-to-city-lite
+  - Installed path on VM2:
+    - `/opt/sustainacore/geoip/dbip-city-lite.mmdb`

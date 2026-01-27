@@ -109,10 +109,7 @@ The helper writes `/etc/systemd/system/sustainacore-ai.service.d/15-persona.conf
 - **Integrations:** Oracle APEX app export (`app/apex/f101_latest.sql`) aligned with the live workspace and used for secondary/administrative flows (not the primary public front-end).
 
 ## Screenshots & Demos
-> Coming soon. Drop exports under `docs/images/` and update the placeholders below.
->
-> ![APEX dashboard placeholder](docs/images/apex-dashboard-placeholder.png)
-> ![Ask2 pipeline placeholder](docs/images/ask2-pipeline-placeholder.png)
+><img width="757" height="1285" alt="image" src="https://github.com/user-attachments/assets/eff8f059-96ba-421b-a3a9-327ec8229f6f" />
 
 ## Visual regression checks (VM2)
 To validate mobile and desktop layouts for the public site, run the Playwright VRT harness from the Django app:

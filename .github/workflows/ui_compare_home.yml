@@ -1,0 +1,220 @@
+name: UI Screenshot Compare (Home)
+
+on:
+  pull_request:
+    paths:
+      - 'website_django/templates/**'
+      - 'website_django/static/**'
+      - 'website_django/core/**'
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 3 * * *"
+
+jobs:
+  ui-home-compare:
+    name: UI compare (home, prod vs preview)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: website_django/package-lock.json
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          cd website_django
+          npm ci
+      - name: Install Playwright Chromium
+        run: |
+          set -euo pipefail
+          cd website_django
+          npx playwright install --with-deps chromium
+      - name: Prepare artifact directories
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ui/before artifacts/ui/after artifacts/ui/diff artifacts/ui/report
+      - name: Preview preflight
+        id: preflight
+        env:
+          PREVIEW_URL: https://preview.sustainacore.org/
+        run: |
+          set -u
+          ok=true
+          curl -sS -I --connect-timeout 3 --max-time 8 --retry 3 --retry-delay 2 "$PREVIEW_URL" >/tmp/preview_headers.txt
+          curl_status=$?
+          if [ "$curl_status" -ne 0 ]; then
+            ok=false
+            reason="curl_failed:${curl_status}"
+          else
+            reason="ok"
+          fi
+          if [ "$ok" != "true" ]; then
+            cat > artifacts/ui/report/ui_compare_report.json <<EOF
+          {
+            "status": "failed_preflight",
+            "reason": "${reason}",
+            "preview_url": "${PREVIEW_URL}",
+            "prod_url": "https://sustainacore.org/"
+          }
+          EOF
+            cat > artifacts/ui/report/ui_compare_summary.txt <<EOF
+          UI Compare Summary (home)
+          Status: failed_preflight
+          Reason: ${reason}
+          Preview: ${PREVIEW_URL}
+          Prod: https://sustainacore.org/
+          EOF
+          fi
+          echo "ok=${ok}" >> "$GITHUB_OUTPUT"
+      - name: Prepare VM2 SSH key (preview check)
+        env:
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${VM2_SSH_KEY:-}" || -z "${VM2_HOST:-}" ]]; then
+            echo "VM2 SSH secrets missing; skipping SSH prep." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$VM2_SSH_KEY" > ~/.ssh/id_rsa_vm2
+          chmod 600 ~/.ssh/id_rsa_vm2
+          ssh-keyscan -H "$VM2_HOST" >> ~/.ssh/known_hosts
+      - name: Verify preview build SHA
+        if: ${{ github.event_name == 'pull_request' && steps.preflight.outputs.ok == 'true' }}
+        env:
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          short_sha="${PR_SHA:0:8}"
+          echo "Expecting preview build sha: ${short_sha}"
+          if [[ -n "${VM2_SSH_KEY:-}" && -n "${VM2_HOST:-}" && -n "${VM2_USER:-}" ]]; then
+            actual_sha="$(ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "git -C /opt/code/Sustainacore_preview rev-parse --short=8 HEAD")"
+            if [ "${actual_sha}" != "${short_sha}" ]; then
+              echo "Preview worktree SHA mismatch: expected ${short_sha}, got ${actual_sha}." >&2
+              exit 1
+            fi
+            echo "Preview SHA: ${actual_sha} (worktree check)" >>"$GITHUB_STEP_SUMMARY"
+          else
+            html="$(curl -fsSL --connect-timeout 3 --max-time 8 --retry 2 --retry-delay 1 https://preview.sustainacore.org/)"
+            if ! echo "$html" | grep -Fq "build: ${short_sha}"; then
+              echo "Preview does not reflect PR SHA (${short_sha})." >&2
+              exit 1
+            fi
+          fi
+      - name: Capture before/after/diff
+        if: ${{ steps.preflight.outputs.ok == 'true' }}
+        continue-on-error: true
+        env:
+          PROD_BASE_URL: https://sustainacore.org
+          PREVIEW_BASE_URL: https://preview.sustainacore.org
+          TIMEOUT_MS: "60000"
+          DIFF_MAX_PIXELS: "50000"
+          OUTPUT_DIR: ../artifacts/ui
+        run: |
+          set -euo pipefail
+          cd website_django
+          node scripts/ui_compare_home.mjs
+      - name: Enforce diff threshold
+        if: ${{ steps.preflight.outputs.ok == 'true' }}
+        continue-on-error: true
+        env:
+          DIFF_MAX_PIXELS: "50000"
+          UI_COMPARE_REPORT: ../artifacts/ui/report/ui_compare_report.json
+        run: |
+          set -euo pipefail
+          cd website_django
+          node scripts/ui_compare_threshold.mjs
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-home-compare
+          path: artifacts/ui
+      - name: Job summary
+        run: |
+          {
+            echo "## UI home screenshot compare";
+            echo "- Production: https://sustainacore.org/";
+            echo "- Preview: https://preview.sustainacore.org/";
+            echo "- Artifacts: ui-home-compare (before/after/diff/report for home_full, home_top, home_mid, home_footer, home_mobile)";
+            echo;
+            echo "### Compare summary";
+            if [ -f artifacts/ui/report/ui_compare_summary.txt ]; then
+              cat artifacts/ui/report/ui_compare_summary.txt;
+            else
+              echo "No summary file found.";
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Ensure preview links in PR body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info("No pull_request context; skipping PR body update.");
+              return;
+            }
+            const previewBlock = [
+              "## Preview links",
+              "- https://preview.sustainacore.org/",
+              "- https://sustainacore.org/"
+            ].join("\\n");
+            const body = pr.body || "";
+            if (body.includes("## Preview links")) {
+              core.info("Preview links already present in PR body.");
+              return;
+            }
+            const updated = `${body}\\n\\n${previewBlock}\\n`;
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              body: updated
+            });
+      - name: Comment with artifact download command
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info("No pull_request context; skipping PR comment.");
+              return;
+            }
+            const marker = "<!-- ui-home-compare-artifacts -->";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              "UI compare artifacts are ready.",
+              "- Production: https://sustainacore.org/",
+              "- Preview: https://preview.sustainacore.org/",
+              `- Run: ${runUrl}`,
+              `- Download: gh run download ${context.runId} -n ui-home-compare`
+            ].join("\\n");
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number
+            });
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body
+              });
+            }

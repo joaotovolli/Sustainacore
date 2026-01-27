@@ -1,0 +1,34 @@
+{
+  "urls": {
+    "prod": "https://sustainacore.org/",
+    "preview": "https://preview.sustainacore.org/"
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "diff": {
+    "mismatchPixels": 39504,
+    "mismatchPercent": 3.0481,
+    "width": 1440,
+    "height": 900
+  },
+  "layout": {
+    "before": {
+      "viewportWidth": 1440,
+      "viewportHeight": 900,
+      "docScrollWidth": 1440,
+      "docClientWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowOffendersTop15": []
+    },
+    "after": {
+      "viewportWidth": 1440,
+      "viewportHeight": 900,
+      "docScrollWidth": 1440,
+      "docClientWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowOffendersTop15": []
+    }
+  }
+}

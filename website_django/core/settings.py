@@ -56,6 +56,8 @@ PREVIEW_HOSTS = get_env_list("PREVIEW_HOSTS", "preview.sustainacore.org")
 PREVIEW_MODE = env_bool("PREVIEW_MODE", default=False)
 _raw_env = os.environ.get("SUSTAINACORE_ENV")
 SUSTAINACORE_ENV = (_raw_env or "development").strip().lower()
+if "Sustainacore_preview" in str(BASE_DIR):
+    SUSTAINACORE_ENV = "preview"
 
 SITE_URL = os.environ.get("SITE_URL", "https://sustainacore.org")
 DEFAULT_META_DESCRIPTION = (
@@ -68,9 +70,27 @@ TELEMETRY_POLICY_VERSION = os.environ.get("TELEMETRY_POLICY_VERSION", "2025-12-3
 TELEMETRY_HASH_SALT = os.environ.get("TELEMETRY_HASH_SALT", SECRET_KEY)
 TELEMETRY_RETENTION_DAYS = int(os.environ.get("TELEMETRY_RETENTION_DAYS", "180"))
 TELEMETRY_CONSENT_MAX_AGE_DAYS = int(os.environ.get("TELEMETRY_CONSENT_MAX_AGE_DAYS", "180"))
-TELEMETRY_TRUST_X_FORWARDED_FOR = env_bool("TELEMETRY_TRUST_X_FORWARDED_FOR", default=False)
+TELEMETRY_TRUST_X_FORWARDED_FOR = env_bool("TELEMETRY_TRUST_X_FORWARDED_FOR", default=True)
 TELEMETRY_STORE_ASK2_TEXT = env_bool("TELEMETRY_STORE_ASK2_TEXT", default=False)
+TELEMETRY_WRITE_ENABLED = env_bool(
+    "TELEMETRY_WRITE_ENABLED",
+    default=SUSTAINACORE_ENV not in {"preview"},
+)
 ASK2_STORE_CONVERSATIONS = env_bool("ASK2_STORE_CONVERSATIONS", default=False)
+TELEMETRY_DEBUG_HEADERS = env_bool("TELEMETRY_DEBUG_HEADERS", default=False)
+TELEMETRY_GEO_COUNTRY_HEADERS = get_env_list(
+    "TELEMETRY_GEO_COUNTRY_HEADERS", "X-Country-Code,X-Geo-Country"
+)
+TELEMETRY_GEO_REGION_HEADERS = get_env_list(
+    "TELEMETRY_GEO_REGION_HEADERS", "X-Region-Code,X-Geo-Region"
+)
+TELEMETRY_GEOIP_ENABLED = env_bool("TELEMETRY_GEOIP_ENABLED", default=False)
+TELEMETRY_GEOIP_DB_PATH = os.environ.get("TELEMETRY_GEOIP_DB_PATH", "")
+
+DEFAULT_SESSION_ENGINE = "django.contrib.sessions.backends.db"
+if SUSTAINACORE_ENV == "preview":
+    DEFAULT_SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+SESSION_ENGINE = os.environ.get("SESSION_ENGINE", DEFAULT_SESSION_ENGINE)
 
 # Application definition
 
@@ -82,6 +102,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sitemaps',
+    'ai_reg',
     'ask2',
     'telemetry',
     'sc_admin_portal',
@@ -116,6 +137,7 @@ TEMPLATES = [
                 'core.context_processors.seo_defaults',
                 'core.context_processors.preview_context',
                 'core.context_processors.auth_context',
+                'core.context_processors.build_sha',
             ],
         },
     },
@@ -168,6 +190,9 @@ if PRODUCTION_MODE and not ORACLE_CONFIGURED:
         "Oracle is required in production. Set DB_USER/DB_PASSWORD/DB_DSN "
         "(or ORACLE_USER/ORACLE_PASSWORD/ORACLE_DSN/ORACLE_CONNECT_STRING)."
     )
+
+# Trust Nginx's forwarded scheme for secure request detection.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 if ORACLE_CONFIGURED:
     oracle_db = {

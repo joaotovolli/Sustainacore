@@ -1,0 +1,7 @@
+Run local 20260122-1736
+Evidence capture (prod vs preview):
+- home_desktop (1440x900)
+- home_mobile (390x844)
+- ai_reg_desktop (EU selected, 1440x900)
+- ai_reg_mobile (EU selected, 390x844)
+Note: local capture via Playwright on VM2 using 127.0.0.1:8000 (prod) and :8001 (preview).

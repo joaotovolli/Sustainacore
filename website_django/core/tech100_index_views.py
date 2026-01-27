@@ -8,7 +8,7 @@ from typing import Optional
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render
 from django.views.decorators.cache import cache_page
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_safe
 
 from core.tech100_index_data import (
     DrawdownResult,
@@ -93,7 +93,7 @@ def _best_worst(returns: list[tuple[dt.date, float]]) -> tuple[Optional[tuple], 
     return best, worst
 
 
-@require_GET
+@require_safe
 @cache_page(PAGE_CACHE_SECONDS)
 def tech100_index_overview(request):
     data_mode = get_data_mode()
@@ -177,7 +177,7 @@ def tech100_index_overview(request):
     return render(request, "tech100_index_overview.html", context)
 
 
-@require_GET
+@require_safe
 @cache_page(PAGE_CACHE_SECONDS)
 def tech100_performance(request):
     data_mode = get_data_mode()
@@ -273,7 +273,7 @@ def tech100_performance(request):
     return render(request, "tech100_performance.html", context)
 
 
-@require_GET
+@require_safe
 def tech100_constituents(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -296,7 +296,7 @@ def tech100_constituents(request):
     return render(request, "tech100_constituents.html", context)
 
 
-@require_GET
+@require_safe
 def tech100_attribution(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -323,7 +323,7 @@ def tech100_attribution(request):
     return render(request, "tech100_attribution.html", context)
 
 
-@require_GET
+@require_safe
 def tech100_stats(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -339,7 +339,7 @@ def tech100_stats(request):
     return render(request, "tech100_stats.html", context)
 
 
-@require_GET
+@require_safe
 def api_tech100_index_levels(request):
     latest = get_latest_trade_date()
     if latest is None:
@@ -359,7 +359,7 @@ def api_tech100_index_levels(request):
     )
 
 
-@require_GET
+@require_safe
 def api_tech100_performance_attribution(request):
     latest = get_latest_trade_date()
     if latest is None:
@@ -384,7 +384,7 @@ def api_tech100_performance_attribution(request):
     )
 
 
-@require_GET
+@require_safe
 def api_tech100_holdings(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -395,7 +395,7 @@ def api_tech100_holdings(request):
     return JsonResponse({"as_of": selected_date.isoformat(), "rows": holdings})
 
 
-@require_GET
+@require_safe
 def api_tech100_kpis(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -416,7 +416,7 @@ def api_tech100_kpis(request):
     )
 
 
-@require_GET
+@require_safe
 def api_tech100_constituents(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -427,7 +427,7 @@ def api_tech100_constituents(request):
     return JsonResponse({"as_of": selected_date.isoformat(), "rows": rows})
 
 
-@require_GET
+@require_safe
 def api_tech100_attribution(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -445,7 +445,7 @@ def api_tech100_attribution(request):
     )
 
 
-@require_GET
+@require_safe
 def api_tech100_stats(request):
     latest = get_latest_trade_date()
     selected_date = _parse_date(request.GET.get("date"), latest)
@@ -458,7 +458,7 @@ def api_tech100_stats(request):
     return JsonResponse({"as_of": selected_date.isoformat(), "stats": stats})
 
 
-@require_GET
+@require_safe
 @require_login_for_download
 def tech100_index_export(request):
     latest = get_latest_trade_date()
@@ -498,7 +498,7 @@ def tech100_index_export(request):
     return response
 
 
-@require_GET
+@require_safe
 @require_login_for_download
 def tech100_performance_export(request):
     latest = get_latest_trade_date()

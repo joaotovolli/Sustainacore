@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import DEFAULT_DB_ALIAS, connections, transaction
 from django.db.migrations.recorder import MigrationRecorder
 from django.utils.timezone import now
 
@@ -165,23 +165,31 @@ class Command(BaseCommand):
                 "ts": (now() + timedelta(seconds=0)).isoformat(),
             }
             try:
-                WebEvent.objects.using(alias).create(
-                    event_id=diag_id,
-                    event_ts=now(),
-                    consent_analytics_effective="N",
-                    event_type="diagnose",
-                    path="/diagnose",
-                    payload_json=json.dumps(payload),
-                )
+                with transaction.atomic(using=alias):
+                    WebEvent.objects.using(alias).create(
+                        event_id=diag_id,
+                        event_ts=now(),
+                        consent_analytics_effective="N",
+                        event_type="diagnose",
+                        path="/diagnose",
+                        payload_json=json.dumps(payload),
+                    )
+                    exists = WebEvent.objects.using(alias).filter(event_id=diag_id).exists()
+                    if not exists:
+                        raise CommandError("diagnostic_readback_failed: inserted row not found.")
+                    self.stdout.write("diagnostic_insert_readback: ok")
+                    transaction.set_rollback(True)
             except TimeoutError as exc:
                 raise CommandError(str(exc)) from exc
             except Exception as exc:
-                raise CommandError(f"diagnostic_insert_failed: {exc.__class__.__name__}") from exc
-
-            exists = WebEvent.objects.using(alias).filter(event_id=diag_id).exists()
-            if not exists:
-                raise CommandError("diagnostic_readback_failed: inserted row not found.")
-            self.stdout.write("diagnostic_insert_readback: ok")
+                safe_msg = str(exc).replace("\n", " ").strip()
+                if len(safe_msg) > 200:
+                    safe_msg = safe_msg[:200] + "..."
+                raise CommandError(
+                    f"diagnostic_insert_failed: {exc.__class__.__name__}: {safe_msg}"
+                ) from exc
+        else:
+            self.stdout.write("diagnostic_insert_skipped: verify_insert=false")
 
         if timeout_seconds:
             signal.alarm(0)

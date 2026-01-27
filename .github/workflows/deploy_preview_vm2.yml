@@ -1,0 +1,86 @@
+name: Deploy Preview VM2 (PR branch)
+
+on:
+  pull_request:
+    paths:
+      - 'website_django/templates/**'
+      - 'website_django/static/**'
+      - 'website_django/core/**'
+      - 'website_django/telemetry/**'
+      - 'ops/scripts/deploy_preview_vm2.sh'
+      - '.github/workflows/deploy_preview_vm2.yml'
+
+jobs:
+  deploy-preview:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Preflight secrets
+        id: preflight
+        env:
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -z "${VM2_HOST:-}" ]] && missing+=("VM2_HOST")
+          [[ -z "${VM2_USER:-}" ]] && missing+=("VM2_USER")
+          [[ -z "${VM2_SSH_KEY:-}" ]] && missing+=("VM2_SSH_KEY")
+          if ((${#missing[@]})); then
+            {
+              echo "### Preview deploy preflight";
+              echo "Missing required secrets:";
+              for secret in "${missing[@]}"; do
+                echo "- \`${secret}\`";
+              done;
+            } >>"$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=true" >>"$GITHUB_OUTPUT"
+      - name: Stop when secrets missing
+        if: ${{ steps.preflight.outputs.ready != 'true' }}
+        run: echo "Skipping preview deploy because required secrets are missing."
+      - name: Prepare SSH key
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
+        env:
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$VM2_SSH_KEY" > ~/.ssh/id_rsa_vm2
+          chmod 600 ~/.ssh/id_rsa_vm2
+          ssh-keyscan -H "$VM2_HOST" >> ~/.ssh/known_hosts
+      - name: Deploy preview branch
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
+        env:
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" <<SSH
+          set -euo pipefail
+          cd /opt/code/Sustainacore
+          bash ops/scripts/deploy_preview_vm2.sh "${PR_SHA}"
+          SSH
+      - name: Verify preview build marker
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
+        env:
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          short_sha="${PR_SHA:0:8}"
+          actual_sha="$(ssh -i ~/.ssh/id_rsa_vm2 "${VM2_USER}@${VM2_HOST}" "git -C /opt/code/Sustainacore_preview rev-parse --short=8 HEAD")"
+          if [ "${actual_sha}" != "${short_sha}" ]; then
+            echo "Preview worktree SHA mismatch: expected ${short_sha}, got ${actual_sha}." >&2
+            exit 1
+          fi
+          echo "Preview SHA: ${actual_sha} (worktree check)" >>"$GITHUB_STEP_SUMMARY"

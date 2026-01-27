@@ -15,23 +15,18 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path
 from django.views.decorators.csrf import csrf_exempt
 
 from . import views
-from . import sitemaps
 from . import tech100_index_views
 from telemetry import views as telemetry_views
 
-sitemaps_config = {
-    "static": sitemaps.StaticViewSitemap,
-}
-
 urlpatterns = [
+    path("favicon.ico", views.favicon, name="favicon"),
     path("robots.txt", views.robots_txt, name="robots_txt"),
-    path("sitemap.xml", views.sitemap_xml, name="sitemap"),
-    path("sitemap.xml", sitemap, {"sitemaps": sitemaps_config}, name="sitemap"),
+    path("sitemap.xml", views.sitemap_index, name="sitemap_index"),
+    path("sitemaps/<str:section>.xml", views.sitemap_section, name="sitemap_section"),
     path("", views.home, name="home"),
     path("press/", views.press_index, name="press_index"),
     path("press/tech100/", views.press_tech100, name="press_tech100"),
@@ -45,6 +40,8 @@ urlpatterns = [
     path("logout/", views.logout, name="logout"),
     path("account/", views.account, name="account"),
     path("tech100/", views.tech100, name="tech100"),
+    path("tech100/company/<str:ticker>/", views.tech100_company, name="tech100_company"),
+    path("tech100/company/<str:ticker>/download.csv", views.tech100_company_download, name="tech100_company_download"),
     path("tech100/index/", tech100_index_views.tech100_index_overview, name="tech100_index"),
     path("tech100/performance/", tech100_index_views.tech100_performance, name="tech100_performance"),
     path("tech100/constituents/", tech100_index_views.tech100_constituents, name="tech100_constituents"),
@@ -59,6 +56,7 @@ urlpatterns = [
     path("telemetry/consent/", csrf_exempt(telemetry_views.consent), name="telemetry_consent"),
     path("telemetry/event/", csrf_exempt(telemetry_views.telemetry_event), name="telemetry_event"),
     path("telemetry/health/", telemetry_views.telemetry_health, name="telemetry_health"),
+    path("telemetry/debug/headers/", telemetry_views.telemetry_debug_headers, name="telemetry_debug_headers"),
     path("api/tech100/index-levels", tech100_index_views.api_tech100_index_levels),
     path("api/tech100/index/attribution", tech100_index_views.api_tech100_performance_attribution),
     path("api/tech100/index/holdings", tech100_index_views.api_tech100_holdings),
@@ -66,6 +64,11 @@ urlpatterns = [
     path("api/tech100/constituents", tech100_index_views.api_tech100_constituents),
     path("api/tech100/attribution", tech100_index_views.api_tech100_attribution),
     path("api/tech100/stats", tech100_index_views.api_tech100_stats),
+    path("api/tech100/company/<str:ticker>/summary", views.api_tech100_company_summary),
+    path("api/tech100/company/<str:ticker>/series", views.api_tech100_company_series),
+    path("api/tech100/company/<str:ticker>/history", views.api_tech100_company_history),
+    path("api/tech100/company/<str:ticker>/bundle", views.api_tech100_company_bundle),
+    path("api/tech100/companies", views.api_tech100_companies),
     path("tech100/index-levels/", tech100_index_views.api_tech100_index_levels, name="tech100_index_levels_api"),
     path(
         "tech100/performance/attribution/",
@@ -83,6 +86,7 @@ urlpatterns = [
         name="tech100_attribution_api",
     ),
     path("tech100/stats/data/", tech100_index_views.api_tech100_stats, name="tech100_stats_api"),
+    path("ai-regulation/", include("ai_reg.urls")),
     path("news/", views.news, name="news"),
     path("news/admin/", views.news_admin, name="news_admin"),
     path("news/assets/<int:asset_id>/", views.news_asset, name="news_asset"),

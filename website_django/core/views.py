@@ -17,16 +17,17 @@ import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.contrib.sitemaps.views import sitemap as django_sitemap
+from django.contrib.staticfiles.storage import staticfiles_storage
 from django.core.cache import cache
 from django.http import FileResponse, HttpResponse, JsonResponse, Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import cache_page
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_POST
 
-from core.api_client import create_news_item_admin, fetch_news, fetch_tech100
+from core.api_client import create_news_item_admin, fetch_tech100
 from core.news_data import NewsDataError, fetch_filter_options
 from core.news_data import fetch_news_detail as fetch_news_detail_oracle
 from core.news_data import fetch_news_list
@@ -43,6 +44,7 @@ from core.terms_acceptance import (
 from core.countries import get_country_lists, resolve_country_name
 from core.tech100_index_data import (
     get_data_mode,
+    get_attribution_table,
     get_index_levels,
     get_latest_trade_date,
     get_max_drawdown,
@@ -51,6 +53,15 @@ from core.tech100_index_data import (
     get_rolling_vol,
     get_ytd_return,
 )
+from core.tech100_company_data import (
+    METRIC_COLUMNS as TECH100_COMPANY_METRICS,
+    get_company_bundle,
+    get_company_list,
+    get_company_history,
+    get_company_series,
+    get_company_summary,
+)
+from ai_reg import data as ai_reg_data
 from core import sitemaps
 from sc_admin_portal.news_storage import get_news_asset
 from telemetry.consent import get_consent_from_request
@@ -545,6 +556,8 @@ def ux_event(request):
     return JsonResponse({"ok": True})
 
 
+@csrf_protect
+@require_POST
 def logout(request):
     request.session.pop("login_email", None)
     request.session.pop("login_notice", None)
@@ -1129,27 +1142,58 @@ def home(request):
             decimals = 2
         return f"{pct:.{decimals}f}%"
 
-    tech100_response = fetch_tech100()
-    news_response = fetch_news()
+    try:
+        tech100_response = fetch_tech100()
+    except Exception:
+        logger.exception("TECH100 preview unavailable for home.")
+        tech100_response = {}
+
+    try:
+        news_response = fetch_news_list(limit=3, offset=0, date_range="all")
+    except NewsDataError:
+        logger.exception("News preview unavailable for home.")
+        news_response = {}
 
     raw_tech100_items = tech100_response.get("items", []) or []
     tech100_items = [_normalize_row(item) for item in raw_tech100_items if isinstance(item, dict)]
-    tech100_preview = [
-        {
-            "company": item.get("company_name") or item.get("company"),
-            "sector": item.get("sector") or item.get("gics_sector"),
-            "region": item.get("region"),
-            "overall": item.get("aiges_composite") or item.get("overall"),
-        }
-        for item in tech100_items[:3]
-    ]
-    news_items = news_response.get("items", [])
+    tech100_preview = []
+    for item in tech100_items[:25]:
+        name = item.get("company_name") or item.get("company") or ""
+        ticker = item.get("ticker") or ""
+        company_display = f"{name} ({ticker})" if name and ticker else (name or ticker or "—")
+        tech100_preview.append(
+            {
+                "company": name or ticker or "—",
+                "ticker": ticker or "",
+                "company_display": company_display,
+                "sector": item.get("sector") or item.get("gics_sector"),
+                "transparency": _format_score(item.get("transparency")),
+                "ethical_principles": _format_score(item.get("ethical_principles")),
+                "governance_structure": _format_score(item.get("governance_structure")),
+                "regulatory_alignment": _format_score(item.get("regulatory_alignment")),
+                "stakeholder_engagement": _format_score(item.get("stakeholder_engagement")),
+                "composite": _format_score(item.get("aiges_composite") or item.get("overall")),
+            }
+        )
+
+    news_items = [item for item in (news_response.get("items", []) or []) if isinstance(item, dict)]
+    news_items.sort(
+        key=lambda item: _parse_news_datetime(item.get("published_at")) or datetime.min,
+        reverse=True,
+    )
     news_preview = []
     for item in news_items[:3]:
         if not isinstance(item, dict):
             continue
         item_id = item.get("id")
-        detail_url = reverse("news_detail", args=[item_id]) if item_id else reverse("news")
+        has_full_body = item.get("has_full_body")
+        external_url = item.get("url")
+        if item_id and has_full_body:
+            detail_url = reverse("news_detail", args=[item_id])
+        elif external_url:
+            detail_url = external_url
+        else:
+            detail_url = reverse("news")
         raw_text = (
             item.get("summary")
             or item.get("body")
@@ -1169,74 +1213,150 @@ def home(request):
                 "tags": item.get("tags") or [],
                 "snippet": snippet,
                 "detail_url": detail_url,
+                "external": bool(external_url and not (item_id and has_full_body)),
             }
         )
 
     tech100_snapshot = {
         "has_data": False,
         "data_error": False,
+        "data_mode": get_data_mode(),
+        "levels": [],
+        "levels_count": 0,
+        "quality_counts": {},
     }
-    try:
-        latest_date = get_latest_trade_date()
-        if latest_date:
-            start_date = latest_date - timedelta(days=90)
-            levels = get_index_levels(start_date, latest_date)
-            stats = get_quality_counts(latest_date)
-            month_start = date(latest_date.year, latest_date.month, 1)
-            ytd_start = date(latest_date.year, 1, 1)
-            drawdown_ytd = get_max_drawdown(ytd_start, latest_date)
-            latest_level = levels[-1][1] if levels else None
-            ret_1d = None
-            if len(levels) >= 2:
-                prev_level = levels[-2][1]
-                if prev_level not in (None, 0) and latest_level is not None:
-                    ret_1d = (latest_level / prev_level) - 1.0
-            ret_mtd = get_return_between(latest_date, month_start)
-            ret_ytd, _ = get_ytd_return(latest_date)
-            vol_30d = get_rolling_vol(latest_date, window=30)
-            ret_ytd_display = _format_percent(ret_ytd)
+    if settings.SUSTAINACORE_ENV != "preview":
+        try:
+            latest_date = get_latest_trade_date()
+            if latest_date:
+                start_date = latest_date - timedelta(days=90)
+                levels = get_index_levels(start_date, latest_date)
+                stats = get_quality_counts(latest_date)
+                month_start = date(latest_date.year, latest_date.month, 1)
+                ytd_start = date(latest_date.year, 1, 1)
+                drawdown_ytd = get_max_drawdown(ytd_start, latest_date)
+                latest_level = levels[-1][1] if levels else None
+                ret_1d = None
+                if len(levels) >= 2:
+                    prev_level = levels[-2][1]
+                    if prev_level not in (None, 0) and latest_level is not None:
+                        ret_1d = (latest_level / prev_level) - 1.0
+                ret_mtd = get_return_between(latest_date, month_start)
+                ret_ytd, _ = get_ytd_return(latest_date)
+                vol_30d = get_rolling_vol(latest_date, window=30)
+                ret_ytd_display = _format_percent(ret_ytd)
+                tech100_snapshot = {
+                    "has_data": True,
+                    "data_error": False,
+                    "as_of": latest_date.isoformat(),
+                    "levels": [
+                        {"date": trade_date.isoformat(), "level": level}
+                        for trade_date, level in levels
+                    ],
+                    "latest_level": latest_level,
+                    "latest_level_display": _format_number(latest_level),
+                    "ret_1d": ret_1d,
+                    "ret_1d_display": _format_percent(ret_1d),
+                    "ret_mtd": ret_mtd,
+                    "ret_mtd_display": _format_percent(ret_mtd),
+                    "ret_ytd": ret_ytd,
+                    "ret_ytd_display": ret_ytd_display,
+                    "vol_30d": vol_30d,
+                    "vol_30d_display": _format_percent(vol_30d),
+                    "drawdown_ytd": drawdown_ytd.drawdown if drawdown_ytd else None,
+                    "drawdown_ytd_display": _format_percent(drawdown_ytd.drawdown if drawdown_ytd else None),
+                    "quality_counts": stats,
+                    "data_mode": get_data_mode(),
+                    "levels_count": len(levels),
+                }
+        except Exception:
+            logger.exception("TECH100 snapshot unavailable for home.")
             tech100_snapshot = {
-                "has_data": True,
-                "data_error": False,
-                "as_of": latest_date.isoformat(),
-                "levels": [
-                    {"date": trade_date.isoformat(), "level": level}
-                    for trade_date, level in levels
-                ],
-                "latest_level": latest_level,
-                "latest_level_display": _format_number(latest_level),
-                "ret_1d": ret_1d,
-                "ret_1d_display": _format_percent(ret_1d),
-                "ret_mtd": ret_mtd,
-                "ret_mtd_display": _format_percent(ret_mtd),
-                "ret_ytd": ret_ytd,
-                "ret_ytd_display": ret_ytd_display,
-                "vol_30d": vol_30d,
-                "vol_30d_display": _format_percent(vol_30d),
-                "drawdown_ytd": drawdown_ytd.drawdown if drawdown_ytd else None,
-                "drawdown_ytd_display": _format_percent(drawdown_ytd.drawdown if drawdown_ytd else None),
-                "quality_counts": stats,
+                "has_data": False,
+                "data_error": True,
                 "data_mode": get_data_mode(),
-                "levels_count": len(levels),
+                "levels": [],
+                "levels_count": 0,
+                "quality_counts": {},
+            }
+
+    attribution_snapshot = {
+        "has_data": False,
+        "data_mode": get_data_mode(),
+        "as_of": None,
+        "ranges": {"1d": {"top": [], "worst": []}, "mtd": {"top": [], "worst": []}, "ytd": {"top": [], "worst": []}},
+    }
+
+    def _safe_float(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _build_contrib_rows(rows, key: str):
+        items = []
+        for row in rows:
+            value = _safe_float(row.get(key))
+            if value is None:
+                continue
+            items.append(
+                {
+                    "ticker": row.get("ticker"),
+                    "name": row.get("name") or row.get("company_name") or row.get("ticker") or "—",
+                    "value": value,
+                    "value_display": _format_percent(value),
+                }
+            )
+        items.sort(key=lambda item: item["value"], reverse=True)
+        top = items[:5]
+        worst = list(reversed(items[-5:])) if items else []
+        return {"top": top, "worst": worst}
+
+    try:
+        if get_data_mode() == "fixture":
+            as_of = date.today()
+        else:
+            as_of = get_latest_trade_date()
+        if as_of:
+            mtd_start = date(as_of.year, as_of.month, 1)
+            ytd_start = date(as_of.year, 1, 1)
+            attr_rows = get_attribution_table(as_of, mtd_start, ytd_start)
+            attribution_snapshot = {
+                "has_data": bool(attr_rows),
+                "data_mode": get_data_mode(),
+                "as_of": as_of.isoformat(),
+                "ranges": {
+                    "1d": _build_contrib_rows(attr_rows, "contribution"),
+                    "mtd": _build_contrib_rows(attr_rows, "contrib_mtd"),
+                    "ytd": _build_contrib_rows(attr_rows, "contrib_ytd"),
+                },
             }
     except Exception:
-        logger.exception("TECH100 snapshot unavailable for home.")
-        tech100_snapshot = {
-            "has_data": False,
-            "data_error": True,
-            "data_mode": get_data_mode(),
-            "levels": [],
-            "levels_count": 0,
-            "quality_counts": {},
-        }
+        logger.exception("TECH100 attribution snapshot unavailable for home.")
+
+    attribution_default = attribution_snapshot.get("ranges", {}).get("1d", {"top": [], "worst": []})
+
+    try:
+        as_of_dates = ai_reg_data.fetch_as_of_dates()
+    except Exception:
+        logger.exception("AI regulation dates unavailable for home.")
+        as_of_dates = []
 
     context = {
         "year": datetime.now().year,
         "tech100_preview": tech100_preview,
         "news_preview": news_preview,
         "tech100_snapshot": tech100_snapshot,
+        "attribution_snapshot": attribution_snapshot,
+        "attribution_default": attribution_default,
+        "as_of_dates": as_of_dates,
+        "latest_as_of": as_of_dates[0] if as_of_dates else None,
     }
-    return render(request, "home.html", context)
+    try:
+        return render(request, "home.html", context)
+    except Exception:
+        logger.exception("Home render failed")
+        raise
 
 
 def tech100(request):
@@ -1413,7 +1533,6 @@ def tech100_export(request):
     response["Content-Disposition"] = "attachment; filename=tech100.csv"
 
     headers = [
-        "PORT_DATE",
         "RANK_INDEX",
         "WEIGHT",
         "COMPANY_NAME",
@@ -1438,7 +1557,6 @@ def tech100_export(request):
 
         writer.writerow(
             [
-                company.get("port_date") or "",
                 company.get("rank_index") or "",
                 _format_port_weight(weight_value),
                 company.get("company_name") or "",
@@ -1451,6 +1569,151 @@ def tech100_export(request):
                 _format_score(company.get("regulatory_alignment")),
                 _format_score(company.get("stakeholder_engagement")),
                 company.get("summary") or "",
+            ]
+        )
+
+    return response
+
+
+def tech100_company(request, ticker: str):
+    summary = get_company_summary(ticker)
+    if not summary:
+        raise Http404("Company not found.")
+
+    latest_scores = summary.get("latest_scores") or {}
+    latest_scores_display = {key: _format_score(value) for key, value in latest_scores.items()}
+
+    context = {
+        "year": datetime.now().year,
+        "company_name": summary.get("company_name") or summary.get("ticker"),
+        "ticker": summary.get("ticker"),
+        "sector": summary.get("sector"),
+        "latest_date": summary.get("latest_date"),
+        "latest_rank": summary.get("latest_rank"),
+        "latest_weight": summary.get("latest_weight"),
+        "latest_scores": latest_scores,
+        "latest_scores_display": latest_scores_display,
+        "metric_options": list(TECH100_COMPANY_METRICS.keys()),
+    }
+    return render(request, "tech100_company.html", context)
+
+
+def api_tech100_company_summary(request, ticker: str):
+    summary = get_company_summary(ticker)
+    if not summary:
+        return JsonResponse({"error": "not_found"}, status=404)
+    return JsonResponse(summary)
+
+
+def api_tech100_company_series(request, ticker: str):
+    metric = (request.GET.get("metric") or "composite").lower()
+    baseline = (request.GET.get("baseline") or "top25_avg").lower()
+    range_key = (request.GET.get("range") or "6m").lower()
+
+    if baseline != "top25_avg":
+        return JsonResponse({"error": "invalid_baseline"}, status=400)
+    if metric not in TECH100_COMPANY_METRICS:
+        return JsonResponse({"error": "invalid_metric"}, status=400)
+
+    series = get_company_series(ticker, metric, range_key)
+    if series is None:
+        return JsonResponse({"error": "not_found"}, status=404)
+
+    payload = {
+        "ticker": (ticker or "").upper(),
+        "metric": metric,
+        "baseline": baseline,
+        "range": range_key,
+        "series": series,
+    }
+    return JsonResponse(payload)
+
+
+def api_tech100_company_history(request, ticker: str):
+    history = get_company_history(ticker)
+    if history is None:
+        return JsonResponse({"error": "not_found"}, status=404)
+    return JsonResponse({"ticker": (ticker or "").upper(), "history": history})
+
+
+def api_tech100_company_bundle(request, ticker: str):
+    compare = (request.GET.get("compare") or "").strip()
+    include_companies = (request.GET.get("companies") or "").strip() == "1"
+    metrics_param = (request.GET.get("metrics") or "").strip()
+
+    metrics_list = [value.strip().lower() for value in metrics_param.split(",") if value.strip()] if metrics_param else []
+    if metrics_list:
+        invalid = [metric for metric in metrics_list if metric not in TECH100_COMPANY_METRICS]
+        if invalid:
+            return JsonResponse({"error": "invalid_metric"}, status=400)
+
+    if metrics_list:
+        bundle = get_company_bundle(
+            ticker=ticker,
+            metric=None,
+            range_key=None,
+            metrics=metrics_list,
+            compare_ticker=compare or None,
+            include_companies=include_companies,
+        )
+    else:
+        metric = (request.GET.get("metric") or "composite").lower()
+        range_key = (request.GET.get("range") or "6m").lower()
+        if metric not in TECH100_COMPANY_METRICS:
+            return JsonResponse({"error": "invalid_metric"}, status=400)
+        bundle = get_company_bundle(
+            ticker=ticker,
+            metric=metric,
+            range_key=range_key,
+            compare_ticker=compare or None,
+            include_companies=include_companies,
+        )
+    if not bundle:
+        return JsonResponse({"error": "not_found"}, status=404)
+    bundle["ticker"] = (ticker or "").upper()
+    bundle["compare"] = (compare or "").upper() if compare else None
+    return JsonResponse(bundle)
+
+
+def api_tech100_companies(request):
+    return JsonResponse({"companies": get_company_list()})
+
+
+@require_login_for_download
+def tech100_company_download(request, ticker: str):
+    history = get_company_history(ticker)
+    if history is None:
+        raise Http404("Company not found.")
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f"attachment; filename=tech100_{(ticker or '').upper()}.csv"
+
+    headers = [
+        "PORT_DATE",
+        "RANK_INDEX",
+        "WEIGHT",
+        "COMPOSITE",
+        "TRANSPARENCY",
+        "ETHICAL_PRINCIPLES",
+        "GOVERNANCE_STRUCTURE",
+        "REGULATORY_ALIGNMENT",
+        "STAKEHOLDER_ENGAGEMENT",
+    ]
+    writer = csv.writer(response)
+    writer.writerow(headers)
+
+    for row in history:
+        writer.writerow(
+            [
+                row.get("date") or "",
+                row.get("rank") or "",
+                _format_port_weight(row.get("weight")),
+                _format_score(row.get("composite")),
+                _format_score(row.get("transparency")),
+                _format_score(row.get("ethical_principles")),
+                _format_score(row.get("governance_structure")),
+                _format_score(row.get("regulatory_alignment")),
+                _format_score(row.get("stakeholder_engagement")),
             ]
         )
 
@@ -1784,21 +2047,48 @@ def news_admin(request):
 
 
 def robots_txt(request):
-    lines = [
-        "User-agent: *",
-        "Allow: /",
-        "Disallow: /admin/",
-        "Disallow: /news/admin/",
-        "Disallow: /api/",
-        "Disallow: /ask2/api/",
-        "Sitemap: https://www.sustainacore.org/sitemap.xml",
-        "",
-    ]
+    if _is_preview_request(request):
+        lines = [
+            "User-agent: *",
+            "Disallow: /",
+            "",
+        ]
+    else:
+        sitemap_url = f"{settings.SITE_URL.rstrip('/')}/sitemap.xml"
+        lines = [
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /admin/",
+            "Disallow: /news/admin/",
+            "Disallow: /api/",
+            "Disallow: /ask2/api/",
+            f"Sitemap: {sitemap_url}",
+            "",
+        ]
     return HttpResponse("\n".join(lines), content_type="text/plain")
 
 
-def sitemap_xml(request):
-    cache_key = "sitemap_xml"
+def favicon(request):
+    try:
+        favicon_file = staticfiles_storage.open("favicon.ico")
+    except FileNotFoundError as exc:
+        raise Http404("favicon not found") from exc
+    response = FileResponse(favicon_file, content_type="image/x-icon")
+    response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+    return response
+
+
+def _is_preview_request(request) -> bool:
+    host = request.get_host().split(":")[0].lower()
+    prod_hosts = {"sustainacore.org", "www.sustainacore.org"}
+    preview_hosts = {h.lower() for h in settings.PREVIEW_HOSTS}
+    host_is_preview = host in preview_hosts or host.startswith("preview.") or ".preview." in host
+    env_is_preview = settings.SUSTAINACORE_ENV == "preview" or settings.PREVIEW_MODE
+    return (host not in prod_hosts) and (env_is_preview or host_is_preview)
+
+
+def sitemap_index(request):
+    cache_key = "sitemap_index_xml"
     cached = cache.get(cache_key)
     if cached:
         response = HttpResponse(cached["content"], content_type=cached["content_type"])
@@ -1806,9 +2096,44 @@ def sitemap_xml(request):
             response.headers["Last-Modified"] = cached["last_modified"]
         return response
 
-    response = django_sitemap(request, sitemaps=sitemaps.SITEMAPS)
-    response.headers.pop("X-Robots-Tag", None)
-    response.render()
+    section_entries = sitemaps.get_section_index_entries()
+    content = sitemaps.render_sitemap_index(section_entries)
+    response = HttpResponse(content, content_type="application/xml")
+    last_modified = max(
+        [entry.get("lastmod") for entry in section_entries if entry.get("lastmod")],
+        default=None,
+    )
+    if last_modified:
+        response.headers["Last-Modified"] = last_modified
+    cache.set(
+        cache_key,
+        {
+            "content": response.content,
+            "content_type": response.get("Content-Type", "application/xml"),
+            "last_modified": response.headers.get("Last-Modified"),
+        },
+        timeout=settings.SITEMAP_CACHE_SECONDS,
+    )
+    return response
+
+
+def sitemap_section(request, section: str):
+    cache_key = f"sitemap_section_{section}"
+    cached = cache.get(cache_key)
+    if cached:
+        response = HttpResponse(cached["content"], content_type=cached["content_type"])
+        if cached.get("last_modified"):
+            response.headers["Last-Modified"] = cached["last_modified"]
+        return response
+
+    entries = sitemaps.get_section_entries(section)
+    if not entries:
+        raise Http404("Sitemap section not found")
+    content = sitemaps.render_urlset(entries)
+    response = HttpResponse(content, content_type="application/xml")
+    last_modified = sitemaps.get_section_lastmod(section)
+    if last_modified:
+        response.headers["Last-Modified"] = last_modified
     cache.set(
         cache_key,
         {

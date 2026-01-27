@@ -1,5 +1,5 @@
 (function () {
-  document.addEventListener('DOMContentLoaded', () => {
+  const init = () => {
     const messagesEl = document.querySelector('[data-ask2-messages]');
     const form = document.querySelector('[data-ask2-form]');
     const input = document.querySelector('[data-ask2-input]');
@@ -53,55 +53,246 @@
       return bubble;
     }
 
+    const COLLAPSE_THRESHOLD = 1200;
+    const COLLAPSE_CLASS = 'is-collapsed';
+    const SNIPPET_MAX_CHARS = 240;
+    const INTERNAL_SOURCE_SCHEMES = ['local://', 'file://', 'internal://', 'sustainacore://'];
+
     function stripInternalIds(text) {
       return text.replace(/\(ID:[^)]+\)/gi, '').trim();
     }
 
-    function appendTextWithLinks(parent, text) {
-      const urlRegex = /https?:\/\/[^\s]+/g;
-      let lastIndex = 0;
-      let match;
-
-      while ((match = urlRegex.exec(text)) !== null) {
-        if (match.index > lastIndex) {
-          parent.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
-        }
-
-        let url = match[0];
-        let trailing = '';
-        while (/[).,;]+$/.test(url)) {
-          trailing = url.slice(-1) + trailing;
-          url = url.slice(0, -1);
-        }
-
-        const link = document.createElement('a');
-        link.href = url;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = url;
-        parent.appendChild(link);
-
-        if (trailing) {
-          parent.appendChild(document.createTextNode(trailing));
-        }
-        lastIndex = match.index + match[0].length;
+    function cleanReplyText(rawText) {
+      const cleaned = stripInternalIds(rawText || '').replace(/\r\n/g, '\n');
+      if (/^te\.\s+see sources\./i.test(cleaned)) {
+        return cleaned.replace(/^te\.\s+/i, '');
       }
+      return cleaned;
+    }
 
-      if (lastIndex < text.length) {
-        parent.appendChild(document.createTextNode(text.slice(lastIndex)));
+    function isInternalScheme(value) {
+      return INTERNAL_SOURCE_SCHEMES.some((scheme) => value.startsWith(scheme));
+    }
+
+    function normalizeUrl(rawUrl) {
+      if (!rawUrl) return '';
+      const trimmed = String(rawUrl).trim();
+      if (!trimmed || trimmed.includes(' ')) return '';
+      if (isInternalScheme(trimmed)) return '';
+      if (/^https?:\/\//i.test(trimmed)) return trimmed;
+      if (trimmed.startsWith('/')) {
+        return new URL(trimmed, window.location.origin).href;
+      }
+      if (/^www\./i.test(trimmed)) {
+        return `https://${trimmed}`;
+      }
+      if (/^sustainacore\.org/i.test(trimmed)) {
+        return `https://${trimmed.replace(/^https?:\/\//i, '')}`;
+      }
+      try {
+        return new URL(trimmed, window.location.origin).href;
+      } catch (_) {
+        return '';
       }
     }
 
-    function renderAsk2Message(rawText) {
+    function resolveSourceUrl(title, rawUrl) {
+      const urlCandidate = normalizeUrl(rawUrl);
+      if (urlCandidate) return urlCandidate;
+      const lowerTitle = (title || '').toLowerCase();
+      const tickerMatch = (title || '').match(/\(([A-Z]{1,6})\)/);
+      if (tickerMatch) {
+        return `${window.location.origin}/tech100/company/${tickerMatch[1].toLowerCase()}/`;
+      }
+      if (lowerTitle.includes('methodology')) {
+        return `${window.location.origin}/tech100/methodology/`;
+      }
+      if (lowerTitle.includes('rebalance')) {
+        return `${window.location.origin}/press/tech100/`;
+      }
+      if (lowerTitle.includes('constituent') || lowerTitle.includes('membership') || lowerTitle.includes('rank')) {
+        return `${window.location.origin}/tech100/constituents/`;
+      }
+      if (lowerTitle.includes('performance')) {
+        return `${window.location.origin}/tech100/performance/`;
+      }
+      if (lowerTitle.includes('attribution')) {
+        return `${window.location.origin}/tech100/attribution/`;
+      }
+      if (lowerTitle.includes('stats') || lowerTitle.includes('score') || lowerTitle.includes('metrics')) {
+        return `${window.location.origin}/tech100/stats/`;
+      }
+      if (lowerTitle.includes('tech100') || lowerTitle.includes('index')) {
+        return `${window.location.origin}/tech100/`;
+      }
+      if (lowerTitle.includes('news') || lowerTitle.includes('headline')) {
+        return `${window.location.origin}/news/`;
+      }
+      if (lowerTitle.includes('press')) {
+        return `${window.location.origin}/press/`;
+      }
+      if (lowerTitle.includes('contact')) {
+        return `${window.location.origin}/contact/`;
+      }
+      if (lowerTitle.includes('about') || lowerTitle.includes('sustainacore')) {
+        return `${window.location.origin}/`;
+      }
+      return '';
+    }
+
+    function truncateSnippet(rawSnippet) {
+      if (!rawSnippet) return '';
+      const cleaned = String(rawSnippet).replace(/\s+/g, ' ').trim();
+      if (!cleaned) return '';
+      let snippet = cleaned;
+      let truncated = false;
+      if (snippet.length > SNIPPET_MAX_CHARS) {
+        snippet = snippet.slice(0, SNIPPET_MAX_CHARS + 1);
+        const lastSpace = snippet.lastIndexOf(' ');
+        if (lastSpace > SNIPPET_MAX_CHARS - 20) {
+          snippet = snippet.slice(0, lastSpace);
+        } else {
+          snippet = snippet.slice(0, SNIPPET_MAX_CHARS);
+        }
+        truncated = true;
+      }
+      const endsWithEllipsis = snippet.endsWith('…') || snippet.endsWith('...');
+      if ((truncated || /[a-z0-9]$/i.test(snippet)) && !endsWithEllipsis) {
+        const trimmed = snippet.replace(/\s+\S*$/, '').trim();
+        snippet = trimmed.length > 40 ? trimmed : snippet;
+        snippet = snippet.replace(/[.,;:!?]+$/, '');
+        snippet = `${snippet}…`;
+      }
+      return snippet;
+    }
+
+    function normalizeSources(payload) {
+      const candidates = payload.sources || payload.contexts || [];
+      if (!Array.isArray(candidates)) return [];
+      return candidates
+        .map((source, index) => {
+          if (typeof source === 'string') {
+            const labelMatch = source.match(/Source\\s*\\d+:\\s*(.+?)(?:\\s*\\(([^)]+)\\))?$/i);
+            const title = (labelMatch ? labelMatch[1] : source).trim();
+            const url = resolveSourceUrl(title, labelMatch ? labelMatch[2] || '' : '');
+            if (!url && typeof window !== 'undefined') {
+              const host = window.location.hostname || '';
+              if (host === 'localhost' || host === '127.0.0.1') {
+                console.warn('Ask2 source missing URL', title);
+              }
+            }
+            return { title, url, snippet: '', score: null };
+          }
+          if (!source || typeof source !== 'object') return null;
+          const title = String(source.title || source.name || source.label || `Source ${index + 1}`).trim();
+          const rawUrl = source.url || source.link || source.href || '';
+          const url = resolveSourceUrl(title, rawUrl);
+          if (!url && typeof window !== 'undefined') {
+            const host = window.location.hostname || '';
+            if (host === 'localhost' || host === '127.0.0.1') {
+              console.warn('Ask2 source missing URL', title);
+            }
+          }
+          const snippet = truncateSnippet(source.snippet || source.summary || source.text || '');
+          return { title, url, snippet, score: source.score };
+        })
+        .filter((source) => source && (source.title || source.url || source.snippet));
+    }
+
+    function appendInlineNodes(parent, text, sourceCount = 0) {
+      const tokenPattern = /(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[\d+\]|https?:\/\/[^\s]+)/g;
+      let lastIndex = 0;
+      let match;
+
+      function appendText(value) {
+        if (!value) return;
+        parent.appendChild(document.createTextNode(value));
+      }
+
+      while ((match = tokenPattern.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          appendText(text.slice(lastIndex, match.index));
+        }
+
+        const token = match[0];
+        if (token.startsWith('[') && token.includes('](')) {
+          const parts = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+          const label = parts ? parts[1].trim() : token;
+          const url = parts ? normalizeUrl(parts[2].trim()) : '';
+          if (url) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = label || url;
+            parent.appendChild(link);
+          } else {
+            appendText(label);
+          }
+        } else if (token.startsWith('**') && token.endsWith('**')) {
+          const strong = document.createElement('strong');
+          strong.textContent = token.slice(2, -2);
+          parent.appendChild(strong);
+        } else if (token.startsWith('*') && token.endsWith('*') && token.length > 2) {
+          const em = document.createElement('em');
+          em.textContent = token.slice(1, -1);
+          parent.appendChild(em);
+        } else if (token.startsWith('`') && token.endsWith('`')) {
+          const code = document.createElement('code');
+          code.textContent = token.slice(1, -1);
+          parent.appendChild(code);
+        } else if (/^\[\d+\]$/.test(token)) {
+          const index = Number(token.slice(1, -1));
+          if (index && index <= sourceCount) {
+            const anchor = document.createElement('a');
+            anchor.href = `#ask2-source-${index}`;
+            anchor.className = 'ask2-citation';
+            anchor.textContent = token;
+            parent.appendChild(anchor);
+          } else {
+            appendText(token);
+          }
+        } else if (token.startsWith('http')) {
+          let url = token;
+          let trailing = '';
+          while (/[).,;]+$/.test(url)) {
+            trailing = url.slice(-1) + trailing;
+            url = url.slice(0, -1);
+          }
+          const safeUrl = normalizeUrl(url);
+          if (safeUrl) {
+            const link = document.createElement('a');
+            link.href = safeUrl;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = url;
+            parent.appendChild(link);
+          } else {
+            appendText(url);
+          }
+          appendText(trailing);
+        } else {
+          appendText(token);
+        }
+
+        lastIndex = match.index + token.length;
+      }
+
+      if (lastIndex < text.length) {
+        appendText(text.slice(lastIndex));
+      }
+    }
+
+    function renderAsk2Message(rawText, sourceCount = 0) {
       const fragment = document.createDocumentFragment();
-      const cleaned = stripInternalIds(rawText || '').replace(/\r\n/g, '\n');
+      const cleaned = cleanReplyText(rawText || '');
       const lines = cleaned.split('\n');
       let i = 0;
 
       function flushParagraph(paragraphLines) {
         if (!paragraphLines.length) return;
         const p = document.createElement('p');
-        appendTextWithLinks(p, paragraphLines.join(' ').trim());
+        appendInlineNodes(p, paragraphLines.join(' ').trim(), sourceCount);
         fragment.appendChild(p);
         paragraphLines.length = 0;
       }
@@ -110,6 +301,22 @@
         const line = lines[i].trim();
         if (!line) {
           i += 1;
+          continue;
+        }
+
+        if (line.startsWith('```')) {
+          const codeLines = [];
+          i += 1;
+          while (i < lines.length && !lines[i].trim().startsWith('```')) {
+            codeLines.push(lines[i]);
+            i += 1;
+          }
+          if (i < lines.length) i += 1;
+          const pre = document.createElement('pre');
+          const code = document.createElement('code');
+          code.textContent = codeLines.join('\n').trimEnd();
+          pre.appendChild(code);
+          fragment.appendChild(pre);
           continue;
         }
 
@@ -123,11 +330,21 @@
           continue;
         }
 
-        if (/^-\s+/.test(line)) {
+        const mdHeading = line.match(/^#{1,6}\s+(.+)$/);
+        if (mdHeading) {
+          const heading = document.createElement('div');
+          heading.className = 'ask2-h';
+          appendInlineNodes(heading, mdHeading[1].trim(), sourceCount);
+          fragment.appendChild(heading);
+          i += 1;
+          continue;
+        }
+
+        if (/^[-*]\s+/.test(line)) {
           const ul = document.createElement('ul');
-          while (i < lines.length && /^-\s+/.test(lines[i].trim())) {
+          while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
             const li = document.createElement('li');
-            appendTextWithLinks(li, lines[i].trim().replace(/^-+\s+/, ''));
+            appendInlineNodes(li, lines[i].trim().replace(/^[-*]\s+/, ''), sourceCount);
             ul.appendChild(li);
             i += 1;
           }
@@ -139,7 +356,7 @@
           const ol = document.createElement('ol');
           while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
             const li = document.createElement('li');
-            appendTextWithLinks(li, lines[i].trim().replace(/^\d+\.\s+/, ''));
+            appendInlineNodes(li, lines[i].trim().replace(/^\d+\.\s+/, ''), sourceCount);
             ol.appendChild(li);
             i += 1;
           }
@@ -152,8 +369,10 @@
           const current = lines[i].trim();
           if (
             !current
+            || current.startsWith('```')
             || /^\*\*(.+?)\*\*$/.test(current)
-            || /^-\s+/.test(current)
+            || /^#{1,6}\s+/.test(current)
+            || /^[-*]\s+/.test(current)
             || /^\d+\.\s+/.test(current)
           ) {
             break;
@@ -166,11 +385,96 @@
 
       if (!fragment.childNodes.length) {
         const fallback = document.createElement('p');
-        fallback.textContent = cleaned;
+        appendInlineNodes(fallback, cleaned, sourceCount);
         fragment.appendChild(fallback);
       }
 
       return fragment;
+    }
+
+    function buildSourcesList(sources) {
+      if (!sources.length) return null;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'ask2-sources';
+
+      const heading = document.createElement('div');
+      heading.className = 'ask2-sources__title';
+      heading.textContent = 'Sources';
+      wrapper.appendChild(heading);
+
+      const list = document.createElement('ol');
+      list.className = 'ask2-sources__list';
+      wrapper.appendChild(list);
+      sources.forEach((source, index) => {
+        const li = document.createElement('li');
+        li.id = `ask2-source-${index + 1}`;
+        const title = document.createElement(source.url ? 'a' : 'span');
+        title.className = 'ask2-source__title';
+        title.textContent = source.title || `Source ${index + 1}`;
+        if (source.url) {
+          title.href = source.url;
+          title.target = '_blank';
+          title.rel = 'noopener noreferrer';
+        }
+        li.appendChild(title);
+        if (!source.url) {
+          const note = document.createElement('span');
+          note.className = 'ask2-source__note';
+          note.textContent = 'No link available';
+          li.appendChild(note);
+        }
+        if (source.snippet) {
+          const snippet = document.createElement('div');
+          snippet.className = 'ask2-source__snippet';
+          snippet.textContent = source.snippet;
+          li.appendChild(snippet);
+        }
+        list.appendChild(li);
+      });
+
+      return wrapper;
+    }
+
+    function renderAssistantBubble(bubble, replyText, sources) {
+      const cleanedReply = cleanReplyText(replyText || '');
+      const container = document.createElement('div');
+      container.className = 'ask2-bubble';
+      const content = document.createElement('div');
+      content.id = `ask2-answer-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      content.className = 'ask2-bubble__content';
+      content.appendChild(renderAsk2Message(cleanedReply, sources.length));
+      const fade = document.createElement('div');
+      fade.className = 'ask2-bubble__fade';
+      content.appendChild(fade);
+      container.appendChild(content);
+
+      let toggle = null;
+      const shouldCollapse = cleanedReply.length > COLLAPSE_THRESHOLD;
+      if (shouldCollapse) {
+        bubble.classList.add(COLLAPSE_CLASS);
+        toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'ask2-bubble__toggle';
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-controls', content.id);
+        toggle.textContent = 'Show more';
+        toggle.addEventListener('click', () => {
+          const isCollapsed = bubble.classList.toggle(COLLAPSE_CLASS);
+          toggle.textContent = isCollapsed ? 'Show more' : 'Show less';
+          toggle.setAttribute('aria-expanded', (!isCollapsed).toString());
+        });
+        container.appendChild(toggle);
+      }
+
+      const sourcesBlock = buildSourcesList(sources);
+      if (sourcesBlock) {
+        container.appendChild(sourcesBlock);
+      }
+
+      bubble.replaceChildren(container);
+      if (!shouldCollapse) {
+        bubble.classList.remove(COLLAPSE_CLASS);
+      }
     }
 
     let isSending = false;
@@ -231,7 +535,8 @@
         }
 
         const reply = data.reply || data.answer || data.content || 'The assistant did not return a response.';
-        placeholder.replaceChildren(renderAsk2Message(reply));
+        const sources = normalizeSources(data);
+        renderAssistantBubble(placeholder, reply, sources);
         placeholder.classList.remove('bubble--muted');
         setStatus('Ready to chat');
       } catch (error) {
@@ -288,5 +593,27 @@
 
     setThinking(false);
     updateJumpVisibility();
-  });
+    document.documentElement.dataset.ask2Ready = 'true';
+
+    if (typeof window !== 'undefined') {
+      window.SCAsk2 = window.SCAsk2 || {};
+      window.SCAsk2.renderMock = (payload, userMessage = '') => {
+        if (userMessage) {
+          appendBubble('user', userMessage);
+        }
+        const reply = payload?.reply || payload?.answer || payload?.content || '';
+        const sources = normalizeSources(payload || {});
+        const bubble = appendBubble('assistant', '');
+        renderAssistantBubble(bubble, reply, sources);
+        bubble.classList.remove('bubble--muted');
+        scrollToBottom();
+      };
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();

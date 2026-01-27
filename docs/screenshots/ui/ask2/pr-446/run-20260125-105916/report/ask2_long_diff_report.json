@@ -1,0 +1,8 @@
+{
+  "before": "ask2_page.png",
+  "after": "ask2_long_expanded.png",
+  "width": 1280,
+  "height": 1808,
+  "mismatchPixels": 19287,
+  "mismatchPercent": 0.8334053512168142
+}

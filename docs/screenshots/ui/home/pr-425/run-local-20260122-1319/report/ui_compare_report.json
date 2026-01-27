@@ -1,0 +1,52 @@
+{
+  "prodBase": "https://sustainacore.org",
+  "previewBase": "https://preview.sustainacore.org",
+  "shots": [
+    {
+      "key": "home_performance",
+      "before": "/tmp/ui_evidence/before/home_performance.png",
+      "after": "/tmp/ui_evidence/after/home_performance.png",
+      "diff": "/tmp/ui_evidence/diff/home_performance_diff.png",
+      "metrics": {
+        "mismatchPixels": 43248,
+        "mismatchPercent": 98.7939,
+        "width": 1152,
+        "height": 38
+      }
+    },
+    {
+      "key": "home_reg_demo",
+      "before": "/tmp/ui_evidence/before/home_reg_demo.png",
+      "after": "/tmp/ui_evidence/after/home_reg_demo.png",
+      "diff": "/tmp/ui_evidence/diff/home_reg_demo_diff.png",
+      "metrics": {
+        "mismatchPixels": 258946,
+        "mismatchPercent": 19.9804,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "key": "home_mobile_full",
+      "before": "/tmp/ui_evidence/before/home_mobile_full.png",
+      "after": "/tmp/ui_evidence/after/home_mobile_full.png",
+      "diff": "/tmp/ui_evidence/diff/home_mobile_full_diff.png",
+      "metrics": {
+        "mismatchPixels": 441695,
+        "mismatchPercent": 13.8285,
+        "width": 390,
+        "height": 8190
+      }
+    },
+    {
+      "key": "ai_reg_desktop",
+      "before": "/tmp/ui_evidence/before/ai_reg_desktop.png",
+      "after": "/tmp/ui_evidence/after/ai_reg_desktop.png"
+    },
+    {
+      "key": "ai_reg_mobile",
+      "before": "/tmp/ui_evidence/before/ai_reg_mobile.png",
+      "after": "/tmp/ui_evidence/after/ai_reg_mobile.png"
+    }
+  ]
+}

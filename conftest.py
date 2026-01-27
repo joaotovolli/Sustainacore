@@ -17,8 +17,12 @@ os.environ.setdefault("GEMINI_FIRST_ENABLED", "0")
 os.environ.setdefault("ASK2_SKIP_CAPABILITY_SNAPSHOT", "1")
 os.environ.setdefault("AUTH_TOKEN_SIGNING_KEY", "test-signing-key")
 
+import atexit  # noqa: E402
+
 import django  # noqa: E402
-from django.test.utils import setup_test_environment  # noqa: E402
+from django.test.utils import setup_databases, setup_test_environment, teardown_databases  # noqa: E402
 
 django.setup()
 setup_test_environment()
+_db_config = setup_databases(verbosity=0, interactive=False)
+atexit.register(lambda: teardown_databases(_db_config, verbosity=0))

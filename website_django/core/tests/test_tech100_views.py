@@ -10,6 +10,34 @@ from core.auth import COOKIE_NAME
 
 
 class Tech100ViewTests(SimpleTestCase):
+    @mock.patch("core.views.fetch_news_list")
+    @mock.patch("core.views.fetch_tech100")
+    def test_home_renders_company_links(self, fetch_tech100, fetch_news_list):
+        fetch_tech100.return_value = {
+            "items": [
+                {
+                    "company_name": "Example Corp",
+                    "ticker": "EXM",
+                    "gics_sector": "Software",
+                    "transparency": 75,
+                    "ethical_principles": 70,
+                    "governance_structure": 68,
+                    "regulatory_alignment": 66,
+                    "stakeholder_engagement": 64,
+                    "aiges_composite": 80,
+                }
+            ],
+            "error": None,
+            "meta": {},
+        }
+        fetch_news_list.return_value = {"items": [], "meta": {}, "error": None}
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("/tech100/company/EXM/", content)
+
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_view_renders_table_headers_and_details(self, fetch_mock):
         fetch_mock.return_value = {
@@ -34,7 +62,18 @@ class Tech100ViewTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
-        for header in ["Rebalance Date", "Rank", "Weight", "Company", "AIGES Composite", "Details"]:
+        for header in [
+            "Rank",
+            "Weight",
+            "Company",
+            "Transparency",
+            "Ethical Principles",
+            "Governance Structure",
+            "Regulatory Alignment",
+            "Stakeholder Engagement",
+            "Composite AI Governance & Ethics Score",
+            "Details",
+        ]:
             self.assertIn(header, content)
         self.assertIn('aria-label="View details for', content)
         self.assertIn("Transparency", content)

@@ -1,0 +1,5 @@
+home_performance: 43248 px (98.7939%)
+home_reg_demo: 258946 px (19.9804%)
+home_mobile_full: 441695 px (13.8285%)
+ai_reg_desktop: captured
+ai_reg_mobile: captured

@@ -1,0 +1,8 @@
+ai-reg heatmap verification (API)
+as_of=2026-01-09
+total_jurisdictions=143
+EU_entries=1
+EU_name=European Union
+EU_instruments=4
+duplicate_iso_entries={'IR': 2, 'KR': 2, 'PS': 2, 'SY': 2}
+duplicate_name_entries={}

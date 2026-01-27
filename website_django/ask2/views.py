@@ -83,7 +83,8 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
     conversation_id = get_or_create_conversation_id(request)
     result = client.ask2_query(user_message)
 
-    status_code = 200 if "error" not in result else 502
+    has_error = bool(result.get("error"))
+    status_code = 200 if not has_error else 502
     response_data: Dict[str, Any] = {
         "session_id": result.get("session_id"),
         "reply": result.get("reply")
@@ -94,7 +95,7 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
         "message": result.get("message"),
         "sources": result.get("sources"),
     }
-    if "error" in result:
+    if has_error:
         response_data["error"] = result.get("error")
 
     latency_ms = int((time.monotonic() - start) * 1000)

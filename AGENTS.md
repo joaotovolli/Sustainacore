@@ -5,6 +5,52 @@ SustainaCore — Autopilot rules for Codex.
 - Run: uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
 - Deploy: ops/scripts/deploy_vm.sh
 
+## UI Change Contract (Preview → Approval → Production)
+Definitions:
+- Production: `https://sustainacore.org/`
+- Preview (public): `https://preview.sustainacore.org/`
+- CI: GitHub Actions (informational artifacts only; not a hard gate)
+- VRT: Visual regression testing (manual/scheduled only; not a PR gate)
+
+Non-negotiable rules:
+- NEVER change production directly for UI work; all changes go through PR review.
+- NEVER disable required checks unless explicitly directed by the repo owner.
+- NEVER commit secrets; preview is public (no Basic Auth).
+- ALWAYS iterate on VM2 preview first, then publish minimal evidence for human approval.
+- Playwright runs are allowed on VM2 for evidence capture; keep runs small and bounded.
+- PR #244 screenshot-compare contract is canonical (before/after/diff + preview links).
+- One UI PR at a time. If the target PR is merged/closed, create a new branch + PR.
+- Preflight PR check before any UI work:
+  - `gh pr view <PR> --json state,mergedAt`
+  - If not OPEN, do not reuse it.
+
+Required agent loop:
+A) Open PR
+B) Confirm PR is OPEN before doing any work:
+   - `gh pr view <PR> --json state,mergedAt`
+   - If `state` is CLOSED/MERGED, create a new branch + PR (do not reuse merged PRs).
+C) Update preview on VM2 and iterate locally until "good enough"
+D) Capture local evidence (prod vs preview) and commit minimal artifacts
+E) Use CI compare as informational, not a merge gate
+F) Request human approval (agent never merges)
+
+Evidence requirements for UI PRs:
+- Include preview + production links in PR body.
+- Commit local snapshots PR244-style under:
+  `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/{before,after,diff,report}`
+- Embed before/after/diff images in PR description and include the CI run link + download command.
+
+Docs:
+- `docs/ui_change_workflow.md` (canonical UI change workflow)
+- `docs/ui_screenshot_process.md` (UI compare process + artifact interpretation)
+- PR checklist in `.github/PULL_REQUEST_TEMPLATE.md`
+
+## Agent Autonomy Rules (UI)
+- Use VM2 preview as the primary iteration loop; CI artifacts are informational.
+- If a step fails, change strategy (shorter commands, different endpoint, or CI logs).
+- If preview/prod HTTP is flaky from VM2, capture evidence locally and document it.
+- Avoid long-running commands; prefer short polls using `tools/ci/poll_pr_checks.sh`.
+
 Agents:
 - vm1-esg-ai: scope esg_ai/**, index/**, oracle_scripts/**, target VM1. Must not modify website_django/**.
 - vm2-website: scope website_django/**, target VM2. Must not modify ESG/Ask2 folders.
@@ -45,7 +91,7 @@ Do not assume:
 ## Delivery & Verification Requirements
 - Done means shipped: for user-facing changes, create a branch, commit, open a PR, and provide the PR URL.
 - CI must be green before claiming completion.
-- When a preview environment exists, verify there and provide evidence (status codes + rendered HTML grep). Use existing auth env vars; never print secrets.
+- When a preview environment exists, verify there and provide evidence (status codes + rendered HTML grep). Preview is public (no Basic Auth); never print secrets.
 - Evidence rules: never claim “confirmed” without concrete proof. For UI links, show rendered HTML (curl + grep). If preview curl fails with TLS error (exit code 60), fix CA certs or use Python requests + certifi; only use `curl -k` as a last resort with diagnostics.
 
 ## VRT Baseline Updates (VM2 UI)
@@ -106,6 +152,11 @@ Do not assume:
 - Avoid scanning huge trees (e.g., node_modules) in reload/watch modes.
 - Always capture evidence before/after heavy tasks: `uptime`, `free -h`, `df -h`.
 
+## Codex CLI Timeouts (VM2)
+- Avoid long-running commands (>10s) in Codex CLI; use short, repeatable polls.
+- Do NOT use `gh pr checks --watch`. Use `tools/ci/poll_pr_checks.sh <pr>` instead.
+- Do NOT execute markdown files in shell (e.g., `AGENTS.md`); edit them with apply_patch or heredoc.
+
 ### Health Check Commands
 ```bash
 free -h
@@ -165,7 +216,8 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
   - `git diff --name-only | head`
   - `git diff --name-status | head`
 - If the diff shows mass deletions, unexpected repo-wide changes, vendored folders (venv/, node_modules/, artifacts/, screenshots/, __pycache__/), or large binary files not requested, STOP and fix locally; do not push.
-- Explicit denylist (never commit): venv/, .venv/, node_modules/, artifacts/, docs/screenshots/, playwright screenshots, dist/, build/, __pycache__/, *.pyc, *.sqlite3, *.db-journal, *.log, large tmp files.
+- Explicit denylist (never commit): venv/, .venv/, node_modules/, artifacts/, playwright screenshots, dist/, build/, __pycache__/, *.pyc, *.sqlite3, *.db-journal, *.log, large tmp files.
+  - Exception: `docs/screenshots/ui/home/pr-<PR>/run-<RUN_ID>/...` is allowed for UI evidence only.
 - If any denylist items appear in `git status`, remove/move them or add minimal .gitignore entries (when appropriate).
 - Push discipline: small WIP pushes are allowed only when the diff is small and scoped. No exploratory pushes touching hundreds of files.
 - PR expectation: user-facing changes must open a PR. Docs-only changes should use a PR (required for this change). PR body must be clean Markdown (no literal "\\n") with Summary/Changes/Testing/Notes.

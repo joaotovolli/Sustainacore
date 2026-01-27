@@ -3,22 +3,27 @@ import json
 from unittest import mock
 
 import requests
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 
 class LoginViewsTests(TestCase):
+    @mock.patch("core.views.record_terms_acceptance_with_error", return_value=(True, None))
     @mock.patch("core.views.requests.post")
-    def test_login_email_sets_session_and_redirects(self, post_mock):
+    def test_login_email_sets_session_and_redirects(self, post_mock, terms_mock):
         post_mock.return_value.status_code = 200
-        response = self.client.post(reverse("login"), {"email": "User@Example.com"})
+        response = self.client.post(
+            reverse("login"),
+            {"email": "User@Example.com", "terms_accept": "on"},
+        )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], reverse("login_code"))
         self.assertEqual(self.client.session.get("login_email"), "user@example.com")
 
+    @mock.patch("core.views.has_terms_acceptance", return_value=True)
     @mock.patch("core.views.get_profile", return_value=None)
     @mock.patch("core.views.requests.post")
-    def test_login_code_sets_cookie_on_success(self, post_mock, profile_mock):
+    def test_login_code_sets_cookie_on_success(self, post_mock, profile_mock, terms_mock):
         post_mock.return_value.status_code = 200
         post_mock.return_value.json.return_value = {"token": "abc123", "expires_in_seconds": 3600}
         session = self.client.session
@@ -31,8 +36,9 @@ class LoginViewsTests(TestCase):
         self.assertIn("sc_session", response.cookies)
         self.assertEqual(self.client.session.get("auth_email"), "user@example.com")
 
+    @mock.patch("core.views.has_terms_acceptance", return_value=True)
     @mock.patch("core.views.requests.post")
-    def test_login_code_redirects_to_next(self, post_mock):
+    def test_login_code_redirects_to_next(self, post_mock, terms_mock):
         post_mock.return_value.status_code = 200
         post_mock.return_value.json.return_value = {"token": "abc123", "expires_in_seconds": 3600}
         session = self.client.session
@@ -43,8 +49,9 @@ class LoginViewsTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], "/tech100/")
 
+    @mock.patch("core.views.has_terms_acceptance", return_value=True)
     @mock.patch("core.views.requests.post", side_effect=requests.exceptions.Timeout)
-    def test_login_code_handles_timeout(self, post_mock):
+    def test_login_code_handles_timeout(self, post_mock, terms_mock):
         session = self.client.session
         session["login_email"] = "user@example.com"
         session.save()
@@ -58,6 +65,17 @@ class LoginViewsTests(TestCase):
         response = self.client.post(reverse("logout"))
         self.assertEqual(response.status_code, 302)
         self.assertIn("sc_session", response.cookies)
+
+    def test_logout_requires_post(self):
+        response = self.client.get(reverse("logout"))
+        self.assertEqual(response.status_code, 405)
+
+    def test_logout_requires_csrf_token(self):
+        csrf_client = Client(enforce_csrf_checks=True)
+        response = csrf_client.get(reverse("login"))
+        token = response.cookies["csrftoken"].value
+        response = csrf_client.post(reverse("logout"), {"csrfmiddlewaretoken": token})
+        self.assertEqual(response.status_code, 302)
 
     def test_header_shows_login_when_logged_out(self):
         self.client.cookies.clear()
@@ -131,7 +149,8 @@ class LoginViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         upsert_mock.assert_called_once_with("user@example.com", "", "Canada", "", "")
 
-    def test_account_country_groups_render(self):
+    @mock.patch("core.views.get_profile", return_value=None)
+    def test_account_country_groups_render(self, profile_mock):
         session = self.client.session
         session["auth_email"] = "user@example.com"
         session.save()

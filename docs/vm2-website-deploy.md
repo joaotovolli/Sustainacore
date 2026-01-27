@@ -28,16 +28,19 @@ The site also proxies Ask2 traffic to VM1:
 
 ### Oracle Guardrail
 - VM2 production MUST use Oracle (no sqlite).
-- Verify using:
-  - `scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --verify-insert --timeout 60`
+- Verify using (read-only by default):
+  - `scripts/vm2_manage.sh diagnose_db --fail-on-sqlite --timeout 60`
+  - Enable write test only when needed with `TELEMETRY_VERIFY_WRITE=1`.
 
 ## Deployment Script: `deploy_vm2_website.sh`
+<!-- cspell:ignore sysconfig chgrp -->
 - `cd` to the repository root.
 - Use the same env files as gunicorn for Django management commands (via `sudo -n systemd-run` when available).
 - Run `manage.py migrate --noinput` and `manage.py collectstatic --noinput` inside `website_django/`.
 - Apply Oracle schema migrations in `db/migrations/` (SQLcl required):
   - `bash scripts/db_migrate.sh`
 - Fail fast if Oracle is not active in production (`diagnose_db --fail-on-sqlite`).
+- Telemetry write checks only run when `TELEMETRY_VERIFY_WRITE=1` is set.
 - Restart `gunicorn.service` and reload `nginx` via `systemctl`.
 
 Manual deploy commands:

@@ -14,12 +14,28 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/main.css' %}">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="192x192" href="{% static 'img/sustainacore_icon_192.png' %}">
+    <link rel="icon" type="image/png" sizes="96x96" href="{% static 'img/sustainacore_icon_96.png' %}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{% static 'img/sustainacore_icon_180.png' %}">
+    <meta property="og:site_name" content="SustainaCore">
+    <meta property="og:title" content="{% block og_title %}SustainaCore{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}{{ default_meta_description }}{% endblock %}">
+    <meta property="og:url" content="{{ canonical_url }}">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ seo_og_image_url }}">
+    <meta property="og:image:width" content="512">
+    <meta property="og:image:height" content="512">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:image" content="{{ seo_og_image_url }}">
     {% if show_preview_banner %}
     <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
     {% endif %}
     {% block extra_head %}{% endblock %}
 </head>
 <body data-logged-in="{% if is_logged_in %}true{% else %}false{% endif %}">
+    <!-- build: {{ build_sha }} -->
+    <!-- ui-compare-trigger: 2026-01-16 -->
     <header class="topbar">
         <div class="shell topbar__inner">
             <div class="brand">
@@ -30,22 +46,50 @@
                 </a>
                 <div class="brand__text">
                     <div class="brand__name">SustainaCore.org</div>
-                    <div class="brand__tagline">Open ESG &amp; AI governance data</div>
+                    <div class="brand__tagline">Open AI governance signals</div>
                 </div>
             </div>
-            <div class="topbar__nav">
+            <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="site-nav">
+                <span class="nav-toggle__label">Menu</span>
+                <span class="nav-toggle__icon" aria-hidden="true"></span>
+            </button>
+            <div class="topbar__nav" id="site-nav">
                 <nav class="nav nav--primary" aria-label="Primary">
-                    <a href="{% url 'home' %}" class="nav__link">Home</a>
+                    <div class="nav__item nav__item--dropdown">
+                        <button class="nav__link nav__link--dropdown" type="button" aria-haspopup="true" aria-expanded="false" data-nav-dropdown>
+                            AI Governance Index
+                            <span class="nav__chevron" aria-hidden="true">▾</span>
+                        </button>
+                        <div class="nav__dropdown" role="menu">
+                            <a href="/tech100/index/" class="nav__dropdown-link" role="menuitem">Index overview</a>
+                            <a href="/tech100/performance/" class="nav__dropdown-link" role="menuitem">Performance</a>
+                            <a href="/tech100/constituents/" class="nav__dropdown-link" role="menuitem">Constituents</a>
+                            <a href="/tech100/attribution/" class="nav__dropdown-link" role="menuitem">Attribution</a>
+                            <a href="/tech100/stats/" class="nav__dropdown-link" role="menuitem">Stats</a>
+                            <a href="/tech100/" class="nav__dropdown-link" role="menuitem">Governance scores</a>
+                        </div>
+                    </div>
                     <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2">
-                        <span class="nav__label nav__label--full">Ask2 AI Assistant</span>
-                        <span class="nav__label nav__label--short">Ask2</span>
+                        <span class="nav__icon" aria-hidden="true">💬</span>
+                        Ask2 AI Chat
                     </a>
-                    <a href="{% url 'tech100' %}" class="nav__link">TECH100</a>
+                    <a href="/ai-regulation/" class="nav__link">
+                        <span class="nav__icon" aria-hidden="true">🌐</span>
+                        AI Regulatory Heat Map
+                    </a>
                     <a href="{% url 'news' %}" class="nav__link">News</a>
-                    <a href="mailto:info@sustainacore.org" class="nav__link nav__link--aux">Contact</a>
-                    <a href="https://github.com/joaotovolli/Sustainacore" class="nav__link nav__link--aux" target="_blank" rel="noreferrer">GitHub</a>
                 </nav>
-                <div class="nav nav--auth" aria-label="Account">
+                <div class="nav nav--actions" aria-label="Account and social">
+                    <a class="nav__icon-link" href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="currentColor" d="M12 2C6.48 2 2 6.58 2 12.26c0 4.54 2.87 8.39 6.84 9.75.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.36-1.38-3.36-1.38-.45-1.18-1.11-1.5-1.11-1.5-.91-.65.07-.64.07-.64 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.86.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.74-.1-.26-.45-1.32.1-2.75 0 0 .84-.27 2.75 1.05a9.3 9.3 0 0 1 5 0c1.9-1.32 2.74-1.05 2.74-1.05.56 1.43.2 2.49.1 2.75.64.71 1.03 1.62 1.03 2.74 0 3.94-2.34 4.81-4.57 5.07.36.32.69.95.69 1.92 0 1.39-.01 2.5-.01 2.84 0 .27.18.6.69.49 3.97-1.36 6.83-5.2 6.83-9.75C22 6.58 17.52 2 12 2z"/>
+                        </svg>
+                    </a>
+                    <a class="nav__icon-link" href="https://www.linkedin.com/company/sustainacore-org/" target="_blank" rel="noreferrer" aria-label="SustainaCore on LinkedIn">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="currentColor" d="M4.98 3.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM3 8.98h3.96V21H3zM9.5 8.98h3.8v1.64h.06c.53-.95 1.83-1.95 3.77-1.95 4.03 0 4.77 2.68 4.77 6.17V21h-3.96v-5.5c0-1.31-.03-3-1.83-3-1.83 0-2.11 1.43-2.11 2.9V21H9.5z"/>
+                        </svg>
+                    </a>
                     {% if is_logged_in %}
                         <div class="auth-pill" data-auth-menu>
                             <button
@@ -216,7 +260,7 @@
 
     <footer class="footer">
         <div class="shell footer__grid">
-            <div>
+            <div class="footer__brand">
                 <div class="brand brand--footer">
                     <div class="brand__mark" aria-hidden="true">S</div>
                     <div class="brand__text">
@@ -225,18 +269,42 @@
                     </div>
                 </div>
                 <p class="muted">Open, transparent ESG and AI governance indicators built for teams who need verifiable signals.</p>
+                <div class="footer__social">
+                    <a class="footer__icon" href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="currentColor" d="M12 2C6.48 2 2 6.58 2 12.26c0 4.54 2.87 8.39 6.84 9.75.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.36-1.38-3.36-1.38-.45-1.18-1.11-1.5-1.11-1.5-.91-.65.07-.64.07-.64 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.86.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.74-.1-.26-.45-1.32.1-2.75 0 0 .84-.27 2.75 1.05a9.3 9.3 0 0 1 5 0c1.9-1.32 2.74-1.05 2.74-1.05.56 1.43.2 2.49.1 2.75.64.71 1.03 1.62 1.03 2.74 0 3.94-2.34 4.81-4.57 5.07.36.32.69.95.69 1.92 0 1.39-.01 2.5-.01 2.84 0 .27.18.6.69.49 3.97-1.36 6.83-5.2 6.83-9.75C22 6.58 17.52 2 12 2z"/>
+                        </svg>
+                    </a>
+                    <a class="footer__icon" href="https://www.linkedin.com/company/sustainacore-org/" target="_blank" rel="noreferrer" aria-label="SustainaCore on LinkedIn">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="currentColor" d="M4.98 3.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM3 8.98h3.96V21H3zM9.5 8.98h3.8v1.64h.06c.53-.95 1.83-1.95 3.77-1.95 4.03 0 4.77 2.68 4.77 6.17V21h-3.96v-5.5c0-1.31-.03-3-1.83-3-1.83 0-2.11 1.43-2.11 2.9V21H9.5z"/>
+                        </svg>
+                    </a>
+                </div>
             </div>
-            <div class="footer__links">
-                <a href="{% url 'home' %}" class="nav__link">Overview</a>
-                <a href="{% url 'tech100' %}" class="nav__link">TECH100 Index</a>
-                <a href="{% url 'tech100_methodology' %}" class="nav__link">Tech100 Methodology</a>
-                <a href="{% url 'ask2:ask2_page' %}" class="nav__link">Ask2 AI Assistant</a>
-                <a href="mailto:info@sustainacore.org" class="nav__link">Contact</a>
-                <a href="{% url 'privacy' %}" class="nav__link">Privacy Policy</a>
-                <a href="#privacy-settings" class="nav__link" data-consent-open>Privacy settings</a>
-                <a href="{% url 'terms' %}" class="nav__link">Terms</a>
-                <a href="{% url 'corrections' %}" class="nav__link">Corrections &amp; Complaints</a>
-                <a href="https://github.com/joaotovolli/Sustainacore" class="nav__link" target="_blank" rel="noreferrer">GitHub</a>
+            <div class="footer__column">
+                <h4>Overview</h4>
+                <a href="{% url 'home' %}" class="footer__link">Home</a>
+                <a href="{% url 'ask2:ask2_page' %}" class="footer__link">Ask2 AI Chat</a>
+                <a href="/ai-regulation/" class="footer__link">AI Regulatory Heat Map</a>
+                <a href="{% url 'news' %}" class="footer__link">News</a>
+                <a href="{% url 'press_index' %}" class="footer__link">Press</a>
+                <a href="mailto:info@sustainacore.org" class="footer__link">Contact</a>
+            </div>
+            <div class="footer__column">
+                <h4>AI Governance Index</h4>
+                <a href="/tech100/index/" class="footer__link">Index overview</a>
+                <a href="/tech100/performance/" class="footer__link">Performance</a>
+                <a href="/tech100/constituents/" class="footer__link">Constituents</a>
+                <a href="/tech100/attribution/" class="footer__link">Attribution</a>
+                <a href="/tech100/stats/" class="footer__link">Stats</a>
+            </div>
+            <div class="footer__column">
+                <h4>Legal</h4>
+                <a href="{% url 'privacy' %}" class="footer__link">Privacy Policy</a>
+                <a href="#privacy-settings" class="footer__link" data-consent-open>Privacy settings</a>
+                <a href="{% url 'terms' %}" class="footer__link">Terms</a>
+                <a href="{% url 'corrections' %}" class="footer__link">Corrections &amp; Complaints</a>
             </div>
         </div>
         <div class="shell footer__meta">
@@ -247,10 +315,7 @@
 
     <a class="chat-fab" href="{% url 'ask2:ask2_page' %}" aria-label="Open Ask2 AI Assistant">
         <span class="chat-fab__icon" aria-hidden="true">💬</span>
-        <span>
-            <div>Ask our AI Assistant</div>
-            <small style="display:block; font-weight:600; opacity:0.9;">Questions on ESG &amp; AI governance?</small>
-        </span>
+        <span class="chat-fab__label">Ask2 AI</span>
     </a>
 
     {% block extra_scripts %}{% endblock %}
@@ -260,5 +325,45 @@
     <script src="{% static 'js/telemetry.js' %}?v={{ static_version }}"></script>
     <script src="{% static 'js/header_auth.js' %}"></script>
     <script src="{% static 'js/download_gate.js' %}?v={{ static_version }}"></script>
+    <script>
+        const navToggle = document.querySelector('[data-nav-toggle]');
+        const navRoot = document.getElementById('site-nav');
+        const dropdownButtons = document.querySelectorAll('[data-nav-dropdown]');
+
+        if (navToggle && navRoot) {
+            navToggle.addEventListener('click', () => {
+                const isOpen = navRoot.classList.toggle('is-open');
+                navToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                document.body.classList.toggle('nav-open', isOpen);
+            });
+
+            navRoot.querySelectorAll('a').forEach((link) => {
+                link.addEventListener('click', () => {
+                    if (!navRoot.classList.contains('is-open')) return;
+                    navRoot.classList.remove('is-open');
+                    navToggle.setAttribute('aria-expanded', 'false');
+                    document.body.classList.remove('nav-open');
+                });
+            });
+        }
+
+        dropdownButtons.forEach((btn) => {
+            btn.addEventListener('click', (event) => {
+                event.preventDefault();
+                const expanded = btn.getAttribute('aria-expanded') === 'true';
+                btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+                btn.parentElement.classList.toggle('is-open', !expanded);
+            });
+        });
+
+        document.addEventListener('click', (event) => {
+            dropdownButtons.forEach((btn) => {
+                if (!btn.parentElement.contains(event.target)) {
+                    btn.setAttribute('aria-expanded', 'false');
+                    btn.parentElement.classList.remove('is-open');
+                }
+            });
+        });
+    </script>
 </body>
 </html>
