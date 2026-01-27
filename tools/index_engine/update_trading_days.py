@@ -10,7 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = REPO_ROOT / "app"
 if str(APP_ROOT) in sys.path:
     sys.path.remove(str(APP_ROOT))
-import http.client  # preload stdlib http to avoid app.http shadowing
+import http.client  # preload stdlib http to avoid local http shadowing
 if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 if str(REPO_ROOT) not in sys.path:

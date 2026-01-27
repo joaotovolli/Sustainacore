@@ -54,6 +54,7 @@
     "letsencrypt",
     "mktemp",
     "multihit",
+    "namei",
     "noinput",
     "OCI",
     "OLLAMA",

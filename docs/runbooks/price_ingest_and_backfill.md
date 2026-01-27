@@ -66,6 +66,13 @@ SELECT MAX(trade_date) FROM SC_IDX_LEVELS;
   `trading_days_behind_provider` and should be retried after refreshing the calendar.
 - If `missing_prices_for_date` appears, re-run a single-day backfill for the reported trade date.
 
+## Catch-up behavior (levels behind prices)
+- The pipeline computes a catch-up window when canonical prices are ahead of index levels.
+- When `SC_IDX_LEVELS` lags `SC_IDX_PRICES_CANON`, the pipeline runs index calc for the missing
+  trading-day window `[next_missing_level .. max_canon]` using DB data only.
+- If canonical prices are still incomplete, the pipeline exits with a skip reason (`canon_lag` or
+  `canon_incomplete`) and will try again on the next schedule tick.
+
 ## FI -> FISV migration
 To permanently replace ticker `FI` with `FISV` across history, run the migration tool:
 
@@ -144,4 +151,22 @@ python3 tools/index_engine/ingest_prices.py --start 2026-01-05 --end 2026-01-05 
 ```bash
 PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/calc_index.py \
   --start 2026-01-05 --end 2026-01-07 --no-preflight-self-heal --debug
+```
+
+## Runbook: index stuck behind prices (quick)
+1) Confirm canonical coverage for the target date:
+```sql
+SELECT trade_date, COUNT(*) cnt
+FROM SC_IDX_PRICES_CANON
+WHERE trade_date = DATE '2026-01-26'
+GROUP BY trade_date;
+```
+2) Confirm levels lag:
+```sql
+SELECT MAX(trade_date) FROM SC_IDX_LEVELS WHERE index_code = 'TECH100';
+```
+3) Trigger a DB-only catch-up calc (no provider calls):
+```bash
+PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/calc_index.py \
+  --start 2026-01-26 --end 2026-01-26 --no-preflight-self-heal --debug
 ```

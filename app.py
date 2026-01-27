@@ -25,7 +25,7 @@ import requests
 from collections import defaultdict
 from flask import Flask, request, jsonify
 
-from app.http.compat import (
+from app.http_compat.compat import (
     SC_RAG_FAIL_OPEN,
     SC_RAG_MIN_CONTEXTS,
     SC_RAG_MIN_SCORE,

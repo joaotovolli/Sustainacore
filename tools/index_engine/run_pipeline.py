@@ -328,6 +328,14 @@ def main(argv: List[str] | None = None) -> int:
                 "canon_lag:"
                 f"max_canon={max_canon_date} target_day={target_day.isoformat()}",
             )
+        trading_days = target_info["trading_days"]
+        end_day = None
+        for day in reversed(trading_days):
+            if day <= max_canon_date:
+                end_day = day
+                break
+        if end_day is None:
+            return 2, "canon_lag:no_trading_day_at_or_before_canon"
 
         missing = engine_db.fetch_missing_real_for_trade_date(target_day)
         if missing and not skip_ingest:
@@ -355,9 +363,9 @@ def main(argv: List[str] | None = None) -> int:
                 f"sample={sample} action={action}",
             )
 
-        check_price_completeness.run_check(
+        result = check_price_completeness.run_check(
             start_date=target_day,
-            end_date=target_day,
+            end_date=end_day,
             min_daily_coverage=1.0,
             max_bad_days=0,
             provider="CANON",
@@ -365,7 +373,12 @@ def main(argv: List[str] | None = None) -> int:
             allow_imputation=True,
             email_on_fail=False,
         )
-        return 0, f"coverage_ok date={target_day.isoformat()}"
+        status = str(result.get("status"))
+        summary_text = str(result.get("summary_text", ""))
+        if status != "PASS":
+            detail = f"canon_incomplete:{summary_text}" if summary_text else "canon_incomplete"
+            return 2, detail
+        return 0, f"coverage_ok window={target_day.isoformat()}..{end_day.isoformat()}"
 
     def _stage_calc_index(_args: List[str]) -> tuple[int, str]:
         from tools.index_engine import calc_index
@@ -374,12 +387,23 @@ def main(argv: List[str] | None = None) -> int:
         target_day = target_info["target_day"]
         if target_day is None:
             return 0, "no_missing_trading_day"
+        max_canon_date = target_info["max_canon_date"]
+        if max_canon_date is None or max_canon_date < target_day:
+            return 2, f"canon_lag:max_canon={max_canon_date} target_day={target_day.isoformat()}"
+        trading_days = target_info["trading_days"]
+        end_day = None
+        for day in reversed(trading_days):
+            if day <= max_canon_date:
+                end_day = day
+                break
+        if end_day is None:
+            return 2, "canon_lag:no_trading_day_at_or_before_canon"
 
         calc_args = [
             "--start",
             target_day.isoformat(),
             "--end",
-            target_day.isoformat(),
+            end_day.isoformat(),
             "--strict",
             "--debug",
             "--no-preflight-self-heal",
@@ -388,11 +412,12 @@ def main(argv: List[str] | None = None) -> int:
         if code != 0:
             return code, detail or f"exit_code={code}"
         max_level_after = db_index_calc.fetch_max_level_date()
-        if max_level_after is None or max_level_after < target_day:
+        if max_level_after is None or max_level_after < end_day:
             return (
                 2,
                 "levels_not_advanced:"
-                f"target_day={target_day.isoformat()} max_level={max_level_after}",
+                f"target_day={target_day.isoformat()} end_day={end_day.isoformat()} "
+                f"max_level={max_level_after}",
             )
         return 0, f"levels_advanced_to={max_level_after.isoformat()}"
 

@@ -2,6 +2,8 @@
 Description=SC_IDX pipeline (ingest + completeness + impute + index calc)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -26,7 +28,7 @@ ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/index.env
 ExecStart=/usr/bin/flock -n /tmp/sc_idx_pipeline.lock /usr/bin/python3 /home/opc/Sustainacore/tools/index_engine/run_pipeline.py
 Restart=on-failure
-RestartSec=10
+RestartSec=60
 
 [Install]
 WantedBy=multi-user.target
