@@ -354,7 +354,13 @@ def main() -> int:
     if preflight_self_heal:
         from tools.index_engine import update_trading_days
 
-        update_trading_days.update_trading_days(auto_extend=True)
+        try:
+            update_trading_days.update_trading_days_with_retry(
+                auto_extend=True,
+                allow_cached_on_403=True,
+            )
+        except Exception as exc:
+            print(f"warning: trading_days_update_failed:{exc}", file=sys.stderr)
 
     if args.since_base:
         start_date = BASE_DATE

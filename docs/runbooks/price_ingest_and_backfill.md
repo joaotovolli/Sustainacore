@@ -65,6 +65,8 @@ SELECT MAX(trade_date) FROM SC_IDX_LEVELS;
 - If `SC_IDX_TRADING_DAYS` lags behind the provider latest EOD date, the daily run will fail with
   `trading_days_behind_provider` and should be retried after refreshing the calendar.
 - If `missing_prices_for_date` appears, re-run a single-day backfill for the reported trade date.
+- If trading-days refresh hits a provider 403, the ingest runner retries with backoff and then
+  continues using the cached trading-day calendar. Expect a warning in logs, not a hard failure.
 
 ## Catch-up behavior (levels behind prices)
 - The pipeline computes a catch-up window when canonical prices are ahead of index levels.

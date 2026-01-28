@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import importlib.util
+import random
 import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +26,18 @@ BASE_DATE = _dt.date(2025, 1, 2)
 SOURCE = "MARKET_DATA_SPY"
 DEFAULT_WINDOW = 30
 MAX_WINDOW = 365
+DEFAULT_RETRY_ATTEMPTS = 3
+DEFAULT_RETRY_BASE_SEC = 1.0
+
+
+def _is_market_data_403(exc: Exception) -> bool:
+    return "market_data_http_error:403" in str(exc)
+
+
+def _sleep_backoff(attempt: int, *, base_sec: float = DEFAULT_RETRY_BASE_SEC, cap_sec: float = 30.0) -> None:
+    delay = min(cap_sec, base_sec * (2 ** max(0, attempt - 1)))
+    jitter = random.random() * 0.5
+    time.sleep(delay + jitter)
 
 
 def _load_provider_module():
@@ -129,6 +143,42 @@ def update_trading_days(
     max_after = fetch_latest_trading_day()
     total_count = _fetch_total_count()
     return inserted, total_count, latest, max_before, max_after
+
+
+def update_trading_days_with_retry(
+    *,
+    auto_extend: bool,
+    max_attempts: int = DEFAULT_RETRY_ATTEMPTS,
+    backoff_base_sec: float = DEFAULT_RETRY_BASE_SEC,
+    allow_cached_on_403: bool = True,
+) -> tuple[bool, str | None]:
+    """Retry trading-day refresh and fall back to cached calendar on persistent 403."""
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            update_trading_days(auto_extend=auto_extend)
+            return True, None
+        except Exception as exc:
+            if _is_market_data_403(exc):
+                print(
+                    "update_trading_days_retry: attempt={attempt}/{total} error={error}".format(
+                        attempt=attempt,
+                        total=max_attempts,
+                        error=exc,
+                    ),
+                    file=sys.stderr,
+                )
+                if attempt < max_attempts:
+                    _sleep_backoff(attempt, base_sec=backoff_base_sec)
+                    continue
+                if allow_cached_on_403:
+                    print(
+                        "update_trading_days_fallback: cached_calendar reason=market_data_http_error:403",
+                        file=sys.stderr,
+                    )
+                    return False, "market_data_http_error:403"
+            raise
+    return False, "update_trading_days_failed"
 
 
 def main() -> int:
