@@ -31,7 +31,7 @@ Environment:
 ## Manual pipeline run (orchestrator)
 
 - Normal timers run ingest → completeness → impute → index calc with ingest enabled.
-- Systemd schedule (UTC): ingest at 00:00 / 05:00; pipeline at 00:30 / 05:30 (~30m after ingest to catch the latest EOD).
+- Systemd schedule (UTC): ingest at 00:00 / 05:00 / 09:00 / 13:00; pipeline at 00:30 / 05:30 / 09:30 / 13:30 (~30m after ingest to catch the latest EOD).
 - If canonical prices are ahead of index levels, the pipeline computes the missing trading-day window up to the
   latest canonical date and runs index calc for that window using DB data only.
 - For manual data-preserving checks (skip ingest only):  

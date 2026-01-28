@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SC_IDX canonical price monitor hourly (UTC)
+
+[Timer]
+OnCalendar=*-*-* *:15:00 UTC
+Persistent=true
+Unit=sc-idx-canon-monitor.service
+
+[Install]
+WantedBy=timers.target

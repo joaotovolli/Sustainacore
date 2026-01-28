@@ -1,0 +1,23 @@
+[Unit]
+Description=SC_IDX canonical price monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opc
+WorkingDirectory=/home/opc/Sustainacore
+Environment=PYTHONPATH=/home/opc/Sustainacore
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/sustainacore/db.env
+EnvironmentFile=/etc/sustainacore/index.env
+EnvironmentFile=/etc/sustainacore-ai/secrets.env
+ExecStartPre=/usr/bin/test -r /etc/sustainacore/db.env
+ExecStartPre=/usr/bin/test -r /etc/sustainacore/index.env
+ExecStartPre=/usr/bin/test -r /etc/sustainacore-ai/secrets.env
+ExecStart=/usr/bin/python3 /home/opc/Sustainacore/tools/index_engine/monitor_stale_canon.py
+Restart=on-failure
+RestartSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -4,6 +4,8 @@ Description=Run SC_IDX pipeline every 6 hours (UTC)
 [Timer]
 OnCalendar=*-*-* 00:30:00 UTC
 OnCalendar=*-*-* 05:30:00 UTC
+OnCalendar=*-*-* 09:30:00 UTC
+OnCalendar=*-*-* 13:30:00 UTC
 Persistent=true
 Unit=sc-idx-pipeline.service
 

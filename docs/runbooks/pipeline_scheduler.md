@@ -22,8 +22,8 @@ Systemd units load (in order):
 Do not print env contents in logs or docs.
 
 ## Schedule (UTC)
-- Price ingest: `00:00` + `05:00`
-- Pipeline: `00:30` + `05:30`
+- Price ingest: `00:00`, `05:00`, `09:00`, `13:00`
+- Pipeline: `00:30`, `05:30`, `09:30`, `13:30`
 - Completeness check: weekdays `00:10`
 - Index calc: `01:30`
 

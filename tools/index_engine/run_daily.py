@@ -431,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     trading_days_refresh_failed = False
+    trading_days_warning = None
     try:
         max_attempts = _env_int(TRADING_DAYS_RETRY_ENV, 3)
         backoff_base = float(os.getenv(TRADING_DAYS_RETRY_BASE_ENV, "1"))
@@ -444,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
             trading_days_refresh_failed = True
             summary["trading_days_update"] = "cached_calendar"
             summary["trading_days_update_error"] = update_error
+            trading_days_warning = f"trading_days_update_cached:{update_error}"
             print(
                 "update_trading_days: degraded to cached calendar error={error}".format(
                     error=update_error,
@@ -656,6 +658,8 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     if status == "OK":
+        if summary["error_msg"] is None and trading_days_warning:
+            summary["error_msg"] = trading_days_warning
         try:
             missing_tickers = _db_module.fetch_missing_real_for_trade_date(end_date)
         except Exception as exc:
