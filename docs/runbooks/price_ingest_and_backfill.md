@@ -172,3 +172,13 @@ SELECT MAX(trade_date) FROM SC_IDX_LEVELS WHERE index_code = 'TECH100';
 PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/calc_index.py \
   --start 2026-01-26 --end 2026-01-26 --no-preflight-self-heal --debug
 ```
+
+## Canonical price monitor
+- VM1 runs a lightweight monitor (`sc-idx-canon-monitor.timer`) every hour.
+- It logs max trading-day/canon/level dates and highlights stale canon, cached-calendar 403s,
+  or index behind canon.
+- Manual run:
+```bash
+sudo systemctl start sc-idx-canon-monitor.service
+sudo journalctl -u sc-idx-canon-monitor.service -n 80 --no-pager
+```
