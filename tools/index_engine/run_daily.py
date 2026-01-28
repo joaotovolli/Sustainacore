@@ -28,6 +28,8 @@ DAILY_LIMIT_ENV = "SC_IDX_MARKET_DATA_DAILY_LIMIT"
 DAILY_BUFFER_ENV = "SC_IDX_MARKET_DATA_DAILY_BUFFER"
 PROBE_SYMBOL_ENV = "SC_IDX_PROBE_SYMBOL"
 EMAIL_ON_BUDGET_STOP_ENV = "SC_IDX_EMAIL_ON_BUDGET_STOP"
+TRADING_DAYS_RETRY_ENV = "SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS"
+TRADING_DAYS_RETRY_BASE_ENV = "SC_IDX_TRADING_DAYS_RETRY_BASE_SEC"
 
 
 def _load_provider_module():
@@ -428,8 +430,26 @@ def main(argv: list[str] | None = None) -> int:
         _maybe_send_alert("ERROR", summary, run_id, email_on_budget_stop)
         return 1
 
+    trading_days_refresh_failed = False
     try:
-        trading_days_module.update_trading_days(auto_extend=True)
+        max_attempts = _env_int(TRADING_DAYS_RETRY_ENV, 3)
+        backoff_base = float(os.getenv(TRADING_DAYS_RETRY_BASE_ENV, "1"))
+        updated, update_error = trading_days_module.update_trading_days_with_retry(
+            auto_extend=True,
+            max_attempts=max_attempts,
+            backoff_base_sec=backoff_base,
+            allow_cached_on_403=True,
+        )
+        if not updated:
+            trading_days_refresh_failed = True
+            summary["trading_days_update"] = "cached_calendar"
+            summary["trading_days_update_error"] = update_error
+            print(
+                "update_trading_days: degraded to cached calendar error={error}".format(
+                    error=update_error,
+                ),
+                file=sys.stderr,
+            )
     except Exception as exc:
         summary["status"] = "ERROR"
         summary["error_msg"] = f"trading_days_update_failed:{exc}"
@@ -456,29 +476,42 @@ def main(argv: list[str] | None = None) -> int:
     provider_latest, trading_days, end_date = _resolve_end_date(provider, probe_symbol, today_utc)
     trading_days_max = trading_days[-1] if trading_days else None
     if trading_days_max and provider_latest and trading_days_max < provider_latest:
-        summary["status"] = "ERROR"
-        summary["error_msg"] = (
-            "trading_days_behind_provider:"
-            f"latest={provider_latest.isoformat()} max_trading_day={trading_days_max.isoformat()}"
-        )
-        finish_run(
-            run_id,
-            status="ERROR",
-            provider_calls_used=0,
-            raw_upserts=0,
-            canon_upserts=0,
-            raw_ok=0,
-            raw_missing=0,
-            raw_error=0,
-            max_provider_calls=max_provider_calls,
-            usage_current=current_usage,
-            usage_limit=plan_limit,
-            usage_remaining=None,
-            oracle_user=oracle_user,
-            error=summary["error_msg"],
-        )
-        _maybe_send_alert("ERROR", summary, run_id, email_on_budget_stop)
-        return 1
+        if trading_days_refresh_failed:
+            print(
+                "warning: trading_days behind provider; using cached calendar "
+                f"max_trading_day={trading_days_max.isoformat()} provider_latest={provider_latest.isoformat()}",
+                file=sys.stderr,
+            )
+            provider_latest = trading_days_max
+            end_date = compute_eligible_end_date(
+                provider_latest=provider_latest,
+                today_utc=today_utc,
+                trading_days=trading_days,
+            )
+        else:
+            summary["status"] = "ERROR"
+            summary["error_msg"] = (
+                "trading_days_behind_provider:"
+                f"latest={provider_latest.isoformat()} max_trading_day={trading_days_max.isoformat()}"
+            )
+            finish_run(
+                run_id,
+                status="ERROR",
+                provider_calls_used=0,
+                raw_upserts=0,
+                canon_upserts=0,
+                raw_ok=0,
+                raw_missing=0,
+                raw_error=0,
+                max_provider_calls=max_provider_calls,
+                usage_current=current_usage,
+                usage_limit=plan_limit,
+                usage_remaining=None,
+                oracle_user=oracle_user,
+                error=summary["error_msg"],
+            )
+            _maybe_send_alert("ERROR", summary, run_id, email_on_budget_stop)
+            return 1
     if end_date is None:
         summary["status"] = "ERROR"
         summary["error_msg"] = "no_trading_day_for_end_date"

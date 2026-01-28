@@ -39,6 +39,7 @@ Environment:
 - The orchestrator invokes index calc with `--no-preflight-self-heal` to avoid a second ingest/impute pass because the earlier stages already ran in-process.
 - Keep `SC_IDX_PIPELINE_SKIP_INGEST` for manual runs only; systemd timers should run with ingest enabled.
 - Ingest readiness: the pipeline probes the provider (SPY) for the target end date and falls back up to two prior trading days. If the provider is not ready, ingest is skipped safely (`sc_idx_ingest_skip: provider_not_ready...`) and exits 0 (no imputation for that date).
+- Trading-day refresh resilience: if the trading-days update returns a transient 403, the job retries with backoff and then proceeds using the cached calendar in Oracle, logging a warning instead of failing the run.
 
 ## Provider readiness probe (SPY)
 

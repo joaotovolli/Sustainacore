@@ -305,7 +305,15 @@ def main(argv: List[str] | None = None) -> int:
 
         if skip_ingest and not provider_ready:
             return 0, "calendar_skip_missing_provider_env"
-        update_trading_days.update_trading_days(auto_extend=True)
+        try:
+            updated, update_error = update_trading_days.update_trading_days_with_retry(
+                auto_extend=True,
+                allow_cached_on_403=True,
+            )
+        except Exception as exc:
+            return 2, f"calendar_update_failed:{exc}"
+        if not updated:
+            return 0, f"calendar_cached:{update_error}"
         return 0, "calendar_refreshed"
 
     def _stage_ingest(args_list: List[str]) -> int:
