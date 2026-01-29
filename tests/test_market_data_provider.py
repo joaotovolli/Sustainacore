@@ -131,3 +131,36 @@ def test_fetch_api_usage_and_latest_bar_use_throttle(monkeypatch):
     assert calls["count"] == 2
     assert usage["current_usage"] == 1
     assert latest[0]["datetime"].startswith("2025-12-12")
+
+
+def test_request_json_adds_user_agent(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_API_KEY", "test-key")
+    monkeypatch.setenv("MARKET_DATA_API_BASE_URL", "https://example.test")
+    captured = {}
+
+    def fake_throttled(request, **kwargs):
+        captured["ua"] = (
+            request.get_header("User-agent")
+            or request.headers.get("User-Agent")
+            or request.headers.get("User-agent")
+        )
+        return {
+            "timestamp": "now",
+            "current_usage": 1,
+            "plan_limit": 8,
+            "plan_category": "basic",
+        }
+
+    monkeypatch.setattr(tw, "_throttled_json_request", fake_throttled)
+
+    tw.fetch_api_usage()
+
+    assert captured["ua"] == "sustainacore-index-engine"
+
+
+def test_redact_url_removes_api_key():
+    url = "https://example.test/api_usage?symbol=SPY&apikey=secret-token"
+    redacted = tw._redact_url(url)
+
+    assert "secret-token" not in redacted
+    assert "apikey=REDACTED" in redacted

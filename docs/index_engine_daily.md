@@ -24,6 +24,7 @@ Environment:
 - `SC_IDX_MARKET_DATA_DAILY_LIMIT` sets the daily call ceiling (default 800).
 - `SC_IDX_MARKET_DATA_DAILY_BUFFER` reserves extra headroom near the daily cap (default 25; alias `SC_IDX_MARKET_DATA_CREDIT_BUFFER` for back-compat).
 - Provider throttle override (rarely needed): `SC_IDX_MARKET_DATA_CALLS_PER_WINDOW` (default 6) and `SC_IDX_MARKET_DATA_WINDOW_SECONDS` (default 120). All provider calls are serialized via `/tmp/sc_idx_market_data.lock` to avoid cross-process spikes.
+- Optional debug: `SC_IDX_MARKET_DATA_DEBUG_HTTP=1` logs redacted HTTP diagnostics (status, safe headers, short body snippet) for provider errors.
 - Optional: `SC_IDX_TICKERS` (comma separated), `SC_IDX_ENABLE_IMPUTATION` (default 1), `SC_IDX_IMPUTED_REPLACEMENT_DAYS` (default 30), `SC_IDX_IMPUTED_REPLACEMENT_LIMIT` (default 10), and `SC_IDX_DAILY_DIGEST_ALWAYS` (default 0).
 - Email alerts on failure use SMTP envs from `/etc/sustainacore-ai/secrets.env`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`. Errors trigger an email with a compact run report; set `SC_IDX_EMAIL_ON_BUDGET_STOP=1` to also email budget stops.
 - Daily usage and statuses are persisted in `SC_IDX_JOB_RUNS` (DDL: `oracle_scripts/sc_idx_job_runs_v1.sql`). Run `oracle_scripts/sc_idx_job_runs_v1_drop.sql` to drop if rollback is needed. Example query: `SELECT run_id, status, error_msg, started_at, ended_at FROM SC_IDX_JOB_RUNS ORDER BY started_at DESC FETCH FIRST 20 ROWS ONLY;`
