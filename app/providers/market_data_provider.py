@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import random
+import re
 import time
 import http.client  # preload stdlib http to avoid local http shadowing
 import urllib.error
@@ -30,6 +31,23 @@ _LOGGER = logging.getLogger(__name__)
 _urlopen = urllib.request.urlopen
 _CALLS_PER_WINDOW_ENV = "SC_IDX_MARKET_DATA_CALLS_PER_WINDOW"
 _WINDOW_SECONDS_ENV = "SC_IDX_MARKET_DATA_WINDOW_SECONDS"
+_DEBUG_HTTP_ENV = "SC_IDX_MARKET_DATA_DEBUG_HTTP"
+_REDACT_QUERY_KEYS = {"apikey", "api_key", "key", "token", "access_token"}
+_SAFE_RESPONSE_HEADERS = {
+    "retry-after",
+    "x-ratelimit-limit",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+    "server",
+    "date",
+    "content-type",
+}
+_REDACT_PATTERNS = (
+    re.compile(r"(?i)(apikey\s*[:=]\s*)([^\s\"&]+)"),
+    re.compile(r"(?i)(api_key\s*[:=]\s*)([^\s\"&]+)"),
+    re.compile(r"(?i)(access_token\s*[:=]\s*)([^\s\"&]+)"),
+    re.compile(r"(?i)(token\s*[:=]\s*)([^\s\"&]+)"),
+)
 
 
 class MarketDataProviderError(RuntimeError):
@@ -148,6 +166,69 @@ def _build_time_series_url(ticker: str, start: str, end: str, api_key: str) -> s
     return f"{base}/{_API_TIME_SERIES_PATH}?{urllib.parse.urlencode(params)}"
 
 
+def _redact_url(url: str) -> str:
+    try:
+        parts = urllib.parse.urlsplit(url)
+        query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        redacted_query = []
+        for key, value in query:
+            if key.lower() in _REDACT_QUERY_KEYS:
+                redacted_query.append((key, "REDACTED"))
+            else:
+                redacted_query.append((key, value))
+        redacted = urllib.parse.urlencode(redacted_query)
+        return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, redacted, ""))
+    except Exception:
+        return "<redacted-url>"
+
+
+def _safe_headers(headers: Any) -> dict[str, str]:
+    safe: dict[str, str] = {}
+    try:
+        for key, value in headers.items():
+            if key and key.lower() in _SAFE_RESPONSE_HEADERS:
+                safe[key.lower()] = str(value)
+    except Exception:
+        return safe
+    return safe
+
+
+def _safe_body_snippet(body: bytes, *, limit: int = 200) -> str:
+    try:
+        text = body.decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+    snippet = text[:limit]
+    for pattern in _REDACT_PATTERNS:
+        snippet = pattern.sub(r"\1REDACTED", snippet)
+    return snippet
+
+
+def _should_debug_http() -> bool:
+    return os.getenv(_DEBUG_HTTP_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
+def _log_http_error(
+    request: urllib.request.Request, exc: urllib.error.HTTPError, body: bytes | None
+) -> None:
+    if not _should_debug_http():
+        return
+    try:
+        url = _redact_url(request.full_url)
+        headers = _safe_headers(exc.headers)
+        snippet = _safe_body_snippet(body or b"")
+        _LOGGER.warning(
+            "market_data_http_debug: status=%s reason=%s url=%s headers=%s body=%s",
+            exc.code,
+            getattr(exc, "reason", ""),
+            url,
+            headers,
+            snippet,
+        )
+    except Exception:
+        _LOGGER.warning("market_data_http_debug: status=%s reason=%s", exc.code, exc.reason)
+
+
 def _parse_rows(payload: dict, ticker: str | None) -> list[dict]:
     rows: list[dict] = []
     if not payload:
@@ -233,6 +314,7 @@ def _throttled_json_request(
                     body = resp.read()
             except urllib.error.HTTPError as exc:  # pragma: no cover - network specific
                 body = exc.read()
+                _log_http_error(request, exc, body)
                 if attempt < max_retries and exc.code in (429, 500, 502, 503, 504):
                     if exc.code == 429:
                         _sleep_until_window_reset()
@@ -326,7 +408,7 @@ def _get_api_key(explicit: Optional[str] = None) -> str:
 
 def _request_json(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     url = _build_api_url(path, params)
-    req = urllib.request.Request(url)
+    req = urllib.request.Request(url, headers={"User-Agent": "sustainacore-index-engine"})
     return _throttled_json_request(req, error_cls=MarketDataProviderError)
 
 

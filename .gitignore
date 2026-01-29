@@ -33,3 +33,5 @@ archive/misc/adapter_backups/
 key.pem
 /etc/systemd/system/*.conf
 /opt/adb_wallet_tp/*
+tools/audit/output/pipeline_health_latest.txt
+tools/audit/output/pipeline_state_latest.json
