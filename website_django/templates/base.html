@@ -57,37 +57,40 @@
                 <span class="nav-toggle__icon" aria-hidden="true"></span>
             </button>
             <div class="topbar__nav" id="site-nav">
-                <nav class="nav nav--primary" aria-label="Primary">
-                    <div class="nav__item nav__item--dropdown">
-                        <button class="nav__link nav__link--dropdown {% if request.path|slice:':8' == '/tech100' %}is-active{% endif %}" type="button" aria-haspopup="true" aria-expanded="false" data-nav-dropdown>
-                            Tech100 AI Index
-                            <span class="nav__chevron" aria-hidden="true">▾</span>
-                        </button>
-                        <div class="nav__dropdown" role="menu">
-                            <a href="/tech100/index/" class="nav__dropdown-link" role="menuitem">Tech100 AI Ethics &amp; Governance Index (Overview)</a>
-                            <a href="/tech100/performance/" class="nav__dropdown-link" role="menuitem">Performance</a>
-                            <a href="/tech100/constituents/" class="nav__dropdown-link" role="menuitem">Constituents</a>
-                            <a href="/tech100/attribution/" class="nav__dropdown-link" role="menuitem">Attribution</a>
-                            <a href="/tech100/scores/" class="nav__dropdown-link" role="menuitem">Governance scores</a>
-                            <div class="nav__dropdown-divider" role="separator" aria-hidden="true"></div>
-                            <a href="/tech100/stats/" class="nav__dropdown-link" role="menuitem">Stats</a>
-                            <a href="/tech100/methodology/" class="nav__dropdown-link" role="menuitem">Methodology</a>
+                <div class="topbar__center">
+                    <nav class="nav nav--primary" aria-label="Primary">
+                        <div class="nav__item nav__item--dropdown">
+                            <button class="nav__link nav__link--dropdown {% if request.path|slice:':8' == '/tech100' %}is-active{% endif %}" type="button" aria-haspopup="true" aria-expanded="false" data-nav-dropdown>
+                                Tech100 AI Index
+                                <span class="nav__chevron" aria-hidden="true">▾</span>
+                            </button>
+                            <div class="nav__dropdown" role="menu">
+                                <a href="/tech100/index/" class="nav__dropdown-link" role="menuitem">Tech100 AI Ethics &amp; Governance Index (Overview)</a>
+                                <a href="/tech100/performance/" class="nav__dropdown-link" role="menuitem">Performance</a>
+                                <a href="/tech100/constituents/" class="nav__dropdown-link" role="menuitem">Constituents</a>
+                                <a href="/tech100/attribution/" class="nav__dropdown-link" role="menuitem">Attribution</a>
+                                <a href="/tech100/scores/" class="nav__dropdown-link" role="menuitem">Governance scores</a>
+                                <div class="nav__dropdown-divider" role="separator" aria-hidden="true"></div>
+                                <a href="/tech100/stats/" class="nav__dropdown-link" role="menuitem">Stats</a>
+                                <a href="/tech100/methodology/" class="nav__dropdown-link" role="menuitem">Methodology</a>
+                            </div>
                         </div>
-                    </div>
-                    <a href="/ai-regulation/" class="nav__link {% if request.path|slice:':14' == '/ai-regulation' %}is-active{% endif %}">
-                        <span class="nav__icon" aria-hidden="true">🌐</span>
-                        Global AI Regulation
-                    </a>
-                    <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2 {% if request.path|slice:':5' == '/ask2' %}is-active{% endif %}">
-                        <span class="nav__icon" aria-hidden="true">💬</span>
-                        Ask2 AI Chat
-                    </a>
-                    <a href="{% url 'news' %}" class="nav__link {% if request.path|slice:':5' == '/news' %}is-active{% endif %}">
-                        <span class="nav__icon" aria-hidden="true">📰</span>
-                        News &amp; Insights
-                    </a>
-                </nav>
-                <div class="nav nav--actions" aria-label="Account and social">
+                        <a href="/ai-regulation/" class="nav__link {% if request.path|slice:':14' == '/ai-regulation' %}is-active{% endif %}">
+                            <span class="nav__icon" aria-hidden="true">🌐</span>
+                            Global AI Regulation
+                        </a>
+                        <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2 {% if request.path|slice:':5' == '/ask2' %}is-active{% endif %}">
+                            <span class="nav__icon" aria-hidden="true">💬</span>
+                            Ask2
+                        </a>
+                        <a href="{% url 'news' %}" class="nav__link {% if request.path|slice:':5' == '/news' %}is-active{% endif %}">
+                            <span class="nav__icon" aria-hidden="true">📰</span>
+                            News &amp; Insights
+                        </a>
+                    </nav>
+                </div>
+                <div class="topbar__right">
+                    <div class="nav nav--actions" aria-label="Account and social">
                     <a class="nav__icon-link" href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path fill="currentColor" d="M12 2C6.48 2 2 6.58 2 12.26c0 4.54 2.87 8.39 6.84 9.75.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.36-1.38-3.36-1.38-.45-1.18-1.11-1.5-1.11-1.5-.91-.65.07-.64.07-.64 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.86.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.74-.1-.26-.45-1.32.1-2.75 0 0 .84-.27 2.75 1.05a9.3 9.3 0 0 1 5 0c1.9-1.32 2.74-1.05 2.74-1.05.56 1.43.2 2.49.1 2.75.64.71 1.03 1.62 1.03 2.74 0 3.94-2.34 4.81-4.57 5.07.36.32.69.95.69 1.92 0 1.39-.01 2.5-.01 2.84 0 .27.18.6.69.49 3.97-1.36 6.83-5.2 6.83-9.75C22 6.58 17.52 2 12 2z"/>
@@ -128,6 +131,7 @@
                     {% else %}
                         <a href="{% url 'login' %}" class="nav__link nav__link--pill">Login</a>
                     {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
