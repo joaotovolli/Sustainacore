@@ -1360,7 +1360,7 @@ def home(request):
 
 
 def tech100_redirect(request):
-    return redirect("/tech100/index/", permanent=True)
+    return redirect(request.build_absolute_uri(reverse("tech100_index")), permanent=True)
 
 
 def tech100(request):
