@@ -44,6 +44,16 @@
     margin-top: 1.5rem;
 }
 
+.tech100-index__snapshot .table {
+    overflow: visible;
+}
+
+.tech100-index__snapshot .table-wrapper {
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+}
+
 @media (max-width: 800px) {
     .tech100-index__banner {
         flex-direction: column;
