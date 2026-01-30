@@ -60,11 +60,14 @@
                 <div class="topbar__center">
                     <nav class="nav nav--primary" aria-label="Primary">
                         <div class="nav__item nav__item--dropdown">
-                            <button class="nav__link nav__link--dropdown {% if request.path|slice:':8' == '/tech100' %}is-active{% endif %}" type="button" aria-haspopup="true" aria-expanded="false" data-nav-dropdown>
-                                Tech100 AI Index
-                                <span class="nav__chevron" aria-hidden="true">▾</span>
-                            </button>
-                            <div class="nav__dropdown" role="menu">
+                            <div class="nav__dropdown-trigger {% if request.path|slice:':8' == '/tech100' %}is-active{% endif %}">
+                                <a href="/tech100/index/" class="nav__link nav__link--dropdown-link">Tech100 AI Index</a>
+                                <button class="nav__dropdown-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="tech100-submenu" data-nav-dropdown>
+                                    <span class="nav__chevron" aria-hidden="true">▾</span>
+                                    <span class="sr-only">Toggle Tech100 menu</span>
+                                </button>
+                            </div>
+                            <div class="nav__dropdown" id="tech100-submenu" role="menu">
                                 <a href="/tech100/index/" class="nav__dropdown-link" role="menuitem">Tech100 AI Ethics &amp; Governance Index (Overview)</a>
                                 <a href="/tech100/performance/" class="nav__dropdown-link" role="menuitem">Performance</a>
                                 <a href="/tech100/constituents/" class="nav__dropdown-link" role="menuitem">Constituents</a>
@@ -365,16 +368,18 @@
             btn.addEventListener('click', (event) => {
                 event.preventDefault();
                 const expanded = btn.getAttribute('aria-expanded') === 'true';
+                const item = btn.closest('.nav__item');
                 btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-                btn.parentElement.classList.toggle('is-open', !expanded);
+                if (item) item.classList.toggle('is-open', !expanded);
             });
         });
 
         document.addEventListener('click', (event) => {
             dropdownButtons.forEach((btn) => {
-                if (!btn.parentElement.contains(event.target)) {
+                const item = btn.closest('.nav__item');
+                if (item && !item.contains(event.target)) {
                     btn.setAttribute('aria-expanded', 'false');
-                    btn.parentElement.classList.remove('is-open');
+                    item.classList.remove('is-open');
                 }
             });
         });
