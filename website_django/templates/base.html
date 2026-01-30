@@ -59,29 +59,33 @@
             <div class="topbar__nav" id="site-nav">
                 <nav class="nav nav--primary" aria-label="Primary">
                     <div class="nav__item nav__item--dropdown">
-                        <button class="nav__link nav__link--dropdown" type="button" aria-haspopup="true" aria-expanded="false" data-nav-dropdown>
-                            Tech100 AI Ethics &amp; Gov Index
+                        <button class="nav__link nav__link--dropdown {% if request.path|slice:':8' == '/tech100' %}is-active{% endif %}" type="button" aria-haspopup="true" aria-expanded="false" data-nav-dropdown>
+                            Tech100 AI Index
                             <span class="nav__chevron" aria-hidden="true">▾</span>
                         </button>
                         <div class="nav__dropdown" role="menu">
-                            <a href="/tech100/index/" class="nav__dropdown-link" role="menuitem">Tech100 AI Ethics &amp; Governance Index</a>
+                            <a href="/tech100/index/" class="nav__dropdown-link" role="menuitem">Tech100 AI Ethics &amp; Governance Index (Overview)</a>
                             <a href="/tech100/performance/" class="nav__dropdown-link" role="menuitem">Performance</a>
                             <a href="/tech100/constituents/" class="nav__dropdown-link" role="menuitem">Constituents</a>
                             <a href="/tech100/attribution/" class="nav__dropdown-link" role="menuitem">Attribution</a>
                             <a href="/tech100/scores/" class="nav__dropdown-link" role="menuitem">Governance scores</a>
+                            <div class="nav__dropdown-divider" role="separator" aria-hidden="true"></div>
                             <a href="/tech100/stats/" class="nav__dropdown-link" role="menuitem">Stats</a>
                             <a href="/tech100/methodology/" class="nav__dropdown-link" role="menuitem">Methodology</a>
                         </div>
                     </div>
-                    <a href="/ai-regulation/" class="nav__link">
+                    <a href="/ai-regulation/" class="nav__link {% if request.path|slice:':14' == '/ai-regulation' %}is-active{% endif %}">
                         <span class="nav__icon" aria-hidden="true">🌐</span>
                         Global AI Regulation
                     </a>
-                    <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2">
+                    <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2 {% if request.path|slice:':5' == '/ask2' %}is-active{% endif %}">
                         <span class="nav__icon" aria-hidden="true">💬</span>
                         Ask2 AI Chat
                     </a>
-                    <a href="{% url 'news' %}" class="nav__link">News &amp; Insights</a>
+                    <a href="{% url 'news' %}" class="nav__link {% if request.path|slice:':5' == '/news' %}is-active{% endif %}">
+                        <span class="nav__icon" aria-hidden="true">📰</span>
+                        News &amp; Insights
+                    </a>
                 </nav>
                 <div class="nav nav--actions" aria-label="Account and social">
                     <a class="nav__icon-link" href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
