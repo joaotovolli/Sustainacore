@@ -61,7 +61,7 @@ if "Sustainacore_preview" in str(BASE_DIR):
 
 SITE_URL = os.environ.get("SITE_URL", "https://sustainacore.org")
 DEFAULT_META_DESCRIPTION = (
-    "SustainaCore provides open ESG and AI governance data, including TECH100 index insights, "
+    "SustainaCore provides open ESG and AI governance data, including Tech100 AI Ethics & Governance Index insights, "
     "curated news, and evidence-backed indicators for responsible technology teams."
 )
 STATIC_VERSION = os.environ.get("STATIC_VERSION", "dev")
@@ -135,6 +135,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.seo_defaults',
+                'core.context_processors.breadcrumbs_json_ld',
                 'core.context_processors.preview_context',
                 'core.context_processors.auth_context',
                 'core.context_processors.build_sha',

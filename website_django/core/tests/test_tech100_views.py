@@ -58,7 +58,7 @@ class Tech100ViewTests(SimpleTestCase):
             "meta": {},
         }
 
-        response = self.client.get(reverse("tech100"))
+        response = self.client.get(reverse("tech100_scores"))
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
@@ -119,7 +119,7 @@ class Tech100ViewTests(SimpleTestCase):
             "meta": {},
         }
 
-        response = self.client.get(reverse("tech100"))
+        response = self.client.get(reverse("tech100_scores"))
 
         self.assertEqual(response.status_code, 200)
         companies = response.context["companies"]
@@ -179,7 +179,7 @@ class Tech100ViewTests(SimpleTestCase):
             "meta": {},
         }
 
-        response = self.client.get(reverse("tech100"))
+        response = self.client.get(reverse("tech100_scores"))
         self.assertEqual(response.status_code, 200)
         companies = response.context["companies"]
         self.assertEqual(len(companies), 1)
@@ -236,7 +236,7 @@ class Tech100ViewTests(SimpleTestCase):
             "meta": {},
         }
 
-        response = self.client.get(reverse("tech100"))
+        response = self.client.get(reverse("tech100_scores"))
         self.assertEqual(response.status_code, 200)
         companies = response.context["companies"]
         self.assertEqual(len(companies), 1)
@@ -281,7 +281,7 @@ class Tech100PreviewGateTests(TestCase):
             "meta": {},
         }
 
-        response = self.client.get(reverse("tech100"))
+        response = self.client.get(reverse("tech100_scores"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context["companies"]), 25)
         self.assertContains(response, "Showing 25 of 40 companies (preview)")
@@ -312,7 +312,7 @@ class Tech100PreviewGateTests(TestCase):
         session.save()
         self.client.cookies[COOKIE_NAME] = "header.payload.sig"
 
-        response = self.client.get(reverse("tech100"))
+        response = self.client.get(reverse("tech100_scores"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context["companies"]), 40)
         self.assertContains(response, "Showing 40 of 40 companies")
@@ -339,7 +339,7 @@ class Tech100PreviewGateTests(TestCase):
             "meta": {},
         }
 
-        response = self.client.get(reverse("tech100"))
+        response = self.client.get(reverse("tech100_scores"))
         self.assertEqual(response.status_code, 200)
         companies = response.context["companies"]
         ranks = {c["company_name"]: c["rank_index"] for c in companies}
@@ -401,7 +401,7 @@ class Tech100PreviewGateTests(TestCase):
             "meta": {},
         }
 
-        response = self.client.get(reverse("tech100"))
+        response = self.client.get(reverse("tech100_scores"))
         self.assertEqual(response.status_code, 200)
         companies = response.context["companies"]
         self.assertEqual(len(companies), 2)

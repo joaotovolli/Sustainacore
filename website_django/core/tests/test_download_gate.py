@@ -9,7 +9,7 @@ from django.urls import reverse
 class DownloadGateTests(TestCase):
     @mock.patch("core.downloads.log_event")
     def test_download_redirects_when_logged_out(self, log_event_mock):
-        response = self.client.get(reverse("tech100_export"), HTTP_REFERER="/tech100/")
+        response = self.client.get(reverse("tech100_export"), HTTP_REFERER="/tech100/scores/")
         self.assertEqual(response.status_code, 302)
         location = response["Location"]
         parsed = urlparse(location)
@@ -56,7 +56,7 @@ class DownloadGateTests(TestCase):
 
     @mock.patch("core.views.log_event")
     def test_ux_event_endpoint_logs(self, log_event_mock):
-        payload = {"event_type": "download_click", "metadata": {"page": "/tech100/"}}
+        payload = {"event_type": "download_click", "metadata": {"page": "/tech100/scores/"}}
         response = self.client.post(
             reverse("ux_event"),
             data=json.dumps(payload),

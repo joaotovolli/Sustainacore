@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}TECH100 Index | Performance{% endblock %}
+{% block title %}Tech100 AI Ethics &amp; Governance Index | Performance{% endblock %}
+{% block meta_description %}Analyze Tech100 AI Ethics &amp; Governance Index performance, drawdowns, volatility, and attribution across recent rebalance periods.{% endblock %}
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
@@ -13,7 +14,7 @@
     <div class="shell">
       <div class="section__header section__header--split">
         <div>
-          <span class="pill pill--soft">TECH100 AI Index</span>
+          <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</span>
           <h1>Performance</h1>
           <p class="muted">Levels, drawdowns, volatility, and attribution.</p>
           <p class="disclaimer-banner">
@@ -32,7 +33,7 @@
 
       {% if data_error %}
         <div class="alert alert--warning" data-tech100-empty-state="1">
-          Live TECH100 data is temporarily unavailable; please try again later.
+          Live Tech100 AI Ethics &amp; Governance Index data is temporarily unavailable; please try again later.
         </div>
       {% else %}
         <div id="tech100-performance-status"
@@ -60,19 +61,19 @@
             <div class="chart-card">
               <h3 class="h5">Index level</h3>
               <div class="chart-card__canvas">
-                <canvas id="tech100-performance-level-chart" role="img" aria-label="TECH100 index level chart"></canvas>
+                <canvas id="tech100-performance-level-chart" role="img" aria-label="Tech100 index level chart"></canvas>
               </div>
             </div>
             <div class="chart-card">
               <h3 class="h5">Drawdown</h3>
               <div class="chart-card__canvas">
-                <canvas id="tech100-performance-drawdown-chart" role="img" aria-label="TECH100 drawdown chart"></canvas>
+                <canvas id="tech100-performance-drawdown-chart" role="img" aria-label="Tech100 drawdown chart"></canvas>
               </div>
             </div>
             <div class="chart-card">
               <h3 class="h5">Rolling 30D volatility</h3>
               <div class="chart-card__canvas">
-                <canvas id="tech100-performance-vol-chart" role="img" aria-label="TECH100 rolling volatility chart"></canvas>
+                <canvas id="tech100-performance-vol-chart" role="img" aria-label="Tech100 rolling volatility chart"></canvas>
               </div>
             </div>
           </div>
@@ -168,7 +169,7 @@
             </select>
           </div>
           <div class="table-wrapper table-wrap">
-            <table class="table table--wide tech100-table" aria-label="TECH100 attribution">
+            <table class="table table--wide tech100-table" aria-label="Tech100 attribution">
               <thead>
                 <tr>
                   <th class="text-left">Ticker</th>
@@ -203,7 +204,7 @@
             </div>
           </div>
           <div class="table-wrapper table-wrap">
-            <table class="table table--wide tech100-table" aria-label="TECH100 holdings">
+            <table class="table table--wide tech100-table" aria-label="Tech100 holdings">
               <thead>
                 <tr>
                   <th class="text-left">Ticker</th>

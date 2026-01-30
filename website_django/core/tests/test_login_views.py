@@ -45,9 +45,9 @@ class LoginViewsTests(TestCase):
         session["login_email"] = "user@example.com"
         session.save()
 
-        response = self.client.post(reverse("login_code"), {"code": "123456", "next": "/tech100/"})
+        response = self.client.post(reverse("login_code"), {"code": "123456", "next": "/tech100/scores/"})
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], "/tech100/")
+        self.assertEqual(response["Location"], "/tech100/scores/")
 
     @mock.patch("core.views.has_terms_acceptance", return_value=True)
     @mock.patch("core.views.requests.post", side_effect=requests.exceptions.Timeout)
