@@ -1,0 +1,15 @@
+UI Compare Summary (home)
+Prod: https://sustainacore.org/
+Preview: https://preview.sustainacore.org/
+Mismatch pixels (max): 54700
+Mismatch percent (max): 16.6181%
+Horizontal overflow (preview): false
+Document scrollWidth: 1440
+Viewport width: 1440
+Overflow offenders (preview):
+None
+
+Shots:
+- home_full (desktop): 8905 px, 0.6871%
+- home_footer (desktop): 8917 px, 0.688%
+- home_mobile (mobile): 54700 px, 16.6181%
