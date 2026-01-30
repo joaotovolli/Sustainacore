@@ -1,0 +1,11 @@
+<div class="tech100-nav__breadcrumb">
+  <a href="/">Home</a>
+  <span class="tech100-nav__separator">→</span>
+  {% if current_label == "Tech100 AI Ethics & Governance Index" %}
+    <span class="tech100-nav__current">Tech100 AI Ethics &amp; Governance Index</span>
+  {% else %}
+    <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
+    <span class="tech100-nav__separator">→</span>
+    <span class="tech100-nav__current">{{ current_label }}</span>
+  {% endif %}
+</div>

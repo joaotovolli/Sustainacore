@@ -1116,6 +1116,30 @@ def _normalize_row(raw: Dict) -> Dict:
     return row
 
 
+def build_tech100_preview(raw_items, limit: int = TECH100_PREVIEW_LIMIT):
+    tech100_items = [_normalize_row(item) for item in raw_items if isinstance(item, dict)]
+    preview = []
+    for item in tech100_items[:limit]:
+        name = item.get("company_name") or item.get("company") or ""
+        ticker = item.get("ticker") or ""
+        company_display = f"{name} ({ticker})" if name and ticker else (name or ticker or "—")
+        preview.append(
+            {
+                "company": name or ticker or "—",
+                "ticker": ticker or "",
+                "company_display": company_display,
+                "sector": item.get("sector") or item.get("gics_sector"),
+                "transparency": _format_score(item.get("transparency")),
+                "ethical_principles": _format_score(item.get("ethical_principles")),
+                "governance_structure": _format_score(item.get("governance_structure")),
+                "regulatory_alignment": _format_score(item.get("regulatory_alignment")),
+                "stakeholder_engagement": _format_score(item.get("stakeholder_engagement")),
+                "composite": _format_score(item.get("aiges_composite") or item.get("overall")),
+            }
+        )
+    return preview
+
+
 @cache_page(PAGE_CACHE_SECONDS)
 def home(request):
     def _format_number(value, decimals=2):
@@ -1155,26 +1179,7 @@ def home(request):
         news_response = {}
 
     raw_tech100_items = tech100_response.get("items", []) or []
-    tech100_items = [_normalize_row(item) for item in raw_tech100_items if isinstance(item, dict)]
-    tech100_preview = []
-    for item in tech100_items[:25]:
-        name = item.get("company_name") or item.get("company") or ""
-        ticker = item.get("ticker") or ""
-        company_display = f"{name} ({ticker})" if name and ticker else (name or ticker or "—")
-        tech100_preview.append(
-            {
-                "company": name or ticker or "—",
-                "ticker": ticker or "",
-                "company_display": company_display,
-                "sector": item.get("sector") or item.get("gics_sector"),
-                "transparency": _format_score(item.get("transparency")),
-                "ethical_principles": _format_score(item.get("ethical_principles")),
-                "governance_structure": _format_score(item.get("governance_structure")),
-                "regulatory_alignment": _format_score(item.get("regulatory_alignment")),
-                "stakeholder_engagement": _format_score(item.get("stakeholder_engagement")),
-                "composite": _format_score(item.get("aiges_composite") or item.get("overall")),
-            }
-        )
+    tech100_preview = build_tech100_preview(raw_tech100_items)
 
     news_items = [item for item in (news_response.get("items", []) or []) if isinstance(item, dict)]
     news_items.sort(
