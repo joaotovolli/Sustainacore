@@ -274,6 +274,10 @@ h3 {
     white-space: nowrap;
 }
 
+.nav__chevron {
+    transition: transform 0.2s ease;
+}
+
 .nav__icon {
     font-size: 1rem;
 }
@@ -3450,10 +3454,28 @@ textarea:focus {
         padding: 0.5rem;
         margin-top: 0.5rem;
         display: none;
+        width: 100%;
     }
 
     .nav__item.is-open .nav__dropdown {
         display: flex;
+    }
+
+    .nav__item:not(.is-open):hover .nav__dropdown {
+        display: none;
+    }
+
+    .nav__dropdown-link {
+        padding-left: 0.9rem;
+    }
+
+    .nav__dropdown-divider {
+        margin-left: 0.9rem;
+        margin-right: 0.5rem;
+    }
+
+    .nav__item.is-open .nav__chevron {
+        transform: rotate(180deg);
     }
 }
 
