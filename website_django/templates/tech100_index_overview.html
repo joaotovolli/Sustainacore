@@ -29,21 +29,6 @@
         {% include "partials/tech100_nav.html" %}
       {% endwith %}
 
-      <div class="card tech100-index__sections">
-        <div class="card__header card__header--split">
-          <div>
-            <h2 class="h4">Explore index sections</h2>
-            <p class="muted">Jump to performance, constituents, attribution, and governance scores.</p>
-          </div>
-          <div class="card__actions">
-            <a class="btn btn--ghost btn--sm" href="/tech100/performance/">Performance</a>
-            <a class="btn btn--ghost btn--sm" href="/tech100/constituents/">Constituents</a>
-            <a class="btn btn--ghost btn--sm" href="/tech100/attribution/">Attribution</a>
-            <a class="btn btn--ghost btn--sm" href="/tech100/scores/">Governance scores</a>
-          </div>
-        </div>
-      </div>
-
       {% if data_error %}
         <div class="alert alert--warning" data-tech100-empty-state="1">
           Live Tech100 AI Ethics &amp; Governance Index data is temporarily unavailable; please try again later.
@@ -168,6 +153,16 @@
               </tbody>
             </table>
           </div>
+        </div>
+
+        <div class="card tech100-index__table-card">
+          <div class="card__header">
+            <div>
+              <h2 class="h4">Latest company scores (snapshot)</h2>
+              <p class="muted">A quick snapshot of AI governance scores before you explore the full index.</p>
+            </div>
+          </div>
+          {% include "partials/tech100_snapshot_table.html" %}
         </div>
 
       {% endif %}

@@ -1,0 +1,43 @@
+<div class="table-wrapper">
+  <div class="table tech100-home-table" role="table" aria-label="Tech100 preview">
+    <div class="table__row table__row--head" role="row">
+      <div class="table__cell" role="columnheader">Company</div>
+      <div class="table__cell" role="columnheader">Sector</div>
+      <div class="table__cell table__cell--right" role="columnheader">Transparency</div>
+      <div class="table__cell table__cell--right" role="columnheader">Ethical Principles</div>
+      <div class="table__cell table__cell--right" role="columnheader">Governance Structure</div>
+      <div class="table__cell table__cell--right" role="columnheader">Regulatory Alignment</div>
+      <div class="table__cell table__cell--right" role="columnheader">Stakeholder Engagement</div>
+      <div class="table__cell table__cell--right" role="columnheader">Composite AI Gov &amp; Ethics</div>
+    </div>
+    {% for company in tech100_preview %}
+    <div class="table__row{% if company.ticker %} table__row--clickable{% endif %}"
+         role="row"
+         {% if company.ticker %}
+         data-company-link="/tech100/company/{{ company.ticker }}/"
+         title="Click to view company report"
+         tabindex="0"
+         aria-label="View {{ company.company_display|default:company.company }} report"
+         {% endif %}>
+      <div class="table__cell" role="cell">
+        {% if company.ticker %}
+        <a class="table__link" href="/tech100/company/{{ company.ticker }}/">
+          {{ company.company_display|default:company.company }}
+        </a>
+        {% else %}
+          {{ company.company_display|default:company.company }}
+        {% endif %}
+      </div>
+      <div class="table__cell" role="cell">{{ company.sector }}</div>
+      <div class="table__cell table__cell--right" role="cell">{{ company.transparency|default:"—" }}</div>
+      <div class="table__cell table__cell--right" role="cell">{{ company.ethical_principles|default:"—" }}</div>
+      <div class="table__cell table__cell--right" role="cell">{{ company.governance_structure|default:"—" }}</div>
+      <div class="table__cell table__cell--right" role="cell">{{ company.regulatory_alignment|default:"—" }}</div>
+      <div class="table__cell table__cell--right" role="cell">{{ company.stakeholder_engagement|default:"—" }}</div>
+      <div class="table__cell table__cell--right" role="cell">
+        <span class="badge">{{ company.composite|default:"—" }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>

@@ -1,94 +1,40 @@
 <nav class="tech100-nav" aria-label="Tech100 navigation">
   {% if tech100_current %}
     {% with current_label=tech100_current %}
-      <div class="tech100-nav__breadcrumb">
-        <a href="/">Home</a>
-        <span class="tech100-nav__separator">→</span>
-        <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-        <span class="tech100-nav__separator">→</span>
-        <span class="tech100-nav__current">{{ current_label }}</span>
-      </div>
+      {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
     {% endwith %}
   {% else %}
     {% if request.path == '/tech100/index/' %}
       {% with current_label="Tech100 AI Ethics & Governance Index" %}
-        <div class="tech100-nav__breadcrumb">
-          <a href="/">Home</a>
-          <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ current_label }}</span>
-        </div>
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
     {% elif request.path == '/tech100/performance/' %}
       {% with current_label="Performance" %}
-        <div class="tech100-nav__breadcrumb">
-          <a href="/">Home</a>
-          <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ current_label }}</span>
-        </div>
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
     {% elif request.path == '/tech100/constituents/' %}
       {% with current_label="Constituents" %}
-        <div class="tech100-nav__breadcrumb">
-          <a href="/">Home</a>
-          <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ current_label }}</span>
-        </div>
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
     {% elif request.path == '/tech100/attribution/' %}
       {% with current_label="Attribution" %}
-        <div class="tech100-nav__breadcrumb">
-          <a href="/">Home</a>
-          <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ current_label }}</span>
-        </div>
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
     {% elif request.path == '/tech100/scores/' %}
       {% with current_label="Governance scores" %}
-        <div class="tech100-nav__breadcrumb">
-          <a href="/">Home</a>
-          <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ current_label }}</span>
-        </div>
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
     {% elif request.path == '/tech100/stats/' %}
       {% with current_label="Stats" %}
-        <div class="tech100-nav__breadcrumb">
-          <a href="/">Home</a>
-          <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ current_label }}</span>
-        </div>
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
     {% elif request.path == '/tech100/methodology/' %}
       {% with current_label="Methodology" %}
-        <div class="tech100-nav__breadcrumb">
-          <a href="/">Home</a>
-          <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ current_label }}</span>
-        </div>
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
     {% else %}
       {% with current_label="Governance scores" %}
-        <div class="tech100-nav__breadcrumb">
-          <a href="/">Home</a>
-          <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ current_label }}</span>
-        </div>
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
     {% endif %}
   {% endif %}
@@ -98,7 +44,7 @@
       href="/tech100/index/"
       {% if request.path == '/tech100/index/' %}aria-current="page"{% endif %}
     >
-      Tech100 AI Ethics &amp; Governance Index
+      Tech100 AI Index
     </a>
     <a
       class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"

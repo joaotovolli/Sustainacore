@@ -10,6 +10,7 @@ from django.shortcuts import render
 from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_safe
 
+from core.api_client import fetch_tech100
 from core.tech100_index_data import (
     DrawdownResult,
     get_data_mode,
@@ -35,6 +36,7 @@ from core.tech100_index_data import (
     get_attribution_table,
 )
 from core.downloads import require_login_for_download
+from core.views import build_tech100_preview
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +167,13 @@ def tech100_index_overview(request):
             "imputed_url": f"/tech100/constituents/?date={latest.isoformat()}&imputed=1",
             "top_constituents": top_constituents,
         }
+        try:
+            tech100_response = fetch_tech100()
+            raw_tech100_items = tech100_response.get("items", []) or []
+            context["tech100_preview"] = build_tech100_preview(raw_tech100_items)
+        except Exception:
+            logger.exception("TECH100 preview unavailable for index overview.")
+            context["tech100_preview"] = []
     except Exception:
         logger.exception("TECH100 index overview failed.")
         context = {
@@ -173,6 +182,7 @@ def tech100_index_overview(request):
             "levels_payload": [],
             "levels_count": 0,
             "constituents_count": 0,
+            "tech100_preview": [],
         }
     return render(request, "tech100_index_overview.html", context)
 
