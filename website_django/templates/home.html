@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}SustainaCore | Open ESG & AI governance{% endblock %}
-{% block meta_description %}Open ESG and AI governance data with TECH100 scores, curated news, and the Ask2 assistant from SustainaCore.{% endblock %}
+{% block meta_description %}Open ESG and AI governance data with the Tech100 AI Ethics &amp; Governance Index, curated news, and the Ask2 assistant from SustainaCore.{% endblock %}
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
@@ -17,7 +17,7 @@
             <h1>Evidence-ready signals for responsible technology.</h1>
             <p class="lead">SustainaCore combines transparent data, reproducible indicators, and human context so teams can evaluate how technology companies govern AI responsibly.</p>
             <div class="actions">
-                <a class="btn btn--primary" href="/tech100/index/">Explore the index</a>
+                <a class="btn btn--primary" href="/tech100/index/">Explore Tech100 AI Ethics &amp; Gov Index</a>
                 <a class="btn btn--ghost" href="{% url 'ask2:ask2_page' %}" aria-label="Talk to our Ask2 AI Assistant">Talk to Ask2</a>
             </div>
             <ul class="hero__bullets">
@@ -29,7 +29,7 @@
         <div class="home-launchpad">
             <div class="launch-card">
                 <span class="launch-card__icon">📈</span>
-                <h3 class="h5">AI Governance Index</h3>
+                <h3 class="h5">Tech100 AI Ethics &amp; Gov Index</h3>
                 <p class="muted">Performance, constituents, attribution, and governance scores.</p>
                 <a class="text-link" href="/tech100/index/">Index overview →</a>
             </div>
@@ -41,13 +41,13 @@
             </div>
             <div class="launch-card">
                 <span class="launch-card__icon">🌐</span>
-                <h3 class="h5">Regulatory Heat Map</h3>
+                <h3 class="h5">Global AI Regulation</h3>
                 <p class="muted">Explore AI policy coverage and jurisdiction detail.</p>
                 <a class="text-link" href="/ai-regulation/">View the globe →</a>
             </div>
             <div class="launch-card">
                 <span class="launch-card__icon">📰</span>
-                <h3 class="h5">News &amp; insights</h3>
+                <h3 class="h5">News &amp; Insights</h3>
                 <p class="muted">Curated governance headlines and evidence updates.</p>
                 <a class="text-link" href="{% url 'news' %}">Browse news →</a>
             </div>
@@ -59,7 +59,7 @@
     <div class="shell">
         <div class="section__header section__header--split">
             <div>
-                <span class="pill pill--soft">TECH100 Index Snapshot</span>
+                <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index Snapshot</span>
                 <h2>Performance at a glance</h2>
                 <p class="muted">A compact view of index performance and risk signals.</p>
             </div>
@@ -67,7 +67,7 @@
 
         {% if tech100_snapshot.data_error %}
             <div class="alert alert--warning" data-tech100-home-empty="1">
-                Live TECH100 data is temporarily unavailable; please try again later.
+                Live Tech100 AI Ethics &amp; Governance Index data is temporarily unavailable; please try again later.
             </div>
         {% elif tech100_snapshot.has_data %}
         <div class="tech100-home__grid"
@@ -91,7 +91,7 @@
                         </div>
                     </div>
                     <div class="tech100-home__canvas">
-                        <canvas id="tech100-home-level-chart" role="img" aria-label="TECH100 index level chart"></canvas>
+                        <canvas id="tech100-home-level-chart" role="img" aria-label="Tech100 index level chart"></canvas>
                     </div>
                     <div class="tech100-home__stats-grid">
                         <div>
@@ -153,7 +153,7 @@
             </div>
         {% else %}
             <div class="alert alert--warning" data-tech100-home-empty="1">
-                No TECH100 index data found.
+                No Tech100 AI Ethics &amp; Governance Index data found.
             </div>
         {% endif %}
     </div>
@@ -163,10 +163,10 @@
     <div class="shell">
         <div class="section__header section__header--split">
             <div>
-                <h2>AI Regulatory Heat Map</h2>
+                <h2>Global AI Regulation</h2>
                 <p class="muted">Explore where AI rules are accelerating, then drill into a jurisdiction to see instruments, milestones, and sources.</p>
             </div>
-            <a class="text-link" href="/ai-regulation/">Open AI Regulation →</a>
+            <a class="text-link" href="/ai-regulation/">Open Global AI Regulation →</a>
         </div>
         <div
             class="card ai-reg__card ai-reg__card--home"
@@ -261,10 +261,10 @@
                 <h2>Latest from Tech100 AI Ethics &amp; Gov Index</h2>
                 <p class="muted">A snapshot of company scores before you dive into the full index.</p>
             </div>
-            <a class="text-link" href="{% url 'tech100' %}">Open TECH100 →</a>
+            <a class="text-link" href="/tech100/index/">Open Tech100 AI Ethics &amp; Gov Index →</a>
         </div>
         <div class="table-wrapper">
-            <div class="table tech100-home-table" role="table" aria-label="TECH100 preview">
+            <div class="table tech100-home-table" role="table" aria-label="Tech100 preview">
                 <div class="table__row table__row--head" role="row">
                     <div class="table__cell" role="columnheader">Company</div>
                     <div class="table__cell" role="columnheader">Sector</div>
@@ -313,7 +313,7 @@
     <div class="shell">
         <div class="section__header section__header--split">
             <div>
-                <h2>News &amp; insights</h2>
+                <h2>News &amp; Insights</h2>
                 <p class="muted">Curated headlines on AI governance, ESG transparency, and regulatory moves.</p>
             </div>
             <a class="text-link" href="{% url 'news' %}">See all news →</a>
@@ -359,10 +359,10 @@
         <div class="cards cards--three">
             <div class="card">
                 <div class="card__icon">📊</div>
-                <p class="pill pill--soft">TECH100</p>
+                <p class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</p>
                 <h3>Governance &amp; ethics index</h3>
                 <p class="muted">Sortable, comparable scores across transparency, accountability, and oversight pillars.</p>
-                <a class="btn btn--secondary" href="{% url 'tech100' %}">Open TECH100</a>
+                <a class="btn btn--secondary" href="/tech100/index/">Open Tech100 AI Ethics &amp; Gov Index</a>
             </div>
             <div class="card">
                 <div class="card__icon">💡</div>
@@ -373,7 +373,7 @@
             </div>
             <div class="card">
                 <div class="card__icon">🗞️</div>
-                <p class="pill pill--soft">News</p>
+                <p class="pill pill--soft">News &amp; Insights</p>
                 <h3>AI governance headlines</h3>
                 <p class="muted">Stay current on regulatory updates, transparency reports, and accountability signals.</p>
                 <a class="btn btn--secondary" href="{% url 'news' %}">Browse news</a>
@@ -387,20 +387,14 @@
     <div class="shell">
         <div class="section__header">
             <h2>Trust &amp; transparency</h2>
-            <p class="muted">Understand how SustainaCore operates, how the TECH100 methodology is built, and how to request corrections.</p>
+            <p class="muted">Understand how SustainaCore operates, how the Tech100 AI Ethics &amp; Governance Index methodology is built, and how to request corrections.</p>
         </div>
         <div class="cards cards--three">
             <div class="card">
                 <p class="pill pill--soft">Methodology</p>
-                <h3>TECH100 framework</h3>
+                <h3>Tech100 AI Ethics &amp; Governance Index framework</h3>
                 <p class="muted">Read the full methodology, limitations, and research design.</p>
                 <a class="btn btn--secondary" href="/tech100/methodology/">View methodology</a>
-            </div>
-            <div class="card">
-                <p class="pill pill--soft">Press</p>
-                <h3>Media resources</h3>
-                <p class="muted">Access press materials, background, and TECH100 context.</p>
-                <a class="btn btn--secondary" href="{% url 'press_index' %}">Press room</a>
             </div>
             <div class="card">
                 <p class="pill pill--soft">Policies</p>
@@ -410,6 +404,12 @@
                     <a class="btn btn--secondary" href="{% url 'privacy' %}">Privacy policy</a>
                     <a class="btn btn--ghost" href="{% url 'corrections' %}">Corrections</a>
                 </div>
+            </div>
+            <div class="card">
+                <p class="pill pill--soft">Press</p>
+                <h3>Media resources</h3>
+                <p class="muted">Access press materials, background, and Tech100 AI Ethics &amp; Governance Index context.</p>
+                <a class="btn btn--secondary" href="{% url 'press_index' %}">Press room</a>
             </div>
         </div>
     </div>

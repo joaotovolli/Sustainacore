@@ -1,21 +1,21 @@
-<nav class="tech100-nav" aria-label="TECH100 navigation">
+<nav class="tech100-nav" aria-label="Tech100 navigation">
   {% if tech100_current %}
     {% with current_label=tech100_current %}
       <div class="tech100-nav__breadcrumb">
         <a href="/">Home</a>
         <span class="tech100-nav__separator">→</span>
-        <a href="/tech100/">TECH100</a>
+        <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
         <span class="tech100-nav__separator">→</span>
         <span class="tech100-nav__current">{{ current_label }}</span>
       </div>
     {% endwith %}
   {% else %}
     {% if request.path == '/tech100/index/' %}
-      {% with current_label="Index overview" %}
+      {% with current_label="Tech100 AI Ethics & Governance Index" %}
         <div class="tech100-nav__breadcrumb">
           <a href="/">Home</a>
           <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/">TECH100</a>
+          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
           <span class="tech100-nav__separator">→</span>
           <span class="tech100-nav__current">{{ current_label }}</span>
         </div>
@@ -25,7 +25,7 @@
         <div class="tech100-nav__breadcrumb">
           <a href="/">Home</a>
           <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/">TECH100</a>
+          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
           <span class="tech100-nav__separator">→</span>
           <span class="tech100-nav__current">{{ current_label }}</span>
         </div>
@@ -35,7 +35,7 @@
         <div class="tech100-nav__breadcrumb">
           <a href="/">Home</a>
           <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/">TECH100</a>
+          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
           <span class="tech100-nav__separator">→</span>
           <span class="tech100-nav__current">{{ current_label }}</span>
         </div>
@@ -45,7 +45,17 @@
         <div class="tech100-nav__breadcrumb">
           <a href="/">Home</a>
           <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/">TECH100</a>
+          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
+          <span class="tech100-nav__separator">→</span>
+          <span class="tech100-nav__current">{{ current_label }}</span>
+        </div>
+      {% endwith %}
+    {% elif request.path == '/tech100/scores/' %}
+      {% with current_label="Governance scores" %}
+        <div class="tech100-nav__breadcrumb">
+          <a href="/">Home</a>
+          <span class="tech100-nav__separator">→</span>
+          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
           <span class="tech100-nav__separator">→</span>
           <span class="tech100-nav__current">{{ current_label }}</span>
         </div>
@@ -55,7 +65,7 @@
         <div class="tech100-nav__breadcrumb">
           <a href="/">Home</a>
           <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/">TECH100</a>
+          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
           <span class="tech100-nav__separator">→</span>
           <span class="tech100-nav__current">{{ current_label }}</span>
         </div>
@@ -65,7 +75,7 @@
         <div class="tech100-nav__breadcrumb">
           <a href="/">Home</a>
           <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/">TECH100</a>
+          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
           <span class="tech100-nav__separator">→</span>
           <span class="tech100-nav__current">{{ current_label }}</span>
         </div>
@@ -75,7 +85,7 @@
         <div class="tech100-nav__breadcrumb">
           <a href="/">Home</a>
           <span class="tech100-nav__separator">→</span>
-          <a href="/tech100/">TECH100</a>
+          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
           <span class="tech100-nav__separator">→</span>
           <span class="tech100-nav__current">{{ current_label }}</span>
         </div>
@@ -88,7 +98,7 @@
       href="/tech100/index/"
       {% if request.path == '/tech100/index/' %}aria-current="page"{% endif %}
     >
-      Index overview
+      Tech100 AI Ethics &amp; Governance Index
     </a>
     <a
       class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"
@@ -112,11 +122,11 @@
       Attribution
     </a>
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/stats/' %}is-active{% endif %}"
-      href="/tech100/stats/"
-      {% if request.path == '/tech100/stats/' %}aria-current="page"{% endif %}
+      class="tech100-nav__link {% if request.path == '/tech100/scores/' %}is-active{% endif %}"
+      href="/tech100/scores/"
+      {% if request.path == '/tech100/scores/' %}aria-current="page"{% endif %}
     >
-      Stats
+      Governance scores
     </a>
     <a
       class="tech100-nav__link {% if request.path == '/tech100/methodology/' %}is-active{% endif %}"
@@ -126,11 +136,11 @@
       Methodology
     </a>
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/' %}is-active{% endif %}"
-      href="/tech100/"
-      {% if request.path == '/tech100/' %}aria-current="page"{% endif %}
+      class="tech100-nav__link {% if request.path == '/tech100/stats/' %}is-active{% endif %}"
+      href="/tech100/stats/"
+      {% if request.path == '/tech100/stats/' %}aria-current="page"{% endif %}
     >
-      Governance scores
+      Stats
     </a>
   </div>
 </nav>

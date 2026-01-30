@@ -1359,6 +1359,10 @@ def home(request):
         raise
 
 
+def tech100_redirect(request):
+    return redirect("/tech100/index/", permanent=True)
+
+
 def tech100(request):
     search_term = (request.GET.get("q") or request.GET.get("search") or "").strip()
     filters = {
@@ -1489,7 +1493,7 @@ def tech100(request):
             "table_preview_rendered",
             request,
             {
-                "page": "/tech100/",
+                "page": "/tech100/scores/",
                 "port_date": filters.get("port_date", ""),
                 "sector": filters.get("sector", ""),
                 "q": filters.get("q", ""),

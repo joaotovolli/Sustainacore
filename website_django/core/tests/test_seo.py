@@ -69,6 +69,7 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertIn(f"{canonical_base}tech100/performance/", content)
         self.assertIn(f"{canonical_base}tech100/constituents/", content)
         self.assertIn(f"{canonical_base}tech100/attribution/", content)
+        self.assertIn(f"{canonical_base}tech100/scores/", content)
         self.assertIn(f"{canonical_base}tech100/stats/", content)
         self.assertIn(f"{canonical_base}tech100/methodology/", content)
 
@@ -85,7 +86,7 @@ class SeoFoundationsTests(SimpleTestCase):
         fetch_tech100.return_value = {"items": [], "error": None, "meta": {}}
         get_latest_trade_date.return_value = None
 
-        response = self.client.get(reverse("tech100") + "?q=ai&sector=Software")
+        response = self.client.get(reverse("tech100_scores") + "?q=ai&sector=Software")
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
@@ -93,7 +94,7 @@ class SeoFoundationsTests(SimpleTestCase):
         match = re.search(r'rel="canonical" href="([^"]+)"', content)
         self.assertIsNotNone(match)
         canonical_url = match.group(1)
-        self.assertEqual(canonical_url, f"{settings.SITE_URL.rstrip('/')}/tech100/")
+        self.assertEqual(canonical_url, f"{settings.SITE_URL.rstrip('/')}/tech100/scores/")
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.fetch_news")

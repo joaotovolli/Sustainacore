@@ -9,6 +9,9 @@
     {% block canonical %}<link rel="canonical" href="{{ canonical_url }}">{% endblock %}
     <script type="application/ld+json">{{ org_json_ld|safe }}</script>
     <script type="application/ld+json">{{ site_json_ld|safe }}</script>
+    {% if breadcrumb_json_ld %}
+    <script type="application/ld+json">{{ breadcrumb_json_ld|safe }}</script>
+    {% endif %}
     {% block structured_data %}{% endblock %}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -57,27 +60,28 @@
                 <nav class="nav nav--primary" aria-label="Primary">
                     <div class="nav__item nav__item--dropdown">
                         <button class="nav__link nav__link--dropdown" type="button" aria-haspopup="true" aria-expanded="false" data-nav-dropdown>
-                            AI Governance Index
+                            Tech100 AI Ethics &amp; Gov Index
                             <span class="nav__chevron" aria-hidden="true">▾</span>
                         </button>
                         <div class="nav__dropdown" role="menu">
-                            <a href="/tech100/index/" class="nav__dropdown-link" role="menuitem">Index overview</a>
+                            <a href="/tech100/index/" class="nav__dropdown-link" role="menuitem">Tech100 AI Ethics &amp; Governance Index</a>
                             <a href="/tech100/performance/" class="nav__dropdown-link" role="menuitem">Performance</a>
                             <a href="/tech100/constituents/" class="nav__dropdown-link" role="menuitem">Constituents</a>
                             <a href="/tech100/attribution/" class="nav__dropdown-link" role="menuitem">Attribution</a>
+                            <a href="/tech100/scores/" class="nav__dropdown-link" role="menuitem">Governance scores</a>
                             <a href="/tech100/stats/" class="nav__dropdown-link" role="menuitem">Stats</a>
-                            <a href="/tech100/" class="nav__dropdown-link" role="menuitem">Governance scores</a>
+                            <a href="/tech100/methodology/" class="nav__dropdown-link" role="menuitem">Methodology</a>
                         </div>
                     </div>
+                    <a href="/ai-regulation/" class="nav__link">
+                        <span class="nav__icon" aria-hidden="true">🌐</span>
+                        Global AI Regulation
+                    </a>
                     <a href="{% url 'ask2:ask2_page' %}" class="nav__link nav__link--ask2">
                         <span class="nav__icon" aria-hidden="true">💬</span>
                         Ask2 AI Chat
                     </a>
-                    <a href="/ai-regulation/" class="nav__link">
-                        <span class="nav__icon" aria-hidden="true">🌐</span>
-                        AI Regulatory Heat Map
-                    </a>
-                    <a href="{% url 'news' %}" class="nav__link">News</a>
+                    <a href="{% url 'news' %}" class="nav__link">News &amp; Insights</a>
                 </nav>
                 <div class="nav nav--actions" aria-label="Account and social">
                     <a class="nav__icon-link" href="https://github.com/joaotovolli/Sustainacore" target="_blank" rel="noreferrer" aria-label="SustainaCore on GitHub">
@@ -132,7 +136,7 @@
     {% endif %}
     <div class="consent-banner" data-consent-banner hidden>
         <div class="shell consent-banner__inner">
-            <p>Help us improve sustainacore.org with privacy-friendly analytics.</p>
+            <p>Explore Tech100 AI Ethics &amp; Governance Index performance, constituents, attribution, and scores. Manage your analytics preferences below.</p>
             <div class="consent-banner__actions">
                 <button class="btn btn--primary" type="button" data-consent-accept>Accept analytics</button>
                 <button class="btn btn--primary" type="button" data-consent-reject>Reject analytics</button>
@@ -286,18 +290,20 @@
                 <h4>Overview</h4>
                 <a href="{% url 'home' %}" class="footer__link">Home</a>
                 <a href="{% url 'ask2:ask2_page' %}" class="footer__link">Ask2 AI Chat</a>
-                <a href="/ai-regulation/" class="footer__link">AI Regulatory Heat Map</a>
-                <a href="{% url 'news' %}" class="footer__link">News</a>
-                <a href="{% url 'press_index' %}" class="footer__link">Press</a>
+                <a href="/ai-regulation/" class="footer__link">Global AI Regulation</a>
+                <a href="{% url 'news' %}" class="footer__link">News &amp; Insights</a>
                 <a href="mailto:info@sustainacore.org" class="footer__link">Contact</a>
+                <a href="{% url 'press_index' %}" class="footer__link">Press</a>
             </div>
             <div class="footer__column">
-                <h4>AI Governance Index</h4>
-                <a href="/tech100/index/" class="footer__link">Index overview</a>
+                <h4>Tech100 AI Ethics &amp; Gov Index</h4>
+                <a href="/tech100/index/" class="footer__link">Tech100 AI Ethics &amp; Governance Index</a>
                 <a href="/tech100/performance/" class="footer__link">Performance</a>
                 <a href="/tech100/constituents/" class="footer__link">Constituents</a>
                 <a href="/tech100/attribution/" class="footer__link">Attribution</a>
+                <a href="/tech100/scores/" class="footer__link">Governance scores</a>
                 <a href="/tech100/stats/" class="footer__link">Stats</a>
+                <a href="/tech100/methodology/" class="footer__link">Methodology</a>
             </div>
             <div class="footer__column">
                 <h4>Legal</h4>

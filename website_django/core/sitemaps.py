@@ -96,7 +96,7 @@ class StaticViewSitemap(Sitemap):
 
     _template_map = {
         "home": "home.html",
-        "tech100": "tech100.html",
+        "tech100_scores": "tech100.html",
         "tech100_index": "tech100_index_overview.html",
         "tech100_performance": "tech100_performance.html",
         "tech100_constituents": "tech100_constituents.html",
@@ -137,7 +137,7 @@ _STATIC_TEMPLATE_MAP = {
 }
 
 _TECH100_TEMPLATE_MAP = {
-    "tech100": "tech100.html",
+    "tech100_scores": "tech100.html",
     "tech100_index": "tech100_index_overview.html",
     "tech100_performance": "tech100_performance.html",
     "tech100_constituents": "tech100_constituents.html",

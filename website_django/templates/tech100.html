@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}TECH100 Index | SustainaCore{% endblock %}
-{% block meta_description %}Explore TECH100 governance and ethics scores for leading technology firms, with filters, rankings, and transparency insights.{% endblock %}
+{% block title %}Tech100 AI Ethics &amp; Governance Index | Governance scores{% endblock %}
+{% block meta_description %}Explore Tech100 AI Ethics &amp; Governance Index governance scores for leading technology firms, with filters, rankings, and transparency insights.{% endblock %}
 
 {% block content %}
 <div class="tech100-page">
@@ -10,9 +10,9 @@
   <div class="shell">
     <div class="section__header">
       <div>
-        <span class="pill pill--soft">TECH100 AI Index</span>
+        <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</span>
         <h1>Governance scores</h1>
-        <p class="muted">TECH100 ranking and filters.</p>
+        <p class="muted">Tech100 AI Ethics &amp; Governance Index ranking and filters.</p>
         <p class="disclaimer-banner">
           <a class="text-link" href="/tech100/methodology/">Methodology &amp; Limitations</a>
           <span class="disclaimer-banner__corrections"> · <a class="text-link" href="/corrections/">Corrections &amp; Complaints</a></span>
@@ -25,7 +25,7 @@
 
     {% if tech100_error %}
       <div class="alert alert--warning">
-        Live TECH100 data is temporarily unavailable; please try again later.
+        Live Tech100 AI Ethics &amp; Governance Index data is temporarily unavailable; please try again later.
       </div>
     {% endif %}
 
@@ -92,7 +92,7 @@
       </div>
 
       <div class="table-wrapper table-wrap tech100-table-wrap">
-          <table id="tech100-data" class="table table--wide tech100-table" aria-label="TECH100 index">
+          <table id="tech100-data" class="table table--wide tech100-table" aria-label="Tech100 AI Ethics &amp; Governance Index">
             <thead>
               <tr>
                 <th class="text-center tech100-col--rank" scope="col">Rank</th>
@@ -301,7 +301,7 @@
       <div class="constituents-locked" data-constituents-locked data-open-download-modal data-intent="unlock_table"
            data-next-url="{{ request.get_full_path }}"
            data-port-date="{{ filters.port_date }}"
-           data-page="/tech100/"
+           data-page="/tech100/scores/"
            data-preview-limit="{{ preview_limit }}"
            data-sector="{{ filters.sector }}"
            data-q="{{ filters.q }}">
@@ -327,7 +327,7 @@
   </div>
 
   <div class="tech100-resources card card--lined">
-    <h2 class="h4">Explore TECH100 resources</h2>
+    <h2 class="h4">Explore Tech100 AI Ethics &amp; Governance Index resources</h2>
     <p class="muted">Navigate the index breakdown, performance, and methodology from one place.</p>
     <div class="cards cards--three">
       <div class="card">

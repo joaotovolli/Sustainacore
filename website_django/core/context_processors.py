@@ -73,6 +73,68 @@ def seo_defaults(request):
     }
 
 
+def breadcrumbs_json_ld(request):
+    site_base = settings.SITE_URL.rstrip("/")
+    path = request.path
+    trail_map = {
+        "/tech100/index/": [
+            ("Home", "/"),
+            ("Tech100 AI Ethics & Governance Index", "/tech100/index/"),
+        ],
+        "/tech100/performance/": [
+            ("Home", "/"),
+            ("Tech100 AI Ethics & Governance Index", "/tech100/index/"),
+            ("Performance", "/tech100/performance/"),
+        ],
+        "/tech100/constituents/": [
+            ("Home", "/"),
+            ("Tech100 AI Ethics & Governance Index", "/tech100/index/"),
+            ("Constituents", "/tech100/constituents/"),
+        ],
+        "/tech100/attribution/": [
+            ("Home", "/"),
+            ("Tech100 AI Ethics & Governance Index", "/tech100/index/"),
+            ("Attribution", "/tech100/attribution/"),
+        ],
+        "/tech100/scores/": [
+            ("Home", "/"),
+            ("Tech100 AI Ethics & Governance Index", "/tech100/index/"),
+            ("Governance scores", "/tech100/scores/"),
+        ],
+        "/ai-regulation/": [
+            ("Home", "/"),
+            ("Global AI Regulation", "/ai-regulation/"),
+        ],
+        "/ask2/": [
+            ("Home", "/"),
+            ("Ask2 AI Chat", "/ask2/"),
+        ],
+        "/news/": [
+            ("Home", "/"),
+            ("News & Insights", "/news/"),
+        ],
+    }
+    trail = trail_map.get(path)
+    if not trail:
+        return {}
+    items = []
+    for idx, (name, item_path) in enumerate(trail, start=1):
+        items.append(
+            {
+                "@type": "ListItem",
+                "position": idx,
+                "name": name,
+                "item": f"{site_base}{item_path}",
+            }
+        )
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": items,
+    }
+    return {"breadcrumb_json_ld": json.dumps(payload, ensure_ascii=True)}
+
+
 _BUILD_SHA = None
 
 
