@@ -3467,6 +3467,7 @@ textarea:focus {
 
     .topbar__nav.is-open {
         display: flex;
+        overflow-x: hidden;
     }
 
     .topbar__center,
@@ -3491,14 +3492,19 @@ textarea:focus {
         padding-right: 0.75rem;
     }
 
-    .nav__dropdown {
-        position: static;
+    .topbar__nav.is-open .nav__dropdown {
+        position: static !important;
+        left: auto !important;
+        right: auto !important;
+        top: auto !important;
+        transform: none !important;
         background: rgba(255, 255, 255, 0.06);
         box-shadow: none;
         padding: 0.5rem 0.5rem 0.6rem;
         margin-top: 0.35rem;
         display: none;
         width: 100%;
+        max-width: 100%;
         border-radius: 12px;
     }
 
