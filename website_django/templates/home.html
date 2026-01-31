@@ -11,7 +11,7 @@
 
 {% block content %}
 <section class="hero hero--revamp">
-    <div class="shell hero__grid">
+    <div class="shell sc-container hero__grid">
         <div class="hero__copy">
             <p class="eyebrow">Open AI governance intelligence</p>
             <h1>Evidence-ready signals for responsible technology.</h1>
@@ -55,8 +55,8 @@
     </div>
 </section>
 
-<section class="section tech100-home">
-    <div class="shell">
+<section class="section sc-section tech100-home">
+    <div class="shell sc-container">
         <div class="section__header section__header--split">
             <div>
                 <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index Snapshot</span>
@@ -75,19 +75,19 @@
                  data-level-count="{{ tech100_snapshot.levels_count }}"
                  data-real-count="{{ tech100_snapshot.quality_counts.REAL|default:0 }}"
                  data-imputed-count="{{ tech100_snapshot.quality_counts.IMPUTED|default:0 }}">
-                <div class="card tech100-home__chart">
-                    <div class="tech100-home__chart-header">
-                        <div>
+                <div class="card sc-card tech100-home__chart">
+                    <div class="tech100-home__chart-header sc-card__header">
+                        <div class="sc-card__title">
                             <h3 class="h4">Tech100 AI Ethics &amp; Gov Index</h3>
                             <p class="muted tech100-home__as-of">As of <span data-date-format="as-of" data-date-value="{{ tech100_snapshot.as_of }}">{{ tech100_snapshot.as_of }}</span></p>
                         </div>
-                        <div class="tech100-index__range tech100-home__range">
-                            <button class="btn btn--ghost tech100-home-range" data-range="1m">1M</button>
-                            <button class="btn btn--ghost tech100-home-range is-active" data-range="3m">3M</button>
-                            <button class="btn btn--ghost tech100-home-range" data-range="6m">6M</button>
-                            <button class="btn btn--ghost tech100-home-range" data-range="ytd">YTD</button>
-                            <button class="btn btn--ghost tech100-home-range" data-range="1y">1Y</button>
-                            <button class="btn btn--ghost tech100-home-range" data-range="max">Max</button>
+                        <div class="tech100-index__range tech100-home__range sc-segmented">
+                            <button class="btn btn--ghost tech100-home-range sc-segmented__btn" data-range="1m">1M</button>
+                            <button class="btn btn--ghost tech100-home-range sc-segmented__btn is-active" data-range="3m">3M</button>
+                            <button class="btn btn--ghost tech100-home-range sc-segmented__btn" data-range="6m">6M</button>
+                            <button class="btn btn--ghost tech100-home-range sc-segmented__btn" data-range="ytd">YTD</button>
+                            <button class="btn btn--ghost tech100-home-range sc-segmented__btn" data-range="1y">1Y</button>
+                            <button class="btn btn--ghost tech100-home-range sc-segmented__btn" data-range="max">Max</button>
                         </div>
                     </div>
                     <div class="tech100-home__canvas">
@@ -126,16 +126,16 @@
                         </div>
                     </div>
                 </div>
-                <div class="card tech100-home__attribution" data-attribution-panel>
-                    <div class="tech100-home__attribution-header">
-                        <div>
+                <div class="card sc-card tech100-home__attribution" data-attribution-panel>
+                    <div class="tech100-home__attribution-header sc-card__header">
+                        <div class="sc-card__title">
                             <h3 class="h4">Attribution snapshot</h3>
                             <p class="muted">A compact view of contributors by timeframe.</p>
                         </div>
-                        <div class="tech100-home__attribution-controls" role="tablist" aria-label="Attribution timeframe">
-                            <button class="btn btn--ghost btn--sm is-active" type="button" role="tab" aria-selected="true" data-attr-range="1d">1D</button>
-                            <button class="btn btn--ghost btn--sm" type="button" role="tab" aria-selected="false" data-attr-range="mtd">MTD</button>
-                            <button class="btn btn--ghost btn--sm" type="button" role="tab" aria-selected="false" data-attr-range="ytd">YTD</button>
+                        <div class="tech100-home__attribution-controls sc-segmented" role="tablist" aria-label="Attribution timeframe">
+                            <button class="btn btn--ghost btn--sm sc-segmented__btn is-active" type="button" role="tab" aria-selected="true" data-attr-range="1d">1D</button>
+                            <button class="btn btn--ghost btn--sm sc-segmented__btn" type="button" role="tab" aria-selected="false" data-attr-range="mtd">MTD</button>
+                            <button class="btn btn--ghost btn--sm sc-segmented__btn" type="button" role="tab" aria-selected="false" data-attr-range="ytd">YTD</button>
                             <a class="btn btn--ghost btn--sm" href="/tech100/performance/export/?kind=attribution">Download CSV</a>
                         </div>
                     </div>
@@ -159,8 +159,8 @@
     </div>
 </section>
 
-<section class="section section--alt ai-reg-home">
-    <div class="shell">
+<section class="section sc-section section--alt ai-reg-home">
+    <div class="shell sc-container">
         <div class="section__header section__header--split">
             <div>
                 <h2>Global AI Regulation</h2>
@@ -254,8 +254,8 @@
     </div>
 </section>
 
-<section class="section">
-    <div class="shell">
+<section class="section sc-section">
+    <div class="shell sc-container">
         <div class="section__header section__header--split">
             <div>
                 <h2>Latest from Tech100 AI Ethics &amp; Gov Index</h2>
@@ -267,8 +267,8 @@
     </div>
 </section>
 
-<section class="section section--alt">
-    <div class="shell">
+<section class="section sc-section section--alt">
+    <div class="shell sc-container">
         <div class="section__header section__header--split">
             <div>
                 <h2>News &amp; Insights</h2>
@@ -308,8 +308,8 @@
 </section>
 
 
-<section class="section">
-    <div class="shell">
+<section class="section sc-section">
+    <div class="shell sc-container">
         <div class="section__header">
             <h2>What you can do with SustainaCore</h2>
             <p class="muted">Start with a clear overview, then dive into structured scores, curated news, and a guided assistant.</p>
@@ -341,8 +341,8 @@
 
 </section>
 
-<section class="section">
-    <div class="shell">
+<section class="section sc-section">
+    <div class="shell sc-container">
         <div class="section__header">
             <h2>Trust &amp; transparency</h2>
             <p class="muted">Understand how SustainaCore operates, how the Tech100 AI Ethics &amp; Governance Index methodology is built, and how to request corrections.</p>

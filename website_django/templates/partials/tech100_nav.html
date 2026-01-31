@@ -38,51 +38,51 @@
       {% endwith %}
     {% endif %}
   {% endif %}
-  <div class="tech100-nav__links">
+  <div class="tech100-nav__links sc-tabs">
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/index/' %}is-active{% endif %}"
+      class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/index/' %}is-active{% endif %}"
       href="/tech100/index/"
       {% if request.path == '/tech100/index/' %}aria-current="page"{% endif %}
     >
       Tech100 AI Index
     </a>
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"
+      class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/performance/' %}is-active{% endif %}"
       href="/tech100/performance/"
       {% if request.path == '/tech100/performance/' %}aria-current="page"{% endif %}
     >
       Performance
     </a>
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/constituents/' %}is-active{% endif %}"
+      class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/constituents/' %}is-active{% endif %}"
       href="/tech100/constituents/"
       {% if request.path == '/tech100/constituents/' %}aria-current="page"{% endif %}
     >
       Constituents
     </a>
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/attribution/' %}is-active{% endif %}"
+      class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/attribution/' %}is-active{% endif %}"
       href="/tech100/attribution/"
       {% if request.path == '/tech100/attribution/' %}aria-current="page"{% endif %}
     >
       Attribution
     </a>
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/scores/' %}is-active{% endif %}"
+      class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/scores/' %}is-active{% endif %}"
       href="/tech100/scores/"
       {% if request.path == '/tech100/scores/' %}aria-current="page"{% endif %}
     >
       Governance scores
     </a>
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/methodology/' %}is-active{% endif %}"
+      class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/methodology/' %}is-active{% endif %}"
       href="/tech100/methodology/"
       {% if request.path == '/tech100/methodology/' %}aria-current="page"{% endif %}
     >
       Methodology
     </a>
     <a
-      class="tech100-nav__link {% if request.path == '/tech100/stats/' %}is-active{% endif %}"
+      class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/stats/' %}is-active{% endif %}"
       href="/tech100/stats/"
       {% if request.path == '/tech100/stats/' %}aria-current="page"{% endif %}
     >

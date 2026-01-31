@@ -10,9 +10,9 @@
 
 {% block content %}
 <div class="tech100-index">
-  <section class="section section--with-header">
-    <div class="shell">
-      <div class="section__header section__header--split">
+  <section class="section section--with-header sc-section sc-section--with-header">
+    <div class="shell sc-container">
+      <div class="section__header section__header--split sc-page-header sc-page-header--split">
         <div>
           <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</span>
           <h1>Performance</h1>
@@ -42,35 +42,35 @@
              data-holdings-count="{{ holdings_count }}"
              data-attribution-count="{{ attribution_count }}"></div>
 
-        <div class="card tech100-performance__overview" id="overview">
-          <div class="tech100-performance__header">
-            <div>
+        <div class="card sc-card tech100-performance__overview" id="overview">
+          <div class="tech100-performance__header sc-card__header">
+            <div class="sc-card__title">
               <h2 class="h4">Overview</h2>
               <p class="muted">As of <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span> (UTC)</p>
             </div>
-            <div class="tech100-index__range">
-              <button class="btn btn--ghost tech100-range-btn {% if range_key == '1m' %}is-active{% endif %}" data-range="1m">1M</button>
-              <button class="btn btn--ghost tech100-range-btn {% if range_key == '3m' %}is-active{% endif %}" data-range="3m">3M</button>
-              <button class="btn btn--ghost tech100-range-btn {% if range_key == '6m' %}is-active{% endif %}" data-range="6m">6M</button>
-              <button class="btn btn--ghost tech100-range-btn {% if range_key == 'ytd' %}is-active{% endif %}" data-range="ytd">YTD</button>
-              <button class="btn btn--ghost tech100-range-btn {% if range_key == '1y' %}is-active{% endif %}" data-range="1y">1Y</button>
-              <button class="btn btn--ghost tech100-range-btn {% if range_key == 'max' %}is-active{% endif %}" data-range="max">Max</button>
+            <div class="tech100-index__range sc-segmented">
+              <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '1m' %}is-active{% endif %}" data-range="1m">1M</button>
+              <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '3m' %}is-active{% endif %}" data-range="3m">3M</button>
+              <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '6m' %}is-active{% endif %}" data-range="6m">6M</button>
+              <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == 'ytd' %}is-active{% endif %}" data-range="ytd">YTD</button>
+              <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '1y' %}is-active{% endif %}" data-range="1y">1Y</button>
+              <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == 'max' %}is-active{% endif %}" data-range="max">Max</button>
             </div>
           </div>
           <div class="tech100-performance__charts">
-            <div class="chart-card">
+            <div class="chart-card sc-card">
               <h3 class="h5">Index level</h3>
               <div class="chart-card__canvas">
                 <canvas id="tech100-performance-level-chart" role="img" aria-label="Tech100 index level chart"></canvas>
               </div>
             </div>
-            <div class="chart-card">
+            <div class="chart-card sc-card">
               <h3 class="h5">Drawdown</h3>
               <div class="chart-card__canvas">
                 <canvas id="tech100-performance-drawdown-chart" role="img" aria-label="Tech100 drawdown chart"></canvas>
               </div>
             </div>
-            <div class="chart-card">
+            <div class="chart-card sc-card">
               <h3 class="h5">Rolling 30D volatility</h3>
               <div class="chart-card__canvas">
                 <canvas id="tech100-performance-vol-chart" role="img" aria-label="Tech100 rolling volatility chart"></canvas>
@@ -79,11 +79,11 @@
           </div>
 
           <div class="tech100-performance__summary">
-            <div class="kpi-card">
+            <div class="kpi-card sc-metric-card">
               <span class="kpi-label">Latest level</span>
               <span class="kpi-value">{{ kpis.level|floatformat:2 }}</span>
             </div>
-            <div class="kpi-card">
+            <div class="kpi-card sc-metric-card">
               <span class="kpi-label">1D return</span>
               <span class="kpi-value">
                 {% if kpis.ret_1d or kpis.ret_1d == 0 %}
@@ -93,7 +93,7 @@
                 {% endif %}
               </span>
             </div>
-            <div class="kpi-card">
+            <div class="kpi-card sc-metric-card">
               <span class="kpi-label">MTD return</span>
               <span class="kpi-value">
                 {% if kpis.ret_mtd or kpis.ret_mtd == 0 %}
@@ -103,7 +103,7 @@
                 {% endif %}
               </span>
             </div>
-            <div class="kpi-card">
+            <div class="kpi-card sc-metric-card">
               <span class="kpi-label">YTD Return</span>
               <span class="kpi-value">
                 {% if kpis.ret_ytd or kpis.ret_ytd == 0 %}
@@ -113,7 +113,7 @@
                 {% endif %}
               </span>
             </div>
-            <div class="kpi-card">
+            <div class="kpi-card sc-metric-card">
               <span class="kpi-label">30D vol (ann.)</span>
               <span class="kpi-value">
                 {% if kpis.vol_30d or kpis.vol_30d == 0 %}
@@ -123,7 +123,7 @@
                 {% endif %}
               </span>
             </div>
-            <div class="kpi-card">
+            <div class="kpi-card sc-metric-card">
               <span class="kpi-label">Max drawdown YTD</span>
               <span class="kpi-value">
                 {% if kpis.drawdown_ytd or kpis.drawdown_ytd == 0 %}
@@ -136,17 +136,17 @@
           </div>
         </div>
 
-        <div class="card tech100-performance__attribution" id="attribution">
-          <div class="card__header card__header--split">
-            <div>
+        <div class="card sc-card tech100-performance__attribution" id="attribution">
+          <div class="card__header card__header--split sc-card__header">
+            <div class="sc-card__title">
               <h2 class="h4">Attribution</h2>
               <p class="muted">Top and bottom contributors by range.</p>
             </div>
-            <div class="card__actions">
-              <div class="tech100-performance__range">
-                <button class="btn btn--ghost tech100-attr-range is-active" data-range="1d">1D</button>
-                <button class="btn btn--ghost tech100-attr-range" data-range="mtd">MTD</button>
-                <button class="btn btn--ghost tech100-attr-range" data-range="ytd">YTD</button>
+            <div class="card__actions sc-card__controls">
+              <div class="tech100-performance__range sc-segmented">
+                <button class="btn btn--ghost tech100-attr-range sc-segmented__btn is-active" data-range="1d">1D</button>
+                <button class="btn btn--ghost tech100-attr-range sc-segmented__btn" data-range="mtd">MTD</button>
+                <button class="btn btn--ghost tech100-attr-range sc-segmented__btn" data-range="ytd">YTD</button>
               </div>
               <a class="btn btn--ghost btn--sm" href="/tech100/performance/export/?kind=attribution">Download CSV</a>
             </div>
@@ -168,8 +168,8 @@
               <option value="">All sectors</option>
             </select>
           </div>
-          <div class="table-wrapper table-wrap">
-            <table class="table table--wide tech100-table" aria-label="Tech100 attribution">
+          <div class="table-wrapper table-wrap sc-table-wrap">
+            <table class="table table--wide tech100-table sc-table" aria-label="Tech100 attribution">
               <thead>
                 <tr>
                   <th class="text-left">Ticker</th>
@@ -186,25 +186,25 @@
           </div>
         </div>
 
-        <div class="card tech100-performance__holdings" id="holdings">
-          <div class="card__header card__header--split">
-            <div>
+        <div class="card sc-card tech100-performance__holdings" id="holdings">
+          <div class="card__header card__header--split sc-card__header">
+            <div class="sc-card__title">
               <h2 class="h4">Constituents &amp; Holdings</h2>
               <p class="muted">Latest holdings from the index universe.</p>
             </div>
-            <div class="card__actions">
+            <div class="card__actions sc-card__controls">
               <a class="btn btn--ghost btn--sm" href="/tech100/performance/export/?kind=holdings">Download CSV</a>
             </div>
           </div>
           <div id="tech100-holdings-status" data-tech100-holdings-has-data="1"></div>
           <div class="tech100-performance__holdings-grid">
-            <div class="chart-card">
+            <div class="chart-card sc-card">
               <h3 class="h5">Sector weights</h3>
               <canvas id="tech100-sector-chart" role="img" aria-label="Sector breakdown"></canvas>
             </div>
           </div>
-          <div class="table-wrapper table-wrap">
-            <table class="table table--wide tech100-table" aria-label="Tech100 holdings">
+          <div class="table-wrapper table-wrap sc-table-wrap">
+            <table class="table table--wide tech100-table sc-table" aria-label="Tech100 holdings">
               <thead>
                 <tr>
                   <th class="text-left">Ticker</th>

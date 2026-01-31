@@ -12,11 +12,149 @@
     --radius: 14px;
     --content-max: 1200px;
     --card: #ffffff;
+    --sc-container-max: 1200px;
+    --sc-space-1: 0.75rem;
+    --sc-space-2: 1.25rem;
+    --sc-space-3: 2rem;
+    --sc-space-4: 3rem;
+    --sc-card-pad: 1.25rem;
+    --sc-radius: 14px;
+    --sc-seg-pad-y: 0.35rem;
+    --sc-seg-pad-x: 0.85rem;
+    --sc-seg-font: 0.85rem;
+}
+
+.sc-container {
+    max-width: var(--sc-container-max);
+    margin: 0 auto;
+    padding: 0 1.75rem;
+    width: 100%;
+}
+
+.sc-section {
+    padding: var(--sc-space-4) 0;
+}
+
+.sc-section.sc-section--with-header {
+    padding-top: calc(var(--sc-space-4) + var(--sc-space-1));
+}
+
+.sc-card {
+    padding: var(--sc-card-pad);
+    border-radius: var(--sc-radius);
+}
+
+.card.sc-card {
+    padding: var(--sc-card-pad);
+}
+
+.sc-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.sc-card__title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.sc-card__controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.sc-page-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.sc-page-header.sc-page-header--split {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.sc-metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--sc-radius);
+    padding: 0.85rem 1rem;
+    box-shadow: var(--shadow-soft);
+}
+
+.card.sc-metric-card {
+    padding: 0.85rem 1rem;
+}
+
+.sc-segmented {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.sc-segmented__btn {
+    padding: var(--sc-seg-pad-y) var(--sc-seg-pad-x);
+    border-radius: 999px;
+    font-size: var(--sc-seg-font);
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.sc-segmented__btn.is-active {
+    background: #1c2b4a;
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 16px rgba(28, 43, 74, 0.2);
+}
+
+.sc-segmented__btn:hover,
+.sc-segmented__btn:focus-visible {
+    border-color: rgba(31, 95, 191, 0.5);
+    color: var(--brand-blue);
+    outline: none;
+}
+
+.sc-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.sc-tabs__link {
+    display: inline-flex;
+    align-items: center;
+}
+
+.sc-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+}
+
+.sc-table-wrap .table {
+    overflow: visible;
+}
+
+.sc-table-wrap .table,
+.sc-table-wrap table {
+    min-width: 980px;
 }
 
 .tech100-index__chart-card {
     display: grid;
-    gap: 1.5rem;
+    gap: var(--sc-space-2);
 }
 
 .tech100-index__chart {
@@ -42,16 +180,6 @@
 .tech100-index__table-card,
 .tech100-index__imputed-card {
     margin-top: 1.5rem;
-}
-
-.tech100-index__snapshot .table {
-    overflow: visible;
-}
-
-.tech100-index__snapshot .table-wrapper {
-    overflow-x: auto;
-    max-width: 100%;
-    -webkit-overflow-scrolling: touch;
 }
 
 @media (max-width: 800px) {
@@ -588,11 +716,13 @@ h3 {
     padding-top: 2rem;
 }
 
-.section {
+.section,
+.sc-section {
     padding: 3rem 0;
 }
 
-.section--with-header {
+.section--with-header,
+.sc-section.sc-section--with-header {
     padding-top: 4rem;
 }
 
@@ -2995,29 +3125,6 @@ textarea:focus {
     gap: 0.35rem;
 }
 
-.tech100-home__range .btn {
-    padding: 0.2rem 0.55rem;
-    font-size: 0.75rem;
-    line-height: 1;
-    border-radius: 999px;
-    white-space: nowrap;
-    border-color: #d7dee8;
-}
-
-.tech100-home__range .btn.is-active {
-    background: #1c2b4a;
-    color: #fff;
-    border-color: transparent;
-    box-shadow: 0 6px 16px rgba(28, 43, 74, 0.2);
-}
-
-.tech100-home__range .btn:hover,
-.tech100-home__range .btn:focus-visible {
-    border-color: rgba(31, 95, 191, 0.5);
-    color: var(--brand-blue);
-    outline: none;
-}
-
 .tech100-home__as-of {
     font-size: 0.82rem;
     white-space: nowrap;
@@ -3095,7 +3202,7 @@ textarea:focus {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 1rem;
+    padding: var(--sc-card-pad);
     min-height: 220px;
 }
 
@@ -3319,11 +3426,13 @@ textarea:focus {
         padding-top: 1.25rem;
     }
 
-    .section {
+    .section,
+    .sc-section {
         padding: 2.5rem 0;
     }
 
-    .section--with-header {
+    .section--with-header,
+    .sc-section.sc-section--with-header {
         padding-top: 3rem;
     }
 
@@ -3343,7 +3452,9 @@ textarea:focus {
     }
 
     .table-wrap table,
-    .table-wrapper table {
+    .table-wrapper table,
+    .sc-table-wrap .table,
+    .sc-table-wrap table {
         min-width: 720px;
     }
 }
