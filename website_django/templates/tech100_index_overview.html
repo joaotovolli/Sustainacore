@@ -10,9 +10,9 @@
 
 {% block content %}
 <div class="tech100-index">
-  <section class="section section--with-header">
-    <div class="shell">
-      <div class="section__header">
+  <section class="section section--with-header sc-section sc-section--with-header">
+    <div class="shell sc-container">
+      <div class="section__header sc-page-header">
         <div>
           <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</span>
           <h1>Tech100 AI Ethics &amp; Governance Index</h1>
@@ -38,23 +38,23 @@
              data-level-count="{{ levels_count }}"
              data-constituent-count="{{ constituents_count }}"></div>
 
-        <div class="card tech100-index__chart-card">
-          <div class="card__header card__header--split">
-            <div>
+        <div class="card sc-card tech100-index__chart-card">
+          <div class="card__header card__header--split sc-card__header">
+            <div class="sc-card__title">
               <h2 class="h4">Index level</h2>
               <p class="muted">Latest data through <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
             </div>
-            <div class="card__actions">
+            <div class="card__actions sc-card__controls">
               <a class="btn btn--ghost btn--sm" href="/tech100/index/export/?kind=levels">Download levels CSV</a>
             </div>
           </div>
-          <div class="tech100-index__range">
-            <button class="btn btn--ghost tech100-range-btn {% if range_key == '1m' %}is-active{% endif %}" data-range="1m">1M</button>
-            <button class="btn btn--ghost tech100-range-btn {% if range_key == '3m' %}is-active{% endif %}" data-range="3m">3M</button>
-            <button class="btn btn--ghost tech100-range-btn {% if range_key == '6m' %}is-active{% endif %}" data-range="6m">6M</button>
-            <button class="btn btn--ghost tech100-range-btn {% if range_key == 'ytd' %}is-active{% endif %}" data-range="ytd">YTD</button>
-            <button class="btn btn--ghost tech100-range-btn {% if range_key == '1y' %}is-active{% endif %}" data-range="1y">1Y</button>
-            <button class="btn btn--ghost tech100-range-btn {% if range_key == 'max' %}is-active{% endif %}" data-range="max">Max</button>
+          <div class="tech100-index__range sc-segmented">
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '1m' %}is-active{% endif %}" data-range="1m">1M</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '3m' %}is-active{% endif %}" data-range="3m">3M</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '6m' %}is-active{% endif %}" data-range="6m">6M</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == 'ytd' %}is-active{% endif %}" data-range="ytd">YTD</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '1y' %}is-active{% endif %}" data-range="1y">1Y</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == 'max' %}is-active{% endif %}" data-range="max">Max</button>
           </div>
           <div class="tech100-index__chart">
             <canvas id="tech100-level-chart" aria-label="Tech100 index level chart" role="img"></canvas>
@@ -62,19 +62,19 @@
         </div>
 
         <div class="tech100-index__kpis">
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">1D Return</p>
             <p class="kpi-value">{{ kpis.ret_1d|default:"—"|floatformat:2 }}{% if kpis.ret_1d %}%{% endif %}</p>
           </div>
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">1W Return</p>
             <p class="kpi-value">{{ kpis.ret_1w|default:"—"|floatformat:2 }}{% if kpis.ret_1w %}%{% endif %}</p>
           </div>
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">1M Return</p>
             <p class="kpi-value">{{ kpis.ret_1m|default:"—"|floatformat:2 }}{% if kpis.ret_1m %}%{% endif %}</p>
           </div>
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">YTD Return</p>
             <p class="kpi-value">
               {% if kpis.ret_ytd or kpis.ret_ytd == 0 %}
@@ -84,45 +84,45 @@
               {% endif %}
             </p>
           </div>
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">Since Inception</p>
             <p class="kpi-value">{{ kpis.ret_since_inception|default:"—"|floatformat:2 }}{% if kpis.ret_since_inception %}%{% endif %}</p>
           </div>
         </div>
 
         <div class="tech100-index__risk">
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">20D Volatility (ann.)</p>
             <p class="kpi-value">{{ risk.vol_20d|default:"—"|floatformat:2 }}{% if risk.vol_20d %}%{% endif %}</p>
           </div>
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">Max Drawdown (range)</p>
             <p class="kpi-value" id="risk-drawdown">{{ risk.max_drawdown|default:"—"|floatformat:2 }}{% if risk.max_drawdown %}%{% endif %}</p>
             {% if risk.max_drawdown_peak %}
               <small class="muted">Peak <span data-date-format="as-of" data-date-value="{{ risk.max_drawdown_peak }}">{{ risk.max_drawdown_peak }}</span> → <span data-date-format="as-of" data-date-value="{{ risk.max_drawdown_trough }}">{{ risk.max_drawdown_trough }}</span></small>
             {% endif %}
           </div>
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">Best Day</p>
             <p class="kpi-value"><span id="risk-best-return">{{ risk.best_day_return|default:"—"|floatformat:2 }}</span>{% if risk.best_day_return %}%{% endif %}</p>
             <small class="muted" id="risk-best-day" data-date-format="as-of" data-date-value="{{ risk.best_day }}">{{ risk.best_day|default:"—" }}</small>
           </div>
-          <div class="card kpi-card">
+          <div class="card kpi-card sc-metric-card">
             <p class="kpi-label">Worst Day</p>
             <p class="kpi-value"><span id="risk-worst-return">{{ risk.worst_day_return|default:"—"|floatformat:2 }}</span>{% if risk.worst_day_return %}%{% endif %}</p>
             <small class="muted" id="risk-worst-day" data-date-format="as-of" data-date-value="{{ risk.worst_day }}">{{ risk.worst_day|default:"—" }}</small>
           </div>
         </div>
 
-        <div class="card tech100-index__table-card">
-          <div class="card__header card__header--split">
-            <div>
+        <div class="card sc-card tech100-index__table-card">
+          <div class="card__header card__header--split sc-card__header">
+            <div class="sc-card__title">
               <h2 class="h4">Top constituents</h2>
               <p class="muted">Top 25 by weight for <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
             </div>
           </div>
-          <div class="table-wrapper table-wrap">
-            <table id="tech100-constituents-table" class="table table--wide tech100-table" aria-label="Top constituents">
+          <div class="table-wrapper table-wrap sc-table-wrap">
+            <table id="tech100-constituents-table" class="table table--wide tech100-table sc-table" aria-label="Top constituents">
               <thead>
                 <tr>
                   <th class="text-left">Ticker</th>
@@ -155,9 +155,9 @@
           </div>
         </div>
 
-        <div class="card tech100-index__table-card tech100-index__snapshot">
-          <div class="card__header">
-            <div>
+        <div class="card sc-card tech100-index__table-card tech100-index__snapshot">
+          <div class="card__header sc-card__header">
+            <div class="sc-card__title">
               <h2 class="h4">Latest company scores (snapshot)</h2>
               <p class="muted">A quick snapshot of AI governance scores before you explore the full index.</p>
             </div>
