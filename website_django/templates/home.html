@@ -76,7 +76,7 @@
                  data-real-count="{{ tech100_snapshot.quality_counts.REAL|default:0 }}"
                  data-imputed-count="{{ tech100_snapshot.quality_counts.IMPUTED|default:0 }}">
                 <div class="card sc-card tech100-home__chart">
-                    <div class="tech100-home__chart-header sc-card__header">
+                    <div class="tech100-home__chart-header sc-card__header sc-card__header--tight">
                         <div class="sc-card__title">
                             <h3 class="h4">Tech100 AI Ethics &amp; Gov Index</h3>
                             <p class="muted tech100-home__as-of">As of <span data-date-format="as-of" data-date-value="{{ tech100_snapshot.as_of }}">{{ tech100_snapshot.as_of }}</span></p>
@@ -94,19 +94,19 @@
                         <canvas id="tech100-home-level-chart" role="img" aria-label="Tech100 index level chart"></canvas>
                     </div>
                     <div class="tech100-home__stats-grid">
-                        <div>
+                        <div class="tech100-home__stat">
                             <p class="kpi-label">Latest level</p>
                             <p class="kpi-value">{{ tech100_snapshot.latest_level_display|default:"—" }}</p>
                         </div>
-                        <div>
+                        <div class="tech100-home__stat">
                             <p class="kpi-label">1D return</p>
                             <p class="kpi-value">{{ tech100_snapshot.ret_1d_display|default:"—" }}</p>
                         </div>
-                        <div>
+                        <div class="tech100-home__stat">
                             <p class="kpi-label">MTD return</p>
                             <p class="kpi-value">{{ tech100_snapshot.ret_mtd_display|default:"—" }}</p>
                         </div>
-                        <div>
+                        <div class="tech100-home__stat">
                             <p class="kpi-label">YTD return</p>
                             <p class="kpi-value">{{ tech100_snapshot.ret_ytd_display|default:"—" }}</p>
                         </div>
@@ -127,12 +127,12 @@
                     </div>
                 </div>
                 <div class="card sc-card tech100-home__attribution" data-attribution-panel>
-                    <div class="tech100-home__attribution-header sc-card__header">
+                    <div class="tech100-home__attribution-header sc-card__header sc-card__header--tight">
                         <div class="sc-card__title">
                             <h3 class="h4">Attribution snapshot</h3>
                             <p class="muted">A compact view of contributors by timeframe.</p>
                         </div>
-                        <div class="tech100-home__attribution-controls sc-segmented" role="tablist" aria-label="Attribution timeframe">
+                        <div class="tech100-home__attribution-controls sc-segmented sc-card__controls" role="tablist" aria-label="Attribution timeframe">
                             <button class="btn btn--ghost btn--sm sc-segmented__btn is-active" type="button" role="tab" aria-selected="true" data-attr-range="1d">1D</button>
                             <button class="btn btn--ghost btn--sm sc-segmented__btn" type="button" role="tab" aria-selected="false" data-attr-range="mtd">MTD</button>
                             <button class="btn btn--ghost btn--sm sc-segmented__btn" type="button" role="tab" aria-selected="false" data-attr-range="ytd">YTD</button>
