@@ -252,6 +252,9 @@
                 <div class="card">
                     <h2>Publish news</h2>
                     <p class="muted">Create a rich news post with tags, headline, and body content.</p>
+                    <div class="alert alert--info">
+                        Embedded images only publish from a DOCX upload. Pasting from Word will not include images.
+                    </div>
 
                     {% if news_success %}
                     <div class="alert alert--success">
@@ -289,12 +292,30 @@
                                 DOCX file (optional)
                                 <input type="file" name="docx_file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
                                 <div class="news-upload-note">DOCX import extracts images and rich text automatically.</div>
+                                {% if news_docx_used %}
+                                <div class="news-upload-note">
+                                    Uploaded: {{ news_docx_name }}{% if news_docx_size %} ({{ news_docx_size }} bytes){% endif %}
+                                    · Images found: {{ news_docx_images_found }} · Uploaded: {{ news_docx_images_uploaded }}
+                                </div>
+                                {% endif %}
+                            </label>
+                            <label class="news-form__confirm">
+                                <input type="checkbox" name="confirm_no_images" {% if news_docx_used %}disabled{% endif %} />
+                                <span>I understand images will not be included without a DOCX upload.</span>
                             </label>
                         </div>
                         <div class="form__actions">
                             <button class="btn" type="submit">Publish news</button>
                         </div>
                     </form>
+                    {% if news_preview_html %}
+                    <div class="card__section">
+                        <h3 class="h4">Generated preview</h3>
+                        <div class="news-detail__body">
+                            <div class="news-detail__rich">{{ news_preview_html|safe }}</div>
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
