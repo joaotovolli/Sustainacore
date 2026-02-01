@@ -20,6 +20,9 @@ from sc_admin_portal.news_storage import (
     NewsStorageError,
     create_news_asset,
     create_news_post,
+    delete_news_item,
+    get_news_item_preview,
+    update_news_item,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,6 +94,19 @@ def _parse_date(value: str | None) -> datetime | None:
     return parsed
 
 
+def _parse_news_id(raw_value: str | None) -> int | None:
+    if not raw_value:
+        return None
+    raw = raw_value.strip()
+    if ":" in raw:
+        raw = raw.split(":", 1)[-1]
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
+
+
 def _load_running_commit() -> str:
     global _RUNNING_COMMIT
     if _RUNNING_COMMIT:
@@ -150,6 +166,18 @@ def dashboard(request):
     news_docx_images_uploaded = 0
     news_preview_html = ""
     publish_tab_active = False
+    manage_tab_active = False
+    manage_news_error = ""
+    manage_news_success = ""
+    manage_news_item = None
+    manage_news_id = ""
+    manage_news_title = ""
+    manage_news_body = ""
+    manage_news_docx_name = ""
+    manage_news_docx_size = 0
+    manage_news_docx_images_found = 0
+    manage_news_docx_images_uploaded = 0
+    manage_news_preview_html = ""
     research_tab_active = False
     research_settings_error = ""
     research_settings_warning = ""
@@ -310,6 +338,147 @@ def dashboard(request):
             except Exception:
                 logger.exception("Admin portal news publish failed")
                 news_error = "Could not publish news. Please try again."
+    if request.method == "POST" and request.POST.get("action") == "lookup_news_item":
+        manage_tab_active = True
+        manage_news_id = (request.POST.get("manage_news_id") or "").strip()
+        parsed_id = _parse_news_id(manage_news_id)
+        if not parsed_id:
+            manage_news_error = "Enter a valid news id."
+        else:
+            try:
+                manage_news_item = get_news_item_preview(news_id=parsed_id)
+            except Exception:
+                logger.exception("Admin portal news lookup failed id=%s", manage_news_id)
+                manage_news_error = "Unable to load news item."
+            if not manage_news_item and not manage_news_error:
+                manage_news_error = "News item not found."
+
+    if request.method == "POST" and request.POST.get("action") == "edit_news_item":
+        manage_tab_active = True
+        manage_news_id = (request.POST.get("manage_news_id") or "").strip()
+        manage_news_title = (request.POST.get("manage_news_title") or "").strip()
+        manage_news_body = (request.POST.get("manage_news_body") or "").strip()
+        confirm_edit = request.POST.get("confirm_edit") == "on"
+        parsed_id = _parse_news_id(manage_news_id)
+        docx_upload = request.FILES.get("manage_docx_file")
+
+        if docx_upload:
+            manage_news_docx_name = docx_upload.name or ""
+            manage_news_docx_size = docx_upload.size or 0
+
+        if not parsed_id:
+            manage_news_error = "Enter a valid news id."
+        elif not confirm_edit:
+            manage_news_error = "Confirm you want to overwrite the public news content."
+
+        if not manage_news_error and docx_upload:
+            if docx_upload.size and docx_upload.size > _NEWS_UPLOAD_MAX_BYTES:
+                manage_news_error = "DOCX exceeds upload limit."
+            elif not (docx_upload.name or "").lower().endswith(".docx"):
+                manage_news_error = "Only .docx uploads are supported."
+            else:
+                stats: dict[str, int] = {}
+                temp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_file:
+                        temp_path = tmp_file.name
+                        for chunk in docx_upload.chunks():
+                            tmp_file.write(chunk)
+
+                    def upload_asset(file_name: str | None, mime_type: str | None, file_bytes: bytes) -> int:
+                        return create_news_asset(
+                            news_id=parsed_id,
+                            file_name=file_name,
+                            mime_type=mime_type,
+                            file_bytes=file_bytes,
+                        )
+
+                    docx_headline, docx_body = build_news_body_from_docx(
+                        temp_path,
+                        asset_uploader=upload_asset,
+                        stats=stats,
+                    )
+                except NewsStorageError as exc:
+                    manage_news_error = str(exc)
+                    docx_body = ""
+                    docx_headline = ""
+                except Exception:
+                    logger.exception("Admin portal DOCX edit failed")
+                    manage_news_error = "Unable to import DOCX."
+                    docx_body = ""
+                    docx_headline = ""
+                finally:
+                    if temp_path and os.path.exists(temp_path):
+                        os.unlink(temp_path)
+
+                images_found = stats.get("images_found", 0)
+                images_uploaded = stats.get("images_uploaded", 0)
+                manage_news_docx_images_found = images_found
+                manage_news_docx_images_uploaded = images_uploaded
+                logger.info(
+                    "Admin news edit DOCX images_found=%s images_uploaded=%s file=%s",
+                    images_found,
+                    images_uploaded,
+                    docx_upload.name,
+                )
+                if images_found and not images_uploaded:
+                    manage_news_error = "DOCX contains images but none could be extracted."
+                elif docx_body:
+                    manage_news_body = docx_body
+                    manage_news_preview_html = docx_body
+                    if docx_headline and not manage_news_title:
+                        manage_news_title = docx_headline
+                else:
+                    manage_news_error = "No body content found in DOCX."
+
+        if not manage_news_error:
+            headline = manage_news_title or None
+            body_html = manage_news_body or None
+            if not headline and not body_html:
+                manage_news_error = "Provide a headline, body text, or DOCX."
+            else:
+                try:
+                    update_news_item(
+                        news_id=parsed_id,
+                        headline=headline,
+                        body_html=body_html,
+                    )
+                    manage_news_success = f"Updated NEWS_ITEMS:{parsed_id}."
+                    manage_news_item = get_news_item_preview(news_id=parsed_id)
+                except (NewsStorageError, ValueError) as exc:
+                    manage_news_error = str(exc)
+                except Exception:
+                    logger.exception("Admin portal news update failed id=%s", manage_news_id)
+                    manage_news_error = "Unable to update news item."
+
+    if request.method == "POST" and request.POST.get("action") == "delete_news_item":
+        manage_tab_active = True
+        manage_news_id = (request.POST.get("manage_news_id") or "").strip()
+        confirm_news_id = (request.POST.get("confirm_news_id") or "").strip()
+        confirm_delete = request.POST.get("confirm_delete") == "on"
+        parsed_id = _parse_news_id(manage_news_id)
+        parsed_confirm = _parse_news_id(confirm_news_id)
+        if not parsed_id:
+            manage_news_error = "Enter a valid news id."
+        elif parsed_confirm != parsed_id:
+            manage_news_error = "Confirmation id must match."
+        elif not confirm_delete:
+            manage_news_error = "Confirm you want to permanently delete the news item."
+        else:
+            try:
+                result = delete_news_item(news_id=parsed_id)
+                manage_news_success = f"Deleted NEWS_ITEMS:{parsed_id}."
+                manage_news_item = None
+                logger.info(
+                    "Admin portal news delete id=%s assets=%s",
+                    parsed_id,
+                    len(result.get("asset_ids", [])),
+                )
+            except NewsStorageError as exc:
+                manage_news_error = str(exc)
+            except Exception:
+                logger.exception("Admin portal news delete failed id=%s", manage_news_id)
+                manage_news_error = "Unable to delete news item."
     if request.method == "POST" and request.POST.get("action") == "save_research_settings":
         research_tab_active = True
         schedule_enabled = request.POST.get("schedule_enabled") == "on"
@@ -414,6 +583,8 @@ def dashboard(request):
     default_tab = "approvals" if pending_count and pending_count > 0 else "create-research"
     if publish_tab_active:
         default_tab = "publish-news"
+    if manage_tab_active:
+        default_tab = "manage-news"
     if research_tab_active:
         default_tab = "research-settings"
     requested_tab = (request.GET.get("tab") or "").strip()
@@ -471,6 +642,17 @@ def dashboard(request):
             "news_docx_images_found": news_docx_images_found,
             "news_docx_images_uploaded": news_docx_images_uploaded,
             "news_preview_html": news_preview_html,
+            "manage_news_error": manage_news_error,
+            "manage_news_success": manage_news_success,
+            "manage_news_item": manage_news_item,
+            "manage_news_id": manage_news_id,
+            "manage_news_title": manage_news_title,
+            "manage_news_body": manage_news_body,
+            "manage_news_docx_name": manage_news_docx_name,
+            "manage_news_docx_size": manage_news_docx_size,
+            "manage_news_docx_images_found": manage_news_docx_images_found,
+            "manage_news_docx_images_uploaded": manage_news_docx_images_uploaded,
+            "manage_news_preview_html": manage_news_preview_html,
             "research_settings": research_settings,
             "research_settings_form": research_form,
             "research_settings_error": research_settings_error,

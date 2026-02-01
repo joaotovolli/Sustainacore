@@ -76,6 +76,30 @@
         color: var(--muted);
         margin-top: 0.35rem;
     }
+    .news-manage-grid {
+        display: grid;
+        gap: 1.5rem;
+    }
+    .news-manage-preview {
+        background: var(--surface-muted);
+        border-radius: 12px;
+        padding: 1rem;
+        margin-top: 0.75rem;
+    }
+    .news-manage-preview p {
+        margin: 0.35rem 0;
+    }
+    .news-danger {
+        border: 1px solid #fecaca;
+        background: #fef2f2;
+        border-radius: 12px;
+        padding: 1rem;
+    }
+    .news-danger .btn {
+        background: #b91c1c;
+        border-color: #b91c1c;
+        color: #fff;
+    }
 </style>
 {% endblock %}
 
@@ -118,6 +142,7 @@
             <button class="admin-tab-button" type="button" role="tab" data-tab="create-research" aria-controls="tab-create-research">Create Research</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="create-ai-routine" aria-controls="tab-create-ai-routine">Create AI Routine</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="publish-news" aria-controls="tab-publish-news">Publish news</button>
+            <button class="admin-tab-button" type="button" role="tab" data-tab="manage-news" aria-controls="tab-manage-news">Manage news</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="research-settings" aria-controls="tab-research-settings">Research settings</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="manual-requests" aria-controls="tab-manual-requests">Recent manual requests</button>
             <button class="admin-tab-button" type="button" role="tab" data-tab="approvals" aria-controls="tab-approvals">
@@ -316,6 +341,125 @@
                         </div>
                     </div>
                     {% endif %}
+                </div>
+            </div>
+
+            <div class="admin-tab-panel" role="tabpanel" id="tab-manage-news" data-tab-panel="manage-news">
+                <div class="card">
+                    <h2>Manage news</h2>
+                    <p class="muted">Edit or delete existing news items. Always verify the item before saving.</p>
+
+                    {% if manage_news_success %}
+                    <div class="alert alert--success">{{ manage_news_success }}</div>
+                    {% endif %}
+
+                    {% if manage_news_error %}
+                    <div class="alert alert--warning">{{ manage_news_error }}</div>
+                    {% endif %}
+
+                    <div class="news-manage-grid">
+                        <div>
+                            <h3 class="h4">Lookup news item</h3>
+                            <form method="post" class="form">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="lookup_news_item" />
+                                <label>
+                                    News id *
+                                    <input type="text" name="manage_news_id" value="{{ manage_news_id }}" placeholder="NEWS_ITEMS:44" />
+                                </label>
+                                <div class="form__actions">
+                                    <button class="btn btn--ghost" type="submit">Lookup</button>
+                                </div>
+                            </form>
+                            {% if manage_news_item %}
+                            <div class="news-manage-preview">
+                                <p><strong>{{ manage_news_item.id }}</strong> · {{ manage_news_item.title }}</p>
+                                <p class="muted">Published: {{ manage_news_item.published_at }}</p>
+                                <p class="muted">Assets: {{ manage_news_item.asset_count }}</p>
+                                {% if manage_news_item.asset_ids %}
+                                <p class="muted">Asset ids: {{ manage_news_item.asset_ids|join:", " }}</p>
+                                {% endif %}
+                                {% if manage_news_item.summary %}
+                                <p class="muted">Excerpt: {{ manage_news_item.summary }}</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div>
+                            <h3 class="h4">Edit existing news</h3>
+                            <form method="post" class="form" enctype="multipart/form-data">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="edit_news_item" />
+                                <div class="form__grid">
+                                    <label>
+                                        News id *
+                                        <input type="text" name="manage_news_id" value="{{ manage_news_id }}" placeholder="NEWS_ITEMS:44" />
+                                    </label>
+                                    <label>
+                                        Headline (optional)
+                                        <input type="text" name="manage_news_title" value="{{ manage_news_title }}" />
+                                    </label>
+                                    <label class="news-form__body">
+                                        Body (optional)
+                                        <textarea class="news-editor" name="manage_news_body" placeholder="Paste HTML or text to replace body. Leave blank to keep current.">{{ manage_news_body }}</textarea>
+                                    </label>
+                                    <label>
+                                        DOCX file (optional)
+                                        <input type="file" name="manage_docx_file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                                        <div class="news-upload-note">DOCX import replaces the body and extracts images.</div>
+                                        {% if manage_news_docx_name %}
+                                        <div class="news-upload-note">
+                                            Uploaded: {{ manage_news_docx_name }}{% if manage_news_docx_size %} ({{ manage_news_docx_size }} bytes){% endif %}
+                                            · Images found: {{ manage_news_docx_images_found }} · Uploaded: {{ manage_news_docx_images_uploaded }}
+                                        </div>
+                                        {% endif %}
+                                    </label>
+                                    <label class="news-form__confirm">
+                                        <input type="checkbox" name="confirm_edit" />
+                                        <span>I understand this will overwrite the public content for this news item.</span>
+                                    </label>
+                                </div>
+                                <div class="form__actions">
+                                    <button class="btn" type="submit">Update news</button>
+                                </div>
+                            </form>
+                            {% if manage_news_preview_html %}
+                            <div class="card__section">
+                                <h3 class="h4">Generated preview</h3>
+                                <div class="news-detail__body">
+                                    <div class="news-detail__rich">{{ manage_news_preview_html|safe }}</div>
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="news-danger">
+                            <h3 class="h4">Danger zone: Delete news item</h3>
+                            <p class="muted">This permanently removes the news item and its stored assets.</p>
+                            <form method="post" class="form">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="delete_news_item" />
+                                <div class="form__grid">
+                                    <label>
+                                        News id *
+                                        <input type="text" name="manage_news_id" value="{{ manage_news_id }}" placeholder="NEWS_ITEMS:44" />
+                                    </label>
+                                    <label>
+                                        Confirm news id *
+                                        <input type="text" name="confirm_news_id" placeholder="NEWS_ITEMS:44" />
+                                    </label>
+                                    <label class="news-form__confirm">
+                                        <input type="checkbox" name="confirm_delete" />
+                                        <span>Yes, delete permanently.</span>
+                                    </label>
+                                </div>
+                                <div class="form__actions">
+                                    <button class="btn" type="submit" data-delete-button disabled>Delete news</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -750,6 +894,48 @@
         }),
         content_style: "img{max-width:100%;height:auto;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #d1d5db;padding:6px;}",
     });
+})();
+
+(() => {
+    const managePanel = document.querySelector("#tab-manage-news");
+    if (!managePanel) {
+        return;
+    }
+    const deleteForm = managePanel.querySelector("form [data-delete-button]")?.closest("form");
+    if (!deleteForm) {
+        return;
+    }
+    const deleteButton = deleteForm.querySelector("[data-delete-button]");
+    const idInput = deleteForm.querySelector("input[name='manage_news_id']");
+    const confirmInput = deleteForm.querySelector("input[name='confirm_news_id']");
+    const checkbox = deleteForm.querySelector("input[name='confirm_delete']");
+
+    const normalizeId = (value) => {
+        const trimmed = (value || "").trim();
+        if (!trimmed) {
+            return "";
+        }
+        const parts = trimmed.split(":");
+        return parts[parts.length - 1].trim();
+    };
+    const syncDeleteState = () => {
+        const idValue = normalizeId(idInput?.value);
+        const confirmValue = normalizeId(confirmInput?.value);
+        const isMatch = idValue && confirmValue && idValue === confirmValue;
+        const isChecked = checkbox?.checked;
+        if (deleteButton) {
+            deleteButton.disabled = !(isMatch && isChecked);
+        }
+    };
+
+    [idInput, confirmInput, checkbox].forEach((field) => {
+        if (!field) {
+            return;
+        }
+        field.addEventListener("input", syncDeleteState);
+        field.addEventListener("change", syncDeleteState);
+    });
+    syncDeleteState();
 })();
 </script>
 {% endblock %}
