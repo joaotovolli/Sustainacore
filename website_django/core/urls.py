@@ -41,6 +41,7 @@ urlpatterns = [
     path("account/", views.account, name="account"),
     path("tech100/", views.tech100_redirect, name="tech100_redirect"),
     path("tech100/scores/", views.tech100, name="tech100_scores"),
+    path("tech100/company/", views.tech100_company_root, name="tech100_company_root"),
     path("tech100/company/<str:ticker>/", views.tech100_company, name="tech100_company"),
     path("tech100/company/<str:ticker>/download.csv", views.tech100_company_download, name="tech100_company_download"),
     path("tech100/index/", tech100_index_views.tech100_index_overview, name="tech100_index"),
