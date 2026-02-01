@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 import os
 from unittest import mock
 
@@ -37,6 +37,58 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertIn("/tech100/company/EXM/", content)
+
+    @mock.patch("core.views.fetch_news_list")
+    @mock.patch("core.views.fetch_tech100")
+    def test_home_includes_company_research_nav_link(self, fetch_tech100, fetch_news_list):
+        fetch_tech100.return_value = {"items": [], "error": None, "meta": {}}
+        fetch_news_list.return_value = {"items": [], "meta": {}, "error": None}
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("/tech100/company/", content)
+        self.assertIn("Company research", content)
+
+    @mock.patch("core.views.fetch_tech100_oracle_fallback")
+    @mock.patch("core.views.get_latest_rebalance_date")
+    def test_tech100_company_root_redirects_by_rank(self, mock_latest_date, mock_fetch):
+        mock_latest_date.return_value = date(2025, 1, 31)
+        mock_fetch.return_value = [
+            {"ticker": "BBB", "rank_index": 2, "port_weight": 1.1},
+            {"ticker": "AAA", "rank_index": 1, "port_weight": 0.9},
+        ]
+
+        response = self.client.get(reverse("tech100_company_root"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/tech100/company/AAA/")
+
+    @mock.patch("core.views.fetch_tech100_oracle_fallback")
+    @mock.patch("core.views.get_latest_rebalance_date")
+    def test_tech100_company_root_redirects_by_weight(self, mock_latest_date, mock_fetch):
+        mock_latest_date.return_value = date(2025, 1, 31)
+        mock_fetch.return_value = [
+            {"ticker": "AAA", "port_weight": 0.4},
+            {"ticker": "ZZZ", "port_weight": 1.2},
+        ]
+
+        response = self.client.get(reverse("tech100_company_root"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/tech100/company/ZZZ/")
+
+    @mock.patch("core.views.fetch_tech100_oracle_fallback")
+    @mock.patch("core.views.get_latest_rebalance_date")
+    def test_tech100_company_root_falls_back_to_msft(self, mock_latest_date, mock_fetch):
+        mock_latest_date.return_value = date(2025, 1, 31)
+        mock_fetch.return_value = []
+
+        response = self.client.get(reverse("tech100_company_root"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/tech100/company/MSFT/")
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_view_renders_table_headers_and_details(self, fetch_mock):

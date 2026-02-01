@@ -43,9 +43,11 @@ from core.terms_acceptance import (
 )
 from core.countries import get_country_lists, resolve_country_name
 from core.tech100_index_data import (
+    fetch_tech100_oracle_fallback,
     get_data_mode,
     get_attribution_table,
     get_index_levels,
+    get_latest_rebalance_date,
     get_latest_trade_date,
     get_max_drawdown,
     get_quality_counts,
@@ -1582,6 +1584,59 @@ def tech100_export(request):
         )
 
     return response
+
+
+def _pick_top_tech100_ticker(companies: Iterable[Dict]) -> Optional[str]:
+    companies_list = list(companies or [])
+    ranked = []
+    for item in companies_list:
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        rank_value = _safe_float(item.get("rank_index"), None)
+        if rank_value is None:
+            continue
+        ranked.append((rank_value, ticker))
+
+    if ranked:
+        ranked.sort(key=lambda item: (item[0], item[1]))
+        return ranked[0][1]
+
+    weighted = []
+    for item in companies_list:
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        weight_value = _safe_float(item.get("port_weight"), None)
+        if weight_value is None:
+            weight_value = _safe_float(item.get("weight"), None)
+        if weight_value is None:
+            continue
+        weighted.append((weight_value, ticker))
+
+    if weighted:
+        weighted.sort(key=lambda item: (-item[0], item[1]))
+        return weighted[0][1]
+
+    for item in companies_list:
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if ticker:
+            return ticker
+    return None
+
+
+def tech100_company_root(request):
+    latest_date = get_latest_rebalance_date()
+    if not latest_date:
+        logger.warning("Tech100 company root fallback to MSFT: no rebalance date available.")
+        return redirect("tech100_company", ticker="MSFT")
+
+    companies = fetch_tech100_oracle_fallback(port_date=latest_date, limit=150)
+    ticker = _pick_top_tech100_ticker(companies)
+    if not ticker:
+        logger.warning("Tech100 company root fallback to MSFT: no constituents available.")
+        ticker = "MSFT"
+    return redirect("tech100_company", ticker=ticker)
 
 
 def tech100_company(request, ticker: str):
