@@ -12,46 +12,53 @@
 <div class="tech100-company-page" id="tech100-company-root" data-ticker="{{ ticker }}">
   <section class="section section--with-header">
     <div class="shell">
-      <div class="section__header">
-        <h1>
-          <span data-company-name>{{ company_name }}</span>
-          <span class="muted">({{ ticker }})</span>
-        </h1>
-        <div class="tech100-company__meta">
-          <div>
-            <span class="muted">Latest as-of</span>
-            <strong data-company-latest-date data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</strong>
-          </div>
-          <div>
-            <span class="muted">Composite score</span>
-            <span class="badge" data-company-latest-composite>{{ latest_scores_display.composite|default:"—" }}</span>
-          </div>
+      <div class="tech100-nav__breadcrumb tech100-company__breadcrumb">
+        <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
+        <span class="tech100-nav__separator">→</span>
+        <span>Company</span>
+        <span class="tech100-nav__separator">→</span>
+        <span class="tech100-nav__current">{{ company_name }} ({{ ticker }})</span>
+      </div>
+
+      <div class="tech100-company__header">
+        <div class="tech100-company__title">
+          <h1>
+            <span data-company-name>{{ company_name }}</span>
+            <span class="muted">({{ ticker }})</span>
+          </h1>
+          <p class="muted">Dynamic company report with Tech100 AI Ethics &amp; Governance Index benchmarks.</p>
+        </div>
+        <div class="tech100-company__chips">
+          <span class="tech100-company__chip">As of <span data-company-latest-date data-date-value="{{ latest_date }}">{{ latest_date }}</span></span>
+          <span class="tech100-company__chip">Composite <span data-company-latest-composite>{{ latest_scores_display.composite|default:"—" }}</span></span>
           {% if sector %}
-          <div>
-            <span class="muted">Sector</span>
-            <strong data-company-sector>{{ sector }}</strong>
-          </div>
+          <span class="tech100-company__chip">Sector: <span data-company-sector>{{ sector }}</span></span>
           {% endif %}
         </div>
-        <div class="tech100-company__selectors">
-          <label class="form-field">
-            <span>Company</span>
-            <input
-              id="company-selector"
-              type="search"
-              list="tech100-company-options"
-              value="{{ company_name }} ({{ ticker }})"
-              placeholder="Search company"
-              autocomplete="off"
-            />
-          </label>
-        </div>
-        <div class="tech100-nav__breadcrumb tech100-company__breadcrumb">
-          <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
-          <span class="tech100-nav__separator">→</span>
-          <span>Company</span>
-          <span class="tech100-nav__separator">→</span>
-          <span class="tech100-nav__current">{{ company_name }} ({{ ticker }})</span>
+      </div>
+
+      <div class="card tech100-company__selectors-card">
+        <div class="tech100-company__selectors-grid">
+          <div class="tech100-company__selector" data-selector="company">
+            <label class="tech100-company__label" for="company-select-search">Company</label>
+            <button class="tech100-company__select-trigger" type="button" data-company-trigger aria-haspopup="listbox" aria-expanded="false" aria-controls="company-select-panel">
+              {{ company_name }} ({{ ticker }})
+            </button>
+            <div class="tech100-company__select-panel" id="company-select-panel" data-company-panel hidden>
+              <input id="company-select-search" class="tech100-company__select-search" type="search" placeholder="Search company" autocomplete="off" />
+              <ul id="company-select-list" class="tech100-company__select-list" data-company-list role="listbox" aria-label="Tech100 companies"></ul>
+            </div>
+          </div>
+          <div class="tech100-company__selector" data-selector="compare">
+            <label class="tech100-company__label" for="compare-select-search">Compare with</label>
+            <button class="tech100-company__select-trigger" type="button" data-compare-trigger aria-haspopup="listbox" aria-expanded="false" aria-controls="compare-select-panel">
+              None
+            </button>
+            <div class="tech100-company__select-panel" id="compare-select-panel" data-compare-panel hidden>
+              <input id="compare-select-search" class="tech100-company__select-search" type="search" placeholder="Search company" autocomplete="off" />
+              <ul id="compare-select-list" class="tech100-company__select-list" data-compare-list role="listbox" aria-label="Compare companies"></ul>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -60,18 +67,6 @@
           <div>
             <h2 class="h4">Score dashboard</h2>
             <p class="muted">Full rebalance history with Tech100 AI Ethics &amp; Governance Index top 25 benchmarks.</p>
-          </div>
-          <div class="tech100-company__controls">
-            <label class="form-field">
-              <span>Compare with</span>
-              <input
-                id="company-compare"
-                type="search"
-                list="tech100-company-options"
-                placeholder="Add company"
-                autocomplete="off"
-              />
-            </label>
           </div>
         </div>
         <div class="tech100-company__legend">
@@ -84,60 +79,42 @@
             <div class="tech100-company__chart-header">Composite AI Gov &amp; Ethics</div>
             <div class="tech100-company__chart">
               <canvas id="company-chart-composite" role="img" aria-label="Composite score chart"></canvas>
-              <div class="tech100-company__status" data-chart-status="composite" hidden>
-                <span class="tech100-company__status-text"></span>
-                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
-              </div>
+              <p class="tech100-company__chart-error" data-chart-error="composite" hidden></p>
             </div>
           </div>
           <div class="tech100-company__chart-card" data-chart-metric="transparency">
             <div class="tech100-company__chart-header">Transparency</div>
             <div class="tech100-company__chart tech100-company__chart--compact">
               <canvas id="company-chart-transparency" role="img" aria-label="Transparency score chart"></canvas>
-              <div class="tech100-company__status" data-chart-status="transparency" hidden>
-                <span class="tech100-company__status-text"></span>
-                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
-              </div>
+              <p class="tech100-company__chart-error" data-chart-error="transparency" hidden></p>
             </div>
           </div>
           <div class="tech100-company__chart-card" data-chart-metric="ethical_principles">
             <div class="tech100-company__chart-header">Ethical Principles</div>
             <div class="tech100-company__chart tech100-company__chart--compact">
               <canvas id="company-chart-ethical_principles" role="img" aria-label="Ethical Principles chart"></canvas>
-              <div class="tech100-company__status" data-chart-status="ethical_principles" hidden>
-                <span class="tech100-company__status-text"></span>
-                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
-              </div>
+              <p class="tech100-company__chart-error" data-chart-error="ethical_principles" hidden></p>
             </div>
           </div>
           <div class="tech100-company__chart-card" data-chart-metric="governance_structure">
             <div class="tech100-company__chart-header">Governance Structure</div>
             <div class="tech100-company__chart tech100-company__chart--compact">
               <canvas id="company-chart-governance_structure" role="img" aria-label="Governance Structure chart"></canvas>
-              <div class="tech100-company__status" data-chart-status="governance_structure" hidden>
-                <span class="tech100-company__status-text"></span>
-                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
-              </div>
+              <p class="tech100-company__chart-error" data-chart-error="governance_structure" hidden></p>
             </div>
           </div>
           <div class="tech100-company__chart-card" data-chart-metric="regulatory_alignment">
             <div class="tech100-company__chart-header">Regulatory Alignment</div>
             <div class="tech100-company__chart tech100-company__chart--compact">
               <canvas id="company-chart-regulatory_alignment" role="img" aria-label="Regulatory Alignment chart"></canvas>
-              <div class="tech100-company__status" data-chart-status="regulatory_alignment" hidden>
-                <span class="tech100-company__status-text"></span>
-                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
-              </div>
+              <p class="tech100-company__chart-error" data-chart-error="regulatory_alignment" hidden></p>
             </div>
           </div>
           <div class="tech100-company__chart-card" data-chart-metric="stakeholder_engagement">
             <div class="tech100-company__chart-header">Stakeholder Engagement</div>
             <div class="tech100-company__chart tech100-company__chart--compact">
               <canvas id="company-chart-stakeholder_engagement" role="img" aria-label="Stakeholder Engagement chart"></canvas>
-              <div class="tech100-company__status" data-chart-status="stakeholder_engagement" hidden>
-                <span class="tech100-company__status-text"></span>
-                <button class="btn btn--ghost btn--sm" type="button" data-retry-chart hidden>Retry</button>
-              </div>
+              <p class="tech100-company__chart-error" data-chart-error="stakeholder_engagement" hidden></p>
             </div>
           </div>
         </div>
@@ -148,26 +125,14 @@
           <div>
             <h2 class="h4">History</h2>
             <p class="muted">Full company history across Tech100 AI Ethics &amp; Governance Index rebalances.</p>
-            <div class="tech100-company__history-meta">
-              <span class="muted">Last updated</span>
-              <strong data-history-updated>—</strong>
-              <span class="muted">· Rows</span>
-              <strong data-history-count>—</strong>
-            </div>
-          </div>
-          <div class="card__actions">
-            <button class="btn btn--ghost btn--sm" type="button" id="history-sort">Sort by date</button>
           </div>
         </div>
-        <div class="table-wrapper table-wrap">
-          <div class="tech100-company__status" data-history-status hidden>
-            <span class="tech100-company__status-text"></span>
-            <button class="btn btn--ghost btn--sm" type="button" data-retry-history hidden>Retry</button>
-          </div>
+        <div class="table-wrapper table-wrap sc-table-wrap">
+          <p class="tech100-company__inline-error" data-history-error hidden></p>
           <table class="table table--wide tech100-table tech100-company-table" aria-label="Company history">
             <thead>
               <tr>
-                <th class="text-left"><button class="table-sort" type="button" data-sort="date">As-of date</button></th>
+                <th class="text-left">Date</th>
                 <th class="text-center">Rank</th>
                 <th class="text-right">Weight</th>
                 <th class="text-right">Composite</th>
@@ -179,9 +144,6 @@
               </tr>
             </thead>
             <tbody id="company-history-body">
-              <tr>
-                <td colspan="9" class="muted">Loading history…</td>
-              </tr>
             </tbody>
           </table>
         </div>
@@ -194,25 +156,18 @@
             <p class="muted">Narrative summaries captured at each rebalance.</p>
           </div>
         </div>
-        <div class="table-wrapper table-wrap">
-          <div class="tech100-company__status" data-summary-status hidden>
-            <span class="tech100-company__status-text"></span>
-            <button class="btn btn--ghost btn--sm" type="button" data-retry-summary hidden>Retry</button>
-          </div>
+        <div class="table-wrapper table-wrap sc-table-wrap">
+          <p class="tech100-company__inline-error" data-summary-error hidden></p>
           <table class="table table--wide tech100-table tech100-company-table tech100-summary-table" aria-label="Company summaries">
             <thead>
               <tr>
-                <th class="text-left">As-of date</th>
+                <th class="text-left">Date</th>
                 <th class="text-center">Rank</th>
-                <th class="text-right">Weight</th>
                 <th class="text-right">Composite</th>
                 <th class="text-left">Summary</th>
               </tr>
             </thead>
             <tbody id="company-summary-body">
-              <tr>
-                <td colspan="5" class="muted">Loading summaries…</td>
-              </tr>
             </tbody>
           </table>
         </div>
@@ -220,10 +175,9 @@
     </div>
   </section>
 </div>
-<datalist id="tech100-company-options"></datalist>
 {% endblock %}
 
 {% block extra_scripts %}
   <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
-  <script src="{% static 'js/tech100_company.js' %}?v=20260123-5" defer></script>
+  <script src="{% static 'js/tech100_company.js' %}?v=20260201-1" defer></script>
 {% endblock %}
