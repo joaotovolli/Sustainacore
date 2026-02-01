@@ -3,7 +3,7 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
-from sc_admin_portal.news_storage import delete_news_item, update_news_item
+from sc_admin_portal.news_storage import delete_news_item, update_news_item, NewsStorageError
 
 
 class _FakeCursor:
@@ -27,11 +27,11 @@ class _FakeCursor:
             self.rowcount = 1
         elif statement.startswith("UPDATE news_assets"):
             self.rowcount = 1
-        elif statement.startswith("DELETE FROM news_item_tags"):
+        elif statement.startswith("DELETE") and "news_item_tags" in statement:
             self.rowcount = 2
-        elif statement.startswith("DELETE FROM news_assets"):
+        elif statement.startswith("DELETE") and "news_assets" in statement:
             self.rowcount = 2
-        elif statement.startswith("DELETE FROM news_items"):
+        elif statement.startswith("DELETE") and "news_items" in statement:
             self.rowcount = 1
 
     def fetchone(self):
@@ -86,3 +86,12 @@ class NewsStorageManageTests(SimpleTestCase):
         self.assertTrue(any("news_items" in stmt for stmt in delete_statements))
         self.assertEqual(result["assets_deleted"], 2)
         self.assertTrue(fake_conn.committed)
+
+    def test_delete_news_item_handles_lock_errors(self):
+        with mock.patch(
+            "sc_admin_portal.news_storage.get_connection",
+            side_effect=RuntimeError("ORA-12860: deadlock detected while waiting for a sibling row lock"),
+        ):
+            with self.assertRaises(NewsStorageError) as ctx:
+                delete_news_item(news_id="NEWS_ITEMS:44")
+        self.assertIn("Delete blocked by database locks", str(ctx.exception))

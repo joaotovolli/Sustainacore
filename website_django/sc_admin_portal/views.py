@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 from datetime import datetime, time
 
@@ -98,10 +99,11 @@ def _parse_news_id(raw_value: str | None) -> int | None:
     if not raw_value:
         return None
     raw = raw_value.strip()
-    if ":" in raw:
-        raw = raw.split(":", 1)[-1]
+    match = re.search(r"(\d+)$", raw)
+    if not match:
+        return None
     try:
-        parsed = int(raw)
+        parsed = int(match.group(1))
     except ValueError:
         return None
     return parsed if parsed > 0 else None
@@ -466,14 +468,18 @@ def dashboard(request):
             manage_news_error = "Confirm you want to permanently delete the news item."
         else:
             try:
-                result = delete_news_item(news_id=parsed_id)
-                manage_news_success = f"Deleted NEWS_ITEMS:{parsed_id}."
-                manage_news_item = None
-                logger.info(
-                    "Admin portal news delete id=%s assets=%s",
-                    parsed_id,
-                    len(result.get("asset_ids", [])),
-                )
+                manage_news_item = get_news_item_preview(news_id=parsed_id)
+                if not manage_news_item:
+                    manage_news_error = "News item not found."
+                else:
+                    result = delete_news_item(news_id=parsed_id)
+                    manage_news_success = f"Deleted NEWS_ITEMS:{parsed_id}."
+                    manage_news_item = None
+                    logger.info(
+                        "Admin portal news delete id=%s assets=%s",
+                        parsed_id,
+                        len(result.get("asset_ids", [])),
+                    )
             except NewsStorageError as exc:
                 manage_news_error = str(exc)
             except Exception:

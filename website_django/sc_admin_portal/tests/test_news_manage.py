@@ -74,6 +74,23 @@ class AdminPortalNewsManageTests(TestCase):
         preview_mock.assert_called_once_with(news_id=44)
 
     @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    def test_lookup_news_item_invalid_id(self):
+        with mock.patch("sc_admin_portal.views.get_news_item_preview") as preview_mock:
+            with self._portal_mocks_ctx():
+                self.client.force_login(self.authorized_user)
+                response = self.client.post(
+                    reverse("sc_admin_portal:dashboard"),
+                    {
+                        "action": "lookup_news_item",
+                        "manage_news_id": "NEWS_ITEMS:XYZ",
+                    },
+                )
+        content = response.content.decode("utf-8")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Enter a valid news id.", content)
+        preview_mock.assert_not_called()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
     def test_edit_news_requires_confirmation(self):
         with mock.patch("sc_admin_portal.views.update_news_item") as update_mock:
             with self._portal_mocks_ctx():
@@ -136,4 +153,24 @@ class AdminPortalNewsManageTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Confirmation id must match", content)
+        delete_mock.assert_not_called()
+
+    @mock.patch.dict(os.environ, {"SC_ADMIN_EMAIL": ADMIN_EMAIL})
+    def test_delete_news_not_found(self):
+        with mock.patch("sc_admin_portal.views.get_news_item_preview", return_value=None):
+            with mock.patch("sc_admin_portal.views.delete_news_item") as delete_mock:
+                with self._portal_mocks_ctx():
+                    self.client.force_login(self.authorized_user)
+                    response = self.client.post(
+                        reverse("sc_admin_portal:dashboard"),
+                        {
+                            "action": "delete_news_item",
+                            "manage_news_id": "NEWS_ITEMS:44",
+                            "confirm_news_id": "NEWS_ITEMS:44",
+                            "confirm_delete": "on",
+                        },
+                    )
+        content = response.content.decode("utf-8")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("News item not found.", content)
         delete_mock.assert_not_called()
