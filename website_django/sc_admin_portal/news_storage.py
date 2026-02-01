@@ -111,14 +111,18 @@ def _normalize_news_id(raw_news_id: str | int) -> int:
             raise ValueError("Invalid news id.")
         return raw_news_id
     raw = str(raw_news_id or "").strip()
-    if ":" in raw:
-        raw = raw.split(":", 1)[-1]
-    if not raw.isdigit():
+    match = re.search(r"(\d+)$", raw)
+    if not match:
         raise ValueError("Invalid news id.")
-    news_id = int(raw)
+    news_id = int(match.group(1))
     if news_id <= 0:
         raise ValueError("Invalid news id.")
     return news_id
+
+
+def _is_oracle_lock_error(exc: Exception) -> bool:
+    message = str(exc)
+    return "ORA-12860" in message or "ORA-00054" in message
 
 
 def get_news_item_preview(*, news_id: int | str) -> Optional[Dict[str, Any]]:
@@ -374,45 +378,57 @@ def update_news_item(
 
 def delete_news_item(*, news_id: int | str) -> Dict[str, Any]:
     news_id_value = _normalize_news_id(news_id)
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT id, title, dt_pub FROM news_items WHERE id = :id",
-            {"id": news_id_value},
-        )
-        row = cur.fetchone()
-        if not row:
-            raise NewsStorageError("News item not found.", code="not_found")
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("ALTER SESSION DISABLE PARALLEL DML")
+            cur.execute("ALTER SESSION SET DML_LOCK_TIMEOUT = 3")
+            cur.execute(
+                "SELECT id, title, dt_pub FROM news_items WHERE id = :id FOR UPDATE",
+                {"id": news_id_value},
+            )
+            row = cur.fetchone()
+            if not row:
+                raise NewsStorageError("News item not found.", code="not_found")
 
-        cur.execute(
-            "SELECT asset_id FROM news_assets WHERE news_id = :news_id",
-            {"news_id": news_id_value},
-        )
-        asset_rows = cur.fetchall()
-        asset_ids = [int(asset_id) for asset_id, in asset_rows] if asset_rows else []
+            cur.execute(
+                "SELECT asset_id FROM news_assets WHERE news_id = :news_id FOR UPDATE",
+                {"news_id": news_id_value},
+            )
+            asset_rows = cur.fetchall()
+            asset_ids = [int(asset_id) for asset_id, in asset_rows] if asset_rows else []
 
-        cur.execute(
-            "DELETE FROM news_item_tags WHERE item_table = :item_table AND item_id = :item_id",
-            {"item_table": "NEWS_ITEMS", "item_id": news_id_value},
-        )
-        tags_deleted = cur.rowcount
+            cur.execute(
+                "DELETE /*+ NO_PARALLEL */ FROM news_item_tags WHERE item_table = :item_table AND item_id = :item_id",
+                {"item_table": "NEWS_ITEMS", "item_id": news_id_value},
+            )
+            tags_deleted = cur.rowcount
 
-        cur.execute(
-            "DELETE FROM news_assets WHERE news_id = :news_id",
-            {"news_id": news_id_value},
-        )
-        assets_deleted = cur.rowcount
+            cur.execute(
+                "DELETE /*+ NO_PARALLEL */ FROM news_assets WHERE news_id = :news_id",
+                {"news_id": news_id_value},
+            )
+            assets_deleted = cur.rowcount
 
-        cur.execute(
-            "DELETE FROM news_items WHERE id = :id",
-            {"id": news_id_value},
-        )
-        items_deleted = cur.rowcount
+            cur.execute(
+                "DELETE /*+ NO_PARALLEL */ FROM news_items WHERE id = :id",
+                {"id": news_id_value},
+            )
+            items_deleted = cur.rowcount
 
-        if items_deleted == 0:
-            raise NewsStorageError("News item not found.", code="not_found")
+            if items_deleted == 0:
+                raise NewsStorageError("News item not found.", code="not_found")
 
-        conn.commit()
+            conn.commit()
+    except NewsStorageError:
+        raise
+    except Exception as exc:
+        if _is_oracle_lock_error(exc):
+            raise NewsStorageError(
+                "Delete blocked by database locks. Retry in a moment.",
+                code="delete_conflict",
+            ) from exc
+        raise
 
     return {
         "id": f"NEWS_ITEMS:{news_id_value}",
