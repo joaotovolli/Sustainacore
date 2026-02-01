@@ -143,6 +143,12 @@ def dashboard(request):
     news_error = ""
     news_success = ""
     news_item = None
+    news_docx_used = False
+    news_docx_name = ""
+    news_docx_size = 0
+    news_docx_images_found = 0
+    news_docx_images_uploaded = 0
+    news_preview_html = ""
     publish_tab_active = False
     research_tab_active = False
     research_settings_error = ""
@@ -210,8 +216,13 @@ def dashboard(request):
         headline = (request.POST.get("headline") or "").strip()
         tags = (request.POST.get("tags") or "").strip()
         body_html = (request.POST.get("body_html") or "").strip()
+        confirm_no_images = request.POST.get("confirm_no_images") == "on"
         publish_form = {"headline": headline, "tags": tags, "body_html": body_html}
         docx_upload = request.FILES.get("docx_file")
+        if docx_upload:
+            news_docx_used = True
+            news_docx_name = docx_upload.name or ""
+            news_docx_size = docx_upload.size or 0
         if docx_upload:
             if docx_upload.size and docx_upload.size > _NEWS_UPLOAD_MAX_BYTES:
                 news_error = "DOCX exceeds upload limit."
@@ -239,12 +250,23 @@ def dashboard(request):
                         asset_uploader=upload_asset,
                         stats=stats,
                     )
+                except NewsStorageError as exc:
+                    news_error = str(exc)
+                    docx_body = ""
+                    docx_headline = ""
+                except Exception:
+                    logger.exception("Admin portal DOCX import failed")
+                    news_error = "Unable to import DOCX. Please try again."
+                    docx_body = ""
+                    docx_headline = ""
                 finally:
                     if temp_path and os.path.exists(temp_path):
                         os.unlink(temp_path)
 
                 images_found = stats.get("images_found", 0)
                 images_uploaded = stats.get("images_uploaded", 0)
+                news_docx_images_found = images_found
+                news_docx_images_uploaded = images_uploaded
                 logger.info(
                     "Admin news DOCX import images_found=%s images_uploaded=%s storage=news_assets file=%s",
                     images_found,
@@ -258,10 +280,19 @@ def dashboard(request):
                     if docx_headline and not headline:
                         headline = docx_headline
                     publish_form = {"headline": headline, "tags": tags, "body_html": body_html}
+                    news_preview_html = body_html
                 else:
                     news_error = "No body content found in DOCX."
+        else:
+            logger.info(
+                "Admin news publish without DOCX confirm_no_images=%s headline=%s",
+                confirm_no_images,
+                bool(headline),
+            )
 
         if not news_error:
+            if not docx_upload and not confirm_no_images:
+                news_error = "Confirm that no images are included when publishing without a DOCX file."
             if not headline:
                 news_error = "Headline is required."
             elif not body_html:
@@ -434,6 +465,12 @@ def dashboard(request):
             "news_success": news_success,
             "news_item": news_item,
             "news_upload_max_mb": _NEWS_UPLOAD_MAX_BYTES // (1024 * 1024),
+            "news_docx_used": news_docx_used,
+            "news_docx_name": news_docx_name,
+            "news_docx_size": news_docx_size,
+            "news_docx_images_found": news_docx_images_found,
+            "news_docx_images_uploaded": news_docx_images_uploaded,
+            "news_preview_html": news_preview_html,
             "research_settings": research_settings,
             "research_settings_form": research_form,
             "research_settings_error": research_settings_error,
