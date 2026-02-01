@@ -8,7 +8,9 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+from docx.text.run import Run
 _REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_HYPERLINK_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 
 def _iter_block_items(document: Document) -> Iterable[Paragraph | Table]:
@@ -45,6 +47,44 @@ def _format_run_text(run) -> str:
     if run.italic:
         return f"<em>{escaped}</em>"
     return escaped
+
+
+def _resolve_hyperlink_target(document: Document, rel_id: str) -> Optional[str]:
+    if not rel_id:
+        return None
+    rel = document.part.rels.get(rel_id)
+    if not rel:
+        return None
+    target = rel.target_ref or ""
+    target = target.strip()
+    if not target:
+        return None
+    if target.startswith("http://") or target.startswith("https://") or target.startswith("/"):
+        return target
+    if target.startswith("mailto:"):
+        return target
+    return f"/{target.lstrip('/')}"
+
+
+def _auto_link_internal_company_label(raw_text: str, html: str) -> str:
+    if "<a " in html:
+        return html
+    match = re.search(r"/tech100/company/([A-Z0-9]+)/", raw_text or "")
+    if not match:
+        return html
+    ticker = match.group(1)
+    label_match = re.search(rf"([A-Za-z0-9 .,&()\\-]+\\({ticker}\\):?)", raw_text)
+    if not label_match:
+        return html
+    label = label_match.group(1)
+    escaped_label = escape(label)
+    if escaped_label not in html:
+        return html
+    return html.replace(
+        escaped_label,
+        f'<a href="/tech100/company/{ticker}/">{escaped_label}</a>',
+        1,
+    )
 
 
 def _extract_run_images(
@@ -93,22 +133,52 @@ def _paragraph_html(
     image_stats: Optional[Dict[str, object]],
 ) -> str:
     parts: List[str] = []
-    for run in paragraph.runs:
-        text_html = _format_run_text(run)
-        if text_html:
-            parts.append(text_html)
-        parts.extend(
-            _extract_run_images(
-                run=run,
-                document=document,
-                image_cache=image_cache,
-                asset_uploader=asset_uploader,
-                image_stats=image_stats,
+    for child in paragraph._p.iterchildren():
+        tag = child.tag
+        if tag.endswith("}hyperlink"):
+            rel_id = child.get(f"{{{_HYPERLINK_NS}}}id")
+            href = _resolve_hyperlink_target(document, rel_id)
+            link_parts: List[str] = []
+            for run_el in child.xpath(".//w:r"):
+                run = Run(run_el, paragraph)
+                text_html = _format_run_text(run)
+                if text_html:
+                    link_parts.append(text_html)
+                link_parts.extend(
+                    _extract_run_images(
+                        run=run,
+                        document=document,
+                        image_cache=image_cache,
+                        asset_uploader=asset_uploader,
+                        image_stats=image_stats,
+                    )
+                )
+            if not link_parts:
+                continue
+            link_content = "".join(link_parts)
+            if href:
+                parts.append(f'<a href="{escape(href, quote=True)}">{link_content}</a>')
+            else:
+                parts.append(link_content)
+            continue
+        if tag.endswith("}r"):
+            run = Run(child, paragraph)
+            text_html = _format_run_text(run)
+            if text_html:
+                parts.append(text_html)
+            parts.extend(
+                _extract_run_images(
+                    run=run,
+                    document=document,
+                    image_cache=image_cache,
+                    asset_uploader=asset_uploader,
+                    image_stats=image_stats,
+                )
             )
-        )
     content = "".join(parts).strip()
     if not content:
         return ""
+    content = _auto_link_internal_company_label(paragraph.text or "", content)
     tag = "p"
     if heading_level is not None:
         if heading_level <= 1:

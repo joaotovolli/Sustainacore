@@ -5,6 +5,9 @@ import unittest
 
 from django.test import SimpleTestCase
 from docx import Document
+from docx.opc.constants import RELATIONSHIP_TYPE
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 from sc_admin_portal.docx_import import build_news_body_from_docx
 
@@ -17,6 +20,18 @@ except ImportError:  # pragma: no cover - optional dependency for image tests
 
 
 class DocxImportTests(SimpleTestCase):
+    def _add_hyperlink(self, paragraph, url: str, text_parts: list[str]) -> None:
+        rel_id = paragraph.part.relate_to(url, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
+        hyperlink = OxmlElement("w:hyperlink")
+        hyperlink.set(qn("r:id"), rel_id)
+        for text in text_parts:
+            run = OxmlElement("w:r")
+            text_el = OxmlElement("w:t")
+            text_el.text = text
+            run.append(text_el)
+            hyperlink.append(run)
+        paragraph._p.append(hyperlink)
+
     def test_docx_import_extracts_headline_and_body(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             doc = Document()
@@ -85,3 +100,37 @@ class DocxImportTests(SimpleTestCase):
             self.assertTrue(uploads)
             self.assertEqual(stats.get("images_found"), 1)
             self.assertEqual(stats.get("images_uploaded"), 1)
+
+    def test_docx_import_preserves_hyperlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            doc = Document()
+            doc.add_heading("Hyperlink headline", level=1)
+            paragraph = doc.add_paragraph()
+            self._add_hyperlink(
+                paragraph,
+                "/tech100/company/MSFT/",
+                ["Microsoft ", "(MSFT)"],
+            )
+            paragraph.add_run(": AI governance summary.")
+
+            paragraph_two = doc.add_paragraph()
+            paragraph_two.add_run("Alphabet (Google) ")
+            self._add_hyperlink(
+                paragraph_two,
+                "/tech100/company/GOOGL/",
+                ["(GOOGL)"],
+            )
+
+            path = Path(tmpdir) / "news.docx"
+            doc.save(path)
+
+            headline, body_html = build_news_body_from_docx(
+                str(path),
+                asset_uploader=lambda *args, **kwargs: 1,
+            )
+
+            self.assertEqual(headline, "Hyperlink headline")
+            self.assertIn('href="/tech100/company/MSFT/"', body_html)
+            self.assertIn("Microsoft", body_html)
+            self.assertIn("MSFT", body_html)
+            self.assertIn('href="/tech100/company/GOOGL/"', body_html)

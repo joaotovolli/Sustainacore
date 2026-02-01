@@ -105,6 +105,70 @@ def _link_assets(cur, news_id: int, asset_ids: Sequence[int]) -> None:
         )
 
 
+def _normalize_news_id(raw_news_id: str | int) -> int:
+    if isinstance(raw_news_id, int):
+        if raw_news_id <= 0:
+            raise ValueError("Invalid news id.")
+        return raw_news_id
+    raw = str(raw_news_id or "").strip()
+    if ":" in raw:
+        raw = raw.split(":", 1)[-1]
+    if not raw.isdigit():
+        raise ValueError("Invalid news id.")
+    news_id = int(raw)
+    if news_id <= 0:
+        raise ValueError("Invalid news id.")
+    return news_id
+
+
+def get_news_item_preview(*, news_id: int | str) -> Optional[Dict[str, Any]]:
+    try:
+        news_id_value = _normalize_news_id(news_id)
+    except ValueError:
+        return None
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, title, dt_pub, url, summary
+            FROM news_items
+            WHERE id = :id
+            """,
+            {"id": news_id_value},
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        cur.execute(
+            """
+            SELECT asset_id
+            FROM news_assets
+            WHERE news_id = :news_id
+            ORDER BY asset_id
+            """,
+            {"news_id": news_id_value},
+        )
+        asset_rows = cur.fetchall()
+        asset_ids = [int(asset_id) for asset_id, in asset_rows] if asset_rows else []
+
+    published_at = row[2]
+    if hasattr(published_at, "isoformat"):
+        published_at = published_at.isoformat()
+
+    return {
+        "id": f"NEWS_ITEMS:{int(row[0])}",
+        "item_id": int(row[0]),
+        "title": row[1],
+        "published_at": published_at,
+        "url": row[3],
+        "summary": row[4],
+        "asset_count": len(asset_ids),
+        "asset_ids": asset_ids,
+    }
+
+
 def create_news_post(*, headline: str, tags: str | Iterable[str] | None, body_html: str) -> Dict[str, Any]:
     headline = (headline or "").strip()
     if not headline:
@@ -239,6 +303,126 @@ def update_news_post_body(*, news_id: int, body_html: str) -> Dict[str, Any]:
         "item_id": news_id,
         "summary": summary,
         "asset_ids": asset_ids,
+    }
+
+
+def update_news_item(
+    *, news_id: int | str, headline: str | None = None, body_html: str | None = None
+) -> Dict[str, Any]:
+    news_id_value = _normalize_news_id(news_id)
+    headline = (headline or "").strip() or None
+    body_html = body_html if body_html is not None else None
+
+    if headline is None and body_html is None:
+        raise ValueError("At least one field is required.")
+
+    params: Dict[str, Any] = {"id": news_id_value}
+    set_clauses: List[str] = []
+    asset_ids: List[int] = []
+    summary = None
+
+    if headline is not None:
+        set_clauses.append("title = :title")
+        params["title"] = headline
+
+    if body_html is not None:
+        body_html = (body_html or "").strip()
+        if not body_html:
+            raise ValueError("body is required")
+        sanitized_html = sanitize_news_html(body_html)
+        summary = summarize_html(sanitized_html)
+        asset_ids = _extract_asset_ids(sanitized_html)
+        set_clauses.extend(["summary = :summary", "body_html = :body_html"])
+        params["summary"] = summary
+        params["body_html"] = sanitized_html
+
+    if not set_clauses:
+        raise ValueError("No updates provided.")
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            if body_html is not None:
+                cur.setinputsizes(
+                    summary=oracledb.DB_TYPE_CLOB,
+                    body_html=oracledb.DB_TYPE_CLOB,
+                )
+            cur.execute(
+                f"UPDATE news_items SET {', '.join(set_clauses)} WHERE id = :id",
+                params,
+            )
+            if cur.rowcount == 0:
+                raise NewsStorageError("News item not found.", code="not_found")
+            if asset_ids:
+                _link_assets(cur, news_id_value, asset_ids)
+            conn.commit()
+    except oracledb.DatabaseError as exc:
+        if _is_oracle_missing_column(exc, "BODY_HTML"):
+            raise NewsStorageError(
+                "BODY_HTML column is missing. Apply migration V0004__news_rich_body.sql.",
+                code="missing_body_html",
+            ) from exc
+        raise
+
+    return {
+        "id": f"NEWS_ITEMS:{news_id_value}",
+        "item_id": news_id_value,
+        "summary": summary,
+        "asset_ids": asset_ids,
+    }
+
+
+def delete_news_item(*, news_id: int | str) -> Dict[str, Any]:
+    news_id_value = _normalize_news_id(news_id)
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, title, dt_pub FROM news_items WHERE id = :id",
+            {"id": news_id_value},
+        )
+        row = cur.fetchone()
+        if not row:
+            raise NewsStorageError("News item not found.", code="not_found")
+
+        cur.execute(
+            "SELECT asset_id FROM news_assets WHERE news_id = :news_id",
+            {"news_id": news_id_value},
+        )
+        asset_rows = cur.fetchall()
+        asset_ids = [int(asset_id) for asset_id, in asset_rows] if asset_rows else []
+
+        cur.execute(
+            "DELETE FROM news_item_tags WHERE item_table = :item_table AND item_id = :item_id",
+            {"item_table": "NEWS_ITEMS", "item_id": news_id_value},
+        )
+        tags_deleted = cur.rowcount
+
+        cur.execute(
+            "DELETE FROM news_assets WHERE news_id = :news_id",
+            {"news_id": news_id_value},
+        )
+        assets_deleted = cur.rowcount
+
+        cur.execute(
+            "DELETE FROM news_items WHERE id = :id",
+            {"id": news_id_value},
+        )
+        items_deleted = cur.rowcount
+
+        if items_deleted == 0:
+            raise NewsStorageError("News item not found.", code="not_found")
+
+        conn.commit()
+
+    return {
+        "id": f"NEWS_ITEMS:{news_id_value}",
+        "item_id": news_id_value,
+        "title": row[1],
+        "published_at": row[2].isoformat() if hasattr(row[2], "isoformat") else row[2],
+        "asset_ids": asset_ids,
+        "assets_deleted": assets_deleted,
+        "tags_deleted": tags_deleted,
+        "items_deleted": items_deleted,
     }
 
 
