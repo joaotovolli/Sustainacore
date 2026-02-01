@@ -268,7 +268,7 @@
                     <div class="alert alert--warning">{{ news_error }}</div>
                     {% endif %}
 
-                    <form method="post" class="form news-publish-form">
+                    <form method="post" class="form news-publish-form" enctype="multipart/form-data">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="publish_news" />
                         <div class="form__grid">
@@ -278,12 +278,17 @@
                             </label>
                             <label>
                                 Headline *
-                                <input type="text" name="headline" value="{{ news_form.headline }}" required />
+                                <input type="text" name="headline" value="{{ news_form.headline }}" />
                             </label>
                             <label class="news-form__body">
                                 Body *
-                                <textarea id="news-body" class="news-editor" name="body_html" required>{{ news_form.body_html }}</textarea>
+                                <textarea id="news-body" class="news-editor" name="body_html">{{ news_form.body_html }}</textarea>
                                 <div class="news-upload-note">Paste rich text, tables, and insert images. Images upload limit: {{ news_upload_max_mb }}MB.</div>
+                            </label>
+                            <label>
+                                DOCX file (optional)
+                                <input type="file" name="docx_file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                                <div class="news-upload-note">DOCX import extracts images and rich text automatically.</div>
                             </label>
                         </div>
                         <div class="form__actions">

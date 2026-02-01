@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, time
 
 from django.contrib import messages
@@ -14,6 +15,7 @@ from django.views.decorators.http import require_POST
 from core.auth import get_auth_email
 from sc_admin_portal.auth import get_admin_email, portal_not_found, require_sc_admin
 from sc_admin_portal import oracle_proc
+from sc_admin_portal.docx_import import build_news_body_from_docx
 from sc_admin_portal.news_storage import (
     NewsStorageError,
     create_news_asset,
@@ -209,17 +211,74 @@ def dashboard(request):
         tags = (request.POST.get("tags") or "").strip()
         body_html = (request.POST.get("body_html") or "").strip()
         publish_form = {"headline": headline, "tags": tags, "body_html": body_html}
-        try:
-            news_item = create_news_post(headline=headline, tags=tags, body_html=body_html)
-            messages.success(request, "News post published.")
-            return redirect("news_detail", news_item["id"])
-        except ValueError as exc:
-            news_error = str(exc)
-        except NewsStorageError as exc:
-            news_error = str(exc)
-        except Exception:
-            logger.exception("Admin portal news publish failed")
-            news_error = "Could not publish news. Please try again."
+        docx_upload = request.FILES.get("docx_file")
+        if docx_upload:
+            if docx_upload.size and docx_upload.size > _NEWS_UPLOAD_MAX_BYTES:
+                news_error = "DOCX exceeds upload limit."
+            elif not (docx_upload.name or "").lower().endswith(".docx"):
+                news_error = "Only .docx uploads are supported for news import."
+            else:
+                stats: dict[str, int] = {}
+                temp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_file:
+                        temp_path = tmp_file.name
+                        for chunk in docx_upload.chunks():
+                            tmp_file.write(chunk)
+
+                    def upload_asset(file_name: str | None, mime_type: str | None, file_bytes: bytes) -> int:
+                        return create_news_asset(
+                            news_id=None,
+                            file_name=file_name,
+                            mime_type=mime_type,
+                            file_bytes=file_bytes,
+                        )
+
+                    docx_headline, docx_body = build_news_body_from_docx(
+                        temp_path,
+                        asset_uploader=upload_asset,
+                        stats=stats,
+                    )
+                finally:
+                    if temp_path and os.path.exists(temp_path):
+                        os.unlink(temp_path)
+
+                images_found = stats.get("images_found", 0)
+                images_uploaded = stats.get("images_uploaded", 0)
+                logger.info(
+                    "Admin news DOCX import images_found=%s images_uploaded=%s storage=news_assets file=%s",
+                    images_found,
+                    images_uploaded,
+                    docx_upload.name,
+                )
+                if images_found and not images_uploaded:
+                    news_error = "DOCX contains images but none could be extracted."
+                elif docx_body:
+                    body_html = docx_body
+                    if docx_headline and not headline:
+                        headline = docx_headline
+                    publish_form = {"headline": headline, "tags": tags, "body_html": body_html}
+                else:
+                    news_error = "No body content found in DOCX."
+
+        if not news_error:
+            if not headline:
+                news_error = "Headline is required."
+            elif not body_html:
+                news_error = "Body is required."
+
+        if not news_error:
+            try:
+                news_item = create_news_post(headline=headline, tags=tags, body_html=body_html)
+                messages.success(request, "News post published.")
+                return redirect("news_detail", news_item["id"])
+            except ValueError as exc:
+                news_error = str(exc)
+            except NewsStorageError as exc:
+                news_error = str(exc)
+            except Exception:
+                logger.exception("Admin portal news publish failed")
+                news_error = "Could not publish news. Please try again."
     if request.method == "POST" and request.POST.get("action") == "save_research_settings":
         research_tab_active = True
         schedule_enabled = request.POST.get("schedule_enabled") == "on"

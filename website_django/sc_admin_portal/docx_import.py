@@ -53,6 +53,7 @@ def _extract_run_images(
     document: Document,
     image_cache: Dict[str, Tuple[int, str]],
     asset_uploader: Callable[[str | None, str | None, bytes], int],
+    image_stats: Optional[Dict[str, object]],
 ) -> List[str]:
     image_tags: List[str] = []
     blips = run.element.xpath(".//a:blip")
@@ -60,6 +61,11 @@ def _extract_run_images(
         rel_id = blip.get(f"{{{_REL_NS}}}embed")
         if not rel_id:
             continue
+        if image_stats is not None:
+            rel_ids = image_stats.setdefault("rel_ids", set())
+            if rel_id not in rel_ids:
+                rel_ids.add(rel_id)
+                image_stats["found"] = int(image_stats.get("found", 0)) + 1
         cached = image_cache.get(rel_id)
         if cached:
             asset_id, file_name = cached
@@ -70,6 +76,8 @@ def _extract_run_images(
             file_name = Path(str(part.partname)).name
             asset_id = asset_uploader(file_name or None, part.content_type, part.blob)
             image_cache[rel_id] = (asset_id, file_name)
+            if image_stats is not None:
+                image_stats["uploaded"] = int(image_stats.get("uploaded", 0)) + 1
         alt_text = escape(file_name or "News image")
         image_tags.append(f'<img src="/news/assets/{asset_id}/" alt="{alt_text}">')
     return image_tags
@@ -82,6 +90,7 @@ def _paragraph_html(
     image_cache: Dict[str, Tuple[int, str]],
     asset_uploader: Callable[[str | None, str | None, bytes], int],
     heading_level: Optional[int],
+    image_stats: Optional[Dict[str, object]],
 ) -> str:
     parts: List[str] = []
     for run in paragraph.runs:
@@ -94,6 +103,7 @@ def _paragraph_html(
                 document=document,
                 image_cache=image_cache,
                 asset_uploader=asset_uploader,
+                image_stats=image_stats,
             )
         )
     content = "".join(parts).strip()
@@ -128,12 +138,14 @@ def build_news_body_from_docx(
     path: str,
     *,
     asset_uploader: Callable[[str | None, str | None, bytes], int],
+    stats: Optional[Dict[str, int]] = None,
 ) -> Tuple[str, str]:
     document = Document(path)
     headline: Optional[str] = None
     first_text: Optional[str] = None
     first_paragraph_html: Optional[str] = None
     image_cache: Dict[str, Tuple[int, str]] = {}
+    image_stats: Optional[Dict[str, object]] = {"found": 0, "uploaded": 0} if stats is not None else None
     body_parts: List[str] = []
 
     for block in _iter_block_items(document):
@@ -151,6 +163,7 @@ def build_news_body_from_docx(
                 image_cache=image_cache,
                 asset_uploader=asset_uploader,
                 heading_level=level,
+                image_stats=image_stats,
             )
             if first_paragraph_html is None and paragraph_html:
                 first_paragraph_html = paragraph_html
@@ -167,4 +180,7 @@ def build_news_body_from_docx(
             body_parts = body_parts[1:]
 
     body_html = "".join(body_parts).strip()
+    if stats is not None and image_stats is not None:
+        stats["images_found"] = int(image_stats.get("found", 0))
+        stats["images_uploaded"] = int(image_stats.get("uploaded", 0))
     return headline, body_html

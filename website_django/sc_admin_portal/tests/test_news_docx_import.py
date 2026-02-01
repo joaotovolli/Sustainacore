@@ -68,6 +68,7 @@ class DocxImportTests(SimpleTestCase):
             doc.save(path)
 
             uploads = []
+            stats: dict[str, int] = {}
 
             def uploader(file_name, mime_type, file_bytes):
                 uploads.append((file_name, mime_type, file_bytes))
@@ -76,8 +77,11 @@ class DocxImportTests(SimpleTestCase):
             headline, body_html = build_news_body_from_docx(
                 str(path),
                 asset_uploader=uploader,
+                stats=stats,
             )
 
             self.assertEqual(headline, "Image headline")
             self.assertIn("/news/assets/42/", body_html)
             self.assertTrue(uploads)
+            self.assertEqual(stats.get("images_found"), 1)
+            self.assertEqual(stats.get("images_uploaded"), 1)

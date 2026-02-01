@@ -194,6 +194,54 @@ def create_news_post(*, headline: str, tags: str | Iterable[str] | None, body_ht
     }
 
 
+def update_news_post_body(*, news_id: int, body_html: str) -> Dict[str, Any]:
+    if not news_id or news_id <= 0:
+        raise ValueError("news_id is required")
+
+    body_html = (body_html or "").strip()
+    if not body_html:
+        raise ValueError("body is required")
+
+    sanitized_html = sanitize_news_html(body_html)
+    summary = summarize_html(sanitized_html)
+    asset_ids = _extract_asset_ids(sanitized_html)
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.setinputsizes(
+                summary=oracledb.DB_TYPE_CLOB,
+                body_html=oracledb.DB_TYPE_CLOB,
+            )
+            cur.execute(
+                """
+                UPDATE news_items
+                SET summary = :summary,
+                    body_html = :body_html
+                WHERE id = :id
+                """,
+                {"summary": summary, "body_html": sanitized_html, "id": news_id},
+            )
+            if cur.rowcount == 0:
+                raise NewsStorageError("News item not found.", code="not_found")
+            _link_assets(cur, news_id, asset_ids)
+            conn.commit()
+    except oracledb.DatabaseError as exc:
+        if _is_oracle_missing_column(exc, "BODY_HTML"):
+            raise NewsStorageError(
+                "BODY_HTML column is missing. Apply migration V0004__news_rich_body.sql.",
+                code="missing_body_html",
+            ) from exc
+        raise
+
+    return {
+        "id": f"NEWS_ITEMS:{news_id}",
+        "item_id": news_id,
+        "summary": summary,
+        "asset_ids": asset_ids,
+    }
+
+
 def create_news_asset(
     *, news_id: Optional[int], file_name: str | None, mime_type: str | None, file_bytes: bytes
 ) -> int:
