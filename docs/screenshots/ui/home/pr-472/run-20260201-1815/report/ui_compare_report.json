@@ -1,0 +1,81 @@
+{
+  "urls": {
+    "prod": "https://sustainacore.org/",
+    "preview": "https://preview.sustainacore.org/"
+  },
+  "status": "ok",
+  "errors": [],
+  "viewports": {
+    "desktop": {
+      "width": 1440,
+      "height": 900
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "diff": {
+    "mismatchPixels": 3309,
+    "mismatchPercent": 1.0053
+  },
+  "shots": [
+    {
+      "name": "home_full",
+      "viewport": "desktop",
+      "before": "before/home_full.png",
+      "after": "after/home_full.png",
+      "diff": "diff/home_full_diff.png",
+      "stats": {
+        "mismatchPixels": 3187,
+        "mismatchPercent": 0.2459,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "name": "home_footer",
+      "viewport": "desktop",
+      "before": "before/home_footer.png",
+      "after": "after/home_footer.png",
+      "diff": "diff/home_footer_diff.png",
+      "stats": {
+        "mismatchPixels": 734,
+        "mismatchPercent": 0.0566,
+        "width": 1440,
+        "height": 900
+      }
+    },
+    {
+      "name": "home_mobile",
+      "viewport": "mobile",
+      "before": "before/home_mobile.png",
+      "after": "after/home_mobile.png",
+      "diff": "diff/home_mobile_diff.png",
+      "stats": {
+        "mismatchPixels": 3309,
+        "mismatchPercent": 1.0053,
+        "width": 390,
+        "height": 844
+      }
+    }
+  ],
+  "layout": {
+    "before": {
+      "viewportWidth": 1440,
+      "viewportHeight": 900,
+      "docScrollWidth": 1440,
+      "docClientWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowOffendersTop15": []
+    },
+    "after": {
+      "viewportWidth": 1440,
+      "viewportHeight": 900,
+      "docScrollWidth": 1440,
+      "docClientWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowOffendersTop15": []
+    }
+  }
+}
