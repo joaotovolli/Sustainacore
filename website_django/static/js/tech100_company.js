@@ -25,15 +25,21 @@
   };
 
   const historyBody = document.getElementById("company-history-body");
-  const sortButton = document.getElementById("history-sort");
-  const companySelector = document.getElementById("company-selector");
-  const compareSelector = document.getElementById("company-compare");
-  const companyOptions = document.getElementById("tech100-company-options");
+  const companyTrigger = document.querySelector("[data-company-trigger]");
+  const companyPanel = document.querySelector("[data-company-panel]");
+  const companySearch = document.getElementById("company-select-search");
+  const companyList = document.querySelector("[data-company-list]");
+  const compareTrigger = document.querySelector("[data-compare-trigger]");
+  const comparePanel = document.querySelector("[data-compare-panel]");
+  const compareSearch = document.getElementById("compare-select-search");
+  const compareList = document.querySelector("[data-compare-list]");
   const compareLegend = document.querySelector("[data-compare-legend]");
   const compareLabel = document.querySelector("[data-compare-label]");
-  const historyCountEl = document.querySelector("[data-history-count]");
-  const historyUpdatedEl = document.querySelector("[data-history-updated]");
   const summaryBody = document.getElementById("company-summary-body");
+  const historyError = document.querySelector("[data-history-error]");
+  const summaryError = document.querySelector("[data-summary-error]");
+  const headerDate = document.querySelector("[data-company-latest-date]");
+  const headerComposite = document.querySelector("[data-company-latest-composite]");
 
   const formatScore = (value) => {
     if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -47,15 +53,31 @@
     return `${num.toFixed(decimals)}%`;
   };
 
-  const formatDate = (value) => {
-    const formatter = window.SCDateFormat;
-    if (formatter?.formatAsOfDate) {
-      return formatter.formatAsOfDate(value);
+  const parseDate = (value) => {
+    if (window.SCDateFormat?.parseDateLike) {
+      return window.SCDateFormat.parseDateLike(value);
     }
-    return value || "—";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
   };
 
-  const fetchWithTimeout = async (url, options = {}, timeoutMs = 10000) => {
+  const formatMonthYear = (value, shortYear = false) => {
+    const date = parseDate(value);
+    if (!date) return "—";
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "UTC",
+      month: "short",
+      year: shortYear ? "2-digit" : "numeric",
+    }).formatToParts(date);
+    const month = parts.find((part) => part.type === "month")?.value;
+    const year = parts.find((part) => part.type === "year")?.value;
+    if (!month || !year) return "—";
+    return `${month} ${year}`;
+  };
+
+  const formatAxisMonthYear = (value) => formatMonthYear(value, true);
+
+  const fetchWithTimeout = async (url, options = {}, timeoutMs = 20000) => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -77,35 +99,20 @@
     return "Request failed";
   };
 
-  const setStatus = (container, message, showRetry, retryButton) => {
-    if (!container) return;
-    if (!message) {
-      container.hidden = true;
-      return;
-    }
-    const textEl = container.querySelector(".tech100-company__status-text");
-    if (textEl) textEl.textContent = message;
-    if (retryButton) retryButton.hidden = !showRetry;
-    container.hidden = false;
-  };
-
-  const chartStatuses = new Map();
-  document.querySelectorAll("[data-chart-status]").forEach((el) => {
-    const key = el.getAttribute("data-chart-status");
-    if (key) chartStatuses.set(key, el);
+  const chartErrors = new Map();
+  document.querySelectorAll("[data-chart-error]").forEach((el) => {
+    const key = el.getAttribute("data-chart-error");
+    if (key) chartErrors.set(key, el);
   });
-  const historyStatus = document.querySelector("[data-history-status]");
-  const retryChartButtons = Array.from(document.querySelectorAll("[data-retry-chart]"));
-  const retryHistoryButton = document.querySelector("[data-retry-history]");
 
   const state = {
-    sortDesc: true,
     charts: new Map(),
     compareTicker: null,
     compareLabel: null,
     companies: [],
     companyLookup: new Map(),
     labelLookup: new Map(),
+    companyList: [],
     history: [],
     summaryHistory: [],
   };
@@ -122,14 +129,14 @@
       const aDate = a.date || "";
       const bDate = b.date || "";
       if (aDate === bDate) return 0;
-      return state.sortDesc ? (aDate < bDate ? 1 : -1) : (aDate < bDate ? -1 : 1);
+      return aDate < bDate ? 1 : -1;
     });
 
     const fragment = document.createDocumentFragment();
     rows.forEach((row) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td class="text-left" data-date-format="as-of" data-date-value="${row.date || ""}">${formatDate(row.date)}</td>
+        <td class="text-left">${formatMonthYear(row.date)}</td>
         <td class="text-center">${row.rank ?? "—"}</td>
         <td class="text-right">${formatWeight(row.weight)}</td>
         <td class="text-right">${formatScore(row.composite)}</td>
@@ -142,62 +149,49 @@
       fragment.appendChild(tr);
     });
     historyBody.appendChild(fragment);
-    window.SCDateFormat?.applyDateFormatting?.(historyBody);
-  };
-
-  const truncateText = (text, maxLen = 280) => {
-    if (!text) return { short: "—", full: "" };
-    if (text.length <= maxLen) return { short: text, full: text };
-    return { short: `${text.slice(0, maxLen).trim()}…`, full: text };
   };
 
   const renderSummaryHistory = () => {
     if (!summaryBody) return;
     summaryBody.innerHTML = "";
     if (!state.summaryHistory?.length) {
-      summaryBody.innerHTML = '<tr><td colspan="5" class="muted">No summaries available.</td></tr>';
+      summaryBody.innerHTML = '<tr><td colspan="4" class="muted">No summaries available.</td></tr>';
       return;
     }
     const fragment = document.createDocumentFragment();
-    state.summaryHistory.forEach((row) => {
+    const rows = [...state.summaryHistory].sort((a, b) => {
+      const aDate = a.date || "";
+      const bDate = b.date || "";
+      if (aDate === bDate) return 0;
+      return aDate < bDate ? 1 : -1;
+    });
+    rows.forEach((row) => {
       const tr = document.createElement("tr");
       const text = row.summary || "";
-      const { short, full } = truncateText(text, 300);
-      const isTruncated = full.length > short.length;
+      const isTruncated = text.length > 0;
       const summaryCell = document.createElement("td");
       summaryCell.className = "summary-cell";
       const summarySpan = document.createElement("span");
       summarySpan.className = "summary-text";
-      summarySpan.textContent = short;
-      summarySpan.dataset.full = full;
-      summarySpan.dataset.short = short;
+      summarySpan.textContent = text || "—";
       summaryCell.appendChild(summarySpan);
       if (isTruncated) {
         const toggle = document.createElement("button");
         toggle.type = "button";
         toggle.className = "summary-toggle text-link";
         toggle.textContent = "Expand";
+        toggle.setAttribute("aria-expanded", "false");
         summaryCell.appendChild(toggle);
       }
       tr.innerHTML = `
-        <td class="text-left" data-date-format="as-of" data-date-value="${row.date || ""}">${formatDate(row.date)}</td>
+        <td class="text-left">${formatMonthYear(row.date)}</td>
         <td class="text-center">${row.rank ?? "—"}</td>
-        <td class="text-right">${formatWeight(row.weight)}</td>
         <td class="text-right">${formatScore(row.composite)}</td>
       `;
       tr.appendChild(summaryCell);
       fragment.appendChild(tr);
     });
     summaryBody.appendChild(fragment);
-    window.SCDateFormat?.applyDateFormatting?.(summaryBody);
-  };
-
-  const updateHistoryMeta = (history, latestDate) => {
-    if (historyCountEl) historyCountEl.textContent = history?.length ? String(history.length) : "0";
-    if (historyUpdatedEl) {
-      const value = latestDate || history?.[0]?.date;
-      historyUpdatedEl.textContent = formatDate(value);
-    }
   };
 
   const buildChart = (canvas, labels, datasets, series) => {
@@ -216,7 +210,7 @@
           legend: { display: false },
           tooltip: {
             callbacks: {
-              title: (items) => formatDate(items[0]?.label),
+              title: (items) => formatMonthYear(items[0]?.label),
               label: (ctx) => {
                 const label = ctx.dataset.label || "";
                 return `${label}: ${formatScore(ctx.parsed.y)}`;
@@ -234,7 +228,7 @@
         scales: {
           x: {
             ticks: {
-              callback: (value) => formatDate(labels[value]),
+              callback: (value) => formatAxisMonthYear(labels[value]),
               maxTicksLimit: 8,
             },
           },
@@ -316,42 +310,44 @@
   };
 
   const populateCompanies = (companies) => {
-    if (!companyOptions) return;
     if (!Array.isArray(companies)) return;
     state.companies = companies;
-    companyOptions.innerHTML = "";
     state.companyLookup.clear();
     state.labelLookup.clear();
-    const fragment = document.createDocumentFragment();
-    companies.forEach((company) => {
-      const symbol = (company.ticker || "").toUpperCase();
-      const label = formatCompanyLabel(company);
-      if (!symbol) return;
-      state.companyLookup.set(symbol, label);
-      state.labelLookup.set(label.toLowerCase(), symbol);
-      const option = document.createElement("option");
-      option.value = label;
-      fragment.appendChild(option);
-    });
-    companyOptions.appendChild(fragment);
+    state.companyList = companies
+      .map((company) => {
+        const symbol = (company.ticker || "").toUpperCase();
+        if (!symbol) return null;
+        const label = formatCompanyLabel(company);
+        state.companyLookup.set(symbol, label);
+        state.labelLookup.set(label.toLowerCase(), symbol);
+        return { symbol, label };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.label.localeCompare(b.label));
   };
 
-  const setChartStatuses = (message, showRetry) => {
-    chartStatuses.forEach((container) => {
-      setStatus(container, message, showRetry, container.querySelector("[data-retry-chart]"));
-    });
+  const setChartError = (metricKey, message) => {
+    const el = chartErrors.get(metricKey);
+    if (!el) return;
+    if (!message) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    el.textContent = message;
+    el.hidden = false;
   };
 
   const loadBundle = async (includeCompanies = false) => {
-    setChartStatuses("Loading charts…", false);
-    setStatus(historyStatus, "Loading history…", false, retryHistoryButton);
+    if (historyError) historyError.hidden = true;
+    if (summaryError) summaryError.hidden = true;
     try {
       const resp = await fetchWithTimeout(bundleUrl(state.compareTicker, includeCompanies));
       if (!resp.ok) throw new Error(`bundle ${resp.status}`);
       const data = await resp.json();
       state.history = data.history || [];
       state.summaryHistory = data.summary_history || [];
-      updateHistoryMeta(state.history, data.summary?.latest_date);
       renderHistory();
       renderSummaryHistory();
 
@@ -364,41 +360,44 @@
       if (includeCompanies && data.companies) {
         populateCompanies(data.companies);
       }
-      setChartStatuses(null, false);
-      setStatus(historyStatus, null, false, retryHistoryButton);
+      METRIC_KEYS.forEach((metricKey) => setChartError(metricKey, null));
     } catch (err) {
       console.warn("Company bundle failed", err);
       const statusLabel = describeFetchError(err);
-      setChartStatuses(`Couldn't load charts (${statusLabel}).`, true);
-      setStatus(historyStatus, `Couldn't load history (${statusLabel}).`, true, retryHistoryButton);
+      METRIC_KEYS.forEach((metricKey) => setChartError(metricKey, `Couldn't load chart (${statusLabel}).`));
+      if (historyError) {
+        historyError.textContent = `Couldn't load history (${statusLabel}).`;
+        historyError.hidden = false;
+      }
+      if (summaryError) {
+        summaryError.textContent = `Couldn't load summaries (${statusLabel}).`;
+        summaryError.hidden = false;
+      }
     }
   };
 
-  const handleCompanyChange = (event) => {
-    const nextTicker = extractTicker(event.target.value);
+  const handleCompanyChange = (nextLabel) => {
+    const nextTicker = extractTicker(nextLabel);
     if (!nextTicker || nextTicker === ticker) return;
     window.location.assign(`/tech100/company/${nextTicker}/`);
   };
 
-  const handleCompareChange = (event) => {
-    const nextTicker = extractTicker(event.target.value);
+  const handleCompareChange = (nextLabel) => {
+    const nextTicker = extractTicker(nextLabel);
     if (!nextTicker || nextTicker === ticker) {
       state.compareTicker = null;
       state.compareLabel = null;
       updateCompareLegend();
+      if (compareTrigger) compareTrigger.textContent = "None";
       loadBundle(false);
       return;
     }
     state.compareTicker = nextTicker;
     state.compareLabel = state.companyLookup.get(nextTicker) || nextTicker;
     updateCompareLegend();
+    if (compareTrigger) compareTrigger.textContent = state.compareLabel;
     loadBundle(false);
   };
-
-  sortButton?.addEventListener("click", () => {
-    state.sortDesc = !state.sortDesc;
-    renderHistory();
-  });
 
   summaryBody?.addEventListener("click", (event) => {
     const target = event.target;
@@ -407,13 +406,193 @@
     const textEl = cell?.querySelector(".summary-text");
     if (!textEl) return;
     const isExpanded = textEl.classList.toggle("is-expanded");
-    textEl.textContent = isExpanded ? textEl.dataset.full : textEl.dataset.short;
     target.textContent = isExpanded ? "Collapse" : "Expand";
+    target.setAttribute("aria-expanded", isExpanded ? "true" : "false");
   });
 
-  companySelector?.addEventListener("change", handleCompanyChange);
-  compareSelector?.addEventListener("change", handleCompareChange);
-  retryChartButtons.forEach((btn) => btn.addEventListener("click", () => loadBundle(false)));
-  retryHistoryButton?.addEventListener("click", () => loadBundle(false));
+  const closePanel = (panel, trigger) => {
+    if (!panel || !trigger) return;
+    panel.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  };
+
+  const openPanel = (panel, trigger, search) => {
+    if (!panel || !trigger) return;
+    panel.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    if (search) {
+      search.focus();
+      search.select();
+    }
+  };
+
+  const updateList = (listEl, filterText, allowNone, activeValue) => {
+    if (!listEl) return [];
+    const query = (filterText || "").trim().toLowerCase();
+    const options = state.companyList.filter((option) => option.label.toLowerCase().includes(query));
+    const finalOptions = allowNone
+      ? [{ symbol: "", label: "None" }, ...options]
+      : options;
+    listEl.innerHTML = "";
+    const fragment = document.createDocumentFragment();
+    if (!finalOptions.length) {
+      const empty = document.createElement("li");
+      empty.className = "tech100-company__select-option is-empty";
+      empty.setAttribute("role", "option");
+      empty.setAttribute("aria-disabled", "true");
+      empty.textContent = "No matches";
+      fragment.appendChild(empty);
+      listEl.appendChild(fragment);
+      return [];
+    }
+    finalOptions.forEach((option, idx) => {
+      const li = document.createElement("li");
+      li.className = "tech100-company__select-option";
+      li.setAttribute("role", "option");
+      li.dataset.value = option.symbol;
+      li.dataset.label = option.label;
+      li.id = `${listEl.id || "company-option"}-${idx}`;
+      li.textContent = option.label;
+      if (option.label === activeValue) {
+        li.classList.add("is-selected");
+        li.setAttribute("aria-selected", "true");
+      }
+      fragment.appendChild(li);
+    });
+    listEl.appendChild(fragment);
+    return Array.from(listEl.querySelectorAll(".tech100-company__select-option"));
+  };
+
+  const setupSelector = ({
+    trigger,
+    panel,
+    search,
+    list,
+    allowNone,
+    onSelect,
+  }) => {
+    if (!trigger || !panel || !search || !list) return;
+    let activeIndex = -1;
+    let options = [];
+
+    const refresh = () => {
+      options = updateList(list, search.value, allowNone, trigger.textContent.trim());
+      activeIndex = options.length ? 0 : -1;
+      options.forEach((opt, idx) => {
+        opt.classList.toggle("is-active", idx === activeIndex);
+      });
+    };
+
+    const setActive = (idx) => {
+      if (!options.length) return;
+      activeIndex = Math.max(0, Math.min(idx, options.length - 1));
+      options.forEach((opt, i) => opt.classList.toggle("is-active", i === activeIndex));
+      const active = options[activeIndex];
+      if (active) {
+        list.setAttribute("aria-activedescendant", active.id);
+        active.scrollIntoView({ block: "nearest" });
+      }
+    };
+
+    trigger.addEventListener("click", () => {
+      if (panel.hidden) {
+        refresh();
+        openPanel(panel, trigger, search);
+      } else {
+        closePanel(panel, trigger);
+      }
+    });
+
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        refresh();
+        openPanel(panel, trigger, search);
+      }
+    });
+
+    search.addEventListener("input", () => {
+      refresh();
+    });
+
+    search.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActive(activeIndex + 1);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActive(activeIndex - 1);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        const active = options[activeIndex];
+        if (active) {
+          onSelect(active.dataset.label, active.dataset.value);
+          closePanel(panel, trigger);
+        }
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closePanel(panel, trigger);
+        trigger.focus();
+      }
+    });
+
+    list.addEventListener("click", (event) => {
+      const option = event.target.closest(".tech100-company__select-option");
+      if (!option) return;
+      onSelect(option.dataset.label, option.dataset.value);
+      closePanel(panel, trigger);
+    });
+
+    list.addEventListener("mousemove", (event) => {
+      const option = event.target.closest(".tech100-company__select-option");
+      if (!option) return;
+      const idx = options.indexOf(option);
+      if (idx >= 0) setActive(idx);
+    });
+  };
+
+  document.addEventListener("click", (event) => {
+    if (companyPanel && !companyPanel.hidden && !companyPanel.contains(event.target) && !companyTrigger.contains(event.target)) {
+      closePanel(companyPanel, companyTrigger);
+    }
+    if (comparePanel && !comparePanel.hidden && !comparePanel.contains(event.target) && !compareTrigger.contains(event.target)) {
+      closePanel(comparePanel, compareTrigger);
+    }
+  });
+
+  const updateHeaderFacts = () => {
+    if (headerDate) {
+      headerDate.textContent = formatMonthYear(headerDate.dataset.dateValue || headerDate.textContent);
+    }
+    if (headerComposite) {
+      headerComposite.textContent = headerComposite.textContent?.trim() || "—";
+    }
+  };
+
+  setupSelector({
+    trigger: companyTrigger,
+    panel: companyPanel,
+    search: companySearch,
+    list: companyList,
+    allowNone: false,
+    onSelect: (label) => handleCompanyChange(label),
+  });
+
+  setupSelector({
+    trigger: compareTrigger,
+    panel: comparePanel,
+    search: compareSearch,
+    list: compareList,
+    allowNone: true,
+    onSelect: (label, value) => {
+      if (!value) {
+        handleCompareChange("");
+        return;
+      }
+      handleCompareChange(label);
+    },
+  });
+
+  updateHeaderFacts();
   loadBundle(true);
 })();
