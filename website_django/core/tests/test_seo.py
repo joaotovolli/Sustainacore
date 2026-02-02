@@ -7,6 +7,9 @@ from django.urls import reverse
 
 
 class SeoFoundationsTests(SimpleTestCase):
+    VALID_LASTMOD = re.compile(
+        r"^(\d{4}-\d{2}-\d{2})$|^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)$"
+    )
     def test_robots_txt(self):
         for host in ("sustainacore.org", "www.sustainacore.org"):
             with self.subTest(host=host):
@@ -41,7 +44,7 @@ class SeoFoundationsTests(SimpleTestCase):
         return_value=[
             {
                 "loc": "https://sustainacore.org/tech100/company/MSFT/",
-                "lastmod": "2025-01-01",
+                "lastmod": "2025-01-01T12:34:56",
                 "changefreq": "daily",
                 "priority": "0.9",
             }
@@ -52,7 +55,7 @@ class SeoFoundationsTests(SimpleTestCase):
         return_value=[
             {
                 "loc": "https://sustainacore.org/news/NEWS_ITEMS:1/",
-                "lastmod": "2025-01-01",
+                "lastmod": "2025-01-01T05:06:07",
                 "changefreq": "daily",
                 "priority": "0.8",
             }
@@ -78,6 +81,9 @@ class SeoFoundationsTests(SimpleTestCase):
                 self.assertIn(f"{canonical_base}sitemaps/ai_regulation.xml", content)
                 self.assertIn(f"{canonical_base}sitemaps/tech100_companies_1.xml", content)
                 self.assertIn(f"{canonical_base}sitemaps/news_items_1.xml", content)
+                lastmod = re.search(r"<lastmod>([^<]+)</lastmod>", content)
+                self.assertIsNotNone(lastmod)
+                self.assertRegex(lastmod.group(1), self.VALID_LASTMOD)
 
     @mock.patch(
         "core.sitemaps._get_company_entries",
@@ -137,11 +143,17 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertIn(f"{canonical_base}tech100/company/MSFT/", content)
+        lastmod = re.search(r"<lastmod>([^<]+)</lastmod>", content)
+        self.assertIsNotNone(lastmod)
+        self.assertRegex(lastmod.group(1), self.VALID_LASTMOD)
 
         response = self.client.get("/sitemaps/news_items_1.xml", HTTP_HOST="sustainacore.org", follow=True)
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertIn(f"{canonical_base}news/NEWS_ITEMS:1/", content)
+        lastmod = re.search(r"<lastmod>([^<]+)</lastmod>", content)
+        self.assertIsNotNone(lastmod)
+        self.assertRegex(lastmod.group(1), self.VALID_LASTMOD)
 
     @mock.patch(
         "core.sitemaps._get_company_entries",

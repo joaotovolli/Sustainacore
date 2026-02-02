@@ -11,10 +11,15 @@ from django.urls import reverse
 from core import news_data
 from core import tech100_company_data
 
+logger = logging.getLogger(__name__)
+
 COMPANY_SITEMAP_CHUNK = 2000
 NEWS_SITEMAP_CHUNK = 2000
 COMPANY_SITEMAP_PREFIX = "tech100_companies"
 NEWS_SITEMAP_PREFIX = "news_items"
+
+_company_entries_error = False
+_news_entries_error = False
 
 def _template_lastmod(template_name: str):
     template_root = Path(settings.BASE_DIR) / "templates"
@@ -33,14 +38,44 @@ def _canonical_url(path: str) -> str:
     return f"{settings.SITE_URL.rstrip('/')}{path}"
 
 
-def _format_lastmod(value: datetime | date | None) -> str | None:
+def _parse_lastmod(value) -> datetime | date | None:
     if value is None:
         return None
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.date().isoformat()
-    return value.isoformat()
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(text)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            try:
+                return date.fromisoformat(text)
+            except ValueError:
+                return None
+    return None
+
+
+def _format_lastmod(value, *, date_only: bool = False) -> str | None:
+    parsed = _parse_lastmod(value)
+    if parsed is None:
+        return None
+    if isinstance(parsed, datetime):
+        if date_only:
+            return parsed.date().isoformat()
+        normalized = parsed.replace(microsecond=0).astimezone(timezone.utc)
+        return normalized.isoformat().replace("+00:00", "Z")
+    return parsed.isoformat()
 
 
 def _build_entries(template_map: dict[str, str], changefreq: str, priority: float) -> list[dict[str, str]]:
@@ -61,8 +96,18 @@ def _build_entries(template_map: dict[str, str], changefreq: str, priority: floa
 
 
 def _entries_lastmod(entries: list[dict[str, str]]) -> str | None:
-    lastmods = [entry.get("lastmod") for entry in entries if entry.get("lastmod")]
-    return max(lastmods) if lastmods else None
+    candidates = []
+    for entry in entries:
+        parsed = _parse_lastmod(entry.get("lastmod"))
+        if parsed is None:
+            continue
+        if isinstance(parsed, date) and not isinstance(parsed, datetime):
+            parsed = datetime.combine(parsed, datetime.min.time(), tzinfo=timezone.utc)
+        candidates.append(parsed)
+    if not candidates:
+        return None
+    latest = max(candidates)
+    return _format_lastmod(latest, date_only=True)
 
 
 def render_urlset(entries: list[dict[str, str]]) -> str:
@@ -215,6 +260,22 @@ def _build_shard_index_entries(
 ) -> list[dict[str, str]]:
     shard_entries: list[dict[str, str]] = []
     entries = loader()
+    if not entries:
+        if prefix == COMPANY_SITEMAP_PREFIX and _company_entries_error:
+            shard_entries.append(
+                {
+                    "loc": _canonical_url(f"/sitemaps/{prefix}_1.xml"),
+                    "lastmod": "",
+                }
+            )
+        if prefix == NEWS_SITEMAP_PREFIX and _news_entries_error:
+            shard_entries.append(
+                {
+                    "loc": _canonical_url(f"/sitemaps/{prefix}_1.xml"),
+                    "lastmod": "",
+                }
+            )
+        return shard_entries
     for index, chunk in enumerate(_chunk_entries(entries, chunk_size), start=1):
         if not chunk:
             continue
@@ -254,6 +315,7 @@ def _get_sharded_entries(
 
 
 def _get_company_entries() -> list[dict[str, str]]:
+    global _company_entries_error
     cache_key = "sitemap_company_entries"
     cached = cache.get(cache_key)
     if isinstance(cached, list):
@@ -261,6 +323,7 @@ def _get_company_entries() -> list[dict[str, str]]:
     try:
         items = tech100_company_data.get_company_sitemap_items()
     except Exception:
+        _company_entries_error = True
         logger.exception("Failed to load Tech100 company sitemap items.")
         return []
     entries: list[dict[str, str]] = []
@@ -277,11 +340,13 @@ def _get_company_entries() -> list[dict[str, str]]:
         if lastmod:
             entry["lastmod"] = lastmod
         entries.append(entry)
+    _company_entries_error = False
     cache.set(cache_key, entries, 600)
     return entries
 
 
 def _get_news_entries() -> list[dict[str, str]]:
+    global _news_entries_error
     cache_key = "sitemap_news_entries"
     cached = cache.get(cache_key)
     if isinstance(cached, list):
@@ -289,6 +354,7 @@ def _get_news_entries() -> list[dict[str, str]]:
     try:
         items = news_data.fetch_news_sitemap_items()
     except Exception:
+        _news_entries_error = True
         logger.exception("Failed to load news sitemap items.")
         return []
     entries: list[dict[str, str]] = []
@@ -301,10 +367,11 @@ def _get_news_entries() -> list[dict[str, str]]:
             "changefreq": "daily",
             "priority": "0.8",
         }
-        lastmod = item.get("lastmod")
+        lastmod = _format_lastmod(item.get("lastmod"))
         if lastmod:
             entry["lastmod"] = lastmod
         entries.append(entry)
+    _news_entries_error = False
     cache.set(cache_key, entries, 600)
     return entries
 
@@ -312,4 +379,3 @@ def _get_news_entries() -> list[dict[str, str]]:
 SITEMAPS = {
     "static": StaticViewSitemap,
 }
-logger = logging.getLogger(__name__)

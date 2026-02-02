@@ -2201,6 +2201,21 @@ def sitemap_section(request, section: str):
 
     entries = sitemaps.get_section_entries(section)
     if not entries:
+        if section.startswith(sitemaps.COMPANY_SITEMAP_PREFIX) or section.startswith(
+            sitemaps.NEWS_SITEMAP_PREFIX
+        ):
+            content = sitemaps.render_urlset([])
+            response = HttpResponse(content, content_type="application/xml")
+            cache.set(
+                cache_key,
+                {
+                    "content": response.content,
+                    "content_type": response.get("Content-Type", "application/xml"),
+                    "last_modified": response.headers.get("Last-Modified"),
+                },
+                timeout=settings.SITEMAP_CACHE_SECONDS,
+            )
+            return response
         raise Http404("Sitemap section not found")
     content = sitemaps.render_urlset(entries)
     response = HttpResponse(content, content_type="application/xml")
