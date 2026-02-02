@@ -91,6 +91,7 @@ def _column_map(columns: List[str]) -> Dict[str, Optional[str]]:
         "published_at": pick(
             ["DT_PUB", "PUBLISHED_AT", "PUB_DATE", "PUBLISHED", "CREATED_AT", "CREATE_DATE"]
         ),
+        "updated_at": pick(["UPDATED_AT", "UPDATE_DATE", "LAST_UPDATED", "LAST_UPDATE", "MODIFIED_AT"]),
         "source": pick(["SOURCE_NAME", "SOURCE"]),
         "body": pick(["BODY", "SUMMARY", "DESCRIPTION", "TEXT", "BODY_HTML", "FULL_TEXT", "CONTENT"]),
         "full_text": pick(["FULL_TEXT", "CONTENT", "BODY_HTML"]),
@@ -590,4 +591,66 @@ def fetch_news_detail(*, news_id: str) -> Dict[str, Any]:
     }
 
 
-__all__ = ["fetch_news_list", "fetch_news_detail", "fetch_filter_options", "NewsDataError"]
+def fetch_news_sitemap_items(limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    effective_limit = _sanitize_limit(limit) if limit is not None else None
+    sources = _get_sources()
+    list_source = sources["list"]
+    mapping = list_source["mapping"]
+    table_name = _qualify_name(list_source["name"], sources["schema"])
+
+    item_id_col = mapping.get("item_id")
+    item_table_col = mapping.get("item_table")
+    published_col = mapping.get("published_at")
+    updated_col = mapping.get("updated_at")
+
+    if not item_id_col:
+        raise NewsDataError("News source missing required columns.")
+
+    timestamp_col = updated_col or published_col or item_id_col
+
+    sql = (
+        f"SELECT {item_table_col or 'NULL'} AS item_table, {item_id_col} AS item_id, "
+        f"{timestamp_col} AS dt_updated, {published_col or 'NULL'} AS dt_pub "
+        f"FROM {table_name} "
+        f"WHERE {item_id_col} IS NOT NULL "
+        f"ORDER BY {timestamp_col} DESC NULLS LAST"
+    )
+    if effective_limit:
+        sql += " FETCH FIRST :limit ROWS ONLY"
+
+    binds: Dict[str, Any] = {}
+    if effective_limit:
+        binds["limit"] = effective_limit
+
+    items: List[Dict[str, Any]] = []
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        rows = cur.fetchall() or []
+
+    for row in rows:
+        item_table, item_id, dt_updated, dt_pub = [_to_plain(val) for val in row]
+        if item_id is None:
+            continue
+        if item_table:
+            item_id_str = f"{item_table}:{item_id}"
+        else:
+            item_id_str = str(item_id)
+        lastmod_value = _format_timestamp(dt_updated) or _format_timestamp(dt_pub)
+        items.append(
+            {
+                "news_id": item_id_str,
+                "lastmod": lastmod_value,
+            }
+        )
+
+    return items
+
+
+__all__ = [
+    "fetch_news_list",
+    "fetch_news_detail",
+    "fetch_filter_options",
+    "fetch_news_sitemap_items",
+    "NewsDataError",
+]

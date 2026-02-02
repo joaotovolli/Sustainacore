@@ -881,3 +881,32 @@ def get_company_list() -> list[dict]:
     ]
     cache.set(key, companies, 900)
     return companies
+
+
+def get_company_sitemap_items() -> list[dict]:
+    key = _cache_key("sitemap_items")
+    cached = cache.get(key)
+    if isinstance(cached, list):
+        return cached
+
+    sql = (
+        "SELECT ticker, MAX(port_date) AS last_date "
+        "FROM tech11_ai_gov_eth_index "
+        "WHERE ticker IS NOT NULL "
+        "GROUP BY ticker "
+        "ORDER BY ticker"
+    )
+    rows = _execute_rows(sql, {})
+    items: list[dict] = []
+    for ticker, last_date in rows:
+        ticker_val = str(_to_plain(ticker) or "").strip().upper()
+        if not ticker_val:
+            continue
+        items.append(
+            {
+                "ticker": ticker_val,
+                "lastmod": _to_date(last_date),
+            }
+        )
+    cache.set(key, items, 900)
+    return items

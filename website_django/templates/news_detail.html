@@ -3,6 +3,25 @@
 
 {% block title %}{% if article %}{{ article.title }}{% else %}News | SustainaCore ESG & AI Governance{% endif %}{% endblock %}
 {% block meta_description %}{% if article %}{{ article.summary|default_if_none:""|truncatechars:160 }}{% else %}Curated headlines on ESG transparency and AI governance.{% endif %}{% endblock %}
+{% block og_title %}{% if article %}{{ article.title }}{% else %}News | SustainaCore{% endif %}{% endblock %}
+{% block og_description %}{% if article %}{{ article.summary|default_if_none:""|truncatechars:160 }}{% else %}Curated headlines on ESG transparency and AI governance.{% endif %}{% endblock %}
+{% block structured_data %}
+    {% if article %}
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "NewsArticle",
+      "headline": "{{ article.title|escapejs }}",
+      "datePublished": "{% if published_at %}{{ published_at|date:'Y-m-d' }}{% elif article.published_at %}{{ article.published_at }}{% endif %}",
+      "dateModified": "{% if published_at %}{{ published_at|date:'Y-m-d' }}{% elif article.published_at %}{{ article.published_at }}{% endif %}",
+      "mainEntityOfPage": "{{ canonical_url }}",
+      "publisher": {
+        "@id": "{{ site_url }}#organization"
+      }
+    }
+    </script>
+    {% endif %}
+{% endblock %}
 
 {% block content %}
 <section class="section news-detail">

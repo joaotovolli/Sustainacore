@@ -3,6 +3,25 @@
 
 {% block title %}{{ company_name }} ({{ ticker }}) | Tech100 AI Ethics &amp; Governance Index | SustainaCore{% endblock %}
 {% block meta_description %}Deep dive into {{ company_name }} AI governance scores, history, and Tech100 AI Ethics &amp; Governance Index benchmarks.{% endblock %}
+{% block structured_data %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Report",
+    "name": "{{ company_name|escapejs }} ({{ ticker }}) Tech100 AI Ethics & Governance Report",
+    "url": "{{ canonical_url }}",
+    {% if latest_date %}"dateModified": "{{ latest_date|date:'Y-m-d' }}",{% endif %}
+    "publisher": {
+      "@id": "{{ site_url }}#organization"
+    },
+    "about": {
+      "@type": "Organization",
+      "name": "{{ company_name|escapejs }}",
+      "tickerSymbol": "{{ ticker }}"
+    }
+  }
+  </script>
+{% endblock %}
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
