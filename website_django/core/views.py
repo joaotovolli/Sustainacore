@@ -2123,6 +2123,7 @@ def robots_txt(request):
             "User-agent: *",
             "Allow: /",
             "Disallow: /admin/",
+            "Disallow: /_sc/admin/",
             "Disallow: /news/admin/",
             "Disallow: /api/",
             "Disallow: /ask2/api/",
@@ -2152,6 +2153,10 @@ def _is_preview_request(request) -> bool:
 
 
 def sitemap_index(request):
+    file_response = _sitemap_file_response("sitemap.xml")
+    if file_response:
+        return file_response
+
     cache_key = "sitemap_index_xml"
     cached = cache.get(cache_key)
     if cached:
@@ -2182,6 +2187,10 @@ def sitemap_index(request):
 
 
 def sitemap_section(request, section: str):
+    file_response = _sitemap_file_response(f"sitemaps/{section}.xml")
+    if file_response:
+        return file_response
+
     cache_key = f"sitemap_section_{section}"
     cached = cache.get(cache_key)
     if cached:
@@ -2207,6 +2216,21 @@ def sitemap_section(request, section: str):
         },
         timeout=settings.SITEMAP_CACHE_SECONDS,
     )
+    return response
+
+
+def _sitemap_file_response(relative_path: str) -> Optional[HttpResponse]:
+    output_dir = Path(settings.SITEMAP_OUTPUT_DIR)
+    file_path = output_dir / relative_path
+    if not file_path.exists():
+        return None
+    content = file_path.read_text(encoding="utf-8")
+    response = HttpResponse(content, content_type="application/xml")
+    try:
+        last_modified = datetime.utcfromtimestamp(file_path.stat().st_mtime).date().isoformat()
+        response.headers["Last-Modified"] = last_modified
+    except OSError:
+        pass
     return response
 
 

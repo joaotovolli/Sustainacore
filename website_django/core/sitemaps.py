@@ -1,11 +1,20 @@
 from datetime import date, datetime, timezone
+import logging
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 from django.conf import settings
 from django.contrib.sitemaps import Sitemap
+from django.core.cache import cache
 from django.urls import reverse
 
+from core import news_data
+from core import tech100_company_data
+
+COMPANY_SITEMAP_CHUNK = 2000
+NEWS_SITEMAP_CHUNK = 2000
+COMPANY_SITEMAP_PREFIX = "tech100_companies"
+NEWS_SITEMAP_PREFIX = "news_items"
 
 def _template_lastmod(template_name: str):
     template_root = Path(settings.BASE_DIR) / "templates"
@@ -133,7 +142,6 @@ _STATIC_TEMPLATE_MAP = {
     "terms": "terms.html",
     "corrections": "corrections.html",
     "ask2:ask2_page": "ask2.html",
-    "ai_regulation": "ai_reg/ai_regulation.html",
 }
 
 _TECH100_TEMPLATE_MAP = {
@@ -150,14 +158,23 @@ _NEWS_TEMPLATE_MAP = {
     "news": "news.html",
 }
 
+_AI_REG_TEMPLATE_MAP = {
+    "ai_regulation": "ai_reg/ai_regulation.html",
+}
+
 SITEMAP_SECTIONS = (
     ("static", _STATIC_TEMPLATE_MAP, "weekly", 0.7),
     ("tech100", _TECH100_TEMPLATE_MAP, "weekly", 0.7),
     ("news", _NEWS_TEMPLATE_MAP, "daily", 0.6),
+    ("ai_regulation", _AI_REG_TEMPLATE_MAP, "weekly", 0.6),
 )
 
 
 def get_section_entries(section: str) -> list[dict[str, str]]:
+    if section.startswith(f"{COMPANY_SITEMAP_PREFIX}_"):
+        return _get_sharded_entries(section, COMPANY_SITEMAP_PREFIX, COMPANY_SITEMAP_CHUNK, _get_company_entries)
+    if section.startswith(f"{NEWS_SITEMAP_PREFIX}_"):
+        return _get_sharded_entries(section, NEWS_SITEMAP_PREFIX, NEWS_SITEMAP_CHUNK, _get_news_entries)
     for key, template_map, changefreq, priority in SITEMAP_SECTIONS:
         if key == section:
             return _build_entries(template_map, changefreq, priority)
@@ -165,6 +182,9 @@ def get_section_entries(section: str) -> list[dict[str, str]]:
 
 
 def get_section_lastmod(section: str) -> str | None:
+    if section.startswith(f"{COMPANY_SITEMAP_PREFIX}_") or section.startswith(f"{NEWS_SITEMAP_PREFIX}_"):
+        entries = get_section_entries(section)
+        return _entries_lastmod(entries)
     entries = get_section_entries(section)
     return _entries_lastmod(entries)
 
@@ -182,9 +202,114 @@ def get_section_index_entries() -> list[dict[str, str]]:
                 "lastmod": lastmod or "",
             }
         )
+
+    entries.extend(_build_shard_index_entries(COMPANY_SITEMAP_PREFIX, COMPANY_SITEMAP_CHUNK, _get_company_entries))
+    entries.extend(_build_shard_index_entries(NEWS_SITEMAP_PREFIX, NEWS_SITEMAP_CHUNK, _get_news_entries))
+    return entries
+
+
+def _build_shard_index_entries(
+    prefix: str,
+    chunk_size: int,
+    loader,
+) -> list[dict[str, str]]:
+    shard_entries: list[dict[str, str]] = []
+    entries = loader()
+    for index, chunk in enumerate(_chunk_entries(entries, chunk_size), start=1):
+        if not chunk:
+            continue
+        lastmod = _entries_lastmod(chunk) or ""
+        shard_entries.append(
+            {
+                "loc": _canonical_url(f"/sitemaps/{prefix}_{index}.xml"),
+                "lastmod": lastmod,
+            }
+        )
+    return shard_entries
+
+
+def _chunk_entries(entries: list[dict[str, str]], chunk_size: int) -> list[list[dict[str, str]]]:
+    if chunk_size <= 0:
+        return [entries]
+    return [entries[i : i + chunk_size] for i in range(0, len(entries), chunk_size)]
+
+
+def _get_sharded_entries(
+    section: str,
+    prefix: str,
+    chunk_size: int,
+    loader,
+) -> list[dict[str, str]]:
+    try:
+        index = int(section.replace(f"{prefix}_", "").strip())
+    except (TypeError, ValueError):
+        return []
+    if index <= 0:
+        return []
+    entries = loader()
+    chunks = _chunk_entries(entries, chunk_size)
+    if index > len(chunks):
+        return []
+    return chunks[index - 1]
+
+
+def _get_company_entries() -> list[dict[str, str]]:
+    cache_key = "sitemap_company_entries"
+    cached = cache.get(cache_key)
+    if isinstance(cached, list):
+        return cached
+    try:
+        items = tech100_company_data.get_company_sitemap_items()
+    except Exception:
+        logger.exception("Failed to load Tech100 company sitemap items.")
+        return []
+    entries: list[dict[str, str]] = []
+    for item in items:
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        entry = {
+            "loc": _canonical_url(f"/tech100/company/{ticker}/"),
+            "changefreq": "daily",
+            "priority": "0.9",
+        }
+        lastmod = _format_lastmod(item.get("lastmod"))
+        if lastmod:
+            entry["lastmod"] = lastmod
+        entries.append(entry)
+    cache.set(cache_key, entries, 600)
+    return entries
+
+
+def _get_news_entries() -> list[dict[str, str]]:
+    cache_key = "sitemap_news_entries"
+    cached = cache.get(cache_key)
+    if isinstance(cached, list):
+        return cached
+    try:
+        items = news_data.fetch_news_sitemap_items()
+    except Exception:
+        logger.exception("Failed to load news sitemap items.")
+        return []
+    entries: list[dict[str, str]] = []
+    for item in items:
+        news_id = str(item.get("news_id") or "").strip()
+        if not news_id:
+            continue
+        entry = {
+            "loc": _canonical_url(f"/news/{news_id}/"),
+            "changefreq": "daily",
+            "priority": "0.8",
+        }
+        lastmod = item.get("lastmod")
+        if lastmod:
+            entry["lastmod"] = lastmod
+        entries.append(entry)
+    cache.set(cache_key, entries, 600)
     return entries
 
 
 SITEMAPS = {
     "static": StaticViewSitemap,
 }
+logger = logging.getLogger(__name__)

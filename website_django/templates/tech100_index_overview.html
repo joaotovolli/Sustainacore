@@ -137,8 +137,20 @@
               <tbody id="tech100-constituents-body">
                 {% for row in top_constituents %}
                   <tr>
-                    <td class="text-left">{{ row.ticker|default:"—" }}</td>
-                    <td class="text-left">{{ row.name|default:"—" }}</td>
+                    <td class="text-left">
+                      {% if row.ticker %}
+                        <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.ticker }}</a>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="text-left">
+                      {% if row.ticker %}
+                        <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.name|default:"—" }}</a>
+                      {% else %}
+                        {{ row.name|default:"—" }}
+                      {% endif %}
+                    </td>
                     <td class="text-right">{% if row.weight_pct or row.weight_pct == 0 %}{{ row.weight_pct|floatformat:2 }}{% else %}—{% endif %}</td>
                     <td class="text-right">{{ row.price|default:"—"|floatformat:2 }}</td>
                     <td class="text-right">{% if row.ret_1d_pct or row.ret_1d_pct == 0 %}{{ row.ret_1d_pct|floatformat:2 }}{% else %}—{% endif %}</td>

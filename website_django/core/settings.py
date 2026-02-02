@@ -66,6 +66,10 @@ DEFAULT_META_DESCRIPTION = (
 )
 STATIC_VERSION = os.environ.get("STATIC_VERSION", "dev")
 SITEMAP_CACHE_SECONDS = int(os.environ.get("SITEMAP_CACHE_SECONDS", "3600"))
+SITEMAP_OUTPUT_DIR = os.environ.get(
+    "SITEMAP_OUTPUT_DIR",
+    str(BASE_DIR / "generated_sitemaps"),
+)
 TELEMETRY_POLICY_VERSION = os.environ.get("TELEMETRY_POLICY_VERSION", "2025-12-30")
 TELEMETRY_HASH_SALT = os.environ.get("TELEMETRY_HASH_SALT", SECRET_KEY)
 TELEMETRY_RETENTION_DAYS = int(os.environ.get("TELEMETRY_RETENTION_DAYS", "180"))
@@ -102,6 +106,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sitemaps',
+    'core',
     'ai_reg',
     'ask2',
     'telemetry',
