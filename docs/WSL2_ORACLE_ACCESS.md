@@ -7,19 +7,33 @@ Only enable Oracle locally if you have a wallet and credentials stored **outside
 - Default: fixture mode (no Oracle required)
 - Optional: Oracle mode (local env only)
 
+## Copy wallet locally (outside repo)
+Use the VM alias to copy the wallet into WSL2 local storage (outside the repo):
+```bash
+mkdir -p ~/.oracle/<profile>
+chmod 700 ~/.oracle ~/.oracle/<profile>
+scp vm1:/path/to/wallet/tnsnames.ora ~/.oracle/<profile>/
+scp vm1:/path/to/wallet/sqlnet.ora ~/.oracle/<profile>/
+scp vm1:/path/to/wallet/cwallet.sso ~/.oracle/<profile>/
+scp vm1:/path/to/wallet/ewallet.p12 ~/.oracle/<profile>/
+chmod 600 ~/.oracle/<profile>/*
+```
+
 ## Local-only Oracle env vars
 Set these in your shell (do not commit):
 ```bash
-export ORACLE_WALLET_DIR=/path/to/wallet
-export ORACLE_DSN=...
-export ORACLE_USER=...
-export ORACLE_PASSWORD=...
+export ORACLE_WALLET_DIR="$HOME/.oracle/<profile>"
+export ORACLE_TNS_ADMIN="$HOME/.oracle/<profile>"
+export ORACLE_DSN="<service_alias>"
+export ORACLE_USER="<user>"
+export ORACLE_PASSWORD="<password>"
 ```
 
 Notes:
 - Never commit these values.
 - Do not print wallet contents or `.env` values.
 - If your wallet uses `TNS_ADMIN`, set it to the wallet directory.
+ - Keep any local-only env file (e.g., `~/.sustainacore_oracle_env`) outside the repo.
 
 ## Smoke check (safe)
 Runs only if env vars are present and prints success/failure only:

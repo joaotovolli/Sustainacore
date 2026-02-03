@@ -25,10 +25,16 @@ def main() -> int:
     user = _get_env("ORACLE_USER") or _get_env("DB_USER")
     password = _get_env("ORACLE_PASSWORD") or _get_env("DB_PASSWORD") or _get_env("DB_PASS")
     dsn = _get_env("ORACLE_DSN") or _get_env("DB_DSN")
+    tns_admin = _get_env("ORACLE_TNS_ADMIN") or _get_env("TNS_ADMIN")
+    wallet_dir = _get_env("ORACLE_WALLET_DIR")
 
     if not user or not password or not dsn:
         print("Oracle not configured; skipping")
         return 0
+    if tns_admin:
+        os.environ["TNS_ADMIN"] = tns_admin
+    elif wallet_dir:
+        os.environ["TNS_ADMIN"] = wallet_dir
 
     start = time.monotonic()
     try:
