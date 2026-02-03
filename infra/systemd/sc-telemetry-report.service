@@ -1,0 +1,19 @@
+[Unit]
+Description=Daily web telemetry report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=opc
+WorkingDirectory=/home/opc/Sustainacore
+Environment=PYTHONPATH=/home/opc/Sustainacore
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/sustainacore/db.env
+EnvironmentFile=/etc/sustainacore-ai/secrets.env
+EnvironmentFile=/etc/sustainacore.env
+RuntimeMaxSec=900
+ExecStart=/usr/bin/flock -n /tmp/sc-telemetry-report.lock /usr/bin/python3 /home/opc/Sustainacore/tools/telemetry/daily_report.py --send
+
+[Install]
+WantedBy=multi-user.target
