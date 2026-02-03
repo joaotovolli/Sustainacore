@@ -59,16 +59,27 @@ def _record_success() -> None:
     _CIRCUIT_OPEN_UNTIL = 0.0
 
 
-def _send_email_message(mail_to: str, subject: str, body: str, mail_from: Optional[str]) -> bool:
+def _send_email_message(
+    mail_to: str,
+    subject: str,
+    body: str,
+    mail_from: Optional[str],
+    *,
+    timeout_override: Optional[float] = None,
+    retry_attempts_override: Optional[int] = None,
+    retry_base_override: Optional[float] = None,
+) -> bool:
     _log_env_once()
     if _circuit_open():
         _LOGGER.warning("email_send skipped circuit_open=1")
         return False
     host = _env("SMTP_HOST", "smtp.ionos.co.uk")
     port_raw = _env("SMTP_PORT", "587")
-    timeout_raw = _env("SMTP_TIMEOUT_SEC", "5")
-    retry_raw = _env("SMTP_RETRY_ATTEMPTS", "2")
-    retry_base_raw = _env("SMTP_RETRY_BASE_SEC", "0.5")
+    timeout_raw = timeout_override if timeout_override is not None else _env("SMTP_TIMEOUT_SEC", "5")
+    retry_raw = (
+        retry_attempts_override if retry_attempts_override is not None else _env("SMTP_RETRY_ATTEMPTS", "2")
+    )
+    retry_base_raw = retry_base_override if retry_base_override is not None else _env("SMTP_RETRY_BASE_SEC", "0.5")
     try:
         port = int(port_raw) if port_raw is not None else 587
     except (TypeError, ValueError):
@@ -161,21 +172,53 @@ def _send_email_message(mail_to: str, subject: str, body: str, mail_from: Option
     return False
 
 
-def send_email(subject: str, body: str) -> bool:
+def send_email(
+    subject: str,
+    body: str,
+    *,
+    timeout_sec: Optional[float] = None,
+    retry_attempts: Optional[int] = None,
+    retry_base_sec: Optional[float] = None,
+) -> bool:
     """Send an email using SMTP STARTTLS. No-op if required env vars are missing."""
 
     mail_to = _env("MAIL_TO")
     if not mail_to:
         return False
-    return _send_email_message(mail_to, subject, body, mail_from=None)
+    return _send_email_message(
+        mail_to,
+        subject,
+        body,
+        mail_from=None,
+        timeout_override=timeout_sec,
+        retry_attempts_override=retry_attempts,
+        retry_base_override=retry_base_sec,
+    )
 
 
-def send_email_to(mail_to: str, subject: str, body: str, *, mail_from: Optional[str] = None) -> bool:
+def send_email_to(
+    mail_to: str,
+    subject: str,
+    body: str,
+    *,
+    mail_from: Optional[str] = None,
+    timeout_sec: Optional[float] = None,
+    retry_attempts: Optional[int] = None,
+    retry_base_sec: Optional[float] = None,
+) -> bool:
     """Send an email to the requested recipient using the configured SMTP settings."""
 
     if not mail_to:
         return False
-    return _send_email_message(mail_to, subject, body, mail_from=mail_from)
+    return _send_email_message(
+        mail_to,
+        subject,
+        body,
+        mail_from=mail_from,
+        timeout_override=timeout_sec,
+        retry_attempts_override=retry_attempts,
+        retry_base_override=retry_base_sec,
+    )
 
 
 __all__ = ["send_email", "send_email_to"]

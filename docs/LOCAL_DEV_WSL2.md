@@ -65,8 +65,15 @@ cd website_django
 
 ## SSH connectivity check (VM1/VM2)
 ```bash
-VM1_HOST=... VM1_USER=... VM2_HOST=... VM2_USER=... \
-  [SSH_KEY_PATH=...] bash scripts/dev/ssh_smoke.sh
+VM1_HOST=<vm1_host> VM1_USER=<vm1_user> VM2_HOST=<vm2_host> VM2_USER=<vm2_user> \
+  [SSH_KEY_PATH=~/.ssh/<key_name>] bash scripts/dev/ssh_smoke.sh
+```
+
+## Auth login-code smoke (VM1)
+Use a controlled inbox for testing and keep it out of Git. This checks `/healthz` and `/api/auth/request-code`
+with strict timeouts.
+```bash
+AUTH_BASE_URL=<vm1_base_url> AUTH_EMAIL=<test_inbox> bash scripts/dev/auth_smoke.sh
 ```
 
 ## Oracle connectivity check (optional)
@@ -78,13 +85,13 @@ python scripts/dev/oracle_smoke.py
 ## Deploy to VM2 / VM1 (WSL2)
 VM2:
 ```bash
-VM2_HOST=... VM2_USER=... APP_DIR_VM2=... SSH_KEY_PATH=... \
+VM2_HOST=<vm2_host> VM2_USER=<vm2_user> APP_DIR_VM2=<app_dir> SSH_KEY_PATH=~/.ssh/<key_name> \
   bash scripts/deploy/deploy_vm2.sh
 ```
 
 VM1:
 ```bash
-VM1_HOST=... VM1_USER=... APP_DIR_VM1=... SSH_KEY_PATH=... \
+VM1_HOST=<vm1_host> VM1_USER=<vm1_user> APP_DIR_VM1=<app_dir> SSH_KEY_PATH=~/.ssh/<key_name> \
   bash scripts/deploy/deploy_vm1.sh
 ```
 
