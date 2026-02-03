@@ -17,7 +17,7 @@ wsl.exe --install -d Ubuntu
 ## WSL repo workspace
 From WSL, use the Windows path via `/mnt`:
 ```bash
-cd "/mnt/c/Users/<your_user>/OneDrive/Documents/My Project/codex/Sustainacore"
+cd "/mnt/c/Users/<your_user>/<path_to_repo>/Sustainacore"
 ```
 
 ## Bootstrap (WSL2)
@@ -66,30 +66,31 @@ cd website_django
 ../scripts/dev/capture_screenshots.sh ../local_artifacts/url_list_<timestamp>.json \
   ../local_artifacts/screenshots_<timestamp>
 ```
+Screenshots are local-only and should not be committed.
 
 ## SSH connectivity check (VM1/VM2)
 ```bash
-VM1_HOST=... VM1_USER=... VM2_HOST=... VM2_USER=... \
-  [SSH_KEY_PATH=...] bash scripts/dev/ssh_smoke.sh
+VM1_HOST=<vm1_host> VM1_USER=<vm1_user> VM2_HOST=<vm2_host> VM2_USER=<vm2_user> \
+  [SSH_KEY_PATH=~/.ssh/<key_name>] bash scripts/dev/ssh_smoke.sh
 ```
 
 ## Oracle connectivity check (optional)
 Oracle is optional for local dev and only runs if env vars are present.
 ```bash
 source .venv/bin/activate
-python scripts/dev/oracle_smoke.py
+timeout 20s python scripts/dev/oracle_smoke.py
 ```
 
 ## Deploy to VM2 / VM1 (WSL2)
 VM2:
 ```bash
-VM2_HOST=... VM2_USER=... APP_DIR_VM2=... SSH_KEY_PATH=... \
+VM2_HOST=<vm2_host> VM2_USER=<vm2_user> APP_DIR_VM2=<app_dir> SSH_KEY_PATH=~/.ssh/<key_name> \
   bash scripts/deploy/deploy_vm2.sh
 ```
 
 VM1:
 ```bash
-VM1_HOST=... VM1_USER=... APP_DIR_VM1=... SSH_KEY_PATH=... \
+VM1_HOST=<vm1_host> VM1_USER=<vm1_user> APP_DIR_VM1=<app_dir> SSH_KEY_PATH=~/.ssh/<key_name> \
   bash scripts/deploy/deploy_vm1.sh
 ```
 
