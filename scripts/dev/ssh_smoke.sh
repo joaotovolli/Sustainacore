@@ -41,8 +41,21 @@ check_host() {
   local label="$1"
   local user="$2"
   local host="$3"
+  local err_file
+  err_file="$(mktemp)"
   echo "Checking ${label}..."
-  ssh "${SSH_OPTS[@]}" "${user}@${host}" "uname -a && echo OK"
+  if ssh "${SSH_OPTS[@]}" "${user}@${host}" "uname -a | awk '{\$2=\"[redacted]\"; print}'" 2>"${err_file}"; then
+    rm -f "${err_file}"
+    echo "${label} OK"
+    return 0
+  fi
+  if [ "${SSH_SMOKE_DEBUG:-0}" = "1" ]; then
+    cat "${err_file}" >&2
+  else
+    echo "${label} failed. Re-run with SSH_SMOKE_DEBUG=1 for details." >&2
+  fi
+  rm -f "${err_file}"
+  return 1
 }
 
 check_host "VM2" "$VM2_USER" "$VM2_HOST"

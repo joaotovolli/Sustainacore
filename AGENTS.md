@@ -27,6 +27,18 @@ cd website_django
   ../local_artifacts/screenshots_<timestamp>
 ```
 
+SSH smoke (vm1/vm2 aliases supported):
+```bash
+VM1_HOST=<vm1_host> VM1_USER=<vm1_user> VM2_HOST=<vm2_host> VM2_USER=<vm2_user> \
+  [SSH_KEY_PATH=~/.ssh/<key>] bash scripts/dev/ssh_smoke.sh
+```
+
+Oracle smoke (optional, local-only env):
+```bash
+source .venv/bin/activate
+python scripts/dev/oracle_smoke.py
+```
+
 Secret handling (public repo):
 - Never commit or print secrets (.env contents, keys, wallets, tokens).
 - Keep `local_artifacts/` local only (gitignored).
