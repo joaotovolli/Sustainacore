@@ -108,6 +108,26 @@ def _redact_email(value: str) -> str:
     return f"{prefix}***@{domain}"
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def send_login_email(to_email: str, code: str) -> bool:
     subject = "Your login code"
     body = "\n".join(
@@ -142,7 +162,18 @@ def send_login_email(to_email: str, code: str) -> bool:
             _redact_email(to_email),
         )
         return False
-    return send_email_to(to_email, subject, body, mail_from=MAIL_FROM_LOGIN)
+    timeout_sec = max(1.0, _env_float("LOGIN_CODE_SMTP_TIMEOUT_SEC", 3.0))
+    retry_attempts = max(0, _env_int("LOGIN_CODE_SMTP_RETRY_ATTEMPTS", 0))
+    retry_base = max(0.0, _env_float("LOGIN_CODE_SMTP_RETRY_BASE_SEC", 0.5))
+    return send_email_to(
+        to_email,
+        subject,
+        body,
+        mail_from=MAIL_FROM_LOGIN,
+        timeout_sec=timeout_sec,
+        retry_attempts=retry_attempts,
+        retry_base_sec=retry_base,
+    )
 
 
 def request_login_code_status(email_normalized: str, request_ip: str) -> tuple[bool, Optional[str]]:

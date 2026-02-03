@@ -74,6 +74,13 @@ VM1_HOST=<vm1_host> VM1_USER=<vm1_user> VM2_HOST=<vm2_host> VM2_USER=<vm2_user> 
   [SSH_KEY_PATH=~/.ssh/<key_name>] bash scripts/dev/ssh_smoke.sh
 ```
 
+## Auth login-code smoke (VM1)
+Use a controlled inbox for testing and keep it out of Git. This checks `/healthz` and `/api/auth/request-code`
+with strict timeouts.
+```bash
+AUTH_BASE_URL=<vm1_base_url> AUTH_EMAIL=<test_inbox> bash scripts/dev/auth_smoke.sh
+```
+
 ## Oracle connectivity check (optional)
 Oracle is optional for local dev and only runs if env vars are present.
 ```bash
