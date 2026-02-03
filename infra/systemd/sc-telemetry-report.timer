@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily web telemetry report timer
+
+[Timer]
+OnCalendar=*-*-* 06:45:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

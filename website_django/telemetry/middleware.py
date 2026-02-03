@@ -64,11 +64,12 @@ class TelemetryMiddleware:
         user_id = None
         country_code = None
         region_code = None
+        if not is_bot:
+            country_code, region_code = get_geo_fields(request)
         if consent.analytics and not is_bot:
             anon_id = ensure_anon_cookie(request, response)
             session_key = ensure_session_key(request)
             user_id = resolve_user_id(request, consent_analytics=True, anon_id=anon_id)
-            country_code, region_code = get_geo_fields(request)
 
         def _write_events():
             try:

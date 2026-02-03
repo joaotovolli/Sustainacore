@@ -41,6 +41,11 @@ Ask2 content (stored in Oracle):
 - `ip_hash`: salted hash (uses `TELEMETRY_HASH_SALT` or `SECRET_KEY`)
 - User agent and referrer are stored when present.
 
+## Country enrichment + consent
+- Country/region is derived from trusted headers (or GeoIP fallback) and stored for server-side events.
+- Analytics identifiers (`session_key`, `user_id`) remain consent-gated.
+- Reporting defaults to **consented analytics** for country breakdowns; non-consented traffic is reported as counts only unless policy allows otherwise.
+
 IP selection (server-side):
 - Preferred order: `X-Forwarded-For` (first public IP), `X-Real-IP`, then `REMOTE_ADDR`.
 - Private/reserved/bogon ranges are ignored unless all candidates are non-public.
@@ -97,3 +102,27 @@ Environment variables (optional):
     - https://db-ip.com/db/download/ip-to-city-lite
   - Installed path on VM2:
     - `/opt/sustainacore/geoip/dbip-city-lite.mmdb`
+
+## Daily telemetry report (VM1)
+The VM1 report script aggregates `WKSP_ESGAPEX.W_WEB_EVENT` with bot/dev filtering:
+```bash
+python tools/telemetry/daily_report.py --dry-run
+python tools/telemetry/daily_report.py --send
+python tools/telemetry/daily_report.py --date 2026-02-02 --json-out /tmp/telemetry.json
+```
+
+Filters (env-driven, no secrets in Git):
+- `TELEMETRY_EXCLUDE_IP_HASHES` (comma-separated)
+- `TELEMETRY_EXCLUDE_SESSION_KEYS`
+- `TELEMETRY_EXCLUDE_USER_IDS`
+- `TELEMETRY_BOT_UA_REGEX` (optional)
+- `TELEMETRY_PROBE_PATH_REGEX` (optional)
+- `TELEMETRY_REPORT_RECIPIENTS` (comma-separated email list; fallback to `MAIL_TO`)
+
+Systemd scheduling (VM1):
+```bash
+sudo cp infra/systemd/sc-telemetry-report.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sc-telemetry-report.timer
+```
+Default schedule is **06:45 UTC** with a lock (`/tmp/sc-telemetry-report.lock`) to prevent overlap.
