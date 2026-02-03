@@ -44,8 +44,9 @@ check_host() {
   local err_file
   err_file="$(mktemp)"
   echo "Checking ${label}..."
-  if ssh "${SSH_OPTS[@]}" "${user}@${host}" "uname -a && echo OK" 2>"${err_file}"; then
+  if ssh "${SSH_OPTS[@]}" "${user}@${host}" "uname -a | awk '{\$2=\"[redacted]\"; print}'" 2>"${err_file}"; then
     rm -f "${err_file}"
+    echo "${label} OK"
     return 0
   fi
   if [ "${SSH_SMOKE_DEBUG:-0}" = "1" ]; then

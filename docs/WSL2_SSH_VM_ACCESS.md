@@ -34,9 +34,11 @@ Use the bounded script (no secrets printed):
 VM1_HOST=... VM1_USER=... VM2_HOST=... VM2_USER=... \
   [SSH_KEY_PATH=~/.ssh/<key_name>] bash scripts/dev/ssh_smoke.sh
 ```
+If you use `~/.ssh/config` aliases, you can pass `VM1_HOST=vm1` and `VM2_HOST=vm2`.
 
 Expected output:
-- `uname -a` and `echo OK` for each VM
+- Redacted `uname -a` line (hostname removed)
+- `VM1 OK` / `VM2 OK`
 
 ## Notes
 - `StrictHostKeyChecking=accept-new` is safe for first-time host key acceptance.
