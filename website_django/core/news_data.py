@@ -210,10 +210,13 @@ def _get_sources() -> Dict[str, Any]:
     cached = _NEWS_SOURCE_CACHE.get("sources")
     if cached:
         return cached
-    with get_connection() as conn:
-        list_source = _resolve_source(conn, prefer_full=False)
-        detail_source = _resolve_source(conn, prefer_full=True)
-        current_schema = _current_schema(conn)
+    try:
+        with get_connection() as conn:
+            list_source = _resolve_source(conn, prefer_full=False)
+            detail_source = _resolve_source(conn, prefer_full=True)
+            current_schema = _current_schema(conn)
+    except oracledb.Error as exc:
+        raise NewsDataError("News data is unavailable (Oracle connection failed).") from exc
     sources = {
         "list": list_source,
         "detail": detail_source,
@@ -278,26 +281,29 @@ def fetch_filter_options() -> Dict[str, Any]:
     source_options: List[str] = []
     tag_options: List[str] = []
 
-    with get_connection() as conn:
-        cur = conn.cursor()
-        if source_col:
-            cur.execute(
-                f"SELECT DISTINCT {source_col} FROM {table_name} WHERE {source_col} IS NOT NULL"
-            )
-            rows = cur.fetchall() or []
-            source_options = sorted({str(_to_plain(row[0])).strip() for row in rows if row and row[0]})
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            if source_col:
+                cur.execute(
+                    f"SELECT DISTINCT {source_col} FROM {table_name} WHERE {source_col} IS NOT NULL"
+                )
+                rows = cur.fetchall() or []
+                source_options = sorted({str(_to_plain(row[0])).strip() for row in rows if row and row[0]})
 
-        if tags_col:
-            cur.execute(
-                f"SELECT {tags_col} FROM {table_name} WHERE {tags_col} IS NOT NULL FETCH FIRST 200 ROWS ONLY"
-            )
-            rows = cur.fetchall() or []
-            tags: List[str] = []
-            for row in rows:
-                if not row:
-                    continue
-                tags.extend(_parse_list(_to_plain(row[0])))
-            tag_options = sorted({tag for tag in tags if tag})
+            if tags_col:
+                cur.execute(
+                    f"SELECT {tags_col} FROM {table_name} WHERE {tags_col} IS NOT NULL FETCH FIRST 200 ROWS ONLY"
+                )
+                rows = cur.fetchall() or []
+                tags: List[str] = []
+                for row in rows:
+                    if not row:
+                        continue
+                    tags.extend(_parse_list(_to_plain(row[0])))
+                tag_options = sorted({tag for tag in tags if tag})
+    except oracledb.Error as exc:
+        raise NewsDataError("News filters are unavailable (Oracle connection failed).") from exc
 
     return {
         "source_options": source_options,
@@ -375,16 +381,19 @@ def fetch_news_list(
 
     items: List[Dict[str, Any]] = []
     total_count = 0
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(count_sql, count_binds)
-        count_row = cur.fetchone()
-        if count_row:
-            total_count = int(_to_plain(count_row[0]) or 0)
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(count_sql, count_binds)
+            count_row = cur.fetchone()
+            if count_row:
+                total_count = int(_to_plain(count_row[0]) or 0)
 
-        cur.execute(sql, binds)
-        raw_rows = cur.fetchall() or []
-        rows = [[_to_plain(val) for val in row] for row in raw_rows]
+            cur.execute(sql, binds)
+            raw_rows = cur.fetchall() or []
+            rows = [[_to_plain(val) for val in row] for row in raw_rows]
+    except oracledb.Error as exc:
+        raise NewsDataError("News data is unavailable (Oracle connection failed).") from exc
 
     has_more = len(rows) > effective_limit
     trimmed = rows[:effective_limit]
@@ -623,10 +632,13 @@ def fetch_news_sitemap_items(limit: Optional[int] = None) -> List[Dict[str, Any]
         binds["limit"] = effective_limit
 
     items: List[Dict[str, Any]] = []
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, binds)
-        rows = cur.fetchall() or []
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            rows = cur.fetchall() or []
+    except oracledb.Error as exc:
+        raise NewsDataError("News sitemap data is unavailable (Oracle connection failed).") from exc
 
     for row in rows:
         item_table, item_id, dt_updated, dt_pub = [_to_plain(val) for val in row]

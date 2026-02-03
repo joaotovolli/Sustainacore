@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 from typing import Optional
 
 from django.core.cache import cache
@@ -24,6 +25,52 @@ CACHE_TTLS = {
     "baseline": 900,
     "summary_history": 600,
 }
+
+
+def _fixture_items() -> list[dict]:
+    from core.api_client import _tech100_fixture_items
+
+    return _tech100_fixture_items()
+
+
+def _fixture_company(ticker: str) -> Optional[dict]:
+    normalized = _normalize_ticker(ticker)
+    if not normalized:
+        return None
+    for item in _fixture_items():
+        if _normalize_ticker(str(item.get("ticker") or "")) == normalized:
+            return item
+    return None
+
+
+def _fixture_port_date(item: dict) -> Optional[dt.date]:
+    raw_date = item.get("port_date") or item.get("port_date_str") or "2025-01-31"
+    try:
+        return dt.date.fromisoformat(str(raw_date))
+    except ValueError:
+        return None
+
+
+def _fixture_history(item: dict) -> list[dict]:
+    base_date = _fixture_port_date(item) or dt.date.today()
+    rows = []
+    for idx in range(5):
+        date_val = base_date - dt.timedelta(days=30 * idx)
+        score_shift = (idx % 3) * 0.3
+        rows.append(
+            {
+                "date": date_val.isoformat(),
+                "rank": float(item.get("rank_index") or 0) + idx,
+                "weight": float(item.get("weight") or 0),
+                "composite": float(item.get("aiges_composite_average") or 0) - score_shift,
+                "transparency": float(item.get("transparency") or 0) - score_shift,
+                "ethical_principles": float(item.get("ethical_principles") or 0) - score_shift,
+                "governance_structure": float(item.get("governance_structure") or 0) - score_shift,
+                "regulatory_alignment": float(item.get("regulatory_alignment") or 0) - score_shift,
+                "stakeholder_engagement": float(item.get("stakeholder_engagement") or 0) - score_shift,
+            }
+        )
+    return rows
 
 
 def _cache_key(*parts: str) -> str:
@@ -100,6 +147,28 @@ def get_company_summary(ticker: str) -> Optional[dict]:
     normalized = _normalize_ticker(ticker)
     if not normalized:
         return None
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        item = _fixture_company(normalized)
+        if not item:
+            return None
+        latest_date = _fixture_port_date(item)
+        return {
+            "ticker": normalized,
+            "company_name": item.get("company_name"),
+            "sector": item.get("gics_sector"),
+            "latest_date": latest_date.isoformat() if latest_date else None,
+            "latest_rank": _float_or_none(item.get("rank_index")),
+            "latest_weight": _float_or_none(item.get("weight")),
+            "summary": item.get("summary"),
+            "latest_scores": {
+                "composite": _float_or_none(item.get("aiges_composite_average")),
+                "transparency": _float_or_none(item.get("transparency")),
+                "ethical_principles": _float_or_none(item.get("ethical_principles")),
+                "governance_structure": _float_or_none(item.get("governance_structure")),
+                "regulatory_alignment": _float_or_none(item.get("regulatory_alignment")),
+                "stakeholder_engagement": _float_or_none(item.get("stakeholder_engagement")),
+            },
+        }
     key = _cache_key("summary", normalized)
     cached = cache.get(key)
     if isinstance(cached, dict) and "summary" in cached:
@@ -167,6 +236,22 @@ def get_company_summary_history(ticker: str) -> Optional[list[dict]]:
     normalized = _normalize_ticker(ticker)
     if not normalized:
         return None
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        item = _fixture_company(normalized)
+        if not item:
+            return None
+        history = []
+        for row in _fixture_history(item):
+            history.append(
+                {
+                    "date": row.get("date"),
+                    "rank": row.get("rank"),
+                    "weight": row.get("weight"),
+                    "composite": row.get("composite"),
+                    "summary": item.get("summary"),
+                }
+            )
+        return history
     key = _cache_key("summary_history", normalized)
     cached = cache.get(key)
     if isinstance(cached, list):
@@ -210,6 +295,9 @@ def get_company_latest_date(ticker: str) -> Optional[dt.date]:
     normalized = _normalize_ticker(ticker)
     if not normalized:
         return None
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        item = _fixture_company(normalized)
+        return _fixture_port_date(item) if item else None
     key = _cache_key("latest_date", normalized)
     cached = cache.get(key)
     if isinstance(cached, str):
@@ -230,6 +318,11 @@ def get_company_history(ticker: str) -> Optional[list[dict]]:
     normalized = _normalize_ticker(ticker)
     if not normalized:
         return None
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        item = _fixture_company(normalized)
+        if not item:
+            return None
+        return _fixture_history(item)
     key = _cache_key("history", normalized)
     cached = cache.get(key)
     if isinstance(cached, list):
@@ -373,6 +466,27 @@ def get_company_series(ticker: str, metric: str, range_key: str) -> Optional[lis
     normalized = _normalize_ticker(ticker)
     if not normalized:
         return None
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        item = _fixture_company(normalized)
+        if not item:
+            return None
+        history = _fixture_history(item)
+        metric_key = (metric or "").lower()
+        if metric_key not in METRIC_COLUMNS:
+            return None
+        series = []
+        for row in history:
+            date_val = row.get("date")
+            company_val = row.get(metric_key)
+            series.append(
+                {
+                    "date": date_val,
+                    "company": company_val,
+                    "baseline": None,
+                    "delta": None,
+                }
+            )
+        return series
 
     metric_key = (metric or "").lower()
     metric_col = METRIC_COLUMNS.get(metric_key)
@@ -450,6 +564,25 @@ def get_company_bundle(
     normalized = _normalize_ticker(ticker)
     if not normalized:
         return None
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        summary = get_company_summary(normalized)
+        if not summary:
+            return None
+        history = get_company_history(normalized) or []
+        series = None
+        if metric:
+            series = get_company_series(normalized, metric, range_key or "")
+        payload = {
+            "summary": summary,
+            "history": history,
+            "series": series or [],
+            "compare_series": [],
+            "metric": (metric or "").lower(),
+            "range": range_key or "",
+        }
+        if include_companies:
+            payload["companies"] = get_company_list()
+        return payload
 
     metrics_list: Optional[list[str]] = None
     if metrics:
@@ -859,6 +992,17 @@ def get_company_bundle(
 
 
 def get_company_list() -> list[dict]:
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        items = []
+        for item in _fixture_items():
+            items.append(
+                {
+                    "ticker": item.get("ticker"),
+                    "company_name": item.get("company_name"),
+                    "sector": item.get("gics_sector"),
+                }
+            )
+        return items
     key = _cache_key("companies")
     cached = cache.get(key)
     if isinstance(cached, list):
@@ -884,6 +1028,14 @@ def get_company_list() -> list[dict]:
 
 
 def get_company_sitemap_items() -> list[dict]:
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        items = []
+        for item in _fixture_items():
+            ticker = item.get("ticker")
+            if not ticker:
+                continue
+            items.append({"ticker": ticker, "lastmod": item.get("port_date")})
+        return items
     key = _cache_key("sitemap_items")
     cached = cache.get(key)
     if isinstance(cached, list):
