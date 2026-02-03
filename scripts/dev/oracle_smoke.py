@@ -35,8 +35,16 @@ def main() -> int:
         return 0
     if tns_admin:
         os.environ["TNS_ADMIN"] = tns_admin
+        try:
+            oracledb.defaults.config_dir = tns_admin
+        except Exception:
+            pass
     elif wallet_dir:
         os.environ["TNS_ADMIN"] = wallet_dir
+        try:
+            oracledb.defaults.config_dir = wallet_dir
+        except Exception:
+            pass
 
     try:
         oracledb.init_oracle_client(lib_dir=lib_dir)
@@ -65,7 +73,18 @@ def main() -> int:
     except Exception as exc:
         elapsed = (time.monotonic() - start) * 1000
         executor.shutdown(wait=False, cancel_futures=True)
-        print(f"Oracle FAIL (elapsed_ms={elapsed:.1f}): {exc.__class__.__name__}")
+        msg = ""
+        try:
+            raw = str(exc)
+            # Keep only ORA-xxxxx code if present.
+            if "ORA-" in raw:
+                msg = raw[raw.find("ORA-") :].split()[0]
+        except Exception:
+            msg = ""
+        if msg:
+            print(f"Oracle FAIL (elapsed_ms={elapsed:.1f}): {exc.__class__.__name__} {msg}")
+        else:
+            print(f"Oracle FAIL (elapsed_ms={elapsed:.1f}): {exc.__class__.__name__}")
         return 1
 
     executor.shutdown(wait=False, cancel_futures=True)
