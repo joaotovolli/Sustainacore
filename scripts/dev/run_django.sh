@@ -16,9 +16,15 @@ bash "$ROOT_DIR/scripts/dev/setup_wsl2.sh"
 source "$VENV_DIR/bin/activate"
 
 DJANGO_SECRET_KEY="${DJANGO_SECRET_KEY:-test}" \
+NEWS_UI_DATA_MODE="${NEWS_UI_DATA_MODE:-fixture}" \
+TECH100_UI_DATA_MODE="${TECH100_UI_DATA_MODE:-fixture}" \
+AI_REG_UI_DATA_MODE="${AI_REG_UI_DATA_MODE:-fixture}" \
   python "$ROOT_DIR/website_django/manage.py" check
 
 echo "Tip: in another shell, run scripts/dev/wait_for_http.sh http://127.0.0.1:${PORT}/"
 
 DJANGO_SECRET_KEY="${DJANGO_SECRET_KEY:-test}" \
+NEWS_UI_DATA_MODE="${NEWS_UI_DATA_MODE:-fixture}" \
+TECH100_UI_DATA_MODE="${TECH100_UI_DATA_MODE:-fixture}" \
+AI_REG_UI_DATA_MODE="${AI_REG_UI_DATA_MODE:-fixture}" \
   python "$ROOT_DIR/website_django/manage.py" runserver 127.0.0.1:"$PORT" --noreload

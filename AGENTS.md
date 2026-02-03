@@ -5,6 +5,37 @@ SustainaCore — Autopilot rules for Codex.
 - Run: uvicorn app.retrieval.app:app --host 0.0.0.0 --port 8080
 - Deploy: ops/scripts/deploy_vm.sh
 
+## WSL2-First Development (Django)
+Primary workflow:
+WSL2 (local dev + tests + screenshots) → GitHub PR (CI) → deploy to VM2/VM1.
+
+Local preview (fixtures default for WSL2):
+```bash
+bash scripts/dev/run_django.sh
+```
+
+Local checks:
+```bash
+bash scripts/dev/run_tests.sh
+python scripts/dev/preview_verify.py --timeout 15
+```
+
+Screenshots (local/prod):
+```bash
+cd website_django
+../scripts/dev/capture_screenshots.sh ../local_artifacts/url_list_<timestamp>.json \
+  ../local_artifacts/screenshots_<timestamp>
+```
+
+Secret handling (public repo):
+- Never commit or print secrets (.env contents, keys, wallets, tokens).
+- Keep `local_artifacts/` local only (gitignored).
+- Use local env vars for Oracle and SSH; document paths without printing contents.
+
+Deploy targets:
+- VM2 for Django website; VM1 for data/index/Ask2 backends.
+- Deploy via `scripts/deploy/deploy_vm2.sh` and `scripts/deploy/deploy_vm1.sh`.
+
 ## UI Change Contract (Preview → Approval → Production)
 Definitions:
 - Production: `https://sustainacore.org/`
