@@ -43,3 +43,14 @@ Gunicorn
 ionice
 AIGES
 VRT
+WSL
+WSL2
+PowerShell
+FastAPI
+entrypoint
+HostName
+IdentityFile
+IdentitiesOnly
+StrictHostKeyChecking
+BatchMode
+TNS_ADMIN

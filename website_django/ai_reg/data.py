@@ -13,6 +13,10 @@ EU_ISO_ALIASES = {"EU", "EUR"}
 EU_NAME_ALIASES = {"EUROPEAN UNION", "EU"}
 
 
+class AiRegDataError(RuntimeError):
+    pass
+
+
 def _to_plain(value: Any) -> Any:
     if value is None:
         return None
@@ -46,10 +50,13 @@ def _normalize_jurisdiction(iso_code: str | None, name: str | None) -> tuple[str
 
 
 def _execute_rows(sql: str, params: dict) -> list[tuple]:
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, params)
-        return cur.fetchall()
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            return cur.fetchall()
+    except oracledb.Error as exc:
+        raise AiRegDataError("AI regulation data is unavailable (Oracle connection failed).") from exc
 
 
 def fetch_as_of_dates() -> List[str]:

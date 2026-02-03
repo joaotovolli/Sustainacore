@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
+import os
 from typing import Optional
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
 
 from ai_reg import data as ai_reg_data
+
+logger = logging.getLogger(__name__)
+
+
+def _allow_fallback() -> bool:
+    return bool(settings.DEBUG) or os.getenv("AI_REG_UI_DATA_MODE") == "fixture"
 
 
 def _parse_as_of(value: Optional[str]) -> Optional[dt.date]:
@@ -19,7 +28,14 @@ def _parse_as_of(value: Optional[str]) -> Optional[dt.date]:
 
 
 def ai_regulation_page(request):
-    as_of_dates = ai_reg_data.fetch_as_of_dates()
+    try:
+        as_of_dates = ai_reg_data.fetch_as_of_dates()
+    except ai_reg_data.AiRegDataError:
+        if not _allow_fallback():
+            logger.exception("ai_regulation_page_oracle_error")
+            raise
+        logger.warning("ai_regulation_page_oracle_fallback")
+        as_of_dates = []
     context = {
         "as_of_dates": as_of_dates,
         "latest_as_of": as_of_dates[0] if as_of_dates else None,
@@ -28,14 +44,29 @@ def ai_regulation_page(request):
 
 
 def ai_reg_as_of_dates(request):
-    return JsonResponse({"as_of_dates": ai_reg_data.fetch_as_of_dates()})
+    try:
+        return JsonResponse({"as_of_dates": ai_reg_data.fetch_as_of_dates()})
+    except ai_reg_data.AiRegDataError:
+        if not _allow_fallback():
+            logger.exception("ai_reg_as_of_dates_oracle_error")
+            raise
+        logger.warning("ai_reg_as_of_dates_oracle_fallback")
+        return JsonResponse({"error": "data_unavailable"}, status=503)
 
 
 def ai_reg_heatmap(request):
     as_of = _parse_as_of(request.GET.get("as_of"))
     if not as_of:
         return JsonResponse({"error": "invalid_as_of"}, status=400)
-    return JsonResponse({"as_of": as_of.isoformat(), "jurisdictions": ai_reg_data.fetch_heatmap(as_of)})
+    try:
+        data = ai_reg_data.fetch_heatmap(as_of)
+    except ai_reg_data.AiRegDataError:
+        if not _allow_fallback():
+            logger.exception("ai_reg_heatmap_oracle_error")
+            raise
+        logger.warning("ai_reg_heatmap_oracle_fallback")
+        return JsonResponse({"error": "data_unavailable"}, status=503)
+    return JsonResponse({"as_of": as_of.isoformat(), "jurisdictions": data})
 
 
 def ai_reg_jurisdiction(request, iso2: str):
@@ -43,12 +74,26 @@ def ai_reg_jurisdiction(request, iso2: str):
     if not as_of:
         return JsonResponse({"error": "invalid_as_of"}, status=400)
     iso2_norm = iso2.strip().upper()
-    summary = ai_reg_data.fetch_jurisdiction_summary(iso2_norm, as_of)
+    try:
+        summary = ai_reg_data.fetch_jurisdiction_summary(iso2_norm, as_of)
+    except ai_reg_data.AiRegDataError:
+        if not _allow_fallback():
+            logger.exception("ai_reg_jurisdiction_oracle_error")
+            raise
+        logger.warning("ai_reg_jurisdiction_oracle_fallback")
+        return JsonResponse({"error": "data_unavailable"}, status=503)
     if summary is None:
         return JsonResponse({"error": "jurisdiction_not_found"}, status=404)
-    instruments = ai_reg_data.fetch_jurisdiction_instruments(iso2_norm, as_of)
-    timeline = ai_reg_data.fetch_jurisdiction_timeline(iso2_norm, as_of)
-    sources = ai_reg_data.fetch_jurisdiction_sources(iso2_norm, as_of)
+    try:
+        instruments = ai_reg_data.fetch_jurisdiction_instruments(iso2_norm, as_of)
+        timeline = ai_reg_data.fetch_jurisdiction_timeline(iso2_norm, as_of)
+        sources = ai_reg_data.fetch_jurisdiction_sources(iso2_norm, as_of)
+    except ai_reg_data.AiRegDataError:
+        if not _allow_fallback():
+            logger.exception("ai_reg_jurisdiction_details_oracle_error")
+            raise
+        logger.warning("ai_reg_jurisdiction_details_oracle_fallback")
+        return JsonResponse({"error": "data_unavailable"}, status=503)
     payload = {
         "as_of": as_of.isoformat(),
         "jurisdiction": summary,
@@ -64,7 +109,14 @@ def ai_reg_jurisdiction_instruments(request, iso2: str):
     if not as_of:
         return JsonResponse({"error": "invalid_as_of"}, status=400)
     iso2_norm = iso2.strip().upper()
-    instruments = ai_reg_data.fetch_jurisdiction_instruments(iso2_norm, as_of)
+    try:
+        instruments = ai_reg_data.fetch_jurisdiction_instruments(iso2_norm, as_of)
+    except ai_reg_data.AiRegDataError:
+        if not _allow_fallback():
+            logger.exception("ai_reg_jurisdiction_instruments_oracle_error")
+            raise
+        logger.warning("ai_reg_jurisdiction_instruments_oracle_fallback")
+        return JsonResponse({"error": "data_unavailable"}, status=503)
     return JsonResponse(
         {"as_of": as_of.isoformat(), "jurisdiction": iso2_norm, "instruments": instruments}
     )
@@ -75,7 +127,14 @@ def ai_reg_jurisdiction_timeline(request, iso2: str):
     if not as_of:
         return JsonResponse({"error": "invalid_as_of"}, status=400)
     iso2_norm = iso2.strip().upper()
-    timeline = ai_reg_data.fetch_jurisdiction_timeline(iso2_norm, as_of)
+    try:
+        timeline = ai_reg_data.fetch_jurisdiction_timeline(iso2_norm, as_of)
+    except ai_reg_data.AiRegDataError:
+        if not _allow_fallback():
+            logger.exception("ai_reg_jurisdiction_timeline_oracle_error")
+            raise
+        logger.warning("ai_reg_jurisdiction_timeline_oracle_fallback")
+        return JsonResponse({"error": "data_unavailable"}, status=503)
     return JsonResponse(
         {"as_of": as_of.isoformat(), "jurisdiction": iso2_norm, "milestones": timeline}
     )
