@@ -31,13 +31,16 @@ Host vm2
 ## Smoke check (safe)
 Use the bounded script (no secrets printed):
 ```bash
-VM1_HOST=... VM1_USER=... VM2_HOST=... VM2_USER=... \
+VM1_HOST=<vm1_host> VM1_USER=<vm1_user> VM2_HOST=<vm2_host> VM2_USER=<vm2_user> \
   [SSH_KEY_PATH=~/.ssh/<key_name>] bash scripts/dev/ssh_smoke.sh
 ```
+If you use `~/.ssh/config` aliases, you can pass `VM1_HOST=vm1` and `VM2_HOST=vm2`.
 
 Expected output:
-- `uname -a` and `echo OK` for each VM
+- Redacted `uname -a` line (hostname removed)
+- `VM1 OK` / `VM2 OK`
 
 ## Notes
 - `StrictHostKeyChecking=accept-new` is safe for first-time host key acceptance.
 - Use `BatchMode=yes` to avoid interactive prompts in automation.
+- If a smoke check fails, re-run with `SSH_SMOKE_DEBUG=1` to show SSH error details.

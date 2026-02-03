@@ -17,7 +17,7 @@ wsl.exe --install -d Ubuntu
 ## WSL repo workspace
 From WSL, use the Windows path via `/mnt`:
 ```bash
-cd "/mnt/c/Users/<your_user>/OneDrive/Documents/My Project/codex/Sustainacore"
+cd "/mnt/c/Users/<your_user>/<path_to_repo>/Sustainacore"
 ```
 
 ## Bootstrap (WSL2)
@@ -55,6 +55,10 @@ python scripts/dev/preview_verify.py --timeout 15
 ```
 
 Snapshots and reports are stored under `local_artifacts/` and are intentionally not committed.
+To open the artifacts folder in Windows Explorer:
+```bash
+explorer.exe "$(wslpath -w ./local_artifacts)"
+```
 
 ## Screenshots (local vs prod)
 ```bash
@@ -62,6 +66,7 @@ cd website_django
 ../scripts/dev/capture_screenshots.sh ../local_artifacts/url_list_<timestamp>.json \
   ../local_artifacts/screenshots_<timestamp>
 ```
+Screenshots are local-only and should not be committed.
 
 ## SSH connectivity check (VM1/VM2)
 ```bash
@@ -79,7 +84,8 @@ AUTH_BASE_URL=<vm1_base_url> AUTH_EMAIL=<test_inbox> bash scripts/dev/auth_smoke
 ## Oracle connectivity check (optional)
 Oracle is optional for local dev and only runs if env vars are present.
 ```bash
-python scripts/dev/oracle_smoke.py
+source .venv/bin/activate
+timeout 20s python scripts/dev/oracle_smoke.py
 ```
 
 ## Deploy to VM2 / VM1 (WSL2)

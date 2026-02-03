@@ -54,3 +54,7 @@ IdentitiesOnly
 StrictHostKeyChecking
 BatchMode
 TNS_ADMIN
+wslpath
+instantclient
+tnsnames
+ewallet

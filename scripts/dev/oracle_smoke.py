@@ -25,10 +25,28 @@ def main() -> int:
     user = _get_env("ORACLE_USER") or _get_env("DB_USER")
     password = _get_env("ORACLE_PASSWORD") or _get_env("DB_PASSWORD") or _get_env("DB_PASS")
     dsn = _get_env("ORACLE_DSN") or _get_env("DB_DSN")
+    tns_admin = _get_env("ORACLE_TNS_ADMIN") or _get_env("TNS_ADMIN")
+    wallet_dir = _get_env("ORACLE_WALLET_DIR")
 
     if not user or not password or not dsn:
         print("Oracle not configured; skipping")
         return 0
+
+    config_dir = None
+    if tns_admin:
+        config_dir = os.path.expanduser(tns_admin)
+    elif wallet_dir:
+        config_dir = os.path.expanduser(wallet_dir)
+
+    try:
+        oracledb.init_oracle_client(lib_dir=os.path.expanduser("~/.oracle/instantclient/current"))
+    except Exception:
+        pass
+
+    if config_dir:
+        oracledb.defaults.config_dir = config_dir
+        os.environ["TNS_ADMIN"] = config_dir
+        os.environ["ORACLE_TNS_ADMIN"] = config_dir
 
     start = time.monotonic()
     try:
@@ -39,11 +57,21 @@ def main() -> int:
         conn.close()
     except Exception as exc:
         elapsed = (time.monotonic() - start) * 1000
-        print(f"Oracle smoke check failed (elapsed_ms={elapsed:.1f}): {exc.__class__.__name__}")
+        msg = ""
+        try:
+            raw = str(exc)
+            if "ORA-" in raw:
+                msg = raw[raw.find("ORA-") :].split()[0]
+        except Exception:
+            msg = ""
+        if msg:
+            print(f"Oracle FAIL (elapsed_ms={elapsed:.1f}): {exc.__class__.__name__} {msg}")
+        else:
+            print(f"Oracle FAIL (elapsed_ms={elapsed:.1f}): {exc.__class__.__name__}")
         return 1
 
     elapsed = (time.monotonic() - start) * 1000
-    print(f"Oracle smoke check OK (elapsed_ms={elapsed:.1f})")
+    print(f"Oracle PASS (elapsed_ms={elapsed:.1f})")
     return 0
 
 
