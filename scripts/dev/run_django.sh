@@ -10,7 +10,15 @@ if [ ! -f "$ROOT_DIR/website_django/manage.py" ]; then
   exit 1
 fi
 
-bash "$ROOT_DIR/scripts/dev/setup_wsl2.sh"
+if [ -f "$ROOT_DIR/scripts/dev/setup_wsl2.sh" ]; then
+  if [ ! -d "$VENV_DIR" ] || [ "${RUN_SETUP_WSL2:-0}" = "1" ]; then
+    bash "$ROOT_DIR/scripts/dev/setup_wsl2.sh"
+  else
+    echo "Skipping setup_wsl2.sh (set RUN_SETUP_WSL2=1 to re-run)."
+  fi
+else
+  echo "WARNING: scripts/dev/setup_wsl2.sh not found; skipping setup." >&2
+fi
 
 # shellcheck disable=SC1090
 source "$VENV_DIR/bin/activate"

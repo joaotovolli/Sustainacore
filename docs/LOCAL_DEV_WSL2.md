@@ -17,7 +17,7 @@ wsl.exe --install -d Ubuntu
 ## WSL repo workspace
 From WSL, use the Windows path via `/mnt`:
 ```bash
-cd "/mnt/c/Users/joaot/OneDrive/Documentos/My Project/codex/Sustainacore"
+cd "/mnt/c/Users/<your_user>/OneDrive/Documentos/My Project/codex/Sustainacore"
 ```
 
 ## Bootstrap (WSL2)
@@ -42,6 +42,7 @@ Notes:
   ```bash
   scripts/dev/wait_for_http.sh http://127.0.0.1:8000/ 60 2
   ```
+- If you need to re-run dependency setup, set `RUN_SETUP_WSL2=1` before running the script.
 
 ## Run CI-like sanity checks (WSL2)
 ```bash

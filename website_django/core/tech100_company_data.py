@@ -565,21 +565,52 @@ def get_company_bundle(
     if not normalized:
         return None
     if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        metrics_list: Optional[list[str]] = None
+        if metrics:
+            metrics_list = [m.lower() for m in metrics if m and m.lower() in METRIC_COLUMNS]
+            if not metrics_list:
+                return None
         summary = get_company_summary(normalized)
         if not summary:
             return None
         history = get_company_history(normalized) or []
-        series = None
-        if metric:
-            series = get_company_series(normalized, metric, range_key or "")
-        payload = {
-            "summary": summary,
-            "history": history,
-            "series": series or [],
-            "compare_series": [],
-            "metric": (metric or "").lower(),
-            "range": range_key or "",
-        }
+        summary_history = get_company_summary_history(normalized) or []
+        if metrics_list is not None:
+            series_by_metric: dict[str, list[dict]] = {}
+            for metric_key in metrics_list:
+                metric_series: list[dict] = []
+                for row in history:
+                    date_val = row.get("date")
+                    metric_series.append(
+                        {
+                            "date": date_val,
+                            "company": row.get(metric_key),
+                            "baseline": None,
+                            "compare": None,
+                            "delta": None,
+                        }
+                    )
+                series_by_metric[metric_key] = metric_series
+            payload = {
+                "summary": summary,
+                "history": history,
+                "summary_history": summary_history,
+                "metrics": metrics_list,
+                "series": series_by_metric,
+            }
+        else:
+            series = []
+            if metric:
+                series = get_company_series(normalized, metric, range_key or "") or []
+            payload = {
+                "summary": summary,
+                "history": history,
+                "summary_history": summary_history,
+                "series": series,
+                "compare_series": [],
+                "metric": (metric or "").lower(),
+                "range": range_key or "",
+            }
         if include_companies:
             payload["companies"] = get_company_list()
         return payload
