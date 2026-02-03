@@ -53,21 +53,87 @@ def main() -> int:
 
     start = time.monotonic()
 
-    def _run_query() -> None:
-        conn_kwargs = {"user": user, "password": password, "dsn": dsn}
+    def _run_query(dsn_value: str) -> None:
+        conn_kwargs = {"user": user, "password": password, "dsn": dsn_value}
         conn = oracledb.connect(**conn_kwargs)
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM dual")
             cur.fetchone()
         conn.close()
 
+    def _build_descriptor_from_tns(alias: str) -> str | None:
+        config_dir = os.environ.get("TNS_ADMIN")
+        if not config_dir:
+            return None
+        tns_path = os.path.join(config_dir, "tnsnames.ora")
+        try:
+            with open(tns_path, "r", encoding="utf-8", errors="ignore") as handle:
+                text = handle.read()
+        except Exception:
+            return None
+        block = []
+        found = False
+        for line in text.splitlines():
+            if not found:
+                if line.strip().startswith("#"):
+                    continue
+                if line.split("=")[0].strip() == alias:
+                    found = True
+                    block.append(line)
+                continue
+            block.append(line)
+            if line.strip() == "":
+                break
+        if not found:
+            return None
+        import re
+
+        hosts = re.findall(r"HOST\\s*=\\s*([^\\)\\s]+)", "\n".join(block), flags=re.IGNORECASE)
+        ports = re.findall(r"PORT\\s*=\\s*([0-9]+)", "\n".join(block), flags=re.IGNORECASE)
+        services = re.findall(
+            r"SERVICE_NAME\\s*=\\s*([^\\)\\s]+)", "\n".join(block), flags=re.IGNORECASE
+        )
+        if not hosts or not ports or not services:
+            return None
+        host = hosts[0]
+        port = ports[0]
+        service = services[0]
+        return (
+            "(DESCRIPTION=(ADDRESS=(PROTOCOL=tcps)(HOST="
+            + host
+            + ")(PORT="
+            + port
+            + "))(CONNECT_DATA=(SERVICE_NAME="
+            + service
+            + "))(SECURITY=(SSL_SERVER_DN_MATCH=yes)))"
+        )
+
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(_run_query)
+    future = executor.submit(_run_query, dsn)
     try:
         future.result(timeout=15)
     except concurrent.futures.TimeoutError:
         elapsed = (time.monotonic() - start) * 1000
         executor.shutdown(wait=False, cancel_futures=True)
+        descriptor = _build_descriptor_from_tns(dsn)
+        if descriptor:
+            try:
+                _run_query(descriptor)
+                print(f"Oracle PASS (elapsed_ms={elapsed:.1f})")
+                return 0
+            except Exception as exc:
+                msg = ""
+                try:
+                    raw = str(exc)
+                    if "ORA-" in raw:
+                        msg = raw[raw.find("ORA-") :].split()[0]
+                except Exception:
+                    msg = ""
+                if msg:
+                    print(f"Oracle FAIL (elapsed_ms={elapsed:.1f}): {exc.__class__.__name__} {msg}")
+                else:
+                    print(f"Oracle FAIL (elapsed_ms={elapsed:.1f}): {exc.__class__.__name__}")
+                return 1
         print(f"Oracle FAIL (elapsed_ms={elapsed:.1f}): Timeout")
         return 1
     except Exception as exc:
