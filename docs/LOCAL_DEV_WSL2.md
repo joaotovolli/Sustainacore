@@ -4,8 +4,8 @@ This repo is designed for Linux tooling. The recommended workflow is to work fro
 WSL2 is the primary environment for Django-heavy development; VM1/VM2 are deployment targets only.
 
 ## Prerequisites (Windows)
-- WSL2 installed with an Ubuntu distro.
-- Git and Python 3 in the WSL distro.
+- WSL2 installed with an Ubuntu distribution.
+- Git and Python 3 in the WSL distribution.
 
 If WSL is not installed, run these **PowerShell (Admin)** commands (do not run from here):
 ```powershell
