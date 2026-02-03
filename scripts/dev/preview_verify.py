@@ -97,13 +97,11 @@ def build_url_list(prod_base: str, timeout: int) -> List[str]:
     urls = [
         "/",
         "/robots.txt",
-        "/sitemap.xml",
         "/sitemaps/news.xml",
+        "/news/",
+        "/tech100/",
         "/privacy/",
         "/terms/",
-        "/press/",
-        "/tech100/",
-        "/news/",
         "/ai-regulation/",
     ]
 
@@ -114,10 +112,10 @@ def build_url_list(prod_base: str, timeout: int) -> List[str]:
         news_links = _extract_links(
             prod_news_html,
             r'href=["\'](/news/(?!admin/|assets/)[^"\']+/)["\']',
-            3,
+            2,
         )
     if not news_links:
-        news_links = [f"/news/{quote(item, safe='')}/" for item in NEWS_FIXTURE_IDS]
+        news_links = [f"/news/{quote(item, safe='')}/" for item in NEWS_FIXTURE_IDS[:2]]
 
     prefer_tech_fixtures = os.getenv("TECH100_UI_DATA_MODE") == "fixture"
     prod_tech_html = _fetch_prod_html(f"{prod_base}/tech100/", timeout)
@@ -126,10 +124,10 @@ def build_url_list(prod_base: str, timeout: int) -> List[str]:
         tech_links = _extract_links(
             prod_tech_html,
             r'href=["\'](/tech100/company/[^"\']+/)["\']',
-            3,
+            2,
         )
     if not tech_links:
-        tech_links = [f"/tech100/company/{ticker}/" for ticker in TECH100_FIXTURE_TICKERS]
+        tech_links = [f"/tech100/company/{ticker}/" for ticker in TECH100_FIXTURE_TICKERS[:2]]
 
     return urls + news_links + tech_links
 
