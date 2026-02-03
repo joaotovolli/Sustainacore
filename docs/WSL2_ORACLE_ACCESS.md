@@ -24,6 +24,7 @@ Notes:
 ## Smoke check (safe)
 Runs only if env vars are present and prints success/failure only:
 ```bash
+source .venv/bin/activate
 python scripts/dev/oracle_smoke.py
 ```
 

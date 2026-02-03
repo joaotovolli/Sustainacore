@@ -55,6 +55,10 @@ python scripts/dev/preview_verify.py --timeout 15
 ```
 
 Snapshots and reports are stored under `local_artifacts/` and are intentionally not committed.
+To open the artifacts folder in Windows Explorer:
+```bash
+explorer.exe "$(wslpath -w ./local_artifacts)"
+```
 
 ## Screenshots (local vs prod)
 ```bash
@@ -72,6 +76,7 @@ VM1_HOST=... VM1_USER=... VM2_HOST=... VM2_USER=... \
 ## Oracle connectivity check (optional)
 Oracle is optional for local dev and only runs if env vars are present.
 ```bash
+source .venv/bin/activate
 python scripts/dev/oracle_smoke.py
 ```
 

@@ -41,3 +41,4 @@ Expected output:
 ## Notes
 - `StrictHostKeyChecking=accept-new` is safe for first-time host key acceptance.
 - Use `BatchMode=yes` to avoid interactive prompts in automation.
+- If a smoke check fails, re-run with `SSH_SMOKE_DEBUG=1` to show SSH error details.
