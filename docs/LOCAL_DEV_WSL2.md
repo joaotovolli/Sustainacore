@@ -3,7 +3,7 @@
 This repo is designed for Linux tooling. The recommended workflow is to work from WSL2 so the bash scripts and Python tooling behave the same as CI and the VMs.
 WSL2 is the primary environment for Django-heavy development; VM1/VM2 are deployment targets only.
 
-## Prereqs (Windows)
+## Prerequisites (Windows)
 - WSL2 installed with an Ubuntu distro.
 - Git and Python 3 in the WSL distro.
 
@@ -17,7 +17,7 @@ wsl.exe --install -d Ubuntu
 ## WSL repo workspace
 From WSL, use the Windows path via `/mnt`:
 ```bash
-cd "/mnt/c/Users/<your_user>/OneDrive/Documentos/My Project/codex/Sustainacore"
+cd "/mnt/c/Users/<your_user>/OneDrive/Documents/My Project/codex/Sustainacore"
 ```
 
 ## Bootstrap (WSL2)

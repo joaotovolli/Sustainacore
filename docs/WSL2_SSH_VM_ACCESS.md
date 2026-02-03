@@ -12,7 +12,7 @@ This doc explains how to configure SSH access from WSL2 without storing keys in 
 
 ## Optional: SSH config aliases
 Create or update `~/.ssh/config`:
-```sshconfig
+```ssh-config
 Host vm1
   HostName <VM1_HOST>
   User <VM1_USER>
