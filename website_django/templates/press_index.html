@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Press | SustainaCore{% endblock %}
-{% block meta_description %}Press resources for SustainaCore, including background, contact details, and Tech100 AI Ethics &amp; Governance Index materials.{% endblock %}
+{% block title %}Press &amp; Updates | SustainaCore{% endblock %}
+{% block meta_description %}Press resources and updates from SustainaCore, including TECH100 research, company reports, AI regulation coverage, and newsroom contacts.{% endblock %}
 
 {% block content %}
 <section class="section section--with-header">
@@ -13,8 +13,8 @@
                 <span class="page-breadcrumbs__separator">→</span>
                 <span class="page-breadcrumbs__current">Press</span>
             </nav>
-            <h1>Resources for journalists and partners.</h1>
-            <p class="muted">Contact our team, access Tech100 AI Ethics &amp; Governance Index background, and request data or interviews.</p>
+            <h1>Press resources and product updates.</h1>
+            <p class="muted">Background materials, product coverage, and reporting context for Sustainacore’s Tech100 research and AI governance signals.</p>
         </div>
 
         <div class="cards cards--three">
@@ -25,28 +25,44 @@
                 <a class="btn btn--secondary" href="mailto:info@sustainacore.org">info@sustainacore.org</a>
             </div>
             <div class="card">
-                <p class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</p>
+                <p class="pill pill--soft">Tech100 AI Index</p>
                 <h3>Index background</h3>
                 <p class="muted">Learn how the Tech100 AI Ethics &amp; Governance Index benchmarks governance and ethics across AI leaders.</p>
                 <a class="btn btn--secondary" href="{% url 'press_tech100' %}">Tech100 press kit</a>
             </div>
             <div class="card">
-                <p class="pill pill--soft">Data</p>
-                <h3>Research access</h3>
-                <p class="muted">Request supporting data, methodology notes, or analyst briefings.</p>
-                <a class="btn btn--secondary" href="/tech100/index/">Explore Tech100 AI Ethics &amp; Gov Index</a>
+                <p class="pill pill--soft">Research</p>
+                <h3>Company reports</h3>
+                <p class="muted">Access company-level Tech100 reports and governance scorecards.</p>
+                <a class="btn btn--secondary" href="/tech100/company/">Explore company research</a>
             </div>
         </div>
 
         <div class="card card--lined press-about">
-            <h2>About SustainaCore</h2>
-            <p class="muted">SustainaCore is an open research project focused on AI governance, transparency, and accountable technology signals.</p>
-            <p>
-                Start here:
-                <a class="text-link" href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index overview</a>,
-                <a class="text-link" href="/tech100/methodology/">Methodology</a>,
-                <a class="text-link" href="/corrections/">Corrections &amp; Complaints</a>.
-            </p>
+            <h2>What is SustainaCore?</h2>
+            <p class="muted">SustainaCore is an open research platform focused on AI governance, transparency, and accountable technology signals.</p>
+            <ul class="list list--compact">
+                <li>Evidence-first benchmarks for AI governance and ethics.</li>
+                <li>Company-level reporting for the Tech100 AI Ethics &amp; Governance Index.</li>
+                <li>Policy context through global AI regulation tracking.</li>
+            </ul>
+        </div>
+
+        <div class="card card--lined">
+            <h2>Start here</h2>
+            <p class="muted">Key destinations for reporters and partners.</p>
+            <div class="press-links">
+                <a class="text-link" href="/tech100/index/">Tech100 Index overview</a>
+                <a class="text-link" href="/tech100/company/">Company research</a>
+                <a class="text-link" href="/ai-regulation/">AI regulation tracker</a>
+                <a class="text-link" href="/news/">News &amp; insights</a>
+            </div>
+        </div>
+
+        <div class="card card--lined">
+            <h2>Updates</h2>
+            <p class="muted">Latest releases and announcements are published in the newsroom.</p>
+            <a class="btn btn--secondary" href="/news/">View newsroom updates</a>
         </div>
     </div>
 </section>

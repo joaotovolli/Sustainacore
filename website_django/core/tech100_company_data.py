@@ -1093,3 +1093,37 @@ def get_company_sitemap_items() -> list[dict]:
         )
     cache.set(key, items, 900)
     return items
+
+
+def get_tech100_latest_port_date() -> Optional[dt.date]:
+    cache_key = _cache_key("latest_port_date")
+    cached = cache.get(cache_key)
+    if isinstance(cached, str) and cached:
+        try:
+            return dt.date.fromisoformat(cached)
+        except ValueError:
+            pass
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        dates = []
+        for item in _fixture_items():
+            date_val = _fixture_port_date(item)
+            if date_val:
+                dates.append(date_val)
+        if dates:
+            latest = max(dates)
+            cache.set(cache_key, latest.isoformat(), 86400)
+            return latest
+        return None
+    try:
+        rows = _execute_rows("SELECT MAX(port_date) FROM tech11_ai_gov_eth_index", {})
+    except Exception:
+        fallback = dt.date.today()
+        cache.set(cache_key, fallback.isoformat(), 86400)
+        return fallback
+    latest = _to_date(rows[0][0]) if rows else None
+    if latest:
+        cache.set(cache_key, latest.isoformat(), 86400)
+        return latest
+    fallback = dt.date.today()
+    cache.set(cache_key, fallback.isoformat(), 86400)
+    return fallback

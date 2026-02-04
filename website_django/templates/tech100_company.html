@@ -129,6 +129,22 @@
         </div>
       </div>
 
+      {% if related_companies %}
+      <div class="card tech100-company__related">
+        <h2 class="h4">Related companies</h2>
+        <p class="muted">Explore peer company reports in the Tech100 AI Ethics &amp; Governance Index.</p>
+        <ul class="tech100-company__related-list">
+          {% for company in related_companies %}
+          <li>
+            <a href="/tech100/company/{{ company.ticker }}/" class="text-link">
+              {{ company.company_name }} ({{ company.ticker }})
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
       <div class="card tech100-company__dashboard">
         <div class="card__header card__header--split">
           <div>
