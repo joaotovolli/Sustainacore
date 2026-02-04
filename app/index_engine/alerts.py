@@ -6,6 +6,7 @@ import os
 import smtplib
 import time
 from email.message import EmailMessage
+from uuid import uuid4
 from typing import Optional
 
 _LOGGER = logging.getLogger("app.email")
@@ -68,6 +69,7 @@ def _send_email_message(
     timeout_override: Optional[float] = None,
     retry_attempts_override: Optional[int] = None,
     retry_base_override: Optional[float] = None,
+    html_body: Optional[str] = None,
 ) -> bool:
     _log_env_once()
     if _circuit_open():
@@ -120,7 +122,11 @@ def _send_email_message(
     msg["From"] = resolved_from
     msg["To"] = mail_to
     msg["Subject"] = subject
+    if "Message-ID" not in msg:
+        msg["Message-ID"] = f"<sc-{uuid4().hex}@sustainacore.org>"
     msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
 
     attempts = max(0, retries) + 1
     for attempt in range(1, attempts + 1):
@@ -130,8 +136,25 @@ def _send_email_message(
                 client.starttls()
                 client.ehlo()
                 client.login(user, password)
-                client.send_message(msg)
+                refused = client.send_message(msg)
+                if refused:
+                    _record_failure()
+                    _LOGGER.warning(
+                        "email_send failed error_class=SMTPRecipientsRefused host=%s port=%s refused=%s",
+                        host,
+                        port,
+                        len(refused),
+                    )
+                    return False
                 _record_success()
+                to_count = len([part for part in str(msg.get("To", "")).split(",") if part.strip()])
+                _LOGGER.info(
+                    "email_send ok message_id=%s host=%s port=%s to_count=%s",
+                    msg.get("Message-ID"),
+                    host,
+                    port,
+                    to_count or 0,
+                )
                 return True
         except smtplib.SMTPAuthenticationError as exc:
             _record_failure()
@@ -179,6 +202,7 @@ def send_email(
     timeout_sec: Optional[float] = None,
     retry_attempts: Optional[int] = None,
     retry_base_sec: Optional[float] = None,
+    html_body: Optional[str] = None,
 ) -> bool:
     """Send an email using SMTP STARTTLS. No-op if required env vars are missing."""
 
@@ -193,6 +217,7 @@ def send_email(
         timeout_override=timeout_sec,
         retry_attempts_override=retry_attempts,
         retry_base_override=retry_base_sec,
+        html_body=html_body,
     )
 
 
@@ -205,6 +230,7 @@ def send_email_to(
     timeout_sec: Optional[float] = None,
     retry_attempts: Optional[int] = None,
     retry_base_sec: Optional[float] = None,
+    html_body: Optional[str] = None,
 ) -> bool:
     """Send an email to the requested recipient using the configured SMTP settings."""
 
@@ -218,6 +244,7 @@ def send_email_to(
         timeout_override=timeout_sec,
         retry_attempts_override=retry_attempts,
         retry_base_override=retry_base_sec,
+        html_body=html_body,
     )
 
 

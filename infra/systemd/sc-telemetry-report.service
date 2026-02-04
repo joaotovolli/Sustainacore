@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily web telemetry report
+Description=Daily web telemetry usage report
 After=network-online.target
 Wants=network-online.target
 
@@ -13,7 +13,7 @@ EnvironmentFile=/etc/sustainacore/db.env
 EnvironmentFile=/etc/sustainacore-ai/secrets.env
 EnvironmentFile=/etc/sustainacore.env
 RuntimeMaxSec=900
-ExecStart=/usr/bin/flock -n /tmp/sc-telemetry-report.lock /usr/bin/python3 /home/opc/Sustainacore/tools/telemetry/daily_report.py --send
+ExecStart=/usr/bin/flock -n /tmp/sc-telemetry-report.lock /usr/bin/python3 /home/opc/Sustainacore/tools/telemetry/usage_report.py --all --send
 
 [Install]
 WantedBy=multi-user.target
