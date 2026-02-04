@@ -1,0 +1,19 @@
+[Unit]
+Description=Build Tech100 related companies from telemetry
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=opc
+WorkingDirectory=/home/opc/Sustainacore
+Environment=PYTHONPATH=/home/opc/Sustainacore
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/sustainacore/db.env
+EnvironmentFile=/etc/sustainacore-ai/secrets.env
+EnvironmentFile=/etc/sustainacore.env
+RuntimeMaxSec=1200
+ExecStart=/usr/bin/flock -n /tmp/sc-tech100-related.lock /usr/bin/python3 /home/opc/Sustainacore/tools/telemetry/related_companies.py --window-days 30 --top-k 12
+
+[Install]
+WantedBy=multi-user.target

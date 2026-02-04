@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import re
 import os
 from unittest import mock
 
@@ -67,6 +68,39 @@ class Tech100ViewTests(SimpleTestCase):
         self.assertIn("/tech100/company/AAA/", content)
         self.assertIn("/tech100/company/ZZZ/", content)
         self.assertIn("Company research", content)
+
+    @mock.patch("core.views.get_related_companies_for_display")
+    @mock.patch("core.views.get_company_summary")
+    def test_related_companies_section_rendered_after_summary(self, mock_summary, mock_related):
+        mock_summary.return_value = {
+            "ticker": "AAA",
+            "company_name": "Alpha Inc",
+            "sector": "Software",
+            "latest_date": "2025-01-31",
+            "latest_rank": 3,
+            "latest_scores": {"composite": 88.2},
+        }
+        mock_related.return_value = [
+            {"ticker": "BBB", "company_name": "Beta Corp", "sector": "Software"},
+            {"ticker": "CCC", "company_name": "Gamma Corp", "sector": "Software"},
+            {"ticker": "DDD", "company_name": "Delta Corp", "sector": "Software"},
+            {"ticker": "EEE", "company_name": "Epsilon Corp", "sector": "Software"},
+            {"ticker": "FFF", "company_name": "Zeta Corp", "sector": "Software"},
+        ]
+
+        response = self.client.get(reverse("tech100_company", args=["AAA"]))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        rebalance_idx = content.find("Rebalance notes &amp; summaries")
+        related_idx = content.find("Related companies")
+        self.assertNotEqual(rebalance_idx, -1)
+        self.assertNotEqual(related_idx, -1)
+        self.assertGreater(related_idx, rebalance_idx)
+        end_idx = content.find("Browse all TECH100 companies", related_idx)
+        section = content[related_idx:end_idx]
+        matches = re.findall(r"/tech100/company/[A-Z0-9]+/", section)
+        self.assertEqual(len(matches), 5)
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_view_renders_table_headers_and_details(self, fetch_mock):
