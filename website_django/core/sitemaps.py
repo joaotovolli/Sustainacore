@@ -223,7 +223,10 @@ def get_section_entries(section: str) -> list[dict[str, str]]:
         return _get_sharded_entries(section, NEWS_SITEMAP_PREFIX, NEWS_SITEMAP_CHUNK, _get_news_entries)
     for key, template_map, changefreq, priority in SITEMAP_SECTIONS:
         if key == section:
-            return _build_entries(template_map, changefreq, priority)
+            entries = _build_entries(template_map, changefreq, priority)
+            if key == "tech100":
+                entries.extend(_get_company_url_entries())
+            return entries
     return []
 
 
@@ -239,6 +242,8 @@ def get_section_index_entries() -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
     for key, template_map, changefreq, priority in SITEMAP_SECTIONS:
         section_entries = _build_entries(template_map, changefreq, priority)
+        if key == "tech100":
+            section_entries = section_entries + _get_company_url_entries()
         if not section_entries:
             continue
         lastmod = _entries_lastmod(section_entries)
@@ -249,7 +254,6 @@ def get_section_index_entries() -> list[dict[str, str]]:
             }
         )
 
-    entries.extend(_build_shard_index_entries(COMPANY_SITEMAP_PREFIX, COMPANY_SITEMAP_CHUNK, _get_company_entries))
     entries.extend(_build_shard_index_entries(NEWS_SITEMAP_PREFIX, NEWS_SITEMAP_CHUNK, _get_news_entries))
     return entries
 
@@ -329,6 +333,42 @@ def _get_company_entries() -> list[dict[str, str]]:
         entries.append(entry)
     _company_entries_error = False
     cache.set(cache_key, entries, 600)
+    return entries
+
+
+def _get_company_url_entries() -> list[dict[str, str]]:
+    try:
+        companies = tech100_company_data.get_company_list()
+    except Exception:
+        logger.exception("Failed to load Tech100 company list for sitemap.")
+        return []
+    if not companies:
+        return []
+    lastmod_map = {}
+    try:
+        for item in tech100_company_data.get_company_sitemap_items():
+            ticker = str(item.get("ticker") or "").strip().upper()
+            if not ticker:
+                continue
+            lastmod = _format_lastmod(item.get("lastmod"))
+            if lastmod:
+                lastmod_map[ticker] = lastmod
+    except Exception:
+        logger.exception("Failed to load Tech100 company sitemap lastmod values.")
+    entries: list[dict[str, str]] = []
+    for company in companies:
+        ticker = str(company.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        entry = {
+            "loc": _canonical_url(f"/tech100/company/{ticker}/"),
+            "changefreq": "daily",
+            "priority": "0.9",
+        }
+        lastmod = lastmod_map.get(ticker)
+        if lastmod:
+            entry["lastmod"] = lastmod
+        entries.append(entry)
     return entries
 
 

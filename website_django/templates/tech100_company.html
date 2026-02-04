@@ -24,6 +24,38 @@
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": "{{ site_url }}"
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Tech100",
+        "item": "{{ site_url }}/tech100/index/"
+      },
+      {
+        "@type": "ListItem",
+        "position": 3,
+        "name": "Company",
+        "item": "{{ site_url }}/tech100/company/"
+      },
+      {
+        "@type": "ListItem",
+        "position": 4,
+        "name": "{{ company_name|escapejs }} ({{ ticker }})",
+        "item": "{{ canonical_url }}"
+      }
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
     "@type": "WebPage",
     "name": "{{ company_name|escapejs }} ({{ ticker }}) Tech100 Company Report",
     "url": "{{ canonical_url }}",

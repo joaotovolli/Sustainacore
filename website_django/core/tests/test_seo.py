@@ -41,7 +41,7 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertTrue(response["Content-Type"].startswith("image/"))
 
     @mock.patch(
-        "core.sitemaps._get_company_entries",
+        "core.sitemaps._get_company_url_entries",
         return_value=[
             {
                 "loc": "https://sustainacore.org/tech100/company/MSFT/",
@@ -80,14 +80,13 @@ class SeoFoundationsTests(SimpleTestCase):
                 self.assertIn(f"{canonical_base}sitemaps/tech100.xml", content)
                 self.assertIn(f"{canonical_base}sitemaps/news.xml", content)
                 self.assertIn(f"{canonical_base}sitemaps/ai_regulation.xml", content)
-                self.assertIn(f"{canonical_base}sitemaps/tech100_companies_1.xml", content)
                 self.assertIn(f"{canonical_base}sitemaps/news_items_1.xml", content)
                 lastmod = re.search(r"<lastmod>([^<]+)</lastmod>", content)
                 self.assertIsNotNone(lastmod)
                 self.assertRegex(lastmod.group(1), self.VALID_LASTMOD)
 
     @mock.patch(
-        "core.sitemaps._get_company_entries",
+        "core.sitemaps._get_company_url_entries",
         return_value=[
             {
                 "loc": "https://sustainacore.org/tech100/company/MSFT/",
@@ -122,6 +121,7 @@ class SeoFoundationsTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn(f"{canonical_base}tech100/index/", content)
         self.assertIn(f"{canonical_base}tech100/company/", content)
+        self.assertIn(f"{canonical_base}tech100/company/MSFT/", content)
         self.assertIn(f"{canonical_base}tech100/performance/", content)
         self.assertIn(f"{canonical_base}tech100/constituents/", content)
         self.assertIn(f"{canonical_base}tech100/attribution/", content)
@@ -139,16 +139,6 @@ class SeoFoundationsTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn(f"{canonical_base}ai-regulation/", content)
 
-        response = self.client.get(
-            "/sitemaps/tech100_companies_1.xml", HTTP_HOST="sustainacore.org", follow=True
-        )
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode("utf-8")
-        self.assertIn(f"{canonical_base}tech100/company/MSFT/", content)
-        lastmod = re.search(r"<lastmod>([^<]+)</lastmod>", content)
-        self.assertIsNotNone(lastmod)
-        self.assertRegex(lastmod.group(1), self.VALID_LASTMOD)
-
         response = self.client.get("/sitemaps/news_items_1.xml", HTTP_HOST="sustainacore.org", follow=True)
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
@@ -158,7 +148,7 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertRegex(lastmod.group(1), self.VALID_LASTMOD)
 
     @mock.patch(
-        "core.sitemaps._get_company_entries",
+        "core.sitemaps._get_company_url_entries",
         return_value=[],
     )
     @mock.patch(
@@ -171,7 +161,6 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertNotIn("_sc/admin", content)
-        self.assertNotIn("tech100_companies_1.xml", content)
         self.assertNotIn("news_items_1.xml", content)
 
     @mock.patch("core.views.fetch_tech100")
