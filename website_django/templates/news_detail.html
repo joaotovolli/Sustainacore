@@ -14,9 +14,23 @@
       "headline": "{{ article.title|escapejs }}",
       "datePublished": "{% if published_at %}{{ published_at|date:'Y-m-d' }}{% elif article.published_at %}{{ article.published_at }}{% endif %}",
       "dateModified": "{% if published_at %}{{ published_at|date:'Y-m-d' }}{% elif article.published_at %}{{ article.published_at }}{% endif %}",
+      "description": "{{ article.summary|default_if_none:''|truncatechars:160|escapejs }}",
+      "url": "{{ canonical_url }}",
       "mainEntityOfPage": "{{ canonical_url }}",
+      "author": {
+        "@type": "Organization",
+        "name": "SustainaCore"
+      },
       "publisher": {
-        "@id": "{{ site_url }}#organization"
+        "@type": "Organization",
+        "name": "SustainaCore",
+        "url": "{{ site_url }}",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "{{ site_url }}/static/img/sustainacore_logo_512.png",
+          "width": 512,
+          "height": 512
+        }
       }
     }
     </script>

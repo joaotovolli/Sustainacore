@@ -1654,6 +1654,7 @@ def tech100_company(request, ticker: str):
     if not summary:
         raise Http404("Company not found.")
 
+    normalized_ticker = (summary.get("ticker") or "").strip().upper()
     latest_scores = summary.get("latest_scores") or {}
     latest_scores_display = {key: _format_score(value) for key, value in latest_scores.items()}
     latest_rank = summary.get("latest_rank")
@@ -1664,6 +1665,29 @@ def tech100_company(request, ticker: str):
     if composite_score:
         summary_bits.append(f"Composite {composite_score}")
     summary_line = " · ".join(summary_bits)
+
+    related_companies: list[dict] = []
+    try:
+        companies = get_company_list()
+        if companies:
+            sector = (summary.get("sector") or "").strip().lower()
+            pool = [
+                item
+                for item in companies
+                if (item.get("ticker") or "").strip().upper() != normalized_ticker
+            ]
+            if sector:
+                same_sector = [
+                    item
+                    for item in pool
+                    if (item.get("sector") or "").strip().lower() == sector
+                ]
+                if same_sector:
+                    pool = same_sector
+            pool = sorted(pool, key=lambda item: str(item.get("ticker") or ""))
+            related_companies = pool[:8]
+    except Exception:
+        logger.exception("Failed to build related companies list.")
 
     context = {
         "year": datetime.now().year,
@@ -1677,6 +1701,7 @@ def tech100_company(request, ticker: str):
         "latest_scores_display": latest_scores_display,
         "metric_options": list(TECH100_COMPANY_METRICS.keys()),
         "summary_line": summary_line,
+        "related_companies": related_companies,
     }
     return render(request, "tech100_company.html", context)
 
@@ -1907,9 +1932,25 @@ def news(request):
     )
 
     news_structured = []
+    publisher = {
+        "@type": "Organization",
+        "name": "SustainaCore",
+        "url": settings.SITE_URL,
+        "logo": {
+            "@type": "ImageObject",
+            "url": f"{settings.SITE_URL.rstrip('/')}/static/img/sustainacore_logo_512.png",
+            "width": 512,
+            "height": 512,
+        },
+    }
     for item in news_items:
         headline = (item.get("title") or "").strip()
-        url = (item.get("url") or "").strip()
+        item_id = (item.get("id") or "").strip()
+        url = ""
+        if item.get("has_full_body") and item_id:
+            url = f"{settings.SITE_URL.rstrip('/')}/news/{item_id}/"
+        else:
+            url = (item.get("url") or "").strip()
         if not headline or not url:
             continue
         article = {
@@ -1917,11 +1958,11 @@ def news(request):
             "@type": "NewsArticle",
             "headline": headline,
             "url": url,
-            "publisher": {
-                "@type": "Organization",
-                "name": (item.get("source") or "SustainaCore").strip(),
-            },
+            "mainEntityOfPage": url,
+            "publisher": publisher,
+            "author": {"@type": "Organization", "name": "SustainaCore"},
             "datePublished": item.get("published_at") or None,
+            "dateModified": item.get("published_at") or None,
             "description": (item.get("summary") or "").strip() or None,
         }
         cleaned = {key: value for key, value in article.items() if value is not None}

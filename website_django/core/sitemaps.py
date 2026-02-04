@@ -345,6 +345,7 @@ def _get_company_url_entries() -> list[dict[str, str]]:
     if not companies:
         return []
     lastmod_map = {}
+    fallback_lastmod = None
     try:
         for item in tech100_company_data.get_company_sitemap_items():
             ticker = str(item.get("ticker") or "").strip().upper()
@@ -353,8 +354,11 @@ def _get_company_url_entries() -> list[dict[str, str]]:
             lastmod = _format_lastmod(item.get("lastmod"))
             if lastmod:
                 lastmod_map[ticker] = lastmod
+        if not lastmod_map:
+            fallback_lastmod = _format_lastmod(tech100_company_data.get_tech100_latest_port_date())
     except Exception:
         logger.exception("Failed to load Tech100 company sitemap lastmod values.")
+        fallback_lastmod = _format_lastmod(tech100_company_data.get_tech100_latest_port_date())
     entries: list[dict[str, str]] = []
     for company in companies:
         ticker = str(company.get("ticker") or "").strip().upper()
@@ -365,7 +369,7 @@ def _get_company_url_entries() -> list[dict[str, str]]:
             "changefreq": "daily",
             "priority": "0.9",
         }
-        lastmod = lastmod_map.get(ticker)
+        lastmod = lastmod_map.get(ticker) or fallback_lastmod
         if lastmod:
             entry["lastmod"] = lastmod
         entries.append(entry)
