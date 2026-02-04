@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Tech100 Company Research | SustainaCore{% endblock %}
+{% block meta_description %}Browse the Tech100 company research hub with direct links to each constituent report, rankings, and AI governance benchmarks.{% endblock %}
+
+{% block structured_data %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "Tech100 Company Research",
+    "url": "{{ canonical_url }}",
+    {% if latest_date %}"dateModified": "{{ latest_date|date:'Y-m-d' }}",{% endif %}
+    "description": "Tech100 company research hub with links to each constituent report."
+  }
+  </script>
+{% endblock %}
+
+{% block content %}
+<section class="section section--with-header">
+  <div class="shell">
+    <div class="tech100-nav__breadcrumb tech100-company__breadcrumb">
+      <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
+      <span class="tech100-nav__separator">→</span>
+      <span class="tech100-nav__current">Company research</span>
+    </div>
+
+    <header class="page-header">
+      <p class="eyebrow">Tech100 Company Research</p>
+      <h1>Explore Tech100 company reports</h1>
+      <p class="lead">
+        Browse the Tech100 AI Ethics &amp; Governance Index constituents and jump directly to each
+        company’s research report. Each report includes rank, composite score, and rebalance history.
+      </p>
+      <div class="meta-grid">
+        {% if latest_date %}
+        <div class="meta-grid__item">Last updated: <strong>{{ latest_date }}</strong></div>
+        {% endif %}
+        <div class="meta-grid__item">Companies: <strong>{{ company_count }}</strong></div>
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="card__header card__header--split">
+        <div>
+          <h2 class="h4">Company finder</h2>
+          <p class="muted">Select a ticker to open the full Tech100 company report.</p>
+        </div>
+      </div>
+      <div class="tech100-company__finder">
+        <ul class="tech100-company__list">
+          {% for company in companies %}
+          <li>
+            <a href="/tech100/company/{{ company.ticker }}/">
+              <strong>{{ company.company_name }}</strong> ({{ company.ticker }})
+              {% if company.sector %}
+              <span class="muted">— {{ company.sector }}</span>
+              {% endif %}
+            </a>
+          </li>
+          {% empty %}
+          <li class="muted">Company list is unavailable right now. Please try again soon.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
