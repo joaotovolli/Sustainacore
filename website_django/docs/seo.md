@@ -6,7 +6,6 @@
   - `/sitemaps/static.xml`
   - `/sitemaps/tech100.xml`
   - `/sitemaps/news.xml`
-  - `/sitemaps/tech100_companies_1.xml` (only when populated)
   - `/sitemaps/news_items_1.xml` (only when populated)
 - Section sitemaps use canonical `SITE_URL` links with lastmod timestamps where available.
 - Canonical host redirects enforced in Nginx (HTTP → HTTPS, www → non-www).
@@ -14,6 +13,7 @@
 - Unique page titles and meta descriptions for key public pages, including `/press/` resources.
 - Site-wide Organization and WebSite JSON-LD; NewsArticle JSON-LD for the news listing.
 - `/tech100/company/` is an indexable landing page and is included in `/sitemaps/tech100.xml`.
+- `/sitemaps/tech100.xml` also includes `/tech100/company/<TICKER>/` URLs so crawlers can discover all companies without relying on shards.
 - Django tests covering robots, sitemap, canonical tags, and JSON-LD presence.
 
 ## Google Search Console (manual steps for Joao)
