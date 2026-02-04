@@ -192,6 +192,7 @@ _STATIC_TEMPLATE_MAP = {
 _TECH100_TEMPLATE_MAP = {
     "tech100_scores": "tech100.html",
     "tech100_index": "tech100_index_overview.html",
+    "tech100_company_root": "tech100_company_root.html",
     "tech100_performance": "tech100_performance.html",
     "tech100_constituents": "tech100_constituents.html",
     "tech100_attribution": "tech100_attribution.html",
@@ -261,20 +262,6 @@ def _build_shard_index_entries(
     shard_entries: list[dict[str, str]] = []
     entries = loader()
     if not entries:
-        if prefix == COMPANY_SITEMAP_PREFIX and _company_entries_error:
-            shard_entries.append(
-                {
-                    "loc": _canonical_url(f"/sitemaps/{prefix}_1.xml"),
-                    "lastmod": "",
-                }
-            )
-        if prefix == NEWS_SITEMAP_PREFIX and _news_entries_error:
-            shard_entries.append(
-                {
-                    "loc": _canonical_url(f"/sitemaps/{prefix}_1.xml"),
-                    "lastmod": "",
-                }
-            )
         return shard_entries
     for index, chunk in enumerate(_chunk_entries(entries, chunk_size), start=1):
         if not chunk:

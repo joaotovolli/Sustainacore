@@ -21,6 +21,16 @@
     }
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "{{ company_name|escapejs }} ({{ ticker }}) Tech100 Company Report",
+    "url": "{{ canonical_url }}",
+    {% if latest_date %}"dateModified": "{{ latest_date|date:'Y-m-d' }}",{% endif %}
+    "description": "Tech100 company report with rank, composite score, and AI governance benchmarks."
+  }
+  </script>
 {% endblock %}
 
 {% block extra_head %}
@@ -46,9 +56,15 @@
             <span class="muted">({{ ticker }})</span>
           </h1>
           <p class="muted">Dynamic company report with Tech100 AI Ethics &amp; Governance Index benchmarks.</p>
+          {% if summary_line %}
+          <p class="tech100-company__summary-text">{{ summary_line }}</p>
+          {% endif %}
         </div>
         <div class="tech100-company__chips">
           <span class="tech100-company__chip">As of <span data-company-latest-date data-date-value="{{ latest_date }}">{{ latest_date }}</span></span>
+          {% if latest_rank %}
+          <span class="tech100-company__chip">Rank <span data-company-latest-rank>{{ latest_rank }}</span></span>
+          {% endif %}
           <span class="tech100-company__chip">Composite <span data-company-latest-composite>{{ latest_scores_display.composite|default:"—" }}</span></span>
           {% if sector %}
           <span class="tech100-company__chip">Sector: <span data-company-sector>{{ sector }}</span></span>

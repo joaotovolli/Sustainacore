@@ -2,6 +2,7 @@ import re
 from unittest import mock
 
 from django.conf import settings
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.urls import reverse
 
@@ -120,6 +121,7 @@ class SeoFoundationsTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertIn(f"{canonical_base}tech100/index/", content)
+        self.assertIn(f"{canonical_base}tech100/company/", content)
         self.assertIn(f"{canonical_base}tech100/performance/", content)
         self.assertIn(f"{canonical_base}tech100/constituents/", content)
         self.assertIn(f"{canonical_base}tech100/attribution/", content)
@@ -164,10 +166,13 @@ class SeoFoundationsTests(SimpleTestCase):
         return_value=[],
     )
     def test_sitemap_index_excludes_admin_routes(self, mock_news_entries, mock_company_entries):
+        cache.clear()
         response = self.client.get("/sitemap.xml", HTTP_HOST="sustainacore.org", follow=True)
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertNotIn("_sc/admin", content)
+        self.assertNotIn("tech100_companies_1.xml", content)
+        self.assertNotIn("news_items_1.xml", content)
 
     @mock.patch("core.views.fetch_tech100")
     @mock.patch("core.views.get_latest_trade_date")

@@ -76,6 +76,10 @@ TECH100_PREVIEW_LIMIT = 25
 PAGE_CACHE_SECONDS = 60
 
 
+def fetch_news(*, limit: int = 3, offset: int = 0, date_range: str = "all"):
+    return fetch_news_list(limit=limit, offset=offset, date_range=date_range)
+
+
 def _backend_url(path: str) -> str:
     base = settings.SUSTAINACORE_BACKEND_URL.rstrip("/")
     return f"{base}{path}"
@@ -1175,7 +1179,7 @@ def home(request):
         tech100_response = {}
 
     try:
-        news_response = fetch_news_list(limit=3, offset=0, date_range="all")
+        news_response = fetch_news(limit=3, offset=0, date_range="all")
     except NewsDataError:
         logger.exception("News preview unavailable for home.")
         news_response = {}
@@ -1627,16 +1631,22 @@ def _pick_top_tech100_ticker(companies: Iterable[Dict]) -> Optional[str]:
 
 def tech100_company_root(request):
     latest_date = get_latest_rebalance_date()
-    if not latest_date:
-        logger.warning("Tech100 company root fallback to MSFT: no rebalance date available.")
-        return redirect("tech100_company", ticker="MSFT")
-
-    companies = fetch_tech100_oracle_fallback(port_date=latest_date, limit=150)
-    ticker = _pick_top_tech100_ticker(companies)
-    if not ticker:
-        logger.warning("Tech100 company root fallback to MSFT: no constituents available.")
-        ticker = "MSFT"
-    return redirect("tech100_company", ticker=ticker)
+    try:
+        companies = get_company_list()
+    except Exception:
+        logger.exception("Failed to load Tech100 company list for landing page.")
+        companies = []
+    companies = sorted(
+        [item for item in companies if item.get("ticker")],
+        key=lambda item: str(item.get("ticker") or "").upper(),
+    )
+    context = {
+        "year": datetime.now().year,
+        "latest_date": latest_date,
+        "company_count": len(companies),
+        "companies": companies,
+    }
+    return render(request, "tech100_company_root.html", context)
 
 
 def tech100_company(request, ticker: str):
@@ -1646,6 +1656,14 @@ def tech100_company(request, ticker: str):
 
     latest_scores = summary.get("latest_scores") or {}
     latest_scores_display = {key: _format_score(value) for key, value in latest_scores.items()}
+    latest_rank = summary.get("latest_rank")
+    composite_score = latest_scores_display.get("composite")
+    summary_bits = []
+    if latest_rank is not None:
+        summary_bits.append(f"Rank {latest_rank}")
+    if composite_score:
+        summary_bits.append(f"Composite {composite_score}")
+    summary_line = " · ".join(summary_bits)
 
     context = {
         "year": datetime.now().year,
@@ -1658,6 +1676,7 @@ def tech100_company(request, ticker: str):
         "latest_scores": latest_scores,
         "latest_scores_display": latest_scores_display,
         "metric_options": list(TECH100_COMPANY_METRICS.keys()),
+        "summary_line": summary_line,
     }
     return render(request, "tech100_company.html", context)
 
@@ -2137,6 +2156,11 @@ def favicon(request):
     try:
         favicon_file = staticfiles_storage.open("favicon.ico")
     except FileNotFoundError as exc:
+        fallback_path = Path(settings.BASE_DIR) / "static" / "favicon.ico"
+        if fallback_path.exists():
+            response = FileResponse(fallback_path.open("rb"), content_type="image/x-icon")
+            response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+            return response
         raise Http404("favicon not found") from exc
     response = FileResponse(favicon_file, content_type="image/x-icon")
     response.headers["Cache-Control"] = "public, max-age=604800, immutable"
@@ -2201,21 +2225,6 @@ def sitemap_section(request, section: str):
 
     entries = sitemaps.get_section_entries(section)
     if not entries:
-        if section.startswith(sitemaps.COMPANY_SITEMAP_PREFIX) or section.startswith(
-            sitemaps.NEWS_SITEMAP_PREFIX
-        ):
-            content = sitemaps.render_urlset([])
-            response = HttpResponse(content, content_type="application/xml")
-            cache.set(
-                cache_key,
-                {
-                    "content": response.content,
-                    "content_type": response.get("Content-Type", "application/xml"),
-                    "last_modified": response.headers.get("Last-Modified"),
-                },
-                timeout=settings.SITEMAP_CACHE_SECONDS,
-            )
-            return response
         raise Http404("Sitemap section not found")
     content = sitemaps.render_urlset(entries)
     response = HttpResponse(content, content_type="application/xml")
