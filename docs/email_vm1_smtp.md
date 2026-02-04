@@ -26,3 +26,7 @@ You can override (VM1 env only; do not commit):
 - `LOGIN_CODE_SMTP_RETRY_BASE_SEC` (default `0.5`)
 
 These settings only affect one-time login codes and keep `POST /api/auth/request-code` responsive.
+
+### Telemetry report delivery
+The telemetry usage report uses the same SMTP envs (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`).
+Ensure `MAIL_FROM` matches the authenticated mailbox/domain to avoid IONOS policy rejections.

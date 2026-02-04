@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily web telemetry report timer
+Description=Daily web telemetry usage report timer
 
 [Timer]
 OnCalendar=*-*-* 06:45:00 UTC

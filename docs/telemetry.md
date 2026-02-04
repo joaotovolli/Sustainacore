@@ -103,21 +103,24 @@ Environment variables (optional):
   - Installed path on VM2:
     - `/opt/sustainacore/geoip/dbip-city-lite.mmdb`
 
-## Daily telemetry report (VM1)
+## Telemetry usage report (VM1)
 The VM1 report script aggregates `WKSP_ESGAPEX.W_WEB_EVENT` with bot/dev filtering:
 ```bash
-python tools/telemetry/daily_report.py --dry-run
-python tools/telemetry/daily_report.py --send
-python tools/telemetry/daily_report.py --date 2026-02-02 --json-out /tmp/telemetry.json
+python tools/telemetry/usage_report.py --dry-run
+python tools/telemetry/usage_report.py --all --dry-run
+python tools/telemetry/usage_report.py --all --send
+python tools/telemetry/usage_report.py --window 7d --json-out /tmp/telemetry.json
 ```
 
 Filters (env-driven, no secrets in Git):
 - `TELEMETRY_EXCLUDE_IP_HASHES` (comma-separated)
 - `TELEMETRY_EXCLUDE_SESSION_KEYS`
 - `TELEMETRY_EXCLUDE_USER_IDS`
+- `TELEMETRY_EXCLUDE_UA_SUBSTRINGS` (comma-separated; used to filter your traffic)
 - `TELEMETRY_BOT_UA_REGEX` (optional)
 - `TELEMETRY_PROBE_PATH_REGEX` (optional)
 - `TELEMETRY_REPORT_RECIPIENTS` (comma-separated email list; fallback to `MAIL_TO`)
+- `TELEMETRY_REPORT_CALL_TIMEOUT_MS` (per-query timeout; default 30000ms)
 
 Systemd scheduling (VM1):
 ```bash
