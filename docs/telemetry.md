@@ -129,3 +129,29 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now sc-telemetry-report.timer
 ```
 Default schedule is **06:45 UTC** with a lock (`/tmp/sc-telemetry-report.lock`) to prevent overlap.
+
+## Tech100 related companies (VM1)
+The related companies job precomputes top candidates for Tech100 company pages using consented telemetry:
+```bash
+python tools/telemetry/related_companies.py --window-days 30 --top-k 12
+python tools/telemetry/related_companies.py --window-days 30 --top-k 12 --dry-run
+```
+
+Filters (env-driven, no secrets in Git):
+- `RELATED_EXCLUDE_IP_HASHES` (comma-separated)
+- `RELATED_EXCLUDE_USER_IDS`
+- `RELATED_EXCLUDE_UA_SUBSTRINGS`
+- `RELATED_BOT_UA_REGEX` (optional)
+- `RELATED_PROBE_PATH_REGEX` (optional)
+- `RELATED_WINDOW_DAYS` (default 30)
+- `RELATED_TOP_K` (default 12)
+- `RELATED_GOOGLE_BOOST_WEIGHT` (default 3.0)
+- `RELATED_MAX_EVENTS` (optional cap for local diagnostics; default 0 = no cap)
+
+Systemd scheduling (VM1):
+```bash
+sudo cp infra/systemd/sc-tech100-related.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sc-tech100-related.timer
+```
+Default schedule is **07:15 UTC** with a lock (`/tmp/sc-tech100-related.lock`) to prevent overlap.

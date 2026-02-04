@@ -62,6 +62,7 @@ from core.tech100_company_data import (
     get_company_history,
     get_company_series,
     get_company_summary,
+    get_related_companies_for_display,
 )
 from ai_reg import data as ai_reg_data
 from core import sitemaps
@@ -1668,24 +1669,11 @@ def tech100_company(request, ticker: str):
 
     related_companies: list[dict] = []
     try:
-        companies = get_company_list()
-        if companies:
-            sector = (summary.get("sector") or "").strip().lower()
-            pool = [
-                item
-                for item in companies
-                if (item.get("ticker") or "").strip().upper() != normalized_ticker
-            ]
-            if sector:
-                same_sector = [
-                    item
-                    for item in pool
-                    if (item.get("sector") or "").strip().lower() == sector
-                ]
-                if same_sector:
-                    pool = same_sector
-            pool = sorted(pool, key=lambda item: str(item.get("ticker") or ""))
-            related_companies = pool[:8]
+        related_companies = get_related_companies_for_display(
+            normalized_ticker,
+            sector=summary.get("sector"),
+            limit=5,
+        )
     except Exception:
         logger.exception("Failed to build related companies list.")
 

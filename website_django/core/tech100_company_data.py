@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import os
 from typing import Optional
 
@@ -1127,3 +1128,149 @@ def get_tech100_latest_port_date() -> Optional[dt.date]:
     fallback = dt.date.today()
     cache.set(cache_key, fallback.isoformat(), 86400)
     return fallback
+
+
+def get_company_ranked_list() -> list[dict]:
+    if os.getenv("TECH100_UI_DATA_MODE") == "fixture":
+        ranked = []
+        for item in _fixture_items():
+            ranked.append(
+                {
+                    "ticker": item.get("ticker"),
+                    "company_name": item.get("company_name"),
+                    "sector": item.get("gics_sector"),
+                    "rank_index": _float_or_none(item.get("rank_index")),
+                }
+            )
+        ranked.sort(key=lambda row: (row.get("rank_index") or 9999, row.get("ticker") or ""))
+        return ranked
+    key = _cache_key("ranked_companies")
+    cached = cache.get(key)
+    if isinstance(cached, list):
+        return cached
+    sql = (
+        "SELECT ticker, company_name, gics_sector, rank_index "
+        "FROM ("
+        "SELECT ticker, company_name, gics_sector, rank_index, "
+        "ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY port_date DESC) AS rn "
+        "FROM tech11_ai_gov_eth_index "
+        "WHERE ticker IS NOT NULL"
+        ") "
+        "WHERE rn = 1 "
+        "ORDER BY NVL(rank_index, 9999), ticker"
+    )
+    rows = _execute_rows(sql, {})
+    ranked = [
+        {
+            "ticker": row[0],
+            "company_name": row[1],
+            "sector": row[2],
+            "rank_index": _float_or_none(row[3]),
+        }
+        for row in rows
+        if row[0]
+    ]
+    cache.set(key, ranked, 900)
+    return ranked
+
+
+def get_related_company_candidates(ticker: str, *, window_days: int, limit: int = 12) -> list[str]:
+    normalized = (ticker or "").strip().upper()
+    if not normalized:
+        return []
+    key = _cache_key("related_candidates", normalized, str(window_days), str(limit))
+    cached = cache.get(key)
+    if isinstance(cached, list):
+        return cached
+    sql = (
+        "SELECT related_ticker "
+        "FROM tech100_related_companies "
+        "WHERE ticker = :ticker AND window_days = :window_days "
+        "ORDER BY score DESC, related_ticker"
+    )
+    try:
+        rows = _execute_rows(sql, {"ticker": normalized, "window_days": window_days})
+    except Exception:
+        return []
+    candidates = [str(row[0]).strip().upper() for row in rows if row and row[0]]
+    unique = []
+    seen = set()
+    for value in candidates:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+        if len(unique) >= limit:
+            break
+    cache.set(key, unique, 600)
+    return unique
+
+
+def get_related_companies_for_display(
+    ticker: str,
+    *,
+    sector: Optional[str],
+    limit: int = 5,
+) -> list[dict]:
+    normalized = (ticker or "").strip().upper()
+    if not normalized:
+        return []
+    window_days = int(os.getenv("TECH100_RELATED_WINDOW_DAYS", "30"))
+    candidates = get_related_company_candidates(normalized, window_days=window_days, limit=12)
+    ranked = get_company_ranked_list()
+    company_map = {
+        (row.get("ticker") or "").strip().upper(): row
+        for row in ranked
+        if row.get("ticker")
+    }
+
+    def _rotate(items: list[dict], size: int) -> list[dict]:
+        if len(items) <= size:
+            return items
+        seed = f"{normalized}:{dt.date.today().isoformat()}"
+        digest = hashlib.md5(seed.encode("utf-8")).hexdigest()
+        offset = int(digest, 16) % len(items)
+        return [items[(offset + idx) % len(items)] for idx in range(size)]
+
+    related = []
+    for value in candidates:
+        if value == normalized:
+            continue
+        item = company_map.get(value)
+        if item:
+            related.append(item)
+    if related:
+        related = _rotate(related, limit)
+    if len(related) < limit:
+        remaining = limit - len(related)
+        sector_key = (sector or "").strip().lower()
+        if sector_key:
+            sector_peers = [
+                row
+                for row in ranked
+                if (row.get("sector") or "").strip().lower() == sector_key
+                and (row.get("ticker") or "").strip().upper() not in {normalized, *(r["ticker"] for r in related)}
+            ]
+            related.extend(sector_peers[:remaining])
+    if len(related) < limit:
+        remaining = limit - len(related)
+        tickers = [row.get("ticker") for row in ranked]
+        try:
+            idx = tickers.index(normalized)
+        except ValueError:
+            idx = None
+        neighbors: list[dict] = []
+        if idx is not None:
+            for offset in range(1, len(ranked)):
+                for candidate_idx in (idx - offset, idx + offset):
+                    if 0 <= candidate_idx < len(ranked):
+                        row = ranked[candidate_idx]
+                        tkr = (row.get("ticker") or "").strip().upper()
+                        if tkr and tkr not in {normalized, *(r["ticker"] for r in related)}:
+                            neighbors.append(row)
+                    if len(neighbors) >= remaining:
+                        break
+                if len(neighbors) >= remaining:
+                    break
+        related.extend(neighbors[:remaining])
+    return related[:limit]
