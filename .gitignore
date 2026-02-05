@@ -10,6 +10,7 @@ website_django/venv/
 website_django/staticfiles/
 artifacts/
 .env
+*.env
 node_modules/
 dist/
 build/
@@ -31,6 +32,8 @@ website_django/db.sqlite3
 archive/misc/adapter_backups/
 *.bak.*
 key.pem
+*.pem
+*.key
 /etc/systemd/system/*.conf
 /opt/adb_wallet_tp/*
 tools/audit/output/pipeline_health_latest.txt
