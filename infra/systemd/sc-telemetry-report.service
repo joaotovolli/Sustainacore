@@ -11,7 +11,7 @@ Environment=PYTHONPATH=/home/opc/Sustainacore
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/etc/sustainacore/db.env
 EnvironmentFile=/etc/sustainacore-ai/secrets.env
-EnvironmentFile=/etc/sustainacore.env
+EnvironmentFile=-/etc/sustainacore.env
 RuntimeMaxSec=900
 ExecStart=/usr/bin/flock -n /tmp/sc-telemetry-report.lock /usr/bin/python3 /home/opc/Sustainacore/tools/telemetry/usage_report.py --all --send
 

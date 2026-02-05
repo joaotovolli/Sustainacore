@@ -155,6 +155,7 @@ def _send_email_message(
                     port,
                     to_count or 0,
                 )
+                print(f"email_send_ok message_id={msg.get('Message-ID')}")
                 return True
         except smtplib.SMTPAuthenticationError as exc:
             _record_failure()
