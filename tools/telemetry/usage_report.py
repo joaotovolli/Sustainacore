@@ -509,7 +509,7 @@ def _resolve_windows(args) -> List[str]:
     return ["24h"]
 
 
-def _send_email(report: Dict[str, Any], subject: str, to_override: Optional[str]) -> None:
+def _send_email(report: Dict[str, Any], subject: str, to_override: Optional[str]) -> bool:
     recipients = _csv_list(os.getenv("TELEMETRY_REPORT_RECIPIENTS"))
     if to_override:
         recipients = [to_override]
@@ -522,12 +522,18 @@ def _send_email(report: Dict[str, Any], subject: str, to_override: Optional[str]
 
     text_body = render_text(report)
     html_body = render_html(report)
+    results = []
     for recipient in recipients:
-        send_email_to(recipient, subject, text_body, html_body=html_body)
+        try:
+            results.append(send_email_to(recipient, subject, text_body, html_body=html_body))
+        except TypeError:
+            results.append(send_email_to(recipient, subject, text_body))
+    return all(results)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logging.getLogger("app.email").setLevel(logging.INFO)
     parser = argparse.ArgumentParser(description="Telemetry usage report from W_WEB_EVENT")
     parser.add_argument("--window", help="Window: 24h, 7d, or 30d")
     parser.add_argument("--all", action="store_true", help="Include 24h, 7d, 30d sections")
@@ -546,7 +552,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.send:
         subject = f"Telemetry usage report ({', '.join(windows)})"
-        _send_email(report, subject, args.to)
+        sent = _send_email(report, subject, args.to)
+        if not sent:
+            logging.error("telemetry_report_send_failed")
+            raise RuntimeError("telemetry_report_send_failed")
         print("SMTP_ACCEPTED")
 
     if args.dry_run or not args.send:
