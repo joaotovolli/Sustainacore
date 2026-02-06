@@ -915,7 +915,11 @@ async def _handle_ask2_request(request: Request, *, require_auth: bool) -> JSONR
             ),
             started,
         )
-    except Exception:
+    except Exception as exc:
+        # This is the primary production failure mode when Oracle/vector plumbing
+        # is broken. Log the exception so VM1 operators can see the root cause
+        # in journald without enabling debug flags.
+        LOGGER.exception("ask2.pipeline_error", exc_info=exc)
         return _finalize_response(
             _build_payload(
                 answer=FALLBACK,
