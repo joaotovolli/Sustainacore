@@ -57,6 +57,73 @@
     const COLLAPSE_CLASS = 'is-collapsed';
     const SNIPPET_MAX_CHARS = 240;
     const INTERNAL_SOURCE_SCHEMES = ['local://', 'file://', 'internal://', 'sustainacore://'];
+    const PREMIUM_STATE_KEY = 'sc_ask2_premium_interest';
+    const PREMIUM_PENDING_KEY = 'sc_ask2_premium_pending_question';
+    const PREMIUM_AWAITING_KEY = 'sc_ask2_premium_awaiting';
+    const PREMIUM_INTENT_RE = /\b(premium|pricing|price|subscribe|subscription|paid|enterprise|api|data api|developer api|report|reports|analytics|custom research|consulting|demo|trial|quote|purchase|buy)\b/i;
+    const PREMIUM_PROMPT = 'Are you interested in premium services? (Yes/No)';
+    const PREMIUM_SALES_SUFFIX = 'For premium analytics and dedicated support, contact info@sustainacore.org.';
+
+    function safeSessionGet(key) {
+      try {
+        return window.sessionStorage?.getItem?.(key) || '';
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function safeSessionSet(key, value) {
+      try {
+        window.sessionStorage?.setItem?.(key, String(value));
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    function safeSessionRemove(key) {
+      try {
+        window.sessionStorage?.removeItem?.(key);
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    function getPremiumState() {
+      const raw = (safeSessionGet(PREMIUM_STATE_KEY) || '').toLowerCase();
+      if (raw === 'yes' || raw === 'no') return raw;
+      return 'unknown';
+    }
+
+    function setPremiumState(value) {
+      const next = (value || '').toLowerCase();
+      if (next === 'yes' || next === 'no') {
+        safeSessionSet(PREMIUM_STATE_KEY, next);
+      } else {
+        safeSessionRemove(PREMIUM_STATE_KEY);
+      }
+    }
+
+    function isAwaitingPremiumChoice() {
+      return safeSessionGet(PREMIUM_AWAITING_KEY) === '1';
+    }
+
+    function setAwaitingPremiumChoice(value) {
+      if (value) safeSessionSet(PREMIUM_AWAITING_KEY, '1');
+      else safeSessionRemove(PREMIUM_AWAITING_KEY);
+    }
+
+    function normalizeYesNo(text) {
+      const cleaned = String(text || '').trim().toLowerCase();
+      if (cleaned === 'y' || cleaned === 'yes') return 'yes';
+      if (cleaned === 'n' || cleaned === 'no') return 'no';
+      return '';
+    }
+
+    function looksLikePremiumIntent(text) {
+      const cleaned = String(text || '').trim();
+      if (!cleaned) return false;
+      return PREMIUM_INTENT_RE.test(cleaned);
+    }
 
     function stripInternalIds(text) {
       return text.replace(/\(ID:[^)]+\)/gi, '').trim();
@@ -436,7 +503,16 @@
     }
 
     function renderAssistantBubble(bubble, replyText, sources) {
-      const cleanedReply = cleanReplyText(replyText || '');
+      let cleanedReply = cleanReplyText(replyText || '');
+      const premiumState = getPremiumState();
+      if (
+        premiumState === 'yes'
+        && cleanedReply
+        && cleanedReply !== PREMIUM_PROMPT
+        && !cleanedReply.includes(PREMIUM_SALES_SUFFIX)
+      ) {
+        cleanedReply = `${cleanedReply.trim()}\n\n${PREMIUM_SALES_SUFFIX}`;
+      }
       const container = document.createElement('div');
       container.className = 'ask2-bubble';
       const content = document.createElement('div');
@@ -474,6 +550,57 @@
       bubble.replaceChildren(container);
       if (!shouldCollapse) {
         bubble.classList.remove(COLLAPSE_CLASS);
+      }
+    }
+
+    function appendPremiumPrompt() {
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble bubble--assistant';
+      const prompt = document.createElement('div');
+      prompt.textContent = PREMIUM_PROMPT;
+      bubble.appendChild(prompt);
+
+      const actions = document.createElement('div');
+      actions.style.display = 'flex';
+      actions.style.gap = '10px';
+      actions.style.marginTop = '10px';
+
+      const yesBtn = document.createElement('button');
+      yesBtn.type = 'button';
+      yesBtn.className = 'btn btn--secondary';
+      yesBtn.textContent = 'Yes';
+      yesBtn.addEventListener('click', () => {
+        appendBubble('user', 'Yes');
+        handlePremiumChoice('yes');
+      });
+
+      const noBtn = document.createElement('button');
+      noBtn.type = 'button';
+      noBtn.className = 'btn btn--ghost';
+      noBtn.textContent = 'No';
+      noBtn.addEventListener('click', () => {
+        appendBubble('user', 'No');
+        handlePremiumChoice('no');
+      });
+
+      actions.appendChild(yesBtn);
+      actions.appendChild(noBtn);
+      bubble.appendChild(actions);
+
+      messagesEl.appendChild(bubble);
+      scrollToBottom();
+      return bubble;
+    }
+
+    function handlePremiumChoice(choice) {
+      const normalized = normalizeYesNo(choice);
+      if (!normalized) return;
+      setPremiumState(normalized);
+      setAwaitingPremiumChoice(false);
+      const pending = safeSessionGet(PREMIUM_PENDING_KEY);
+      safeSessionRemove(PREMIUM_PENDING_KEY);
+      if (pending) {
+        sendMessage(pending);
       }
     }
 
@@ -561,6 +688,28 @@
 
       appendBubble('user', text);
       input.value = '';
+
+      const premiumState = getPremiumState();
+      const yn = normalizeYesNo(text);
+      if (isAwaitingPremiumChoice()) {
+        if (yn) {
+          handlePremiumChoice(yn);
+          return;
+        }
+        // User continued with another question; treat as normal mode.
+        setAwaitingPremiumChoice(false);
+        safeSessionRemove(PREMIUM_PENDING_KEY);
+        sendMessage(text);
+        return;
+      }
+
+      if (premiumState === 'unknown' && looksLikePremiumIntent(text)) {
+        safeSessionSet(PREMIUM_PENDING_KEY, text);
+        setAwaitingPremiumChoice(true);
+        appendPremiumPrompt();
+        return;
+      }
+
       sendMessage(text);
     });
 

@@ -39,6 +39,13 @@ async def normalize_request(
     if "query" in normalized and "question" not in normalized:
         normalized["question"] = normalized["query"]
 
+    # VM2 /ask2/api and legacy clients sometimes send message/user_message.
+    # Treat these as aliases for "question" so /ask2 stays compatible.
+    for alias in ("user_message", "message", "userMessage"):
+        if alias in normalized and "question" not in normalized and normalized[alias] is not None:
+            normalized["question"] = normalized[alias]
+            break
+
     if "topK" in normalized and "top_k" not in normalized:
         normalized["top_k"] = normalized["topK"]
 
