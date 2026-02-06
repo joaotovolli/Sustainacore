@@ -11,7 +11,7 @@ from .gemini_gateway import gateway as gemini_gateway, _resolve_source_url
 from .oracle_retriever import RetrievalResult, capability_snapshot, retriever
 from .settings import settings
 from .quality_guards import (
-    infer_source_type_filters,
+    infer_retrieval_filters,
     is_greeting_or_thanks,
     is_low_information,
     should_abstain,
@@ -173,8 +173,7 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
             LOGGER.exception("gemini_service_pipeline_failed", exc_info=exc)
 
     # If service pipeline isn't used, apply a conservative source_type hint when unfiltered.
-    inferred = infer_source_type_filters(sanitized_question)
-    filters = {"source_type": inferred} if inferred else None
+    filters = infer_retrieval_filters(sanitized_question)
 
     retrieval_start = time.perf_counter()
     result = retriever.retrieve(sanitized_question, k_value, filters=filters)

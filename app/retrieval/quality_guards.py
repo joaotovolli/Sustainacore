@@ -18,6 +18,7 @@ _WORD_RE = re.compile(r"[A-Za-z0-9]{2,}")
 _VOWEL_RE = re.compile(r"[aeiou]", re.IGNORECASE)
 
 _STOPWORDS = {
+    "about",
     "a",
     "an",
     "and",
@@ -78,6 +79,11 @@ _THANKS = {
     "thank",
     "ty",
 }
+
+_TICKER_PARENS_RE = re.compile(r"\(([A-Z]{1,5})\)")
+_TICKER_DOLLAR_RE = re.compile(r"\$([A-Z]{1,5})\b")
+_TICKER_BARE_RE = re.compile(r"\b([A-Z]{2,5})\b")
+_TICKER_IGNORE = {"AI", "EU", "UK", "US", "PDF", "API", "LLM", "SEC"}
 
 
 def _tokens(text: str) -> List[str]:
@@ -167,6 +173,58 @@ def clarify_answer(question: str) -> str:
     )
 
 
+def extract_ticker(question: str) -> Optional[str]:
+    """Best-effort ticker extraction from user input.
+
+    Prefer explicit patterns like "(MSFT)" or "$MSFT" to avoid false positives.
+    """
+
+    if not question:
+        return None
+
+    # Preserve original casing for uppercase scanning.
+    raw = str(question)
+
+    m = _TICKER_PARENS_RE.search(raw)
+    if m:
+        ticker = m.group(1).strip().upper()
+        if ticker and ticker not in _TICKER_IGNORE:
+            return ticker
+
+    m = _TICKER_DOLLAR_RE.search(raw)
+    if m:
+        ticker = m.group(1).strip().upper()
+        if ticker and ticker not in _TICKER_IGNORE:
+            return ticker
+
+    # If the user explicitly says "ticker" or "symbol", allow a bare ticker token.
+    lowered = raw.lower()
+    if "ticker" in lowered or "symbol" in lowered:
+        m = _TICKER_BARE_RE.search(raw)
+        if m:
+            ticker = m.group(1).strip().upper()
+            if ticker and ticker not in _TICKER_IGNORE:
+                return ticker
+
+    return None
+
+
+def is_company_intent(question: str) -> bool:
+    q = (question or "").lower().strip()
+    if not q:
+        return False
+    if extract_ticker(question):
+        return True
+    return any(tok in q for tok in ("tell me about", "what does", "who is", "company", "ticker", "stock"))
+
+
+def is_methodology_intent(question: str) -> bool:
+    q = (question or "").lower().strip()
+    if not q:
+        return False
+    return any(tok in q for tok in ("methodology", "rebalance", "rebalanced", "rebalancing", "built", "constructed"))
+
+
 def infer_source_type_filters(question: str) -> Optional[List[str]]:
     """Return a conservative SOURCE_TYPE filter hint for Oracle retrieval."""
 
@@ -183,11 +241,34 @@ def infer_source_type_filters(question: str) -> Optional[List[str]]:
     if any(tok in q for tok in ("performance", "returns", "return", "drawdown", "volatility")):
         return ["performance"]
 
+    if is_methodology_intent(question) and "tech100" in q:
+        return ["tech100_methodology_summary", "methodology"]
+
     # Generic company questions: bias toward company pages instead of large regulatory corpora.
-    if any(tok in q for tok in ("tell me about", "what does", "who is", "company", "ticker")):
-        return ["company_profile"]
+    if is_company_intent(question):
+        # Prefer the high-signal Tech100 company card corpus when available.
+        return ["tech100_company_card"]
 
     return None
+
+
+def infer_retrieval_filters(question: str) -> Optional[Dict[str, Any]]:
+    """Infer a conservative filter payload for Oracle retrieval.
+
+    Returns a dict compatible with `db_helper._build_filter_clause`.
+    """
+
+    st = infer_source_type_filters(question)
+    if not st:
+        return None
+    filters: Dict[str, Any] = {"source_type": st}
+
+    ticker = extract_ticker(question)
+    if ticker and "tech100_company_card" in st:
+        # SOURCE_ID in ESG_DOCS is used as a ticker identifier for company cards.
+        filters["source_id"] = ticker
+
+    return filters
 
 
 def _context_text(ctx: Dict[str, Any]) -> str:
@@ -236,12 +317,18 @@ def should_abstain(question: str, contexts: Sequence[Dict[str, Any]]) -> Abstain
 
     best = _best_score(contexts)
     overlap = _max_token_overlap(question, contexts)
+    company_intent = is_company_intent(question)
 
     # If we don't have scores, fall back to overlap only.
     if best is None:
         if overlap == 0 and not is_low_information(question):
             return AbstainDecision(True, "no_overlap_no_score", None, overlap)
         return AbstainDecision(False, "no_score", None, overlap)
+
+    # Company intent: if we can't lexically match the entity tokens at all, abstain
+    # to avoid returning unrelated company cards.
+    if company_intent and overlap == 0 and not is_low_information(question):
+        return AbstainDecision(True, "company_no_overlap", best, overlap)
 
     # Hard floor: very low score is almost certainly irrelevant.
     if best < 0.20:

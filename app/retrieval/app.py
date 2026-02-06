@@ -317,8 +317,11 @@ def _build_payload(
     limit_sources: Optional[int] = None,
 ) -> Dict[str, Any]:
     sources, contexts = _shape_sources_and_contexts(raw_sources, raw_contexts)
-    if limit_sources is None and note != "ok":
-        limit_sources = 3
+    # Always cap sources to keep payloads tight and stable for the UI.
+    # Keep this independent of `note` so "ok" responses can't balloon.
+    if limit_sources is None:
+        limit_sources = 5
+    limit_sources = min(int(limit_sources), 5) if limit_sources is not None else 5
     if limit_sources is not None:
         sources = sources[:limit_sources]
         contexts = contexts[:limit_sources]
