@@ -895,11 +895,10 @@ async def _handle_ask2_request(request: Request, *, require_auth: bool) -> JSONR
         )
 
     try:
+        # anyio.to_thread.run_sync does not accept kwargs in all supported anyio versions.
+        # Wrap the call so we can pass keyword arguments safely.
         result = await to_thread.run_sync(
-            run_pipeline,
-            question_text,
-            k=top_k,
-            client_ip=client_ip,
+            lambda: run_pipeline(question_text, k=top_k, client_ip=client_ip)
         )
     except RateLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
