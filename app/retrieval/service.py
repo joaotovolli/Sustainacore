@@ -16,6 +16,13 @@ from .gemini_gateway import gateway, _format_final_answer, _resolve_source_url
 from .observability import observer
 from .oracle_retriever import retriever
 from .settings import settings
+from .quality_guards import (
+    infer_source_type_filters,
+    is_greeting_or_thanks,
+    is_low_information,
+    should_abstain,
+    smalltalk_answer,
+)
 
 
 LOGGER = logging.getLogger("gemini-service")
@@ -299,9 +306,6 @@ def run_pipeline(
     sanitized_q = (question or "").strip()
     ip = (client_ip or "unknown").strip() or "unknown"
 
-    if not settings.gemini_first_enabled:
-        raise GeminiUnavailableError("gemini_first_disabled")
-
     if not sanitized_q:
         return {
             "answer": "Please share a SustainaCore question so I can help.",
@@ -309,6 +313,34 @@ def run_pipeline(
             "contexts": [],
             "meta": {"intent": "EMPTY", "k": k, "show_debug_block": settings.show_debug_block},
         }
+
+    # Deterministic small-talk / low-information bypass.
+    # This prevents retrieval from returning irrelevant regulatory/company chunks for greetings.
+    if is_greeting_or_thanks(sanitized_q) or is_low_information(sanitized_q):
+        t0 = time.time()
+        total_ms = int((time.time() - t0) * 1000)
+        latencies = {"total_ms": total_ms}
+        intent_info = {"intent": "SMALL_TALK", "confidence": "heuristic"}
+        _record_smalltalk(sanitized_q, intent_info, latencies)
+        return {
+            "answer": smalltalk_answer(sanitized_q),
+            "sources": [],
+            "contexts": [],
+            "meta": {
+                "intent": "SMALL_TALK",
+                "latency_ms": total_ms,
+                "latency_breakdown": latencies,
+                "gemini_first": False,
+                "gemini": {"intent": intent_info},
+                "hop_count": 0,
+                "show_debug_block": settings.show_debug_block,
+                "k": 0,
+                "note": "smalltalk_bypass",
+            },
+        }
+
+    if not settings.gemini_first_enabled:
+        raise GeminiUnavailableError("gemini_first_disabled")
 
     try:
         _enforce_rate_limit(ip)
@@ -372,6 +404,14 @@ def run_pipeline(
     if _needs_unfiltered_results(sanitized_q):
         filters = {}
 
+    # If Gemini plan didn't constrain retrieval, apply a conservative heuristic
+    # to reduce domination by large corpora like regulatory content.
+    if not filters or not isinstance(filters, dict) or "source_type" not in filters:
+        inferred = infer_source_type_filters(sanitized_q)
+        if inferred:
+            filters = dict(filters) if isinstance(filters, dict) else {}
+            filters["source_type"] = inferred
+
     retrieval_start = time.time()
     oracle_result = _oracle_search_variants(variants, plan_k, filters)
     latencies["oracle_ms"] = oracle_result.latency_ms
@@ -404,6 +444,58 @@ def run_pipeline(
         "contexts": raw_contexts[:fact_cap],
         "context_note": context_note,
     }
+
+    # Quality guard: abstain when retrieval looks low-confidence.
+    # This is critical for nonsense/generic prompts where KNN always returns something.
+    # Use the raw contexts (with score/title/snippet) as the signal.
+    decision = should_abstain(sanitized_q, raw_contexts[:fact_cap])
+    if decision.abstain:
+        total_ms = int((time.time() - t0) * 1000)
+        latencies["total_ms"] = total_ms
+        observer.record(
+            {
+                "event": "ask2",
+                "intent": intent,
+                "question": sanitized_q,
+                "filters_applied": filters,
+                "K_in": plan_k,
+                "K_after_dedup": oracle_result.deduped,
+                "rerank": "none",
+                "final_sources_count": 1,
+                "latency_ms": total_ms,
+                "latency_breakdown": latencies,
+                "gemini": "abstain",
+                "hop_count": hop_count,
+                "abstain_reason": decision.reason,
+                "abstain_best_score": decision.best_score,
+                "abstain_overlap": decision.max_token_overlap,
+            }
+        )
+        answer_text = (
+            "**Answer**\n"
+            "I couldn’t find relevant information on SustainaCore to answer that question yet.\n\n"
+            "**Try**\n"
+            "- Rephrasing with a ticker (e.g., “AAPL”) or “Tech100”.\n"
+            "- Asking about a specific page or topic (regulation, news, or index performance).\n\n"
+            "**Sources**\n"
+            "1. SustainaCore — https://sustainacore.org\n"
+        )
+        return {
+            "answer": answer_text,
+            "sources": ["SustainaCore — https://sustainacore.org"],
+            "contexts": [],
+            "meta": {
+                "intent": intent,
+                "latency_ms": total_ms,
+                "latency_breakdown": latencies,
+                "gemini_first": True,
+                "gemini": {"intent": intent_info, "compose": "abstain"},
+                "hop_count": 0,
+                "show_debug_block": settings.show_debug_block,
+                "k": k,
+                "note": f"abstain:{decision.reason}",
+            },
+        }
 
     compose_start = time.time()
     composed = gateway.compose_answer(sanitized_q, retriever_payload, plan, hop_count)
