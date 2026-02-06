@@ -781,7 +781,22 @@ async def api_news_admin_items(request: Request) -> JSONResponse:
 
 @app.post("/ask2")
 async def ask2_post(request: Request) -> JSONResponse:
+    return await _handle_ask2_request(request, require_auth=False)
+
+
+@app.post("/api/ask2")
+async def api_ask2_post(request: Request) -> JSONResponse:
+    """Authenticated Ask2 endpoint used by VM2 proxy (/ask2/api/ -> VM1 /api/ask2)."""
+    return await _handle_ask2_request(request, require_auth=True)
+
+
+async def _handle_ask2_request(request: Request, *, require_auth: bool) -> JSONResponse:
     started = time.perf_counter()
+    if require_auth:
+        auth = _api_auth_guard(request)
+        if auth is not None:
+            return auth
+
     raw_body = await request.body()
     content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
 
@@ -828,6 +843,10 @@ async def ask2_post(request: Request) -> JSONResponse:
         question_value = effective_payload.get("q")
     if question_value is None:
         question_value = effective_payload.get("text")
+    if question_value is None:
+        question_value = effective_payload.get("user_message")
+    if question_value is None:
+        question_value = effective_payload.get("message")
     question_text = question_value.strip() if isinstance(question_value, str) else ""
 
     raw_top_k = effective_payload.get("top_k")
