@@ -176,9 +176,12 @@ jobs:
           set -e
           echo "status=$status" >>"$GITHUB_OUTPUT"
           if [[ $status -ne 0 ]]; then
-            echo "snippet<<'EOF'" >>"$GITHUB_OUTPUT"
-            tail -n 40 "$log_file" >>"$GITHUB_OUTPUT"
-            echo 'EOF' >>"$GITHUB_OUTPUT"
+            delim="EOF_$(date +%s%N)_$RANDOM"
+            {
+              printf 'snippet<<%s\n' "$delim"
+              tail -n 40 "$log_file" 2>/dev/null || true
+              printf '%s\n' "$delim"
+            } >>"$GITHUB_OUTPUT"
           fi
       - name: Fail deploy if script errored
         if: ${{ steps.preflight.outputs.ready == 'true' && steps.run-deploy.outputs.status != '0' }}

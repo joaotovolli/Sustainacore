@@ -114,15 +114,25 @@ jobs:
           VM_HOST: ${{ secrets.VM_HOST }}
           VM_USER: ${{ secrets.VM_USER }}
           VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ORG_ID: ${{ secrets.ORG_ID }}
         with:
           script: |
             const required = [
-              { key: 'VM_HOST', note: 'Public hostname or IP for ai.sustainacore.org' },
               { key: 'VM_USER', note: 'SSH user (usually `opc`) with append rights to ~/canary/roundtrip.log' },
               { key: 'VM_SSH_KEY', note: 'OpenSSH private key paired with VM_USER' },
             ];
+            const hasVm2Jump = Boolean(process.env.VM2_HOST && process.env.VM2_USER && process.env.VM2_SSH_KEY);
+            const hasDirectHost = Boolean(process.env.VM_HOST);
+            if (!hasVm2Jump && !hasDirectHost) {
+              required.push({ key: 'VM_HOST', note: 'Public hostname or IP for VM1 (fallback when VM2 jump not configured)' });
+              required.push({ key: 'VM2_HOST', note: 'VM2 public hostname/IP (preferred: canary reaches VM1 via VM2 private network)' });
+              required.push({ key: 'VM2_USER', note: 'VM2 SSH user' });
+              required.push({ key: 'VM2_SSH_KEY', note: 'OpenSSH private key for VM2_USER@VM2_HOST' });
+            }
             const optional = [
               { key: 'OPENAI_API_KEY', note: 'Needed for persona/self-test jobs' },
               { key: 'ORG_ID', note: 'Partner/org identifier consumed by persona checks' },
@@ -189,12 +199,77 @@ jobs:
           printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > "$key"
           chmod 600 "$key"
           echo "path=$key" >> "$GITHUB_OUTPUT"
+      - name: Prepare VM2 SSH key (optional jump host)
+        id: vm2-key
+        env:
+          VM2_SSH_KEY: ${{ secrets.VM2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/vm2_key"
+          if [[ -z "${VM2_SSH_KEY:-}" ]]; then
+            echo "path=" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$VM2_SSH_KEY" >"$key"
+          chmod 600 "$key"
+          echo "path=$key" >>"$GITHUB_OUTPUT"
+      - name: Resolve canary target host (prefer VM2 jump to VM1 private IP)
+        id: resolve
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_KEY_PATH: ${{ steps.vm2-key.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          use_jump="false"
+          target_host="${VM_HOST:-}"
+
+          if [[ -n "${VM2_HOST:-}" && -n "${VM2_USER:-}" && -n "${VM2_KEY_PATH:-}" ]]; then
+            # Ask VM2 what it is configured to use as the backend host for VM1.
+            # This avoids stale VM1 public IPs when VM1 is rebuilt, as long as VM2 is kept current.
+            set +e
+            raw_backend=$(
+              ssh \
+                -i "$VM2_KEY_PATH" \
+                -o BatchMode=yes \
+                -o IdentitiesOnly=yes \
+                -o ConnectTimeout=10 \
+                -o ServerAliveInterval=5 \
+                -o ServerAliveCountMax=1 \
+                -o StrictHostKeyChecking=accept-new \
+                -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+                "$VM2_USER@$VM2_HOST" \
+                "sudo -n python3 - <<'PY'\nimport re\np='/etc/sysconfig/sustainacore-django.env'\nval=''\ntry:\n  for line in open(p,'r',encoding='utf-8',errors='ignore'):\n    line=line.strip()\n    if line.startswith('SUSTAINACORE_BACKEND_URL='):\n      val=line.split('=',1)[1].strip().strip('\"').strip(\"'\")\n      break\n    if not val and line.startswith('BACKEND_API_BASE='):\n      val=line.split('=',1)[1].strip().strip('\"').strip(\"'\")\n  m=re.match(r'^(?:https?://)?([^/]+)',val)\n  hostport=(m.group(1) if m else '').strip()\n  host=hostport.split(':',1)[0].strip()\n  print(host)\nexcept Exception:\n  print('')\nPY"
+            )
+            rc=$?
+            set -e
+
+            if [[ $rc -eq 0 && -n "${raw_backend:-}" ]]; then
+              use_jump="true"
+              target_host="$raw_backend"
+            fi
+          fi
+
+          if [[ -z "${target_host:-}" ]]; then
+            echo "Unable to resolve a canary target host (need VM_HOST or VM2 jump secrets)." >&2
+            exit 1
+          fi
+
+          printf 'use_jump=%s\n' "$use_jump" >>"$GITHUB_OUTPUT"
+          printf 'target_host=%s\n' "$target_host" >>"$GITHUB_OUTPUT"
       - name: Run canary probe
         id: run
         env:
-          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_HOST: ${{ steps.resolve.outputs.target_host }}
           VM_USER: ${{ secrets.VM_USER }}
           SSH_KEY_PATH: ${{ steps.key.outputs.path }}
+          USE_JUMP: ${{ steps.resolve.outputs.use_jump }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_KEY_PATH: ${{ steps.vm2-key.outputs.path }}
         shell: bash
         run: |
           set -euo pipefail
@@ -210,6 +285,23 @@ jobs:
             echo "SSH key path missing" >&2
             exit 1
           fi
+          if [[ "${USE_JUMP:-false}" == "true" ]]; then
+            if [[ -z "${VM2_HOST:-}" || -z "${VM2_USER:-}" || -z "${VM2_KEY_PATH:-}" ]]; then
+              echo "USE_JUMP=true but VM2 jump host configuration is incomplete" >&2
+              exit 1
+            fi
+          fi
+
+          write_output() { printf '%s=%s\n' "$1" "$2" >>"$GITHUB_OUTPUT"; }
+          write_multiline_output() {
+            local name="$1"
+            local delim="EOF_$(date +%s%N)_$RANDOM"
+            {
+              printf '%s<<%s\n' "$name" "$delim"
+              cat
+              printf '%s\n' "$delim"
+            } >>"$GITHUB_OUTPUT"
+          }
           remote_script="$RUNNER_TEMP/remote_canary.sh"
           cat >"$remote_script" <<EOF
             set -euo pipefail
@@ -225,32 +317,84 @@ jobs:
           EOF
           log_file="$RUNNER_TEMP/canary.log"
           set +e
-          ssh -vvv -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$VM_USER@$VM_HOST" 'bash -s' <"$remote_script" 2>&1 | tee "$log_file"
+          ssh_common_opts=(
+            -i "$SSH_KEY_PATH"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=10
+            -o ServerAliveInterval=5
+            -o ServerAliveCountMax=1
+            -o StrictHostKeyChecking=accept-new
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts"
+          )
+
+          if [[ "${USE_JUMP:-false}" == "true" ]]; then
+            proxy_cmd="ssh -i $VM2_KEY_PATH -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts -W %h:%p $VM2_USER@$VM2_HOST"
+            ssh "${ssh_common_opts[@]}" -o "ProxyCommand=$proxy_cmd" "$VM_USER@$VM_HOST" 'bash -s' <"$remote_script" 2>&1 | tee "$log_file"
+          else
+            ssh "${ssh_common_opts[@]}" "$VM_USER@$VM_HOST" 'bash -s' <"$remote_script" 2>&1 | tee "$log_file"
+          fi
           status=${PIPESTATUS[0]}
           set -e
-          echo "status=$status" >>"$GITHUB_OUTPUT"
+          write_output status "$status"
           if [[ $status -ne 0 ]]; then
-            echo "snippet<<'EOF'" >>"$GITHUB_OUTPUT"
-            tail -n 20 "$log_file" >>"$GITHUB_OUTPUT"
-            echo 'EOF' >>"$GITHUB_OUTPUT"
+            snippet="$(tail -n 20 "$log_file" 2>/dev/null || true)"
+            printf '%s\n' "$snippet" | write_multiline_output snippet
+          else
+            printf '' | write_multiline_output snippet
           fi
       - name: Tail remote roundtrip log
         id: tail
         if: ${{ steps.run.outputs.status == '0' }}
         env:
-          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_HOST: ${{ steps.resolve.outputs.target_host }}
           VM_USER: ${{ secrets.VM_USER }}
           SSH_KEY_PATH: ${{ steps.key.outputs.path }}
+          USE_JUMP: ${{ steps.resolve.outputs.use_jump }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_KEY_PATH: ${{ steps.vm2-key.outputs.path }}
         shell: bash
         run: |
           set -euo pipefail
-          tail_output=$(ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$VM_USER@$VM_HOST" 'tail -n 5 ~/canary/roundtrip.log')
+          write_multiline_output() {
+            local name="$1"
+            local delim="EOF_$(date +%s%N)_$RANDOM"
+            {
+              printf '%s<<%s\n' "$name" "$delim"
+              cat
+              printf '%s\n' "$delim"
+            } >>"$GITHUB_OUTPUT"
+          }
+
+          ssh_common_opts=(
+            -i "$SSH_KEY_PATH"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=10
+            -o ServerAliveInterval=5
+            -o ServerAliveCountMax=1
+            -o StrictHostKeyChecking=accept-new
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts"
+          )
+
+          set +e
+          if [[ "${USE_JUMP:-false}" == "true" ]]; then
+            proxy_cmd="ssh -i $VM2_KEY_PATH -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts -W %h:%p $VM2_USER@$VM2_HOST"
+            tail_output=$(ssh "${ssh_common_opts[@]}" -o "ProxyCommand=$proxy_cmd" "$VM_USER@$VM_HOST" 'tail -n 5 ~/canary/roundtrip.log' 2>&1)
+            status=$?
+          else
+            tail_output=$(ssh "${ssh_common_opts[@]}" "$VM_USER@$VM_HOST" 'tail -n 5 ~/canary/roundtrip.log' 2>&1)
+            status=$?
+          fi
+          set -e
+
           printf '%s\n' "$tail_output"
-          {
-            echo 'tail<<EOF'
-            printf '%s\n' "$tail_output"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$tail_output" | write_multiline_output tail
+          if [[ $status -ne 0 ]]; then
+            echo "Failed to tail remote roundtrip log" >&2
+            exit "$status"
+          fi
       - name: Fail canary if remote command failed
         if: ${{ steps.run.outputs.status != '0' }}
         run: |
@@ -260,6 +404,7 @@ jobs:
         if: always()
         run: |
           rm -f "${{ steps.key.outputs.path }}"
+          rm -f "${{ steps.vm2-key.outputs.path }}"
       - name: Comment success on PR
         if: ${{ github.event_name == 'pull_request' && success() }}
         uses: peter-evans/create-or-update-comment@v4
