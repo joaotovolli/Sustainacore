@@ -69,11 +69,17 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
             payload = json.loads(request.body or b"{}")
         except json.JSONDecodeError:
             return JsonResponse({"error": "invalid_payload", "message": "Invalid JSON payload."}, status=400)
-        user_message = (payload.get("message") or payload.get("user_message") or "").strip()
+        user_message = (
+            payload.get("message")
+            or payload.get("user_message")
+            or payload.get("question")  # legacy /ask2 compatibility
+            or ""
+        ).strip()
     else:
         user_message = (
             request.POST.get("message")
             or request.POST.get("user_message")
+            or request.POST.get("question")
             or ""
         ).strip()
 
