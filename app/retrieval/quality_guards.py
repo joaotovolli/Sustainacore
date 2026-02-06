@@ -155,6 +155,18 @@ def smalltalk_answer(question: str) -> str:
     )
 
 
+def clarify_answer(question: str) -> str:
+    # For gibberish / low-information prompts that are not simple greetings.
+    return (
+        "**Answer**\n"
+        "I couldn’t find enough information to answer that as written.\n\n"
+        "**Try**\n"
+        "- Adding a company ticker (e.g., “AAPL”) or “Tech100”.\n"
+        "- Asking about a specific jurisdiction or regulation (e.g., “EU AI Act”, “Brazil AI regulation”).\n"
+        "- Asking about a specific Sustainacore page (news, performance, methodology).\n"
+    )
+
+
 def infer_source_type_filters(question: str) -> Optional[List[str]]:
     """Return a conservative SOURCE_TYPE filter hint for Oracle retrieval."""
 

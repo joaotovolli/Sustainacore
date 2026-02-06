@@ -21,6 +21,7 @@ from .quality_guards import (
     is_greeting_or_thanks,
     is_low_information,
     should_abstain,
+    clarify_answer,
     smalltalk_answer,
 )
 
@@ -316,7 +317,7 @@ def run_pipeline(
 
     # Deterministic small-talk / low-information bypass.
     # This prevents retrieval from returning irrelevant regulatory/company chunks for greetings.
-    if is_greeting_or_thanks(sanitized_q) or is_low_information(sanitized_q):
+    if is_greeting_or_thanks(sanitized_q):
         t0 = time.time()
         total_ms = int((time.time() - t0) * 1000)
         latencies = {"total_ms": total_ms}
@@ -336,6 +337,42 @@ def run_pipeline(
                 "show_debug_block": settings.show_debug_block,
                 "k": 0,
                 "note": "smalltalk_bypass",
+            },
+        }
+
+    if is_low_information(sanitized_q):
+        t0 = time.time()
+        total_ms = int((time.time() - t0) * 1000)
+        latencies = {"total_ms": total_ms}
+        observer.record(
+            {
+                "event": "ask2",
+                "intent": "LOW_INFO",
+                "question": sanitized_q,
+                "filters_applied": {},
+                "K_in": 0,
+                "K_after_dedup": 0,
+                "rerank": "none",
+                "final_sources_count": 0,
+                "latency_ms": total_ms,
+                "latency_breakdown": latencies,
+                "gemini": "none",
+                "hop_count": 0,
+            }
+        )
+        return {
+            "answer": clarify_answer(sanitized_q),
+            "sources": [],
+            "contexts": [],
+            "meta": {
+                "intent": "LOW_INFO",
+                "latency_ms": total_ms,
+                "latency_breakdown": latencies,
+                "gemini_first": False,
+                "hop_count": 0,
+                "show_debug_block": settings.show_debug_block,
+                "k": 0,
+                "note": "low_info_bypass",
             },
         }
 

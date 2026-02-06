@@ -15,6 +15,7 @@ from .quality_guards import (
     is_greeting_or_thanks,
     is_low_information,
     should_abstain,
+    clarify_answer,
     smalltalk_answer,
 )
 
@@ -118,7 +119,7 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
         k_value = 1
 
     # Deterministic bypass for greetings / low-information prompts.
-    if is_greeting_or_thanks(sanitized_question) or is_low_information(sanitized_question):
+    if is_greeting_or_thanks(sanitized_question):
         payload = {
             "answer": smalltalk_answer(sanitized_question),
             "sources": [],
@@ -126,6 +127,20 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
             "meta": {
                 "routing": "legacy_smalltalk_bypass",
                 "note": "smalltalk_bypass",
+                "k": 0,
+                "client_ip": client_ip or "unknown",
+            },
+        }
+        return payload, 200
+
+    if is_low_information(sanitized_question):
+        payload = {
+            "answer": clarify_answer(sanitized_question),
+            "sources": [],
+            "contexts": [],
+            "meta": {
+                "routing": "legacy_low_info_bypass",
+                "note": "low_info_bypass",
                 "k": 0,
                 "client_ip": client_ip or "unknown",
             },
