@@ -22,6 +22,16 @@ class TestAsk2Telemetry(TestCase):
         )
 
     @mock.patch("ask2.views.client.ask2_query")
+    def test_question_alias_is_accepted(self, ask2_query_mock):
+        ask2_query_mock.return_value = {"reply": "Hi there"}
+        response = self.client.post(
+            "/ask2/api/",
+            json.dumps({"question": "Hello"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    @mock.patch("ask2.views.client.ask2_query")
     def test_ask2_inserts_conversation_and_messages(self, ask2_query_mock):
         ask2_query_mock.return_value = {"reply": "Hi there"}
         response = self._post_ask2()
