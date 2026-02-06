@@ -1,10 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 : "${VM_HOST:?Set VM_HOST}"; : "${SSH_KEY:?Set SSH_KEY}"
+VM_USER="${VM_USER:-opc}"
 APP=/opt/sustainacore-ai
-rsync -az --delete --exclude .git --exclude .venv --exclude .env --exclude wallet --exclude 'wallet/**' -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=accept-new" ./ opc@"$VM_HOST":"$APP"/
-ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new opc@"$VM_HOST" bash -lc "
+# Stage into the SSH user's home so we can support images where `opc` cannot SSH (e.g., Ubuntu images where `ubuntu` is required).
+STAGE="~/sustainacore_deploy_stage"
+
+rsync -az --delete \
+  --exclude .git \
+  --exclude .venv \
+  --exclude .env \
+  --exclude wallet \
+  --exclude 'wallet/**' \
+  -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes" \
+  ./ "${VM_USER}@${VM_HOST}:${STAGE}/"
+
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${VM_USER}@${VM_HOST}" bash -lc "
   set -euo pipefail
+  sudo mkdir -p $APP
+  sudo rsync -a --delete \\
+    --exclude .venv \\
+    --exclude .env \\
+    --exclude wallet \\
+    --exclude 'wallet/**' \\
+    $STAGE/ $APP/
   cd $APP
   if [ -x scripts/vm_deploy.sh ]; then
     SQLCLI_BIN=\"${SQLCLI_BIN:-sql}\" bash scripts/vm_deploy.sh
