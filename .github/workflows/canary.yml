@@ -224,34 +224,38 @@ jobs:
         run: |
           set -euo pipefail
 
-          use_jump="false"
-          target_host="${VM_HOST:-}"
+            use_jump="false"
+            target_host="${VM_HOST:-}"
+            derived_backend=""
 
-          if [[ -n "${VM2_HOST:-}" && -n "${VM2_USER:-}" && -n "${VM2_KEY_PATH:-}" ]]; then
-            # Ask VM2 what it is configured to use as the backend host for VM1.
-            # This avoids stale VM1 public IPs when VM1 is rebuilt, as long as VM2 is kept current.
-            set +e
-            raw_backend=$(
-              ssh \
-                -i "$VM2_KEY_PATH" \
-                -o BatchMode=yes \
-                -o IdentitiesOnly=yes \
-                -o ConnectTimeout=10 \
-                -o ServerAliveInterval=5 \
-                -o ServerAliveCountMax=1 \
-                -o StrictHostKeyChecking=accept-new \
-                -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
-                "$VM2_USER@$VM2_HOST" \
-                "sudo -n python3 - <<'PY'\nimport re\np='/etc/sysconfig/sustainacore-django.env'\nval=''\ntry:\n  for line in open(p,'r',encoding='utf-8',errors='ignore'):\n    line=line.strip()\n    if line.startswith('SUSTAINACORE_BACKEND_URL='):\n      val=line.split('=',1)[1].strip().strip('\"').strip(\"'\")\n      break\n    if not val and line.startswith('BACKEND_API_BASE='):\n      val=line.split('=',1)[1].strip().strip('\"').strip(\"'\")\n  m=re.match(r'^(?:https?://)?([^/]+)',val)\n  hostport=(m.group(1) if m else '').strip()\n  host=hostport.split(':',1)[0].strip()\n  print(host)\nexcept Exception:\n  print('')\nPY"
-            )
-            rc=$?
-            set -e
+            if [[ -n "${VM2_HOST:-}" && -n "${VM2_USER:-}" && -n "${VM2_KEY_PATH:-}" ]]; then
+              # Ask VM2 what it is configured to use as the backend host for VM1.
+              # This avoids stale VM1 public IPs when VM1 is rebuilt, as long as VM2 is kept current.
+              set +e
+              py_script=$'import re\n\np = \"/etc/sysconfig/sustainacore-django.env\"\nval = \"\"\ntry:\n    for line in open(p, \"r\", encoding=\"utf-8\", errors=\"ignore\"):\n        line = line.strip()\n        if line.startswith(\"SUSTAINACORE_BACKEND_URL=\"):\n            val = line.split(\"=\", 1)[1].strip().strip(\"\\\"\").strip(\"\\\'\")\n            break\n        if (not val) and line.startswith(\"BACKEND_API_BASE=\"):\n            val = line.split(\"=\", 1)[1].strip().strip(\"\\\"\").strip(\"\\\'\")\n    m = re.match(r\"^(?:https?://)?([^/]+)\", val)\n    hostport = (m.group(1) if m else \"\").strip()\n    host = hostport.split(\":\", 1)[0].strip()\n    print(host)\nexcept Exception:\n    print(\"\")\n'
 
-            if [[ $rc -eq 0 && -n "${raw_backend:-}" ]]; then
-              use_jump="true"
-              target_host="$raw_backend"
+              raw_backend=$(
+                ssh \
+                  -i "$VM2_KEY_PATH" \
+                  -o BatchMode=yes \
+                  -o IdentitiesOnly=yes \
+                  -o ConnectTimeout=10 \
+                  -o ServerAliveInterval=5 \
+                  -o ServerAliveCountMax=1 \
+                  -o StrictHostKeyChecking=accept-new \
+                  -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+                  "$VM2_USER@$VM2_HOST" \
+                  'sudo -n python3 -' <<<"$py_script"
+              )
+              rc=$?
+              set -e
+
+              if [[ $rc -eq 0 && -n "${raw_backend:-}" ]]; then
+                use_jump="true"
+                target_host="$raw_backend"
+                derived_backend="$raw_backend"
+              fi
             fi
-          fi
 
           if [[ -z "${target_host:-}" ]]; then
             echo "Unable to resolve a canary target host (need VM_HOST or VM2 jump secrets)." >&2
@@ -260,6 +264,26 @@ jobs:
 
           printf 'use_jump=%s\n' "$use_jump" >>"$GITHUB_OUTPUT"
           printf 'target_host=%s\n' "$target_host" >>"$GITHUB_OUTPUT"
+          printf 'derived_backend=%s\n' "$derived_backend" >>"$GITHUB_OUTPUT"
+
+          # Avoid leaking full internal addressing in logs: only show a redacted hint in the step summary.
+          redact_ip() {
+            local s="$1"
+            if [[ "$s" =~ ^([0-9]+\\.[0-9]+\\.[0-9]+)\\.[0-9]+$ ]]; then
+              echo "${BASH_REMATCH[1]}.x"
+            else
+              echo "<redacted>"
+            fi
+          }
+            {
+              echo "### Canary target resolution"
+              echo ""
+              echo "- mode: \`$use_jump\` (true means VM2 jump host)"
+              echo "- target_host: \`$(redact_ip \"$target_host\")\`"
+              if [[ -n "$derived_backend" ]]; then
+                echo "- derived_from_vm2_backend: \`$(redact_ip \"$derived_backend\")\`"
+              fi
+            } >>"$GITHUB_STEP_SUMMARY"
       - name: Run canary probe
         id: run
         env:
@@ -337,12 +361,28 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           write_output status "$status"
+
+          # Always set a safe snippet output (never include remote logs which might match secrets and get dropped).
           if [[ $status -ne 0 ]]; then
-            snippet="$(tail -n 20 "$log_file" 2>/dev/null || true)"
-            printf '%s\n' "$snippet" | write_multiline_output snippet
+            write_output snippet "see_step_summary"
           else
-            printf '' | write_multiline_output snippet
+            write_output snippet ""
           fi
+
+          {
+            echo ""
+            echo "### Canary probe"
+            echo ""
+            echo "- exit_code: \`$status\`"
+            echo ""
+            echo "<details>"
+            echo "<summary>SSH tail (redacted)</summary>"
+            echo ""
+            echo '```'
+            tail -n 40 "$log_file" 2>/dev/null || true
+            echo '```'
+            echo "</details>"
+          } >>"$GITHUB_STEP_SUMMARY"
       - name: Tail remote roundtrip log
         id: tail
         if: ${{ steps.run.outputs.status == '0' }}
@@ -357,14 +397,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          write_multiline_output() {
-            local name="$1"
-            local delim="EOF_$(date +%s%N)_$RANDOM"
-            {
-              printf '%s<<%s\n' "$name" "$delim"
-              cat
-              printf '%s\n' "$delim"
-            } >>"$GITHUB_OUTPUT"
+          redact_ip() {
+            local s="$1"
+            if [[ "$s" =~ ^([0-9]+\\.[0-9]+\\.[0-9]+)\\.[0-9]+$ ]]; then
+              echo "${BASH_REMATCH[1]}.x"
+            else
+              echo "<redacted>"
+            fi
           }
 
           ssh_common_opts=(
@@ -390,11 +429,23 @@ jobs:
           set -e
 
           printf '%s\n' "$tail_output"
-          printf '%s\n' "$tail_output" | write_multiline_output tail
           if [[ $status -ne 0 ]]; then
             echo "Failed to tail remote roundtrip log" >&2
             exit "$status"
           fi
+
+          # Always set a safe output; the PR comment will still show something and the full tail remains in step logs.
+          printf 'tail=%s\n' "ok" >>"$GITHUB_OUTPUT"
+          {
+            echo ""
+            echo "### Canary roundtrip tail"
+            echo ""
+            echo "- host: \`$(redact_ip \"$VM_HOST\")\`"
+            echo ""
+            echo '```'
+            printf '%s\n' "$tail_output"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
       - name: Fail canary if remote command failed
         if: ${{ steps.run.outputs.status != '0' }}
         run: |
