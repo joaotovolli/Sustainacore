@@ -10,6 +10,14 @@ from typing import Any, Dict, List, Tuple
 from .gemini_gateway import gateway as gemini_gateway, _resolve_source_url
 from .oracle_retriever import RetrievalResult, capability_snapshot, retriever
 from .settings import settings
+from .quality_guards import (
+    infer_source_type_filters,
+    is_greeting_or_thanks,
+    is_low_information,
+    should_abstain,
+    clarify_answer,
+    smalltalk_answer,
+)
 
 try:
     from .service import (
@@ -110,6 +118,35 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
     if k_value < 1:
         k_value = 1
 
+    # Deterministic bypass for greetings / low-information prompts.
+    if is_greeting_or_thanks(sanitized_question):
+        payload = {
+            "answer": smalltalk_answer(sanitized_question),
+            "sources": [],
+            "contexts": [],
+            "meta": {
+                "routing": "legacy_smalltalk_bypass",
+                "note": "smalltalk_bypass",
+                "k": 0,
+                "client_ip": client_ip or "unknown",
+            },
+        }
+        return payload, 200
+
+    if is_low_information(sanitized_question):
+        payload = {
+            "answer": clarify_answer(sanitized_question),
+            "sources": [],
+            "contexts": [],
+            "meta": {
+                "routing": "legacy_low_info_bypass",
+                "note": "low_info_bypass",
+                "k": 0,
+                "client_ip": client_ip or "unknown",
+            },
+        }
+        return payload, 200
+
     # Prefer the shared service pipeline (intent + planner + composer) when available.
     if _service_run_pipeline is not None:
         try:
@@ -135,8 +172,12 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
         except Exception as exc:  # pragma: no cover - defensive logging
             LOGGER.exception("gemini_service_pipeline_failed", exc_info=exc)
 
+    # If service pipeline isn't used, apply a conservative source_type hint when unfiltered.
+    inferred = infer_source_type_filters(sanitized_question)
+    filters = {"source_type": inferred} if inferred else None
+
     retrieval_start = time.perf_counter()
-    result = retriever.retrieve(sanitized_question, k_value)
+    result = retriever.retrieve(sanitized_question, k_value, filters=filters)
     oracle_latency_ms = int((time.perf_counter() - retrieval_start) * 1000)
     meta = _base_meta(result, k=k_value, client_ip=client_ip)
     meta["retriever"]["latency_ms"] = oracle_latency_ms
@@ -145,6 +186,25 @@ def ask2_pipeline_first(question: str, k: int, *, client_ip: str = "unknown") ->
     if not contexts:
         meta.setdefault("note", "no_contexts")
         payload = {"answer": "", "sources": [], "contexts": [], "meta": meta}
+        return payload, 200
+
+    decision = should_abstain(sanitized_question, contexts)
+    if decision.abstain:
+        meta.setdefault("note", f"abstain:{decision.reason}")
+        payload = {
+            "answer": (
+                "**Answer**\n"
+                "I couldn’t find relevant information on SustainaCore to answer that question yet.\n\n"
+                "**Try**\n"
+                "- Rephrasing with a ticker (e.g., “AAPL”) or “Tech100”.\n"
+                "- Asking about a specific page or topic (regulation, news, or index performance).\n\n"
+                "**Sources**\n"
+                "1. SustainaCore — https://sustainacore.org\n"
+            ),
+            "sources": ["SustainaCore — https://sustainacore.org"],
+            "contexts": [],
+            "meta": meta,
+        }
         return payload, 200
 
     facts = _contexts_to_facts(contexts)
