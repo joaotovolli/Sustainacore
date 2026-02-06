@@ -941,6 +941,18 @@ async def ask2_post(request: Request) -> JSONResponse:
         started,
     )
 
+
+# Backwards-compatible aliases (VM2 + historical clients).
+# VM2's /ask2/api/ proxy historically forwarded to VM1 /api/ask2. Keep it working.
+@app.post("/api/ask2")
+async def api_ask2_post(request: Request) -> JSONResponse:
+    return await ask2_post(request)
+
+
+@app.post("/ask2_direct")
+async def ask2_direct_post(request: Request) -> JSONResponse:
+    return await ask2_post(request)
+
 @app.get("/ask2")
 def ask2(q: str = Query("", alias="q"), k: int = Query(4, alias="k")) -> Dict[str, Any]:
     q = (q or "").strip()
