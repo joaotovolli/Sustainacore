@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.retrieval.quality_guards import (
+    extract_ticker,
+    infer_retrieval_filters,
     infer_source_type_filters,
     is_greeting_or_thanks,
     is_low_information,
@@ -29,7 +31,22 @@ def test_infer_source_type_filters() -> None:
     assert infer_source_type_filters("EU AI Act regulation status") == ["regulatory"]
     assert infer_source_type_filters("latest news") == ["news_release"]
     assert infer_source_type_filters("index performance") == ["performance"]
-    assert infer_source_type_filters("Tell me about Apple") == ["company_profile"]
+    assert infer_source_type_filters("Tell me about Apple") == ["tech100_company_card"]
+
+
+def test_extract_ticker_prefers_explicit_patterns() -> None:
+    assert extract_ticker("Tell me about Microsoft (MSFT)") == "MSFT"
+    assert extract_ticker("Tell me about $MSFT") == "MSFT"
+    # Bare ticker should only be accepted when explicitly requested.
+    assert extract_ticker("Tell me about MSFT") is None
+    assert extract_ticker("What is the ticker MSFT?") == "MSFT"
+
+
+def test_infer_retrieval_filters_can_add_source_id_for_company_cards() -> None:
+    filters = infer_retrieval_filters("Tell me about Microsoft (MSFT)")
+    assert isinstance(filters, dict)
+    assert filters.get("source_type") == ["tech100_company_card"]
+    assert filters.get("source_id") == "MSFT"
 
 
 def test_should_abstain_with_low_score() -> None:
@@ -61,7 +78,7 @@ def test_should_abstain_with_no_overlap_and_mediocre_score() -> None:
         ],
     )
     assert decision.abstain
-    assert decision.reason == "low_overlap_mediocre_score"
+    assert decision.reason == "company_no_overlap"
 
 
 def test_should_not_abstain_with_overlap() -> None:
@@ -77,4 +94,3 @@ def test_should_not_abstain_with_overlap() -> None:
         ],
     )
     assert not decision.abstain
-

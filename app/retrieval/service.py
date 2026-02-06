@@ -17,7 +17,7 @@ from .observability import observer
 from .oracle_retriever import retriever
 from .settings import settings
 from .quality_guards import (
-    infer_source_type_filters,
+    infer_retrieval_filters,
     is_greeting_or_thanks,
     is_low_information,
     should_abstain,
@@ -97,6 +97,7 @@ def _merge_facts(
         if len(merged) >= settings.retriever_fact_cap:
             break
     return merged
+
 
 def _dedupe_contexts(contexts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     seen: set[str] = set()
@@ -444,10 +445,12 @@ def run_pipeline(
     # If Gemini plan didn't constrain retrieval, apply a conservative heuristic
     # to reduce domination by large corpora like regulatory content.
     if not filters or not isinstance(filters, dict) or "source_type" not in filters:
-        inferred = infer_source_type_filters(sanitized_q)
+        inferred = infer_retrieval_filters(sanitized_q)
         if inferred:
             filters = dict(filters) if isinstance(filters, dict) else {}
-            filters["source_type"] = inferred
+            # Only fill in missing keys; do not override Gemini constraints.
+            for key, value in inferred.items():
+                filters.setdefault(key, value)
 
     retrieval_start = time.time()
     oracle_result = _oracle_search_variants(variants, plan_k, filters)
