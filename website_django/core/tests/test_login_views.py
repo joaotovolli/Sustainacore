@@ -20,6 +20,40 @@ class LoginViewsTests(TestCase):
         self.assertEqual(response["Location"], reverse("login_code"))
         self.assertEqual(self.client.session.get("login_email"), "user@example.com")
 
+    @mock.patch("core.views.record_terms_acceptance_with_error", return_value=(True, None))
+    @mock.patch("core.views.requests.post")
+    def test_login_email_shows_backend_rate_limit_message(self, post_mock, terms_mock):
+        post_mock.return_value.status_code = 429
+        post_mock.return_value.ok = False
+        post_mock.return_value.json.return_value = {
+            "ok": False,
+            "error": "rate_limited",
+            "message": "Too many requests. Please wait before requesting another code.",
+        }
+
+        response = self.client.post(
+            reverse("login"),
+            {"email": "User@Example.com", "terms_accept": "on"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Too many requests. Please wait before requesting another code.")
+
+    @mock.patch("core.views.record_terms_acceptance_with_error", return_value=(True, None))
+    @mock.patch("core.views.requests.post")
+    def test_login_email_falls_back_to_generic_message_without_backend_json(self, post_mock, terms_mock):
+        post_mock.return_value.status_code = 502
+        post_mock.return_value.ok = False
+        post_mock.return_value.json.side_effect = ValueError("bad json")
+
+        response = self.client.post(
+            reverse("login"),
+            {"email": "User@Example.com", "terms_accept": "on"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "We couldn&#x27;t send the email right now. Please try again later.")
+
     @mock.patch("core.views.has_terms_acceptance", return_value=True)
     @mock.patch("core.views.get_profile", return_value=None)
     @mock.patch("core.views.requests.post")
