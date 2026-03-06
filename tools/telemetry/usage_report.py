@@ -157,7 +157,8 @@ def _referrer_hosts(rows: Iterable[Tuple[Any, Any]]) -> List[Dict[str, Any]]:
     for ref, count in rows:
         if not ref:
             continue
-        host = urlparse(str(ref)).netloc or "(none)"
+        parsed = urlparse(str(ref))
+        host = parsed.netloc or parsed.hostname or str(ref).strip() or "(none)"
         counter[host] = counter.get(host, 0) + int(count or 0)
     items = sorted(counter.items(), key=lambda x: x[1], reverse=True)
     return [{"key": host, "count": count} for host, count in items[:10]]

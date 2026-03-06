@@ -171,8 +171,9 @@ class Command(BaseCommand):
                         event_ts=now(),
                         consent_analytics_effective="N",
                         event_type="diagnose",
+                        event_name="insert_check",
                         path="/diagnose",
-                        payload_json=json.dumps(payload),
+                        debug_json=json.dumps(payload, ensure_ascii=True)[:2000],
                     )
                     exists = WebEvent.objects.using(alias).filter(event_id=diag_id).exists()
                     if not exists:

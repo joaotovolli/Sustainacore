@@ -133,18 +133,14 @@ def telemetry_event(request: HttpRequest) -> HttpResponse:
             request=request,
             consent=consent,
             path=_event_path(metadata, request.path),
-            query_string=None,
             http_method=request.method,
             status_code=204,
+            event_name=event_name,
+            is_bot=is_bot,
             session_key=session_key,
             user_id=user_id,
             country_code=country_code,
             region_code=region_code,
-            payload={
-                "event_name": event_name,
-                "metadata": metadata,
-                **({"bot": True} if is_bot else {}),
-            },
         )
     except Exception:
         pass
