@@ -41,3 +41,31 @@ python tools/index_engine/run_daily.py --tickers MSFT,GOOGL
   - Weekend/market holiday (no provider data).
   - Ticker mapping issues (symbol not recognized by the provider).
   - Upstream throttling (wait and rerun the service).
+
+## VM2 web telemetry rollup (systemd)
+
+Units live under `infra/systemd/`:
+- `sc-web-telemetry-rollup.service`
+- `sc-web-telemetry-rollup.timer`
+
+### Behavior
+- Runs `manage.py aggregate_web_telemetry` daily on VM2.
+- Immediately follows with `manage.py purge_web_telemetry --aggregates --sessions --consents`.
+- Uses the same VM2 env files as Gunicorn:
+  - `/etc/sustainacore.env`
+  - `/etc/sustainacore/db.env`
+  - `/etc/sysconfig/sustainacore-django.env`
+- Timer schedule: **00:35 UTC** with `Persistent=true` so missed runs catch up after restart.
+
+### Install / enable
+```bash
+sudo cp infra/systemd/sc-web-telemetry-rollup.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sc-web-telemetry-rollup.timer
+```
+
+### Manual run
+```bash
+sudo systemctl start sc-web-telemetry-rollup.service
+sudo journalctl -u sc-web-telemetry-rollup.service -n 200 --no-pager
+```

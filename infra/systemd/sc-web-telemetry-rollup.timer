@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily VM2 web telemetry rollup timer
+
+[Timer]
+OnCalendar=*-*-* 00:35:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

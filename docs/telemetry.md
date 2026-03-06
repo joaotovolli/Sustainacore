@@ -77,6 +77,9 @@ IP selection (server-side):
 - `manage.py aggregate_web_telemetry --date YYYY-MM-DD` rolls one UTC day into `W_WEB_EVENT_DAILY`.
 - `manage.py purge_web_telemetry --raw-days 35 --aggregates --aggregate-days 400 --sessions --consents`
   removes expired raw/session/consent rows.
+- Recommended steady-state flow on VM2:
+  1. roll yesterday into `W_WEB_EVENT_DAILY`
+  2. purge expired raw/session/consent/aggregate rows
 
 ## Deployment & migrations
 - Production uses the same Oracle config as the website (preferred):
@@ -86,9 +89,13 @@ IP selection (server-side):
 - Run migrations against the active production database:
   - `python website_django/manage.py migrate --noinput`
 - Verify Oracle + telemetry tables:
-  - `python website_django/manage.py diagnose_db --fail-on-sqlite --verify-insert`
+ - `python website_django/manage.py diagnose_db --fail-on-sqlite --verify-insert`
  - Verify Ask2 storage:
    - `python website_django/manage.py diagnose_ask2_storage --fail-on-sqlite --verify-insert`
+ - Install the VM2 rollup timer after Oracle writes are healthy:
+   - `sudo cp infra/systemd/sc-web-telemetry-rollup.* /etc/systemd/system/`
+   - `sudo systemctl daemon-reload`
+   - `sudo systemctl enable --now sc-web-telemetry-rollup.timer`
 
 ## Oracle permissions checklist
 If migrations fail or tables are missing, confirm the Oracle user has:
@@ -188,6 +195,24 @@ Default schedule is **07:15 UTC** with a lock (`/tmp/sc-tech100-related.lock`) t
 1. Apply the telemetry migration so `W_WEB_EVENT` gains lean columns and `W_WEB_EVENT_DAILY`.
 2. Deploy the slimmer writer.
 3. Schedule a daily rollup:
-   - `python website_django/manage.py aggregate_web_telemetry`
+   - `sudo cp infra/systemd/sc-web-telemetry-rollup.* /etc/systemd/system/`
+   - `sudo systemctl daemon-reload`
+   - `sudo systemctl enable --now sc-web-telemetry-rollup.timer`
 4. Shorten raw retention only after the rollup is running:
    - `python website_django/manage.py purge_web_telemetry --aggregates --sessions --consents`
+
+## Systemd scheduling (VM2)
+Use the repo-managed VM2 timer once Oracle can accept writes again:
+```bash
+sudo cp infra/systemd/sc-web-telemetry-rollup.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sc-web-telemetry-rollup.timer
+```
+
+Manual run:
+```bash
+sudo systemctl start sc-web-telemetry-rollup.service
+sudo journalctl -u sc-web-telemetry-rollup.service -n 200 --no-pager
+```
+
+Default schedule is **00:35 UTC** with a lock (`/tmp/sc-web-telemetry-rollup.lock`) to prevent overlap.
