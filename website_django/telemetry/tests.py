@@ -11,6 +11,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, TransactionTes
 from django.test.utils import override_settings
 from core.analytics import ANON_COOKIE
 from telemetry.consent import CONSENT_COOKIE, ConsentState, parse_consent_cookie, serialize_consent
+from telemetry.logger import record_event
 from telemetry.middleware import TelemetryMiddleware
 from telemetry.models import WebEvent, WebEventDaily
 from unittest import mock
@@ -139,6 +140,24 @@ class TestTelemetryMiddleware(TransactionTestCase):
         self.assertNotIn("sessionid", response.cookies)
         self.assertNotIn(ANON_COOKIE, response.cookies)
 
+    def test_successful_api_call_not_logged_by_default(self):
+        factory = RequestFactory()
+        request = factory.get("/api/tech100/")
+        response = HttpResponse("{}", content_type="application/json")
+        middleware = TelemetryMiddleware(lambda _request: response)
+        middleware(request)
+        self.assertEqual(WebEvent.objects.count(), 0)
+
+    @override_settings(TELEMETRY_LOG_SUCCESS_API_CALLS=True)
+    def test_successful_api_call_can_be_enabled(self):
+        factory = RequestFactory()
+        request = factory.get("/api/tech100/")
+        response = HttpResponse("{}", content_type="application/json")
+        middleware = TelemetryMiddleware(lambda _request: response)
+        middleware(request)
+        event = WebEvent.objects.get()
+        self.assertEqual(event.event_type, "api_call")
+
 
 class TestTelemetryEventEndpoint(TestCase):
     def test_event_endpoint_ignored_without_consent(self):
@@ -224,6 +243,46 @@ class TestTelemetryAggregationCommand(TestCase):
         self.assertEqual(aggregate.referrer_host, "www.google.com")
         self.assertEqual(aggregate.total_response_ms, 360)
         self.assertEqual(aggregate.max_response_ms, 120)
+
+
+class TestTelemetryDebugStorage(TestCase):
+    def test_debug_json_ignored_for_successful_ask2_event(self):
+        consent = ConsentState(
+            analytics=True,
+            functional=False,
+            policy_version=settings.TELEMETRY_POLICY_VERSION,
+            source="banner",
+        )
+        request = RequestFactory().post("/ask2/api/")
+        record_event(
+            event_type="ask2_chat",
+            event_name="ok",
+            request=request,
+            consent=consent,
+            path="/ask2/api/",
+            debug_payload={"latency_ms": 42},
+        )
+        event = WebEvent.objects.get()
+        self.assertIsNone(event.debug_json)
+
+    def test_debug_json_stored_for_error_event(self):
+        consent = ConsentState(
+            analytics=True,
+            functional=False,
+            policy_version=settings.TELEMETRY_POLICY_VERSION,
+            source="banner",
+        )
+        request = RequestFactory().post("/ask2/api/")
+        record_event(
+            event_type="ask2_chat",
+            event_name="error",
+            request=request,
+            consent=consent,
+            path="/ask2/api/",
+            debug_payload={"latency_ms": 42},
+        )
+        event = WebEvent.objects.get()
+        self.assertIn("latency_ms", event.debug_json or "")
 
 
 class TestTelemetryIpSelection(SimpleTestCase):

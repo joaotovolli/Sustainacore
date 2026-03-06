@@ -127,10 +127,14 @@ class TelemetryMiddleware:
 
     @staticmethod
     def _resolve_event_type(request, response, path: str) -> str | None:
+        from django.conf import settings
+
         status_code = getattr(response, "status_code", 200)
         content_type = (response.get("Content-Type", "") or "").lower()
 
         if any(path.startswith(prefix) for prefix in API_PREFIXES):
+            if status_code < 400 and not getattr(settings, "TELEMETRY_LOG_SUCCESS_API_CALLS", False):
+                return None
             return "api_call"
 
         if status_code >= 500:

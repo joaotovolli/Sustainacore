@@ -72,6 +72,14 @@ def _clean_event_name(value: str | None) -> str | None:
     return raw[:64]
 
 
+def _should_store_debug_payload(event_type: str, event_name: str | None) -> bool:
+    if event_type == "error":
+        return True
+    if event_type == "ask2_chat" and (event_name or "") == "error":
+        return True
+    return False
+
+
 def record_consent(
     *,
     consent: ConsentState,
@@ -128,6 +136,7 @@ def record_event(
     referrer_host_value = referrer_host(referrer)
     db_alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
     legacy_blob_writes = _store_legacy_event_blobs()
+    cleaned_event_name = _clean_event_name(event_name)
     try:
         WebEvent.objects.using(db_alias).create(
             event_ts=now(),
@@ -135,7 +144,7 @@ def record_event(
             session_key=session_key,
             consent_analytics_effective="Y" if consent.analytics else "N",
             event_type=event_type,
-            event_name=_clean_event_name(event_name),
+            event_name=cleaned_event_name,
             path=normalize_path(path),
             query_string=query_string if legacy_blob_writes else None,
             http_method=http_method,
@@ -150,7 +159,9 @@ def record_event(
             country_code=country_code,
             region_code=region_code,
             payload_json=_safe_json(payload) if legacy_blob_writes else None,
-            debug_json=compact_json(debug_payload),
+            debug_json=compact_json(debug_payload)
+            if _should_store_debug_payload(event_type, cleaned_event_name)
+            else None,
         )
     except Exception as exc:
         _log_write_error("record_event", exc, event_type=event_type, path=path)
