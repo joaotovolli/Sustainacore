@@ -1,0 +1,21 @@
+[Unit]
+Description=Roll up VM2 web telemetry into daily aggregates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/code/Sustainacore/website_django
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/sustainacore.env
+EnvironmentFile=/etc/sustainacore/db.env
+EnvironmentFile=/etc/sysconfig/sustainacore-django.env
+TimeoutStartSec=1800
+ExecStart=/usr/bin/flock -n /tmp/sc-web-telemetry-rollup.lock /bin/bash -lc '\
+  /home/ubuntu/.venvs/sustainacore_vm2/bin/python /opt/code/Sustainacore/website_django/manage.py aggregate_web_telemetry && \
+  /home/ubuntu/.venvs/sustainacore_vm2/bin/python /opt/code/Sustainacore/website_django/manage.py purge_web_telemetry --aggregates --sessions --consents\
+'
+
+[Install]
+WantedBy=multi-user.target
