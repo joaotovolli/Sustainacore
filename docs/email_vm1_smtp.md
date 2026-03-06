@@ -12,11 +12,14 @@ sudo bash tools/email/setup_ionos_smtp_vm1.sh
 
 Defaults: SMTP host `smtp.ionos.co.uk`, port `587`, user/mail-from `info@sustainacore.org`, mail-to `joaotovolli@outlook.com`. Secrets are stored only in `/etc/sustainacore-ai/secrets.env` (root:root, 600). A real email is sent using stdlib `smtplib`.
 
+The VM1 API service must load `/etc/sustainacore-ai/secrets.env` at runtime. The repo source of truth is [`ops/systemd/sustainacore-ai.service`](ops/systemd/sustainacore-ai.service), which now loads `/etc/sustainacore/db.env`, `/etc/sustainacore-ai/app.env`, and `/etc/sustainacore-ai/secrets.env`.
+
 ### Troubleshooting
 
 - Connection refused / timed out: verify network egress and host/port; the setup script checks TCP connectivity before sending.
 - Auth failed: re-run the setup script and re-enter the correct IONOS mailbox password.
 - STARTTLS issues: ensure port 587 and STARTTLS are allowed; no extra dependencies are used.
+- Service still logs `smtp_not_configured`: inspect `systemctl cat sustainacore-ai.service` and confirm `/etc/sustainacore-ai/secrets.env` is listed under `EnvironmentFile=`, then restart `sustainacore-ai.service`.
 
 ### Login code fast-fail tuning
 Login code delivery uses short SMTP timeouts by default to avoid hanging the auth API.
