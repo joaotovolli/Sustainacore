@@ -80,12 +80,36 @@ class TestTelemetryMiddleware(TransactionTestCase):
         response = session_middleware.process_response(request, response)
 
         event = WebEvent.objects.get()
-        self.assertIsNotNone(event.session_key)
+        self.assertIsNone(event.session_key)
         self.assertIsNotNone(event.user_id)
         self.assertEqual(event.country_code, "US")
         self.assertEqual(event.region_code, "CA")
-        self.assertIn("sessionid", response.cookies)
         self.assertIn(ANON_COOKIE, response.cookies)
+
+    def test_existing_session_key_is_preserved(self):
+        factory = RequestFactory()
+        consent = ConsentState(
+            analytics=True,
+            functional=False,
+            policy_version=settings.TELEMETRY_POLICY_VERSION,
+            source="banner",
+        )
+        request = factory.get("/telemetry-test/")
+        request.COOKIES[CONSENT_COOKIE] = serialize_consent(consent)
+        session_middleware = SessionMiddleware(lambda req: None)
+        session_middleware.process_request(request)
+        request.session["auth_email"] = "user@example.com"
+        request.session.save()
+        existing_session_key = request.session.session_key
+
+        response = HttpResponse("ok", content_type="text/html")
+        middleware = TelemetryMiddleware(lambda _request: response)
+        response = middleware(request)
+        response = session_middleware.process_response(request, response)
+
+        event = WebEvent.objects.get(path="/telemetry-test/")
+        self.assertEqual(event.session_key, existing_session_key)
+        self.assertIn("sessionid", response.cookies)
 
     def test_identifiers_not_set_without_consent(self):
         factory = RequestFactory()
@@ -105,8 +129,8 @@ class TestTelemetryMiddleware(TransactionTestCase):
         event = WebEvent.objects.get()
         self.assertIsNone(event.session_key)
         self.assertIsNone(event.user_id)
-        self.assertIsNone(event.country_code)
-        self.assertIsNone(event.region_code)
+        self.assertEqual(event.country_code, "US")
+        self.assertEqual(event.region_code, "CA")
         self.assertNotIn("sessionid", response.cookies)
         self.assertNotIn(ANON_COOKIE, response.cookies)
 

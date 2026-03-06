@@ -78,11 +78,9 @@ def get_ip_fields(request) -> Tuple[Optional[str], Optional[str]]:
 
 def ensure_session_key(request) -> Optional[str]:
     try:
-        if "_telemetry" not in request.session:
-            request.session["_telemetry"] = "1"
-        if request.session.session_key:
-            return request.session.session_key
-        request.session.save()
+        # Never create anonymous DB-backed sessions just for telemetry.
+        # When the session store is unhealthy, a forced save can turn
+        # an otherwise successful page view into a 400 response.
         return request.session.session_key
     except Exception:
         return None

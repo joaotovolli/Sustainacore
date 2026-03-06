@@ -92,7 +92,9 @@ TELEMETRY_GEOIP_ENABLED = env_bool("TELEMETRY_GEOIP_ENABLED", default=False)
 TELEMETRY_GEOIP_DB_PATH = os.environ.get("TELEMETRY_GEOIP_DB_PATH", "")
 
 DEFAULT_SESSION_ENGINE = "django.contrib.sessions.backends.db"
-if SUSTAINACORE_ENV == "preview":
+if SUSTAINACORE_ENV in {"preview", "production"}:
+    # Keep public-site auth and telemetry session metadata independent of Oracle
+    # so login does not fail when the database is under write pressure.
     DEFAULT_SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
 SESSION_ENGINE = os.environ.get("SESSION_ENGINE", DEFAULT_SESSION_ENGINE)
 
