@@ -8,6 +8,11 @@ _INIT_DONE = False
 _POOL = None
 
 
+def _get_dsn() -> str | None:
+    dsn = os.getenv("DB_DSN") or os.getenv("ORACLE_DSN")
+    return dsn.strip() if isinstance(dsn, str) and dsn.strip() else None
+
+
 def _init_oracle_client() -> None:
     global _INIT_DONE
     if _INIT_DONE:
@@ -25,8 +30,10 @@ def _get_pool() -> oracledb.ConnectionPool | None:
     _init_oracle_client()
     user = os.getenv("DB_USER") or os.getenv("ORACLE_USER")
     password = os.getenv("DB_PASSWORD") or os.getenv("DB_PASS") or os.getenv("ORACLE_PASSWORD")
-    dsn = os.getenv("DB_DSN") or os.getenv("ORACLE_DSN") or "dbri4x6_high"
+    dsn = _get_dsn()
     if not user or not password:
+        return None
+    if not dsn:
         return None
     try:
         min_size = int(os.getenv("ORACLE_POOL_MIN", "1"))
@@ -58,7 +65,9 @@ def get_connection() -> oracledb.Connection:
     _init_oracle_client()
     user = os.getenv("DB_USER") or os.getenv("ORACLE_USER")
     password = os.getenv("DB_PASSWORD") or os.getenv("DB_PASS") or os.getenv("ORACLE_PASSWORD")
-    dsn = os.getenv("DB_DSN") or os.getenv("ORACLE_DSN") or "dbri4x6_high"
+    dsn = _get_dsn()
+    if not dsn:
+        raise RuntimeError("Missing DB_DSN/ORACLE_DSN for Oracle connection")
     pool = _get_pool()
     if pool is not None:
         return pool.acquire()

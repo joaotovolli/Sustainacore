@@ -142,9 +142,25 @@ class OracleRetriever:
                     mode = "like"
                 note = note or f"{mode}_fallback"
             except Exception as exc:
-                LOGGER.warning("text_search_failed: mode=%s err=%s", mode, exc)
-                contexts = []
-                note = "text_search_failed"
+                fallback_note = "text_search_failed"
+                if text_mode == "oracle_text":
+                    try:
+                        contexts = self._like_search(clean_question, k, capability, filter_payload)
+                        mode = "like"
+                        fallback_note = "like_after_oracle_text_failure"
+                        LOGGER.warning("oracle_text_search_failed; falling back to like: %s", exc)
+                    except Exception as like_exc:
+                        LOGGER.warning(
+                            "text_search_failed: mode=%s err=%s fallback_err=%s",
+                            mode,
+                            exc,
+                            like_exc,
+                        )
+                        contexts = []
+                else:
+                    LOGGER.warning("text_search_failed: mode=%s err=%s", mode, exc)
+                    contexts = []
+                note = fallback_note
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         return RetrievalResult(contexts, mode, latency_ms, capability, note=note)

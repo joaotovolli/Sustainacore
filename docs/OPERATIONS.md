@@ -41,7 +41,7 @@
 - Expected environment variables (no secrets in Git):
   - `DB_USER` (defaults to `WKSP_ESGAPEX`)
   - `DB_PASSWORD`/`DB_PASS`/`DB_PWD`
-  - `DB_DSN` (wallet entry, e.g., `dbri4x6_high`)
+  - `DB_DSN` (wallet entry, e.g., `sustainacoredb_tp`)
   - `TNS_ADMIN` (wallet directory) and `WALLET_PWD`
 - The helper script `tools/test_db_connect.py` uses the same env vars. Load the VM1 env (e.g., `/etc/sustainacore/db.env` and service drop-ins) and run `python tools/test_db_connect.py` to verify wallet, password, and network health. Success prints `connect_ok` with latency; failures show the Oracle error and elapsed time.
 

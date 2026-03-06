@@ -95,7 +95,10 @@ def _conn():
             or os.environ.get("DB_PWD")
             or _read_env_file_var("/etc/sustainacore/db.env", "DB_PASSWORD")
         ),
-        dsn=os.getenv("DB_DSN", "dbri4x6_high"),
+        dsn=(
+            os.environ.get("DB_DSN")
+            or _read_env_file_var("/etc/sustainacore/db.env", "DB_DSN")
+        ),
         config_dir=os.getenv("TNS_ADMIN", "/opt/adb_wallet"),
         wallet_location=os.getenv("TNS_ADMIN", "/opt/adb_wallet"),
         wallet_password=os.getenv("WALLET_PWD"),
@@ -105,6 +108,8 @@ def _conn():
         retry_delay=1,
         tcp_connect_timeout=connect_timeout,
     )
+    if not connect_kwargs["dsn"]:
+        raise RuntimeError("Missing DB_DSN for Oracle connection")
     last_exc: Exception | None = None
     max_attempts = int(os.getenv("ORACLE_CONNECT_RETRIES", "5"))
     for attempt in range(max_attempts):
