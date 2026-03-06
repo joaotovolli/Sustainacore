@@ -285,7 +285,11 @@ def login_email(request):
                 except ValueError:
                     data = None
                 if not response.ok or (isinstance(data, dict) and data.get("ok") is False):
-                    error = "We couldn't send the email right now. Please try again later."
+                    error = (
+                        data.get("message")
+                        if isinstance(data, dict) and isinstance(data.get("message"), str)
+                        else "We couldn't send the email right now. Please try again later."
+                    )
                     return render(
                         request,
                         "login_email.html",
