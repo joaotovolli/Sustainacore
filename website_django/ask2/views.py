@@ -119,9 +119,6 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
         "prompt_chars": len(user_message),
         "response_chars": len(reply_text or ""),
     }
-    if settings.TELEMETRY_STORE_ASK2_TEXT:
-        payload["prompt_text"] = user_message
-        payload["response_text"] = reply_text
     try:
         consent = get_consent_from_request(request)
         try:
@@ -133,11 +130,11 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
             request=request,
             consent=consent,
             path=request.path,
-            query_string=request.META.get("QUERY_STRING") or None,
             http_method=request.method,
             status_code=status_code,
             response_ms=latency_ms,
-            payload=payload,
+            event_name="ok" if status_code < 400 else "error",
+            debug_payload=payload,
             session_key=session_key,
         )
     except Exception:

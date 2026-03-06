@@ -1,17 +1,18 @@
 import json
+from datetime import datetime, timezone
 
 from django.conf import settings
+from django.core.management import call_command
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from types import SimpleNamespace
 
 from django.test import RequestFactory, SimpleTestCase, TestCase, TransactionTestCase
 from django.test.utils import override_settings
-
 from core.analytics import ANON_COOKIE
 from telemetry.consent import CONSENT_COOKIE, ConsentState, parse_consent_cookie, serialize_consent
 from telemetry.middleware import TelemetryMiddleware
-from telemetry.models import WebEvent
+from telemetry.models import WebEvent, WebEventDaily
 from unittest import mock
 
 from telemetry.utils import get_client_ip, get_geo_fields
@@ -56,6 +57,10 @@ class TestTelemetryMiddleware(TransactionTestCase):
         event = WebEvent.objects.get()
         self.assertEqual(event.event_type, "page_view")
         self.assertEqual(event.path, "/telemetry-test/")
+        self.assertEqual(event.is_bot, "N")
+        self.assertIsNone(event.query_string)
+        self.assertIsNone(event.payload_json)
+        self.assertIsNone(event.user_agent)
 
     def test_session_user_id_and_geo_set_with_consent(self):
         factory = RequestFactory()
@@ -155,6 +160,70 @@ class TestTelemetryEventEndpoint(TestCase):
         response = self.client.post("/telemetry/event/", payload, content_type="application/json")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(WebEvent.objects.count(), 1)
+        event = WebEvent.objects.get()
+        self.assertEqual(event.event_name, "download_click")
+        self.assertIsNone(event.payload_json)
+        self.assertIsNone(event.debug_json)
+
+    def test_event_endpoint_stores_host_not_full_referrer(self):
+        consent = ConsentState(
+            analytics=True,
+            functional=False,
+            policy_version=settings.TELEMETRY_POLICY_VERSION,
+            source="banner",
+        )
+        self.client.cookies[CONSENT_COOKIE] = serialize_consent(consent)
+        payload = json.dumps({"event_name": "download_click", "metadata": {"page": "https://sustainacore.org/"}})
+        self.client.post(
+            "/telemetry/event/",
+            payload,
+            content_type="application/json",
+            HTTP_HOST="sustainacore.org",
+            HTTP_ORIGIN="https://sustainacore.org",
+            HTTP_REFERER="https://sustainacore.org/tech100/",
+            HTTP_USER_AGENT="Mozilla/5.0",
+        )
+        event = WebEvent.objects.get()
+        self.assertEqual(event.referrer, "sustainacore.org")
+        self.assertEqual(event.referrer_host, "sustainacore.org")
+
+
+class TestTelemetryAggregationCommand(TestCase):
+    def test_aggregate_web_telemetry_groups_daily_counts(self):
+        day = datetime(2026, 3, 5, 10, 0, tzinfo=timezone.utc)
+        for session_key, user_id, ip_hash in (
+            ("s1", 1, "ip-a"),
+            ("s1", 1, "ip-a"),
+            ("s2", 2, "ip-b"),
+        ):
+            WebEvent.objects.create(
+                event_ts=day,
+                event_type="page_view",
+                event_name=None,
+                path="/tech100/",
+                referrer="www.google.com",
+                referrer_host="www.google.com",
+                user_agent="browser:chrome",
+                is_bot="N",
+                status_code=200,
+                response_ms=120,
+                session_key=session_key,
+                user_id=user_id,
+                ip_hash=ip_hash,
+                consent_analytics_effective="Y",
+            )
+
+        call_command("aggregate_web_telemetry", "--date", "2026-03-05")
+
+        aggregate = WebEventDaily.objects.get()
+        self.assertEqual(aggregate.bucket_date.isoformat(), "2026-03-05")
+        self.assertEqual(aggregate.event_count, 3)
+        self.assertEqual(aggregate.unique_sessions, 2)
+        self.assertEqual(aggregate.unique_users, 2)
+        self.assertEqual(aggregate.unique_visitors, 2)
+        self.assertEqual(aggregate.referrer_host, "www.google.com")
+        self.assertEqual(aggregate.total_response_ms, 360)
+        self.assertEqual(aggregate.max_response_ms, 120)
 
 
 class TestTelemetryIpSelection(SimpleTestCase):

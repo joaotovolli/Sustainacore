@@ -9,7 +9,7 @@ from django.utils.timezone import now
 
 from telemetry.consent import ConsentState
 from telemetry.models import WebConsent, WebEvent, WebSession
-from telemetry.utils import get_ip_fields
+from telemetry.utils import classify_user_agent, compact_json, get_ip_fields, normalize_path, referrer_host
 
 logger = logging.getLogger(__name__)
 _HEALTH_LOGGED = False
@@ -61,6 +61,17 @@ def _safe_json(payload: Optional[Dict[str, Any]]) -> str | None:
         return None
 
 
+def _store_legacy_event_blobs() -> bool:
+    return bool(getattr(settings, "TELEMETRY_STORE_LEGACY_EVENT_BLOBS", False))
+
+
+def _clean_event_name(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    return raw[:64]
+
+
 def record_consent(
     *,
     consent: ConsentState,
@@ -99,6 +110,9 @@ def record_event(
     status_code: int | None = None,
     response_ms: int | None = None,
     payload: Optional[Dict[str, Any]] = None,
+    event_name: str | None = None,
+    is_bot: bool = False,
+    debug_payload: Optional[Dict[str, Any]] = None,
     user_id: Optional[int] = None,
     session_key: Optional[str] = None,
     country_code: Optional[str] = None,
@@ -108,9 +122,12 @@ def record_event(
         _log_write_disabled_once()
         return
     ip_trunc, ip_hash = get_ip_fields(request)
-    user_agent = request.META.get("HTTP_USER_AGENT", "") or None
+    user_agent_raw = request.META.get("HTTP_USER_AGENT", "") or None
+    user_agent = classify_user_agent(user_agent_raw)
     referrer = request.META.get("HTTP_REFERER", "") or None
+    referrer_host_value = referrer_host(referrer)
     db_alias = getattr(settings, "TELEMETRY_DB_ALIAS", "default")
+    legacy_blob_writes = _store_legacy_event_blobs()
     try:
         WebEvent.objects.using(db_alias).create(
             event_ts=now(),
@@ -118,18 +135,22 @@ def record_event(
             session_key=session_key,
             consent_analytics_effective="Y" if consent.analytics else "N",
             event_type=event_type,
-            path=path[:512],
-            query_string=query_string,
+            event_name=_clean_event_name(event_name),
+            path=normalize_path(path),
+            query_string=query_string if legacy_blob_writes else None,
             http_method=http_method,
             status_code=status_code,
             response_ms=response_ms,
-            referrer=referrer[:512] if referrer else None,
+            referrer=referrer_host_value,
+            referrer_host=referrer_host_value,
             user_agent=user_agent[:512] if user_agent else None,
+            is_bot="Y" if is_bot else "N",
             ip_trunc=ip_trunc,
             ip_hash=ip_hash,
             country_code=country_code,
             region_code=region_code,
-            payload_json=_safe_json(payload),
+            payload_json=_safe_json(payload) if legacy_blob_writes else None,
+            debug_json=compact_json(debug_payload),
         )
     except Exception as exc:
         _log_write_error("record_event", exc, event_type=event_type, path=path)

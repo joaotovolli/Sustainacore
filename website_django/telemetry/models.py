@@ -42,21 +42,58 @@ class WebEvent(models.Model):
     session_key = models.CharField(max_length=64, null=True, blank=True)
     consent_analytics_effective = models.CharField(max_length=1, default="N")
     event_type = models.CharField(max_length=64)
+    event_name = models.CharField(max_length=64, null=True, blank=True)
     path = models.CharField(max_length=512)
     query_string = models.TextField(null=True, blank=True)
     http_method = models.CharField(max_length=16, null=True, blank=True)
     status_code = models.IntegerField(null=True, blank=True)
     response_ms = models.IntegerField(null=True, blank=True)
     referrer = models.CharField(max_length=512, null=True, blank=True)
+    referrer_host = models.CharField(max_length=255, null=True, blank=True)
     user_agent = models.CharField(max_length=512, null=True, blank=True)
+    is_bot = models.CharField(max_length=1, default="N")
     ip_trunc = models.CharField(max_length=64, null=True, blank=True)
     ip_hash = models.CharField(max_length=128, null=True, blank=True)
     country_code = models.CharField(max_length=8, null=True, blank=True)
     region_code = models.CharField(max_length=16, null=True, blank=True)
     payload_json = models.TextField(null=True, blank=True)
+    debug_json = models.CharField(max_length=2000, null=True, blank=True)
 
     class Meta:
         db_table = "W_WEB_EVENT"
+
+
+class WebEventDaily(models.Model):
+    aggregate_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    bucket_date = models.DateField()
+    event_type = models.CharField(max_length=64)
+    event_name = models.CharField(max_length=64, null=True, blank=True)
+    path = models.CharField(max_length=512)
+    path_hash = models.CharField(max_length=64)
+    referrer_host = models.CharField(max_length=255, null=True, blank=True)
+    country_code = models.CharField(max_length=8, null=True, blank=True)
+    consent_analytics_effective = models.CharField(max_length=1, default="N")
+    is_bot = models.CharField(max_length=1, default="N")
+    status_class = models.CharField(max_length=8, null=True, blank=True)
+    event_count = models.IntegerField(default=0)
+    unique_sessions = models.IntegerField(default=0)
+    unique_users = models.IntegerField(default=0)
+    unique_visitors = models.IntegerField(default=0)
+    total_response_ms = models.IntegerField(default=0)
+    max_response_ms = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "W_WEB_EVENT_DAILY"
+        indexes = [
+            models.Index(
+                fields=["bucket_date", "event_type"],
+                name="W_WEB_EVENT_bucket__f8d81c_idx",
+            ),
+            models.Index(
+                fields=["bucket_date", "path_hash"],
+                name="W_WEB_EVENT_bucket__4538b0_idx",
+            ),
+        ]
 
 
 class WebAsk2Conversation(models.Model):

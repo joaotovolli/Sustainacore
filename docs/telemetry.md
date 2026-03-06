@@ -39,7 +39,28 @@ Ask2 content (stored in Oracle):
 ## Data minimisation
 - `ip_trunc`: IPv4 /24 or IPv6 /48
 - `ip_hash`: salted hash (uses `TELEMETRY_HASH_SALT` or `SECRET_KEY`)
-- User agent and referrer are stored when present.
+- `W_WEB_EVENT` now stores compact event rows by default:
+  - `event_name` for UI/download/Ask2 subtypes
+  - host-only referrer (`referrer` / `referrer_host`), not the full URL
+  - compact user-agent family tokens (`browser:chrome`, `bot:googlebot`, etc.), not the full header
+  - short `debug_json` only for event types that need compact metadata
+- Full query strings and large JSON blobs are disabled by default. Set
+  `TELEMETRY_STORE_LEGACY_EVENT_BLOBS=1` only for temporary incident diagnostics.
+
+## Storage model
+- Raw request/event rows stay in `W_WEB_EVENT` for a short operational window.
+- Long-lived rollups live in `W_WEB_EVENT_DAILY`.
+- The daily table keeps:
+  - UTC day
+  - event type + subtype
+  - page path
+  - referrer host
+  - consent flag
+  - bot flag
+  - country
+  - status class
+  - event counts, unique session/user/visitor counts, and latency summaries
+- This keeps long-term analytics useful without retaining one full blob-heavy row per request.
 
 ## Country enrichment + consent
 - Country/region is derived from trusted headers (or GeoIP fallback) and stored for server-side events.
@@ -51,8 +72,11 @@ IP selection (server-side):
 - Private/reserved/bogon ranges are ignored unless all candidates are non-public.
 
 ## Retention
-- Default retention is 180 days for telemetry events.
-- `manage.py purge_web_telemetry --days N` removes older rows.
+- Default retention is 35 days for raw events.
+- Default retention is 400 days for daily aggregates.
+- `manage.py aggregate_web_telemetry --date YYYY-MM-DD` rolls one UTC day into `W_WEB_EVENT_DAILY`.
+- `manage.py purge_web_telemetry --raw-days 35 --aggregates --aggregate-days 400 --sessions --consents`
+  removes expired raw/session/consent rows.
 
 ## Deployment & migrations
 - Production uses the same Oracle config as the website (preferred):
@@ -75,9 +99,13 @@ If migrations fail or tables are missing, confirm the Oracle user has:
 Environment variables (optional):
 - `TELEMETRY_POLICY_VERSION` (default `2025-12-30`)
 - `TELEMETRY_HASH_SALT` (default `SECRET_KEY`)
-- `TELEMETRY_RETENTION_DAYS` (default `180`)
+- `TELEMETRY_RAW_RETENTION_DAYS` (default `35`)
+- `TELEMETRY_AGGREGATE_RETENTION_DAYS` (default `400`)
+- `TELEMETRY_SESSION_RETENTION_DAYS` (default `35`)
+- `TELEMETRY_CONSENT_RETENTION_DAYS` (default `180`)
 - `TELEMETRY_TRUST_X_FORWARDED_FOR` (`1` to trust proxy headers; default on)
 - `TELEMETRY_STORE_ASK2_TEXT` (`1` to store Ask2 message text; default OFF)
+- `TELEMETRY_STORE_LEGACY_EVENT_BLOBS` (`1` to temporarily store full query string / payload blobs again)
 - `ASK2_STORE_CONVERSATIONS` (`1` to store Ask2 prompts + replies in events; default OFF)
 - `TELEMETRY_GEO_COUNTRY_HEADERS` (comma-separated header names for country code)
 - `TELEMETRY_GEO_REGION_HEADERS` (comma-separated header names for region code)
@@ -155,3 +183,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now sc-tech100-related.timer
 ```
 Default schedule is **07:15 UTC** with a lock (`/tmp/sc-tech100-related.lock`) to prevent overlap.
+
+## Recommended rollout
+1. Apply the telemetry migration so `W_WEB_EVENT` gains lean columns and `W_WEB_EVENT_DAILY`.
+2. Deploy the slimmer writer.
+3. Schedule a daily rollup:
+   - `python website_django/manage.py aggregate_web_telemetry`
+4. Shorten raw retention only after the rollup is running:
+   - `python website_django/manage.py purge_web_telemetry --aggregates --sessions --consents`

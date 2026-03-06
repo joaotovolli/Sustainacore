@@ -79,11 +79,7 @@ def _record_download_event(
     status_code: int | None = None,
 ) -> None:
     consent = get_consent_from_request(request)
-    payload = {
-        "gated": gated,
-        "resource": request.get_full_path(),
-        "success": success,
-    }
+    event_name = "blocked_login" if gated else ("ok" if success else "error")
     try:
         session_key = getattr(request.session, "session_key", None)
     except Exception:
@@ -94,10 +90,9 @@ def _record_download_event(
             request=request,
             consent=consent,
             path=request.path,
-            query_string=request.META.get("QUERY_STRING") or None,
             http_method=request.method,
             status_code=status_code,
-            payload=payload,
+            event_name=event_name,
             session_key=session_key,
         )
     except Exception:

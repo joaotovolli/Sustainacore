@@ -557,10 +557,9 @@ def ux_event(request):
             request=request,
             consent=consent,
             path=request.path,
-            query_string=None,
             http_method=request.method,
             status_code=204,
-            payload={"event_name": event_type, "metadata": metadata},
+            event_name=event_type,
         )
     except Exception:
         pass

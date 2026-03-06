@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import json
 import re
 from functools import lru_cache
 from typing import Iterable, Optional, Tuple
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -74,6 +76,83 @@ def hash_ip(raw_ip: str) -> Optional[str]:
 def get_ip_fields(request) -> Tuple[Optional[str], Optional[str]]:
     raw_ip = get_client_ip(request)
     return truncate_ip(raw_ip), hash_ip(raw_ip)
+
+
+def normalize_path(value: Optional[str], *, max_len: int = 512) -> str:
+    raw = (value or "").strip() or "/"
+    parsed = urlparse(raw)
+    if parsed.scheme or parsed.netloc:
+        raw = parsed.path or "/"
+    if not raw.startswith("/"):
+        raw = f"/{raw.lstrip('/')}"
+    return raw[:max_len]
+
+
+def referrer_host(value: Optional[str], *, max_len: int = 255) -> Optional[str]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    host = parsed.hostname or parsed.netloc or raw
+    host = host.split("/", 1)[0].strip().lower()
+    return host[:max_len] if host else None
+
+
+def classify_user_agent(user_agent: Optional[str], *, max_len: int = 128) -> Optional[str]:
+    ua = (user_agent or "").strip().lower()
+    if not ua:
+        return None
+    labels = [
+        ("googlebot", "bot:googlebot"),
+        ("bingbot", "bot:bingbot"),
+        ("linkedinbot", "bot:linkedinbot"),
+        ("facebookexternalhit", "bot:facebook"),
+        ("slackbot", "bot:slack"),
+        ("curl/", "bot:curl"),
+        ("python-requests", "bot:python-requests"),
+        ("playwright", "bot:playwright"),
+        ("headless", "bot:headless"),
+        ("bot", "bot:generic"),
+        ("crawler", "bot:crawler"),
+        ("spider", "bot:spider"),
+        ("edg/", "browser:edge"),
+        ("chrome/", "browser:chrome"),
+        ("firefox/", "browser:firefox"),
+        ("safari/", "browser:safari"),
+    ]
+    for token, label in labels:
+        if token in ua:
+            return label[:max_len]
+    return "browser:other"
+
+
+def status_class(status_code: Optional[int]) -> Optional[str]:
+    if status_code is None:
+        return None
+    try:
+        value = int(status_code)
+    except (TypeError, ValueError):
+        return None
+    if value < 100:
+        return None
+    return f"{value // 100}xx"
+
+
+def stable_token(value: Optional[str]) -> Optional[str]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def compact_json(payload: Optional[dict], *, max_len: int = 2000) -> Optional[str]:
+    if payload is None:
+        return None
+    try:
+        encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    except (TypeError, ValueError):
+        return None
+    return encoded[:max_len]
 
 
 def ensure_session_key(request) -> Optional[str]:

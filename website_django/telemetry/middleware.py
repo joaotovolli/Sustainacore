@@ -89,15 +89,14 @@ class TelemetryMiddleware:
                     request=request,
                     consent=consent,
                     path=path,
-                    query_string=request.META.get("QUERY_STRING") or None,
                     http_method=request.method,
                     status_code=getattr(response, "status_code", None),
                     response_ms=duration_ms,
+                    is_bot=is_bot,
                     session_key=session_key,
                     user_id=user_id,
                     country_code=country_code,
                     region_code=region_code,
-                    payload={"bot": True} if is_bot else None,
                 )
             except Exception:
                 pass
