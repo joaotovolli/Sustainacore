@@ -8,6 +8,13 @@
     "ask2_opened",
     "tab_changed",
   ]);
+  const dedupeWindowsMs = {
+    filter_applied: 30_000,
+    search_submitted: 15_000,
+    ask2_opened: 60_000,
+    tab_changed: 30_000,
+    download_click: 0,
+  };
 
   const banner = document.querySelector("[data-consent-banner]");
   const modal = document.querySelector("[data-consent-modal]");
@@ -138,6 +145,19 @@
     if (!allowedEvents.has(eventName)) return;
     const consent = parseConsent();
     if (!consent || !consent.analytics) return;
+    const page = metadata?.page || metadata?.referrer || window.location.pathname || "/";
+    const dedupeMs = dedupeWindowsMs[eventName] || 0;
+    if (dedupeMs > 0) {
+      try {
+        const dedupeKey = `sc_telemetry:${eventName}:${page}`;
+        const previous = Number(sessionStorage.getItem(dedupeKey) || "0");
+        const now = Date.now();
+        if (previous && now - previous < dedupeMs) return;
+        sessionStorage.setItem(dedupeKey, String(now));
+      } catch (err) {
+        // Storage failures should not block telemetry or UX.
+      }
+    }
     try {
       await fetch("/telemetry/event/", {
         method: "POST",

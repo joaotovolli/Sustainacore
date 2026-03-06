@@ -134,7 +134,7 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
             status_code=status_code,
             response_ms=latency_ms,
             event_name="ok" if status_code < 400 else "error",
-            debug_payload=payload,
+            debug_payload=payload if status_code >= 400 else None,
             session_key=session_key,
         )
     except Exception:

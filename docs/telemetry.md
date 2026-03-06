@@ -16,7 +16,7 @@ This document describes the privacy-friendly telemetry system for sustainacore.o
 ## What is logged
 Server-side (always, minimal):
 - Page views (HTML responses)
-- API calls (TECH100 data endpoints, Ask2 API)
+- API calls only when explicitly enabled for successful requests; API errors are still logged by default
 - Downloads (including gated/allowed status)
 - Ask2 chat metadata (latency, success, size)
 
@@ -43,9 +43,15 @@ Ask2 content (stored in Oracle):
   - `event_name` for UI/download/Ask2 subtypes
   - host-only referrer (`referrer` / `referrer_host`), not the full URL
   - compact user-agent family tokens (`browser:chrome`, `bot:googlebot`, etc.), not the full header
-  - short `debug_json` only for event types that need compact metadata
+  - short `debug_json` only for error/debug flows
 - Full query strings and large JSON blobs are disabled by default. Set
   `TELEMETRY_STORE_LEGACY_EVENT_BLOBS=1` only for temporary incident diagnostics.
+- Client-side UI events are deduplicated in-session before POSTing:
+  - `filter_applied`: 30s
+  - `search_submitted`: 15s
+  - `ask2_opened`: 60s
+  - `tab_changed`: 30s
+  - `download_click`: no client cooldown
 
 ## Storage model
 - Raw request/event rows stay in `W_WEB_EVENT` for a short operational window.
@@ -113,6 +119,7 @@ Environment variables (optional):
 - `TELEMETRY_TRUST_X_FORWARDED_FOR` (`1` to trust proxy headers; default on)
 - `TELEMETRY_STORE_ASK2_TEXT` (`1` to store Ask2 message text; default OFF)
 - `TELEMETRY_STORE_LEGACY_EVENT_BLOBS` (`1` to temporarily store full query string / payload blobs again)
+- `TELEMETRY_LOG_SUCCESS_API_CALLS` (`1` to keep successful generic API-call logging; default OFF)
 - `ASK2_STORE_CONVERSATIONS` (`1` to store Ask2 prompts + replies in events; default OFF)
 - `TELEMETRY_GEO_COUNTRY_HEADERS` (comma-separated header names for country code)
 - `TELEMETRY_GEO_REGION_HEADERS` (comma-separated header names for region code)
@@ -139,7 +146,7 @@ Environment variables (optional):
     - `/opt/sustainacore/geoip/dbip-city-lite.mmdb`
 
 ## Telemetry usage report (VM1)
-The VM1 report script aggregates `WKSP_ESGAPEX.W_WEB_EVENT` with bot/dev filtering:
+The VM1 report script still reads `WKSP_ESGAPEX.W_WEB_EVENT` directly today:
 ```bash
 python tools/telemetry/usage_report.py --dry-run
 python tools/telemetry/usage_report.py --all --dry-run
@@ -190,6 +197,22 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now sc-tech100-related.timer
 ```
 Default schedule is **07:15 UTC** with a lock (`/tmp/sc-tech100-related.lock`) to prevent overlap.
+
+## Remaining raw-table dependencies
+- `tools/telemetry/usage_report.py`
+  - still needs raw rows for exact cross-group uniques in rolling windows
+- `tools/telemetry/daily_report.py`
+  - still needs raw rows for exact day-level unique session/visitor counts
+- `tools/telemetry/related_companies.py`
+  - intentionally stays on raw rows because it depends on event ordering within sessions
+- `U_UX_EVENTS`
+  - `new_verified_users` still comes from the legacy auth event stream, not `W_WEB_EVENT_DAILY`
+
+## Reporting migration checklist
+1. Move rolling totals, top pages, top referrers, country breakdowns, and error counts to `W_WEB_EVENT_DAILY`.
+2. Keep `related_companies.py` on raw rows unless a separate session-transition rollup is introduced.
+3. If exact unique session/visitor counts must leave raw storage, add a second daily summary table or an approximate distinct-count strategy.
+4. Leave `new_verified_users` on `U_UX_EVENTS` until the auth/reporting stream is unified.
 
 ## Recommended rollout
 1. Apply the telemetry migration so `W_WEB_EVENT` gains lean columns and `W_WEB_EVENT_DAILY`.
