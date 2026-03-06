@@ -6,6 +6,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/sustainacore-ai
+EnvironmentFile=-/etc/sustainacore/db.env
+EnvironmentFile=-/etc/sustainacore-ai/app.env
+EnvironmentFile=-/etc/sustainacore-ai/secrets.env
 Environment=TNS_ADMIN=/opt/adb_wallet
 Environment=XDG_CACHE_HOME=/opt/fastembed
 ExecStart=/opt/sustainacore-ai/.venv/bin/uvicorn app.retrieval.app:app --host 127.0.0.1 --port 8080 --workers 1

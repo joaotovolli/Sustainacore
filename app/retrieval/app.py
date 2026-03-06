@@ -16,7 +16,7 @@ from app.auth.login_codes import (
     TOKEN_TTL_SECONDS,
     is_valid_email,
     normalize_email,
-    request_login_code,
+    request_login_code_status,
     verify_login_code,
 )
 from app.news_service import create_curated_news_item, fetch_news_items, fetch_news_item_detail
@@ -566,7 +566,34 @@ async def api_auth_request_code(request: Request) -> JSONResponse:
 
     email_normalized = normalize_email(email)
     client_ip = _resolve_client_ip(request)
-    request_login_code(email_normalized, client_ip)
+    ok, reason = request_login_code_status(email_normalized, client_ip)
+    if not ok:
+        if reason == "rate_limited":
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "rate_limited",
+                    "message": "Too many requests. Please wait before requesting another code.",
+                },
+                status_code=429,
+            )
+        if reason == "email_failed":
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "email_failed",
+                    "message": "We could not send the login code email right now.",
+                },
+                status_code=502,
+            )
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "db_error",
+                "message": "We could not prepare a login code right now.",
+            },
+            status_code=502,
+        )
 
     return JSONResponse({"ok": True}, media_type="application/json")
 
