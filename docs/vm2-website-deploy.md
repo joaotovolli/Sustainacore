@@ -16,6 +16,11 @@ The site also proxies Ask2 traffic to VM1:
   - `/etc/sustainacore/db.env`
   - `/etc/sysconfig/sustainacore-django.env`
 - Oracle config uses `DB_USER`, `DB_PASSWORD` (or `DB_PASS`), and `DB_DSN` (preferred). `ORACLE_*` vars are accepted as fallback.
+- Current production source of truth:
+  - active DB: `SustainacoreDB`
+  - legacy rollback only: `dbRI4X6` / `apexRI4X6`
+  - wallet directory: `/opt/adb_wallet_tp`
+  - service DB identity should resolve to `GE3654DEB76FCC9_SUSTAINACOREDB`
 
 ### Env Files & Permissions
 - The deploy user may not have direct read access to `/etc/sustainacore*.env`.

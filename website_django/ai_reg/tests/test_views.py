@@ -2,6 +2,8 @@ from unittest import mock
 
 from django.test import TestCase
 
+from ai_reg.data import AiRegDataError
+
 
 class AiRegViewsTests(TestCase):
     def test_ai_regulation_page_loads(self):
@@ -15,6 +17,18 @@ class AiRegViewsTests(TestCase):
             response = self.client.get("/ai-regulation/data/as-of-dates")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"as_of_dates": ["2025-01-15"]})
+
+    def test_ai_regulation_page_degrades_when_data_is_unavailable(self):
+        with mock.patch("ai_reg.views.ai_reg_data.fetch_as_of_dates", side_effect=AiRegDataError("offline")):
+            response = self.client.get("/ai-regulation/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Global AI Regulation")
+
+    def test_as_of_dates_endpoint_returns_503_when_data_is_unavailable(self):
+        with mock.patch("ai_reg.views.ai_reg_data.fetch_as_of_dates", side_effect=AiRegDataError("offline")):
+            response = self.client.get("/ai-regulation/data/as-of-dates")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"error": "data_unavailable"})
 
     def test_heatmap_endpoint(self):
         payload = [{"iso2": "US", "name": "United States", "instruments_count": 1}]
