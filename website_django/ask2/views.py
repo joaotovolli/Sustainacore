@@ -19,6 +19,7 @@ from telemetry.ask2_logging import (
     get_or_create_conversation_id,
     log_ask2_exchange,
 )
+from telemetry.utils import ensure_session_key
 
 
 def ask2_page(request: HttpRequest) -> HttpResponse:
@@ -121,10 +122,7 @@ def ask2_api(request: HttpRequest) -> JsonResponse:
     }
     try:
         consent = get_consent_from_request(request)
-        try:
-            session_key = getattr(request.session, "session_key", None)
-        except Exception:
-            session_key = None
+        session_key = ensure_session_key(request)
         record_event(
             event_type="ask2_chat",
             request=request,

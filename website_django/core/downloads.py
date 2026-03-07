@@ -10,6 +10,7 @@ from core.analytics import log_event
 from core.auth import is_logged_in
 from telemetry.consent import get_consent_from_request
 from telemetry.logger import record_event
+from telemetry.utils import ensure_session_key
 
 
 def _is_ajax(request) -> bool:
@@ -80,10 +81,7 @@ def _record_download_event(
 ) -> None:
     consent = get_consent_from_request(request)
     event_name = "blocked_login" if gated else ("ok" if success else "error")
-    try:
-        session_key = getattr(request.session, "session_key", None)
-    except Exception:
-        session_key = None
+    session_key = ensure_session_key(request)
     try:
         record_event(
             event_type="download",
