@@ -76,6 +76,11 @@ class _TextConnection:
         return False
 
 
+class _BrokenOracleTextRetriever(oracle_retriever.OracleRetriever):
+    def _oracle_text_search(self, question, k, capability, filters=None):
+        raise RuntimeError("missing_text_index")
+
+
 @pytest.fixture(autouse=True)
 def reset_capability(monkeypatch):
     monkeypatch.setattr(oracle_retriever, "embed_text", lambda text, timeout=5.0: [0.1, 0.2, 0.3, 0.4])
@@ -119,3 +124,24 @@ def test_like_fallback(monkeypatch):
     assert result.contexts
     assert result.contexts[0]["title"] == "Fallback"
     assert 0 < result.contexts[0]["score"] <= 1
+
+
+def test_oracle_text_failure_falls_back_to_like(monkeypatch):
+    capability = Capability(
+        db_version="23ai",
+        vector_supported=False,
+        vec_col=None,
+        vec_dim=None,
+        vector_rows=0,
+        esg_docs_count=10,
+        oracle_text_supported=True,
+    )
+    monkeypatch.setattr(oracle_retriever, "get_capability", lambda refresh=False: capability)
+    monkeypatch.setattr(oracle_retriever, "get_connection", lambda: _TextConnection())
+
+    retriever = _BrokenOracleTextRetriever()
+    result = retriever.retrieve("fallback query", 2)
+
+    assert result.mode == "like"
+    assert result.contexts
+    assert result.note == "like_after_oracle_text_failure"
