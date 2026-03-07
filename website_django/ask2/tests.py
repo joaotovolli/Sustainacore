@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.conf import settings
 from telemetry.models import WebAsk2Conversation, WebAsk2Message
 from telemetry.consent import CONSENT_COOKIE, ConsentState, serialize_consent
+from telemetry.utils import stable_token
 from ask2 import client as ask2_client
 import requests
 
@@ -58,6 +59,26 @@ class TestAsk2Telemetry(TestCase):
         self.assertEqual(response.status_code, 200)
         conversation = WebAsk2Conversation.objects.first()
         self.assertEqual(conversation.user_id, user.id)
+
+    @mock.patch("ask2.views.client.ask2_query")
+    def test_session_key_is_hashed_for_storage(self, ask2_query_mock):
+        ask2_query_mock.return_value = {"reply": "Hi there"}
+        consent = ConsentState(
+            analytics=True,
+            functional=False,
+            policy_version=settings.TELEMETRY_POLICY_VERSION,
+            source="test",
+        )
+        self.client.cookies[CONSENT_COOKIE] = serialize_consent(consent)
+        session = self.client.session
+        session["probe"] = "1"
+        session.save()
+        raw_session_key = session.session_key
+
+        response = self._post_ask2()
+        self.assertEqual(response.status_code, 200)
+        conversation = WebAsk2Conversation.objects.first()
+        self.assertEqual(conversation.session_key, stable_token(raw_session_key))
 
     @mock.patch("ask2.views.client.ask2_query")
     def test_content_truncation(self, ask2_query_mock):

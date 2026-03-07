@@ -14,9 +14,8 @@ from telemetry.consent import CONSENT_COOKIE, ConsentState, parse_consent_cookie
 from telemetry.logger import record_event
 from telemetry.middleware import TelemetryMiddleware
 from telemetry.models import WebEvent, WebEventDaily
+from telemetry.utils import get_client_ip, get_geo_fields, stable_token
 from unittest import mock
-
-from telemetry.utils import get_client_ip, get_geo_fields
 
 
 class TestConsentCookie(TestCase):
@@ -92,7 +91,7 @@ class TestTelemetryMiddleware(TransactionTestCase):
         self.assertEqual(event.region_code, "CA")
         self.assertIn(ANON_COOKIE, response.cookies)
 
-    def test_existing_session_key_is_preserved(self):
+    def test_existing_session_key_is_hashed(self):
         factory = RequestFactory()
         consent = ConsentState(
             analytics=True,
@@ -114,7 +113,7 @@ class TestTelemetryMiddleware(TransactionTestCase):
         response = session_middleware.process_response(request, response)
 
         event = WebEvent.objects.get(path="/telemetry-test/")
-        self.assertEqual(event.session_key, existing_session_key)
+        self.assertEqual(event.session_key, stable_token(existing_session_key))
         self.assertIn("sessionid", response.cookies)
 
     def test_identifiers_not_set_without_consent(self):

@@ -160,7 +160,7 @@ def ensure_session_key(request) -> Optional[str]:
         # Never create anonymous DB-backed sessions just for telemetry.
         # When the session store is unhealthy, a forced save can turn
         # an otherwise successful page view into a 400 response.
-        return request.session.session_key
+        return stable_token(request.session.session_key)
     except Exception:
         return None
 
