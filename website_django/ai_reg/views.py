@@ -19,10 +19,7 @@ def _allow_fallback() -> bool:
 
 
 def _log_ai_reg_data_issue(event: str) -> None:
-    if _allow_fallback():
-        logger.warning(event)
-        return
-    logger.exception(event)
+    logger.warning(event)
 
 
 def _parse_as_of(value: Optional[str]) -> Optional[dt.date]:
