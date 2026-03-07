@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import app as flask_app
 import db_helper
+from fastapi.testclient import TestClient
+from app.retrieval import app as flask_app
 
 
 def _norm_date(val: Any) -> str:
@@ -150,11 +151,11 @@ def _install_fakes(monkeypatch, rows: Optional[List[Dict[str, Any]]] = None):
 def test_api_tech100_returns_history_and_aliases(monkeypatch):
     _install_fakes(monkeypatch)
 
-    client = flask_app.app.test_client()
+    client = TestClient(flask_app.app)
     resp = client.get("/api/tech100", headers={"Authorization": "Bearer secret"})
 
     assert resp.status_code == 200
-    body = resp.get_json()
+    body = resp.json()
     assert body["count"] == 3
 
     items = body["items"]
@@ -203,15 +204,15 @@ def test_api_tech100_returns_history_and_aliases(monkeypatch):
 
 def test_api_tech100_filters_port_date(monkeypatch):
     _install_fakes(monkeypatch)
-    client = flask_app.app.test_client()
+    client = TestClient(flask_app.app)
 
     resp = client.get(
         "/api/tech100",
         headers={"Authorization": "Bearer secret"},
-        query_string={"port_date": "2024-06-30"},
+        params={"port_date": "2024-06-30"},
     )
     assert resp.status_code == 200
-    body = resp.get_json()
+    body = resp.json()
     assert body["count"] == 1
     assert body["items"][0]["port_date"] == "2024-06-30"
     assert body["items"][0]["company_name"] == "Acme Corp"
@@ -220,15 +221,15 @@ def test_api_tech100_filters_port_date(monkeypatch):
 
 def test_api_tech100_filters_sector(monkeypatch):
     _install_fakes(monkeypatch)
-    client = flask_app.app.test_client()
+    client = TestClient(flask_app.app)
 
     resp = client.get(
         "/api/tech100",
         headers={"Authorization": "Bearer secret"},
-        query_string={"sector": "Finance"},
+        params={"sector": "Finance"},
     )
     assert resp.status_code == 200
-    body = resp.get_json()
+    body = resp.json()
     assert body["count"] == 1
     item = body["items"][0]
     assert item["company_name"] == "Bravo Inc"

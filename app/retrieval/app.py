@@ -665,36 +665,74 @@ async def api_tech100(request: Request) -> JSONResponse:
             status_code=500,
         )
 
+    port_date_raw = (request.query_params.get("port_date") or "").strip()
+    sector = (request.query_params.get("sector") or "").strip()
+    search = (request.query_params.get("q") or request.query_params.get("search") or "").strip()
+
+    conditions: List[str] = []
+    binds: Dict[str, Any] = {}
+    if port_date_raw:
+        try:
+            binds["port_date"] = date.fromisoformat(port_date_raw)
+            conditions.append("port_date = :port_date")
+        except ValueError:
+            return JSONResponse(
+                {"error": "invalid_port_date", "message": "Invalid port_date. Use YYYY-MM-DD."},
+                status_code=400,
+            )
+    if sector:
+        binds["sector"] = sector
+        conditions.append("gics_sector = :sector")
+    if search:
+        binds["search_like"] = f"%{search.lower()}%"
+        binds["ticker_exact"] = search.lower()
+        conditions.append(
+            "(LOWER(company_name) LIKE :search_like OR LOWER(ticker) = :ticker_exact)"
+        )
+
+    where_sql = f" WHERE {' AND '.join(conditions)}" if conditions else ""
     sql = (
-        "SELECT rank_index, company_name, gics_sector, port_date, port_weight, "
-        "aiges_composite_average, transparency, governance_structure, "
-        "region, country, location "
-        "FROM tech11_ai_gov_eth_index "
-        "WHERE port_date = (SELECT MAX(port_date) FROM tech11_ai_gov_eth_index) "
-        "ORDER BY rank_index FETCH FIRST 100 ROWS ONLY"
+        "SELECT port_date, rank_index, company_name, ticker, port_weight, "
+        "gics_sector, transparency, ethical_principles, governance_structure, "
+        "regulatory_alignment, stakeholder_engagement, aiges_composite_average, "
+        "summary, source_links "
+        "FROM tech11_ai_gov_eth_index"
+        f"{where_sql} "
+        "ORDER BY port_date DESC, rank_index FETCH FIRST 100 ROWS ONLY"
     )
 
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(sql)
+            cur.execute(sql, binds)
             columns = [desc[0].lower() for desc in cur.description]
             items: List[Dict[str, Any]] = []
             for raw in cur.fetchall():
                 row = {col: _to_plain(val) for col, val in zip(columns, raw)}
                 items.append(
                     {
+                        "port_date": _format_date(row.get("port_date")),
+                        "rank_index": row.get("rank_index"),
+                        "company_name": row.get("company_name"),
                         "company": row.get("company_name"),
+                        "ticker": row.get("ticker"),
+                        "gics_sector": row.get("gics_sector"),
                         "sector": row.get("gics_sector"),
-                        "region": row.get("region")
-                        or row.get("country")
-                        or row.get("location"),
-                        "overall": row.get("aiges_composite_average"),
-                        "transparency": row.get("transparency"),
-                        "accountability": row.get("governance_structure"),
-                        "updated_at": _format_date(row.get("port_date")),
+                        "region": None,
                         "port_weight": _format_weight(row.get("port_weight")),
                         "weight": _format_weight(row.get("port_weight")),
+                        "aiges_composite_average": row.get("aiges_composite_average"),
+                        "aiges_composite": row.get("aiges_composite_average"),
+                        "overall": row.get("aiges_composite_average"),
+                        "transparency": row.get("transparency"),
+                        "ethical_principles": row.get("ethical_principles"),
+                        "governance_structure": row.get("governance_structure"),
+                        "accountability": row.get("governance_structure"),
+                        "regulatory_alignment": row.get("regulatory_alignment"),
+                        "stakeholder_engagement": row.get("stakeholder_engagement"),
+                        "summary": row.get("summary"),
+                        "source_links": row.get("source_links"),
+                        "updated_at": _format_date(row.get("port_date")),
                     }
                 )
     except Exception as exc:
@@ -704,7 +742,7 @@ async def api_tech100(request: Request) -> JSONResponse:
             status_code=500,
         )
 
-    return JSONResponse({"items": items}, media_type="application/json")
+    return JSONResponse({"items": items, "count": len(items)}, media_type="application/json")
 
 
 @app.get("/api/news")
