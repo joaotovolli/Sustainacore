@@ -50,6 +50,35 @@
 - Update VM1 environment sources (e.g., `/etc/sustainacore/db.env` and systemd override files) with the new `DB_PASSWORD`/`DB_PASS` and any updated `WALLET_PWD`, then restart the API service so Gunicorn picks up the change.
 - Validate with `tools/test_db_connect.py` and `/api/health` after the restart. Keep credentials out of Git and CI artifacts.
 
+## Production DB source of truth
+- Active production ADB: `SustainacoreDB`.
+- Legacy rollback ADB: `dbRI4X6` / `apexRI4X6`. Leave it untouched during stabilization; do not run cleanups or retire it until the cooling-off period ends.
+- VM1 runtime source of truth:
+  - env: `/etc/sustainacore/db.env`, `/etc/sustainacore-ai/app.env`, `/etc/sustainacore-ai/secrets.env`
+  - wallet: `/opt/adb_wallet`
+  - primary service: `sustainacore-ai.service`
+  - dependent timers/services: `sc-telemetry-report.service`, `sc-idx-pipeline.service`
+- VM2 runtime source of truth:
+  - env: `/etc/sustainacore.env`, `/etc/sustainacore/db.env`, `/etc/sysconfig/sustainacore-django.env`
+  - wallet: `/opt/adb_wallet_tp`
+  - primary services: `gunicorn.service`, `gunicorn-preview.service`
+  - dependent timer/service: `sc-web-telemetry-rollup.timer`, `sc-web-telemetry-rollup.service`
+- Fast verification:
+  - VM1: run a service-like `select global_name from global_name`
+  - VM2: run `scripts/vm2_manage.sh shell -c "select global_name from global_name"`
+  - both must resolve to `GE3654DEB76FCC9_SUSTAINACOREDB`
+- Rollback outline:
+  - restore the previous wallet and `/etc/sustainacore/db.env` on each VM
+  - restart the affected services
+  - re-run homepage, login, telemetry, Ask2, and DB identity checks before declaring rollback complete
+
+## AI regulation dataset note
+- The AI regulation UI currently depends on `FACT_INSTRUMENT_SNAPSHOT` and related tables, which were not part of the lean `SustainacoreDB` cutover.
+- Production must degrade safely when that dataset is unavailable:
+  - `/ai-regulation/` should render with an empty state instead of `500`
+  - JSON data endpoints should return `503 {"error":"data_unavailable"}` instead of `500`
+- Treat this as a watch item for a future data backfill, not a reason to revert the DB cutover.
+
 ## Observability
 - Embedding parity, readiness results, and multi-hit orchestrator fallbacks emit structured logs (`sustainacore.embed`, `app.readyz`, `app.multihit`).
 - Retrieval responses include `meta.scope`, `meta.filters`, and the detected `top_score` to aid debugging.
