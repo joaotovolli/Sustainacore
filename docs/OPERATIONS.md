@@ -58,6 +58,7 @@
   - wallet: `/opt/adb_wallet`
   - primary service: `sustainacore-ai.service`
   - dependent timers/services: `sc-telemetry-report.service`, `sc-idx-pipeline.service`
+  - SC_IDX units must explicitly set `TNS_ADMIN=/opt/adb_wallet` so the index pipeline does not inherit a stale wallet path from shared env files
 - VM2 runtime source of truth:
   - env: `/etc/sustainacore.env`, `/etc/sustainacore/db.env`, `/etc/sysconfig/sustainacore-django.env`
   - wallet: `/opt/adb_wallet_tp`
@@ -72,12 +73,21 @@
   - restart the affected services
   - re-run homepage, login, telemetry, Ask2, and DB identity checks before declaring rollback complete
 
-## AI regulation dataset note
-- The AI regulation UI currently depends on `FACT_INSTRUMENT_SNAPSHOT` and related tables, which were not part of the lean `SustainacoreDB` cutover.
-- Production must degrade safely when that dataset is unavailable:
-  - `/ai-regulation/` should render with an empty state instead of `500`
-  - JSON data endpoints should return `503 {"error":"data_unavailable"}` instead of `500`
-- Treat this as a watch item for a future data backfill, not a reason to revert the DB cutover.
+## Post-cutover completeness
+- The active `SustainacoreDB` schema must include the AI regulation dataset used by the website:
+  - `FACT_INSTRUMENT_SNAPSHOT`
+  - `DIM_JURISDICTION`
+  - `DIM_INSTRUMENT`
+  - `FACT_SNAPSHOT_OBLIGATION`
+  - `FACT_SNAPSHOT_MILESTONE_DATE`
+  - `BRG_SNAPSHOT_SOURCE`
+  - `DIM_SOURCE`
+  - and the related bridge/dimension tables loaded by `infra/geo_ai_reg`
+- Ask2 correctness depends on `ESG_DOCS` retrieval assets being present on the active DB:
+  - `ESG_DOCS.EMBEDDING` populated for the live corpus
+  - `ESG_DOCS_TEXT_IDX` present for Oracle Text fallback
+  - a vector index is optional for correctness on the current corpus size, but embeddings are not
+- Tech100 index freshness depends on `SC_IDX_LEVELS` being current on the active DB. The displayed “Latest data through …” date on `/tech100/index/` comes from `SC_IDX_LEVELS`, not from the legacy VM1 `/api/tech100` helper.
 
 ## Observability
 - Embedding parity, readiness results, and multi-hit orchestrator fallbacks emit structured logs (`sustainacore.embed`, `app.readyz`, `app.multihit`).

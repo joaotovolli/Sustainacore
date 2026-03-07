@@ -15,6 +15,7 @@ EnvironmentFile=/etc/sustainacore/db.env
 EnvironmentFile=/etc/sustainacore/index.env
 EnvironmentFile=/etc/sustainacore-ai/secrets.env
 EnvironmentFile=/etc/sustainacore/index.env
+Environment=TNS_ADMIN=/opt/adb_wallet
 RuntimeMaxSec=3600
 ExecStartPre=/usr/bin/test -r /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/test -r /etc/sustainacore/index.env
