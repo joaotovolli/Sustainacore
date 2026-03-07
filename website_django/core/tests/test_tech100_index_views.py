@@ -2,12 +2,13 @@ import datetime as dt
 import os
 from unittest import mock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 
 from core.tech100_index_data import DrawdownResult
 
 
+@override_settings(TELEMETRY_WRITE_ENABLED=False)
 class Tech100IndexViewTests(SimpleTestCase):
     @mock.patch("core.tech100_index_views.get_latest_trade_date")
     @mock.patch("core.tech100_index_views.get_index_levels")
@@ -68,6 +69,15 @@ class Tech100IndexViewTests(SimpleTestCase):
         payload = response.json()
         self.assertIn("levels", payload)
         self.assertEqual(payload["levels"][0]["level"], 1234.5)
+
+    @mock.patch("core.tech100_index_views.get_rebalance_dates")
+    def test_api_rebalance_dates(self, rebalance_dates_mock):
+        rebalance_dates_mock.return_value = [dt.date(2025, 3, 5), dt.date(2025, 2, 5)]
+        response = self.client.get("/api/tech100/rebalance_dates?limit=5")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["items"], ["2025-03-05", "2025-02-05"])
+        self.assertEqual(payload["count"], 2)
 
     @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     def test_performance_view_has_markers(self):
