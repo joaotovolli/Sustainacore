@@ -1353,6 +1353,9 @@ def home(request):
 
     try:
         as_of_dates = ai_reg_data.fetch_as_of_dates()
+    except ai_reg_data.AiRegDataError:
+        logger.warning("AI regulation dates unavailable for home.")
+        as_of_dates = []
     except Exception:
         logger.exception("AI regulation dates unavailable for home.")
         as_of_dates = []
