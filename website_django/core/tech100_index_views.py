@@ -22,6 +22,7 @@ from core.tech100_index_data import (
     get_index_returns,
     get_kpis,
     get_latest_rebalance_date,
+    get_rebalance_dates,
     get_latest_trade_date,
     get_max_drawdown,
     get_quality_counts,
@@ -347,6 +348,17 @@ def tech100_stats(request):
         "stats": stats,
     }
     return render(request, "tech100_stats.html", context)
+
+
+@require_safe
+def api_tech100_rebalance_dates(request):
+    raw_limit = (request.GET.get("limit") or "200").strip()
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        limit = 200
+    items = [value.isoformat() for value in get_rebalance_dates(limit)]
+    return JsonResponse({"items": items, "count": len(items)})
 
 
 @require_safe

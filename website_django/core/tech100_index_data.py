@@ -280,6 +280,30 @@ def get_latest_rebalance_date() -> Optional[dt.date]:
     return cache.get_or_set(key, _load, CACHE_TTLS["rebalance_date"])
 
 
+def get_rebalance_dates(limit: int = 200) -> list[dt.date]:
+    safe_limit = max(1, min(int(limit), 500))
+    if _data_mode() == "fixture":
+        return [FIXTURE_LATEST_DATE - dt.timedelta(days=30 * idx) for idx in range(min(safe_limit, 6))]
+    key = _cache_key("rebalance_dates", str(safe_limit))
+
+    def _load() -> list[dt.date]:
+        rows = _execute_rows(
+            "SELECT DISTINCT port_date "
+            "FROM TECH11_AI_GOV_ETH_INDEX "
+            "WHERE port_date IS NOT NULL "
+            f"ORDER BY port_date DESC FETCH FIRST {safe_limit} ROWS ONLY",
+            {},
+        )
+        values: list[dt.date] = []
+        for (raw_date,) in rows:
+            parsed = _to_date(raw_date)
+            if parsed:
+                values.append(parsed)
+        return values
+
+    return cache.get_or_set(key, _load, CACHE_TTLS["rebalance_date"])
+
+
 def get_latest_trade_date() -> Optional[dt.date]:
     if _data_mode() == "fixture":
         return FIXTURE_LATEST_DATE
