@@ -18,7 +18,18 @@ const NAME_ALIASES = new Map([
 
 const GEOJSON_REMOTE_FALLBACK =
   'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
-const ISO2_PROPERTY_CANDIDATES = ['ISO_A2', 'iso_a2', 'ISO2', 'iso2', 'ISO_2'];
+const ISO2_PROPERTY_CANDIDATES = [
+  'ISO_A2',
+  'ISO_A2_EH',
+  'iso_a2',
+  'iso_a2_eh',
+  'ISO2',
+  'iso2',
+  'ISO_2',
+  'WB_A2'
+];
+const LABEL_LONGITUDE_PROPERTY_CANDIDATES = ['LABEL_X', 'label_x'];
+const LABEL_LATITUDE_PROPERTY_CANDIDATES = ['LABEL_Y', 'label_y'];
 const EU_CANONICAL_ISO2 = 'EU';
 const EU_MEMBER_ISO2 = new Set([
   'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR',
@@ -27,12 +38,13 @@ const EU_MEMBER_ISO2 = new Set([
 ]);
 const VARIANT_POVS = {
   page: {
-    defaultPov: { lat: 24, lng: 8, altitude: 1.62 },
-    focusPov: { altitude: 1.02 }
+    defaultPov: { lat: 26, lng: 10, altitude: 1.96 },
+    focusPov: { minAltitude: 1.06, maxAltitude: 1.38 },
+    fallbackBounds: { minLng: -110, maxLng: 135, minLat: -4, maxLat: 78 }
   },
   home: {
     defaultPov: { lat: 22, lng: 10, altitude: 1.74 },
-    focusPov: { altitude: 1.15 }
+    focusPov: { minAltitude: 1.08, maxAltitude: 1.3 }
   }
 };
 const DATE_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', {
@@ -65,6 +77,7 @@ const state = {
   mapErrorEl: null,
   defaultPov: VARIANT_POVS.page.defaultPov,
   focusPov: VARIANT_POVS.page.focusPov,
+  fallbackBounds: null,
   globeLightsAdded: false,
   globeSize: { width: 0, height: 0 }
 };
@@ -104,6 +117,61 @@ const normalizeName = (name) => {
 const normalizeIso2 = (iso2) => String(iso2 || '').trim().toUpperCase();
 
 const isEuSelection = (iso2) => normalizeIso2(iso2) === EU_CANONICAL_ISO2;
+
+const getNumericProperty = (properties, candidates) => {
+  if (!properties) return null;
+  for (const key of candidates) {
+    const value = Number(properties[key]);
+    if (Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
+};
+
+const getFeatureLabelPoint = (feature) => {
+  const properties = feature?.properties;
+  if (!properties) return null;
+  const lng = getNumericProperty(properties, LABEL_LONGITUDE_PROPERTY_CANDIDATES);
+  const lat = getNumericProperty(properties, LABEL_LATITUDE_PROPERTY_CANDIDATES);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+    return null;
+  }
+  return { lng, lat };
+};
+
+const getGeometryPolygons = (geometry) => {
+  if (!geometry) return [];
+  if (geometry.type === 'Polygon') {
+    return [geometry.coordinates];
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates;
+  }
+  return [];
+};
+
+const getPolygonArea = (polygon) => {
+  const ring = polygon?.[0];
+  if (!Array.isArray(ring) || ring.length < 3) return 0;
+  let area = 0;
+  for (let index = 0; index < ring.length - 1; index += 1) {
+    const [x1, y1] = ring[index];
+    const [x2, y2] = ring[index + 1];
+    if (![x1, y1, x2, y2].every(Number.isFinite)) continue;
+    area += (x1 * y2) - (x2 * y1);
+  }
+  return Math.abs(area) / 2;
+};
+
+const getPrimaryPolygon = (geometry) => {
+  const polygons = getGeometryPolygons(geometry);
+  if (!polygons.length) return null;
+  return polygons.reduce(
+    (best, polygon) => (getPolygonArea(polygon) > getPolygonArea(best) ? polygon : best),
+    polygons[0]
+  );
+};
 
 const getEuCentroid = () => {
   const centroids = [];
@@ -146,8 +214,12 @@ const getFeatureName = (feature) =>
   feature?.properties?.ADMIN ||
   '';
 
-const collectCoordinates = (geometry) => {
+const collectCoordinates = (geometry, options = {}) => {
   if (!geometry) return [];
+  if (options.primaryOnly) {
+    const polygon = getPrimaryPolygon(geometry);
+    return polygon ? polygon.flat() : [];
+  }
   if (geometry.type === 'Polygon') {
     return geometry.coordinates.flat();
   }
@@ -157,8 +229,69 @@ const collectCoordinates = (geometry) => {
   return [];
 };
 
+const getCoordinatesBounds = (coords) => {
+  if (!coords.length) return null;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  coords.forEach((point) => {
+    const [lng, lat] = point;
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    minLng = Math.min(minLng, lng);
+    maxLng = Math.max(maxLng, lng);
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+  });
+  if (![minLng, maxLng, minLat, maxLat].every(Number.isFinite)) {
+    return null;
+  }
+  return { minLng, maxLng, minLat, maxLat };
+};
+
+const getBoundsCenter = (bounds) => {
+  if (!bounds) return null;
+  return {
+    lng: (bounds.minLng + bounds.maxLng) / 2,
+    lat: (bounds.minLat + bounds.maxLat) / 2
+  };
+};
+
+const getFeatureBounds = (feature, options = {}) =>
+  getCoordinatesBounds(collectCoordinates(feature?.geometry, options));
+
+const getCombinedBounds = (features, options = {}) => {
+  let bounds = null;
+  features.forEach((feature) => {
+    const featureBounds = getFeatureBounds(feature, options);
+    if (!featureBounds) return;
+    if (!bounds) {
+      bounds = { ...featureBounds };
+      return;
+    }
+    bounds.minLng = Math.min(bounds.minLng, featureBounds.minLng);
+    bounds.maxLng = Math.max(bounds.maxLng, featureBounds.maxLng);
+    bounds.minLat = Math.min(bounds.minLat, featureBounds.minLat);
+    bounds.maxLat = Math.max(bounds.maxLat, featureBounds.maxLat);
+  });
+  return bounds;
+};
+
+const getFocusAltitudeForBounds = (bounds) => {
+  const minAltitude = state.focusPov?.minAltitude ?? 1.06;
+  const maxAltitude = state.focusPov?.maxAltitude ?? 1.36;
+  if (!bounds) return minAltitude;
+  const latSpan = Math.max(0, bounds.maxLat - bounds.minLat);
+  const lngSpan = Math.max(0, bounds.maxLng - bounds.minLng);
+  const span = Math.max(latSpan, lngSpan);
+  const altitude = 0.94 + span / 82;
+  return Math.max(minAltitude, Math.min(maxAltitude, altitude));
+};
+
 const getFeatureCentroid = (feature) => {
-  const coords = collectCoordinates(feature?.geometry);
+  const labelPoint = getFeatureLabelPoint(feature);
+  if (labelPoint) return labelPoint;
+  const coords = collectCoordinates(feature?.geometry, { primaryOnly: true });
   if (!coords.length) return null;
   let sumLon = 0;
   let sumLat = 0;
@@ -172,6 +305,37 @@ const getFeatureCentroid = (feature) => {
   });
   if (!count) return null;
   return { lng: sumLon / count, lat: sumLat / count };
+};
+
+const getFeatureFocusView = (feature) => {
+  const centroid = getFeatureCentroid(feature);
+  if (!centroid) return null;
+  const bounds = getFeatureBounds(feature, { primaryOnly: true });
+  return {
+    ...centroid,
+    altitude: getFocusAltitudeForBounds(bounds)
+  };
+};
+
+const getEuFocusView = () => {
+  const features = [];
+  EU_MEMBER_ISO2.forEach((iso2) => {
+    const feature = state.featureByIso.get(iso2);
+    if (feature) features.push(feature);
+  });
+  const bounds = getCombinedBounds(features, { primaryOnly: true });
+  const centroid = getBoundsCenter(bounds) || getEuCentroid();
+  if (!centroid) {
+    return {
+      lat: 54,
+      lng: 12,
+      altitude: state.focusPov?.maxAltitude ?? 1.36
+    };
+  }
+  return {
+    ...centroid,
+    altitude: getFocusAltitudeForBounds(bounds)
+  };
 };
 
 const resolveJurisdiction = (feature) => {
@@ -338,12 +502,12 @@ const isWebGLAvailable = () => {
 const colorForCount = (count, max) => {
   const safeCount = Number.isFinite(count) ? count : 0;
   const ratio = max > 0 ? Math.min(safeCount / max, 1) : 0;
-  const low = [214, 229, 244];
+  const low = [191, 212, 241];
   const high = [44, 95, 194];
   const r = Math.round(low[0] + (high[0] - low[0]) * ratio);
   const g = Math.round(low[1] + (high[1] - low[1]) * ratio);
   const b = Math.round(low[2] + (high[2] - low[2]) * ratio);
-  const alpha = 0.34 + ratio * 0.58;
+  const alpha = 0.5 + ratio * 0.4;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
@@ -360,20 +524,20 @@ const initGlobe = async (container, tooltip, textureUrl) => {
   const globe = window.Globe()(container)
     .backgroundColor('rgba(0,0,0,0)')
     .showAtmosphere(true)
-    .atmosphereColor('rgba(104, 170, 255, 0.52)')
-    .atmosphereAltitude(0.17)
+    .atmosphereColor('rgba(117, 174, 255, 0.36)')
+    .atmosphereAltitude(0.13)
     .polygonStrokeColor((feature) => {
       const iso2 = getIso2FromFeature(feature);
       if (state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2)) {
-        return 'rgba(18, 146, 133, 0.95)';
+        return 'rgba(18, 143, 132, 0.92)';
       }
-      return 'rgba(255,255,255,0.24)';
+      return 'rgba(255,255,255,0.2)';
     })
     .polygonAltitude((feature) => {
       const data = resolveJurisdiction(feature);
       const count = getInstrumentCount(data);
-      if (!count) return 0.008;
-      return 0.008 + count / Math.max(state.heatmapMax, 1) * 0.12;
+      if (!count) return 0.006;
+      return 0.006 + count / Math.max(state.heatmapMax, 1) * 0.082;
     })
     .polygonCapColor((feature) => {
       const data = resolveJurisdiction(feature);
@@ -412,15 +576,15 @@ const initGlobe = async (container, tooltip, textureUrl) => {
   if (globeMaterial) {
     globeMaterial.color = new window.THREE.Color('#0f315f');
     globeMaterial.emissive = new window.THREE.Color('#081a37');
-    globeMaterial.emissiveIntensity = 0.14;
-    globeMaterial.shininess = 14;
-    globeMaterial.specular = new window.THREE.Color('#c0dafd');
+    globeMaterial.emissiveIntensity = 0.12;
+    globeMaterial.shininess = 11;
+    globeMaterial.specular = new window.THREE.Color('#a9c5ee');
   }
 
   if (!state.globeLightsAdded) {
-    const ambientLight = new window.THREE.AmbientLight(0xffffff, 1.12);
-    const keyLight = new window.THREE.DirectionalLight(0xffffff, 1.18);
-    const fillLight = new window.THREE.DirectionalLight(0x93c5fd, 0.68);
+    const ambientLight = new window.THREE.AmbientLight(0xffffff, 1.04);
+    const keyLight = new window.THREE.DirectionalLight(0xffffff, 1.06);
+    const fillLight = new window.THREE.DirectionalLight(0x93c5fd, 0.54);
     keyLight.position.set(-220, 150, 260);
     fillLight.position.set(180, -60, 180);
     globe.scene().add(ambientLight);
@@ -443,9 +607,9 @@ const initGlobe = async (container, tooltip, textureUrl) => {
     controls.enablePan = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.rotateSpeed = 0.6;
-    controls.minDistance = 118;
-    controls.maxDistance = 380;
+    controls.rotateSpeed = 0.54;
+    controls.minDistance = 132;
+    controls.maxDistance = 430;
   }
 
   return globe;
@@ -555,8 +719,24 @@ const initFallbackMap = (container, tooltip, geoData) => {
     applyViewBox();
   };
 
-  const focusOnFeature = (feature) => {
-    const coords = collectCoordinates(feature?.geometry);
+  const focusOnBounds = (bounds, padding = 24) => {
+    if (!bounds) return;
+    const [minX, maxX] = [bounds.minLng, bounds.maxLng]
+      .map((lng) => ((Number(lng) + 180) / 360) * width);
+    const [maxY, minY] = [bounds.minLat, bounds.maxLat]
+      .map((lat) => ((90 - Number(lat)) / 180) * height);
+    if (![minX, maxX, minY, maxY].every(Number.isFinite)) return;
+    const targetWidth = Math.max((maxX - minX) + padding * 2, width / maxScale);
+    const targetHeight = Math.max((maxY - minY) + padding * 2, height / maxScale);
+    viewBoxState.width = Math.min(width, targetWidth);
+    viewBoxState.height = Math.min(height, targetHeight);
+    viewBoxState.x = minX - (viewBoxState.width - (maxX - minX)) / 2;
+    viewBoxState.y = minY - (viewBoxState.height - (maxY - minY)) / 2;
+    clampViewBox();
+    applyViewBox();
+  };
+
+  const focusOnCoords = (coords) => {
     if (!coords.length) return;
     let minX = Infinity;
     let minY = Infinity;
@@ -580,6 +760,18 @@ const initFallbackMap = (container, tooltip, geoData) => {
     viewBoxState.y = minY - (viewBoxState.height - (maxY - minY)) / 2;
     clampViewBox();
     applyViewBox();
+  };
+
+  const focusOnFeature = (feature) => {
+    focusOnCoords(collectCoordinates(feature?.geometry, { primaryOnly: true }));
+  };
+
+  const focusOnFeatures = (features) => {
+    const coords = [];
+    features.forEach((feature) => {
+      coords.push(...collectCoordinates(feature?.geometry, { primaryOnly: true }));
+    });
+    focusOnCoords(coords);
   };
 
   const zoomBy = (factor) => {
@@ -664,7 +856,7 @@ const initFallbackMap = (container, tooltip, geoData) => {
   svg.addEventListener('pointerleave', endDrag);
   svg.style.cursor = 'grab';
 
-  return { svg, paths, resetView, focusOnFeature, zoomBy };
+  return { svg, paths, resetView, focusOnBounds, focusOnFeature, focusOnFeatures, zoomBy };
 };
 
 const setHeatmapIndex = (jurisdictions) => {
@@ -700,15 +892,15 @@ const updateMapColors = (jurisdictions) => {
         const count = getInstrumentCount(data);
         const iso2 = getIso2FromFeature(feature);
         if (state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2)) {
-          return 0.04;
+          return 0.026;
         }
-        if (!count) return 0.008;
-        return 0.008 + (count / state.heatmapMax) * 0.12;
+        if (!count) return 0.006;
+        return 0.006 + (count / state.heatmapMax) * 0.082;
       })
       .polygonCapColor((feature) => {
         const iso2 = getIso2FromFeature(feature);
         if (state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2)) {
-          return 'rgba(18, 146, 133, 0.86)';
+          return 'rgba(18, 143, 132, 0.82)';
         }
         const data = resolveJurisdiction(feature);
         return colorForCount(getInstrumentCount(data), state.heatmapMax);
@@ -720,8 +912,8 @@ const updateMapColors = (jurisdictions) => {
       const highlighted = state.highlightIsoSet && iso2 && state.highlightIsoSet.has(iso2);
       const data = resolveJurisdiction(feature);
       element.setAttribute('fill', colorForCount(getInstrumentCount(data), state.heatmapMax));
-      element.setAttribute('stroke', highlighted ? 'rgba(18, 146, 133, 0.9)' : 'rgba(255,255,255,0.26)');
-      element.setAttribute('stroke-width', highlighted ? '1' : '0.35');
+      element.setAttribute('stroke', highlighted ? 'rgba(18, 143, 132, 0.9)' : 'rgba(255,255,255,0.24)');
+      element.setAttribute('stroke-width', highlighted ? '1.15' : '0.35');
     });
   }
 };
@@ -775,17 +967,25 @@ const focusOnIso = (iso2) => {
   if (!iso2) return;
   const normalized = normalizeIso2(iso2);
   if (isEuSelection(normalized)) {
-    const centroid = getEuCentroid();
-    if (state.globe && centroid) {
-      state.globe.pointOfView({ ...centroid, altitude: state.focusPov.altitude }, 700);
+    const features = [];
+    EU_MEMBER_ISO2.forEach((memberIso2) => {
+      const feature = state.featureByIso.get(memberIso2);
+      if (feature) features.push(feature);
+    });
+    const focusView = getEuFocusView();
+    if (state.globe && focusView) {
+      state.globe.pointOfView(focusView, 700);
+    }
+    if (state.flatMap?.focusOnFeatures && features.length) {
+      state.flatMap.focusOnFeatures(features);
     }
     return;
   }
   const feature = state.featureByIso.get(normalized);
   if (!feature) return;
-  const centroid = getFeatureCentroid(feature);
-  if (state.globe && centroid) {
-    state.globe.pointOfView({ ...centroid, altitude: state.focusPov.altitude }, 700);
+  const focusView = getFeatureFocusView(feature);
+  if (state.globe && focusView) {
+    state.globe.pointOfView(focusView, 700);
   }
   if (state.flatMap?.focusOnFeature) {
     state.flatMap.focusOnFeature(feature);
@@ -902,9 +1102,11 @@ const renderDrilldown = (panel, data) => {
   `;
 };
 
-const loadJurisdiction = async (iso2, nameOverride) => {
+const loadJurisdiction = async (iso2, nameOverride, options = {}) => {
   const root = state.root;
   if (!root) return;
+  const shouldFocus = options.focus !== false;
+  const pendingLabel = options.selectionLabel || `${shouldFocus ? 'Focus' : 'Brief'}: ${nameOverride || iso2}`;
   if (!state.asOf) {
     const panelBody = root.querySelector('[data-drilldown-body]');
     setCurrentSelectionLabel('Global view');
@@ -926,8 +1128,10 @@ const loadJurisdiction = async (iso2, nameOverride) => {
   const countrySelect = root.querySelector('[data-country-select]');
   if (!panelBody) return;
   updateCountrySelect(countrySelect, iso2);
-  focusOnIso(iso2);
-  setCurrentSelectionLabel(`Focus: ${nameOverride || iso2}`);
+  if (shouldFocus) {
+    focusOnIso(iso2);
+  }
+  setCurrentSelectionLabel(pendingLabel);
   panelBody.innerHTML = `
     <div class="ai-reg__empty">
       <strong>Loading ${escapeHtml(nameOverride || iso2)}…</strong>
@@ -947,7 +1151,9 @@ const loadJurisdiction = async (iso2, nameOverride) => {
       instruments: instruments.instruments || instruments,
       timeline: timeline.milestones || timeline
     });
-    setCurrentSelectionLabel(`Focus: ${bundle.jurisdiction?.name || nameOverride || iso2}`);
+    setCurrentSelectionLabel(
+      options.selectionLabel || `${shouldFocus ? 'Focus' : 'Brief'}: ${bundle.jurisdiction?.name || nameOverride || iso2}`
+    );
   } catch (error) {
     panelBody.innerHTML = `
       <div class="ai-reg__empty">
@@ -1031,6 +1237,7 @@ const setup = async () => {
   const variantConfig = VARIANT_POVS[state.variant] || VARIANT_POVS.page;
   state.defaultPov = variantConfig.defaultPov;
   state.focusPov = variantConfig.focusPov;
+  state.fallbackBounds = variantConfig.fallbackBounds || null;
   state.globeLightsAdded = false;
 
   const asOfSelect = root.querySelector('#ai-reg-as-of');
@@ -1077,6 +1284,9 @@ const setup = async () => {
     }
     if (geoData) {
       state.flatMap = initFallbackMap(fallbackContainer, tooltip, geoData);
+      if (state.flatMap?.focusOnBounds && state.fallbackBounds) {
+        state.flatMap.focusOnBounds(state.fallbackBounds);
+      }
     }
   }
 
@@ -1122,7 +1332,13 @@ const setup = async () => {
   if (defaultIso && state.asOf) {
     const iso2 = defaultIso.trim().toUpperCase();
     const jurisdiction = state.heatmapByIso.get(iso2);
-    loadJurisdiction(iso2, jurisdiction?.name || iso2);
+    loadJurisdiction(
+      iso2,
+      jurisdiction?.name || iso2,
+      state.variant === 'page'
+        ? { focus: false, selectionLabel: `Brief: ${jurisdiction?.name || iso2}` }
+        : {}
+    );
   }
 
   asOfSelect?.addEventListener('change', async (event) => {
@@ -1170,7 +1386,9 @@ const setup = async () => {
     if (state.globe) {
       state.globe.pointOfView(state.defaultPov, 600);
     }
-    if (state.flatMap?.resetView) {
+    if (state.flatMap?.focusOnBounds && state.fallbackBounds) {
+      state.flatMap.focusOnBounds(state.fallbackBounds);
+    } else if (state.flatMap?.resetView) {
       state.flatMap.resetView();
     }
     if (state.selectedIso2) {

@@ -1,0 +1,30 @@
+{
+  "prod_current": {
+    "initial": {
+      "label": "Focus: United States",
+      "viewBox": "0.00 29.86 339.18 199.50"
+    },
+    "eu": {
+      "label": "Focus: European Union",
+      "viewBox": "0.00 29.86 339.18 199.50",
+      "francePathPresent": false,
+      "franceStroke": "",
+      "franceStrokeWidth": "",
+      "franceName": ""
+    }
+  },
+  "local_frontend_override": {
+    "initial": {
+      "label": "Brief: United States",
+      "viewBox": "170.44 10.67 728.56 284.89"
+    },
+    "eu": {
+      "label": "Focus: European Union",
+      "viewBox": "422.26 33.30 222.22 150.82",
+      "francePathPresent": true,
+      "franceStroke": "rgba(18, 143, 132, 0.9)",
+      "franceStrokeWidth": "1.15",
+      "franceName": "France"
+    }
+  }
+}
