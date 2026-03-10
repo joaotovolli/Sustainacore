@@ -70,6 +70,15 @@ const state = {
 };
 
 const formatNumber = (value) => (Number.isFinite(value) ? value.toLocaleString() : '—');
+const formatSourceHost = (value) => {
+  if (!value) return 'Reference link';
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname.replace(/^www\./, '') || 'Reference link';
+  } catch (error) {
+    return 'Reference link';
+  }
+};
 const formatDateLabel = (value) => {
   if (!value) return 'No snapshot';
   const parsed = new Date(value);
@@ -815,16 +824,16 @@ const renderDrilldown = (panel, data) => {
     isEuSelection(jurisdiction.iso2) ? '<span class="ai-reg__pill">Aggregated region</span>' : ''
   ].filter(Boolean).join('');
   const nextMilestone = milestones.find((item) => item?.milestone_date) || milestones[0] || null;
-  const instrumentPreview = instruments.slice(0, 3).map((item) => `
+  const instrumentPreview = instruments.slice(0, 2).map((item) => `
     <li class="ai-reg__mini-item">
       <strong>${escapeHtml(item.title_english || item.title_official || 'Untitled')}</strong>
       <span>${escapeHtml(item.instrument_type || 'Unknown type')} · ${escapeHtml(item.status || 'Unknown status')}</span>
     </li>
   `).join('');
-  const sourcePreview = sources.slice(0, 3).map((item) => `
+  const sourcePreview = sources.slice(0, 2).map((item) => `
     <li class="ai-reg__mini-item">
       <strong><a class="ai-reg__source-link" href="${escapeHtml(item.url || '#')}" target="_blank" rel="noreferrer">${escapeHtml(item.title || 'Source')}</a></strong>
-      <span>${escapeHtml(item.url || 'Reference link')}</span>
+      <span>${escapeHtml(formatSourceHost(item.url))}</span>
     </li>
   `).join('');
 
