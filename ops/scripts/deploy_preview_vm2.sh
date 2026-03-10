@@ -40,6 +40,17 @@ if ! sudo -n true >/dev/null 2>&1; then
   exit 1
 fi
 
+sudo -n systemd-run \
+  --wait \
+  --pipe \
+  --collect \
+  --unit "preview-collectstatic-${pr_sha:0:8}" \
+  --property "WorkingDirectory=${preview_root}/website_django" \
+  --property "EnvironmentFile=/etc/sustainacore.env" \
+  --property "EnvironmentFile=/etc/sustainacore/db.env" \
+  --property "EnvironmentFile=-/etc/sysconfig/sustainacore-django.env" \
+  "$python_bin" manage.py collectstatic --noinput
+
 sudo -n systemctl restart gunicorn-preview.service
 
 status="000"
