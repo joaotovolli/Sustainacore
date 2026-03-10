@@ -6,7 +6,7 @@
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <link rel="stylesheet" href="{% static 'css/ai_reg.css' %}?v={{ static_version }}">
+  <link rel="stylesheet" href="{% static 'css/ai_reg.css' %}?v={{ build_sha }}">
 {% endblock %}
 
 {% block content %}
@@ -176,7 +176,7 @@
             data-heatmap-endpoint="/ai-regulation/data/heatmap"
             data-jurisdiction-endpoint="/ai-regulation/data/jurisdiction"
             data-geojson-url="{% static 'geo/world_countries_simplified.geojson' %}"
-            data-globe-texture-url="{% static 'geo/earth_texture.svg' %}"
+            data-globe-texture-url="{% static 'geo/earth_texture.svg' %}?v={{ build_sha }}"
         >
             <div class="ai-reg__toolbar ai-reg__toolbar--home">
                 <div class="ai-reg__toolbar-copy">
@@ -434,7 +434,7 @@
   <script src="{% static 'js/tech100-index.js' %}?v=20260123-3" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js" crossorigin="anonymous" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.29.2/dist/globe.gl.min.js" crossorigin="anonymous" defer></script>
-  <script type="module" src="{% static 'js/ai_regulation.js' %}?v={{ static_version }}"></script>
+  <script type="module" src="{% static 'js/ai_regulation.js' %}?v={{ build_sha }}"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       const snapshotEl = document.getElementById('tech100-attribution-snapshot');
