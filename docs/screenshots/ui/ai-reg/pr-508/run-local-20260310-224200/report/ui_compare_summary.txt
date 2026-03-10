@@ -1,0 +1,17 @@
+Evidence capture (prod vs preview):
+- Production: https://sustainacore.org/ai-regulation/
+- Preview: https://preview.sustainacore.org/ai-regulation/
+- Preview build: bb44be3e
+- Scope: AI regulation flagship globe card (`[data-ai-reg-root]`)
+- Viewports: desktop (1440px), mobile (390px)
+- Local capture via Playwright against public prod/preview URLs
+
+Artifacts:
+- Before: `before/ai_reg_card_desktop.png`, `before/ai_reg_card_mobile.png`
+- After: `after/ai_reg_card_desktop.png`, `after/ai_reg_card_mobile.png`
+- Diff: `diff/ai_reg_card_desktop_diff.png`, `diff/ai_reg_card_mobile_diff.png`
+
+Visual read:
+- The flagship explorer now reads as a designed product surface, with a calmer globe stage, stronger spacing, and cleaner surface contrast.
+- The right-side jurisdiction brief is more balanced against the map, with denser but more readable preview cards and shorter source metadata.
+- Mobile stays functional while preserving the same visual language.
