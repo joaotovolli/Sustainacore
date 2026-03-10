@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="/opt/code/Sustainacore"
 preview_root="/opt/code/Sustainacore_preview"
+preview_nginx_conf="${preview_root}/infra/nginx/preview.sustainacore.conf"
+preview_nginx_dest="/etc/nginx/conf.d/preview.sustainacore.conf"
 python_bin="/home/ubuntu/.venvs/sustainacore_vm2/bin/python"
 arg="${1:-}"
 pr_sha="${PR_SHA:-}"
@@ -50,6 +52,12 @@ sudo -n systemd-run \
   --property "EnvironmentFile=/etc/sustainacore/db.env" \
   --property "EnvironmentFile=-/etc/sysconfig/sustainacore-django.env" \
   "$python_bin" manage.py collectstatic --noinput
+
+if [[ -f "$preview_nginx_conf" ]]; then
+  sudo -n install -m 644 "$preview_nginx_conf" "$preview_nginx_dest"
+  sudo -n nginx -t
+  sudo -n systemctl reload nginx
+fi
 
 sudo -n systemctl restart gunicorn-preview.service
 
