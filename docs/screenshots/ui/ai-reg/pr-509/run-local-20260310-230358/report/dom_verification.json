@@ -1,0 +1,124 @@
+{
+  "desktop_webgl": {
+    "viewport": "desktop",
+    "mode": "webgl",
+    "label": "Brief: United States",
+    "legend": {
+      "left": 222.3125,
+      "top": 1137.453125,
+      "right": 779.078125,
+      "bottom": 1242.671875,
+      "width": 556.765625,
+      "height": 105.21875
+    },
+    "legendScale": {
+      "left": 239.3125,
+      "top": 1176.46875,
+      "right": 459.3125,
+      "bottom": 1203.65625,
+      "width": 220,
+      "height": 27.1875
+    },
+    "legendCopy": {
+      "left": 475.3125,
+      "top": 1153.171875,
+      "right": 695.3125,
+      "bottom": 1226.953125,
+      "width": 220,
+      "height": 73.78125
+    },
+    "controls": {
+      "left": 424.4375,
+      "top": 1255.140625,
+      "right": 779.078125,
+      "bottom": 1308.015625,
+      "width": 354.640625,
+      "height": 52.875
+    },
+    "mapShell": {
+      "left": 222.3125,
+      "top": 377.453125,
+      "right": 779.078125,
+      "bottom": 1121.453125,
+      "width": 556.765625,
+      "height": 744
+    },
+    "globeCanvas": {
+      "left": 243.203125,
+      "top": 400.453125,
+      "right": 758.203125,
+      "bottom": 1092.453125,
+      "width": 515,
+      "height": 692
+    },
+    "fallbackSvg": null,
+    "fallbackHidden": true,
+    "fallbackDisplay": "none",
+    "summaryJurisdictions": "138",
+    "summaryInstruments": "236",
+    "legendCopyOverlapsScale": false,
+    "controlsOverlapLegend": false,
+    "globeVisible": true
+  },
+  "mobile_2d": {
+    "viewport": "mobile",
+    "mode": "2d",
+    "label": "Brief: United States",
+    "legend": {
+      "left": 73.515625,
+      "top": 1305.9375,
+      "right": 316.484375,
+      "bottom": 1473.53125,
+      "width": 242.96875,
+      "height": 167.59375
+    },
+    "legendScale": {
+      "left": 90.515625,
+      "top": 1321.65625,
+      "right": 299.484375,
+      "bottom": 1348.84375,
+      "width": 208.96875,
+      "height": 27.1875
+    },
+    "legendCopy": {
+      "left": 90.515625,
+      "top": 1360.84375,
+      "right": 299.484375,
+      "bottom": 1457.8125,
+      "width": 208.96875,
+      "height": 96.96875
+    },
+    "controls": {
+      "left": 73.515625,
+      "top": 1486,
+      "right": 316.484375,
+      "bottom": 1639.65625,
+      "width": 242.96875,
+      "height": 153.65625
+    },
+    "mapShell": {
+      "left": 73.515625,
+      "top": 889.9375,
+      "right": 316.484375,
+      "bottom": 1289.9375,
+      "width": 242.96875,
+      "height": 400
+    },
+    "globeCanvas": null,
+    "fallbackSvg": {
+      "left": 110.515625,
+      "top": 928.9375,
+      "right": 279.484375,
+      "bottom": 1244.9375,
+      "width": 168.96875,
+      "height": 316
+    },
+    "fallbackHidden": false,
+    "fallbackDisplay": "flex",
+    "summaryJurisdictions": "138",
+    "summaryInstruments": "236",
+    "legendCopyOverlapsScale": false,
+    "controlsOverlapLegend": false,
+    "globeVisible": true
+  }
+}

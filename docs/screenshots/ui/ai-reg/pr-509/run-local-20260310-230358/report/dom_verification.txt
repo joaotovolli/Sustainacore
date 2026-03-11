@@ -1,0 +1,11 @@
+DOM verification (local frontend override on production page):
+- Desktop mode: webgl
+- Desktop globe visible: true
+- Desktop legend/copy overlap: false
+- Desktop legend/controls overlap: false
+- Desktop fallback hidden: true (none)
+- Mobile mode: 2d
+- Mobile globe/fallback visible: true
+- Mobile legend/copy overlap: false
+- Mobile legend/controls overlap: false
+- Mobile fallback hidden: false (flex)

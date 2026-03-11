@@ -1,0 +1,29 @@
+[
+  {
+    "before": "ai_reg_card_desktop_3d.png",
+    "after": "ai_reg_card_desktop_3d.png",
+    "diff": "ai_reg_card_desktop_3d_diff.png",
+    "width": 1096,
+    "height": 1200,
+    "mismatchPixels": 357485,
+    "mismatchPercent": 27.181
+  },
+  {
+    "before": "ai_reg_eu_desktop_3d.png",
+    "after": "ai_reg_eu_desktop_3d.png",
+    "diff": "ai_reg_eu_desktop_3d_diff.png",
+    "width": 1096,
+    "height": 1200,
+    "mismatchPixels": 277393,
+    "mismatchPercent": 21.0913
+  },
+  {
+    "before": "ai_reg_card_mobile.png",
+    "after": "ai_reg_card_mobile.png",
+    "diff": "ai_reg_card_mobile_diff.png",
+    "width": 318,
+    "height": 1600,
+    "mismatchPixels": 110039,
+    "mismatchPercent": 21.6272
+  }
+]
