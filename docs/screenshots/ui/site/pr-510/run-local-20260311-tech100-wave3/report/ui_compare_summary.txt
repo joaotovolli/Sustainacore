@@ -1,4 +1,0 @@
-tech100_index_desktop.png: 5387642 px (84.5879%)
-tech100_index_mobile.png: 6895253 px (84.7066%)
-tech100_performance_desktop.png: 6595100 px (81.9145%)
-tech100_performance_mobile.png: 3629729 px (84.5011%)

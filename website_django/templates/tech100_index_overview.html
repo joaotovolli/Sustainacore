@@ -9,64 +9,21 @@
 {% endblock %}
 
 {% block content %}
-<div class="tech100-index tech100-page tech100-page--overview">
+<div class="tech100-index">
   <section class="section section--with-header sc-section sc-section--with-header">
     <div class="shell sc-container">
-      <header class="page-masthead tech100-page__masthead">
-        <div class="page-masthead__copy">
+      <div class="section__header sc-page-header">
+        <div>
           <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</span>
           <h1>Tech100 AI Ethics &amp; Governance Index</h1>
-          <p class="lead">A clearer flagship view of index trend, concentration, and governance score context across the Tech100 AI cohort.</p>
-          {% if not data_error %}
-          <div class="page-masthead__meta tech100-page__meta">
-            <div class="page-masthead__meta-item">
-              <span class="muted">Latest level</span>
-              <strong>{{ kpis.level|default:"—"|floatformat:2 }}</strong>
-            </div>
-            <div class="page-masthead__meta-item">
-              <span class="muted">YTD return</span>
-              <strong>{% if kpis.ret_ytd or kpis.ret_ytd == 0 %}{{ kpis.ret_ytd|floatformat:2 }}%{% else %}—{% endif %}</strong>
-            </div>
-            <div class="page-masthead__meta-item">
-              <span class="muted">20D vol. (ann.)</span>
-              <strong>{% if risk.vol_20d or risk.vol_20d == 0 %}{{ risk.vol_20d|floatformat:2 }}%{% else %}—{% endif %}</strong>
-            </div>
-            <div class="page-masthead__meta-item">
-              <span class="muted">Imputed names</span>
-              <strong>{{ imputed_count|default:"—" }}</strong>
-            </div>
-          </div>
-          {% endif %}
+          <p class="muted">Performance, constituents, attribution, and governance scores.</p>
           <p class="disclaimer-banner">
             <a class="text-link" href="/tech100/methodology/">Methodology &amp; Limitations</a>
             <span class="disclaimer-banner__corrections"> · <a class="text-link" href="/corrections/">Corrections &amp; Complaints</a></span>
             · Research only. Not investment advice. Not affiliated with any company, exchange, or index provider.
           </p>
         </div>
-        <aside class="page-masthead__panel page-masthead__panel--dark tech100-page__panel">
-          <span class="pill pill--soft">Overview workflow</span>
-          <h2 class="h4">Start with the index read, then move straight into constituent detail.</h2>
-          <p class="muted">This page is the fastest way to understand trend, concentration, and score context before opening company research or the deeper performance view.</p>
-          <div class="tech100-page__focus-list">
-            <div>
-              <span class="muted">Best for</span>
-              <strong>Executive trend scan</strong>
-            </div>
-            <div>
-              <span class="muted">Read next</span>
-              <strong>Performance &amp; risk and company reports</strong>
-            </div>
-            <div>
-              <span class="muted">Updated through</span>
-              <strong><span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date|default:"—" }}</span></strong>
-            </div>
-          </div>
-          <div class="page-masthead__actions">
-            <a class="btn btn--primary" href="/tech100/performance/">Open performance &amp; risk</a>
-            <a class="btn btn--ghost" href="/tech100/company/">Browse company research</a>
-          </div>
-        </aside>
-      </header>
+      </div>
 
       {% with tech100_current="Tech100 AI Ethics & Governance Index" %}
         {% include "partials/tech100_nav.html" %}
@@ -81,189 +38,143 @@
              data-level-count="{{ levels_count }}"
              data-constituent-count="{{ constituents_count }}"></div>
 
-        <div class="card sc-card tech100-overview__performance-card">
-          <div class="tech100-overview__performance-grid">
-            <div class="tech100-overview__chart-pane">
-              <div class="card__header card__header--split sc-card__header">
-                <div class="sc-card__title">
-                  <span class="pill pill--soft">Performance &amp; Risk</span>
-                  <h2 class="h4">Index level</h2>
-                  <p class="muted">Latest data through <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
-                </div>
-                <div class="card__actions sc-card__controls">
-                  <a class="btn btn--ghost btn--sm" href="/tech100/index/export/?kind=levels">Download levels CSV</a>
-                </div>
-              </div>
-              <div class="tech100-index__range sc-segmented">
-                <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '1m' %}is-active{% endif %}" data-range="1m">1M</button>
-                <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '3m' %}is-active{% endif %}" data-range="3m">3M</button>
-                <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '6m' %}is-active{% endif %}" data-range="6m">6M</button>
-                <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == 'ytd' %}is-active{% endif %}" data-range="ytd">YTD</button>
-                <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '1y' %}is-active{% endif %}" data-range="1y">1Y</button>
-                <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == 'max' %}is-active{% endif %}" data-range="max">Max</button>
-              </div>
-              <div class="tech100-index__chart tech100-overview__chart">
-                <canvas id="tech100-level-chart" aria-label="Tech100 index level chart" role="img"></canvas>
-              </div>
+        <div class="card sc-card tech100-index__chart-card">
+          <div class="card__header card__header--split sc-card__header">
+            <div class="sc-card__title">
+              <h2 class="h4">Index level</h2>
+              <p class="muted">Latest data through <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
             </div>
-            <aside class="tech100-overview__insights-pane">
-              <div class="tech100-overview__insights-copy">
-                <span class="pill pill--soft">Current read</span>
-                <h3 class="h5">The quickest way to assess trend and downside before drilling into constituents.</h3>
-                <p class="muted">These metrics condense return, volatility, and range drawdown into one compact decision surface.</p>
-              </div>
-              <div class="tech100-overview__metric-grid">
-                <div class="tech100-overview__metric">
-                  <span class="kpi-label">1D return</span>
-                  <strong class="kpi-value">{% if kpis.ret_1d or kpis.ret_1d == 0 %}{{ kpis.ret_1d|floatformat:2 }}%{% else %}—{% endif %}</strong>
-                </div>
-                <div class="tech100-overview__metric">
-                  <span class="kpi-label">1W return</span>
-                  <strong class="kpi-value">{% if kpis.ret_1w or kpis.ret_1w == 0 %}{{ kpis.ret_1w|floatformat:2 }}%{% else %}—{% endif %}</strong>
-                </div>
-                <div class="tech100-overview__metric">
-                  <span class="kpi-label">1M return</span>
-                  <strong class="kpi-value">{% if kpis.ret_1m or kpis.ret_1m == 0 %}{{ kpis.ret_1m|floatformat:2 }}%{% else %}—{% endif %}</strong>
-                </div>
-                <div class="tech100-overview__metric">
-                  <span class="kpi-label">Since inception</span>
-                  <strong class="kpi-value">{% if kpis.ret_since_inception or kpis.ret_since_inception == 0 %}{{ kpis.ret_since_inception|floatformat:2 }}%{% else %}—{% endif %}</strong>
-                </div>
-              </div>
-              <div class="tech100-overview__metric-grid tech100-overview__metric-grid--risk">
-                <div class="tech100-overview__metric">
-                  <span class="kpi-label">20D volatility (ann.)</span>
-                  <strong class="kpi-value">{% if risk.vol_20d or risk.vol_20d == 0 %}{{ risk.vol_20d|floatformat:2 }}%{% else %}—{% endif %}</strong>
-                </div>
-                <div class="tech100-overview__metric">
-                  <span class="kpi-label">Max drawdown (range)</span>
-                  <strong class="kpi-value" id="risk-drawdown">{% if risk.max_drawdown or risk.max_drawdown == 0 %}{{ risk.max_drawdown|floatformat:2 }}%{% else %}—{% endif %}</strong>
-                  {% if risk.max_drawdown_peak %}
-                    <small class="muted">Peak <span data-date-format="as-of" data-date-value="{{ risk.max_drawdown_peak }}">{{ risk.max_drawdown_peak }}</span> → <span data-date-format="as-of" data-date-value="{{ risk.max_drawdown_trough }}">{{ risk.max_drawdown_trough }}</span></small>
-                  {% endif %}
-                </div>
-                <div class="tech100-overview__metric">
-                  <span class="kpi-label">Best day</span>
-                  <strong class="kpi-value"><span id="risk-best-return">{% if risk.best_day_return or risk.best_day_return == 0 %}{{ risk.best_day_return|floatformat:2 }}%{% else %}—{% endif %}</span></strong>
-                  <small class="muted" id="risk-best-day" data-date-format="as-of" data-date-value="{{ risk.best_day }}">{{ risk.best_day|default:"—" }}</small>
-                </div>
-                <div class="tech100-overview__metric">
-                  <span class="kpi-label">Worst day</span>
-                  <strong class="kpi-value"><span id="risk-worst-return">{% if risk.worst_day_return or risk.worst_day_return == 0 %}{{ risk.worst_day_return|floatformat:2 }}%{% else %}—{% endif %}</span></strong>
-                  <small class="muted" id="risk-worst-day" data-date-format="as-of" data-date-value="{{ risk.worst_day }}">{{ risk.worst_day|default:"—" }}</small>
-                </div>
-              </div>
-              <div class="tech100-overview__quick-links">
-                <a class="btn btn--secondary btn--sm" href="/tech100/performance/">Deeper performance view</a>
-                <a class="btn btn--ghost btn--sm" href="{{ imputed_url }}">Review imputed names</a>
-              </div>
-            </aside>
+            <div class="card__actions sc-card__controls">
+              <a class="btn btn--ghost btn--sm" href="/tech100/index/export/?kind=levels">Download levels CSV</a>
+            </div>
+          </div>
+          <div class="tech100-index__range sc-segmented">
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '1m' %}is-active{% endif %}" data-range="1m">1M</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '3m' %}is-active{% endif %}" data-range="3m">3M</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '6m' %}is-active{% endif %}" data-range="6m">6M</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == 'ytd' %}is-active{% endif %}" data-range="ytd">YTD</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == '1y' %}is-active{% endif %}" data-range="1y">1Y</button>
+            <button class="btn btn--ghost tech100-range-btn sc-segmented__btn {% if range_key == 'max' %}is-active{% endif %}" data-range="max">Max</button>
+          </div>
+          <div class="tech100-index__chart">
+            <canvas id="tech100-level-chart" aria-label="Tech100 index level chart" role="img"></canvas>
           </div>
         </div>
 
-        <div class="tech100-overview__secondary-grid">
-          <div class="card sc-card tech100-index__table-card tech100-overview__table-card">
-            <div class="card__header card__header--split sc-card__header">
-              <div class="sc-card__title">
-                <span class="pill pill--soft">Concentration snapshot</span>
-                <h2 class="h4">Top constituents</h2>
-                <p class="muted">Top 12 by weight for <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
-              </div>
-              <div class="card__actions sc-card__controls">
-                <a class="btn btn--ghost btn--sm" href="/tech100/constituents/">Full constituents</a>
-              </div>
-            </div>
-            <div class="table-wrapper table-wrap sc-table-wrap">
-              <table id="tech100-constituents-table" class="table table--wide tech100-table sc-table" aria-label="Top constituents">
-                <thead>
-                  <tr>
-                    <th class="text-left">Ticker</th>
-                    <th class="text-left">Name</th>
-                    <th class="text-right">Weight (%)</th>
-                    <th class="text-right">Price</th>
-                    <th class="text-right">1D Return (%)</th>
-                    <th class="text-right">Contribution (bp)</th>
-                    <th class="text-right">AI Governance &amp; Ethics Score</th>
-                  </tr>
-                </thead>
-                <tbody id="tech100-constituents-body">
-                  {% for row in top_constituents|slice:":12" %}
-                    <tr>
-                      <td class="text-left">
-                        {% if row.ticker %}
-                          <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.ticker }}</a>
-                        {% else %}
-                          —
-                        {% endif %}
-                      </td>
-                      <td class="text-left">
-                        {% if row.ticker %}
-                          <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.name|default:"—" }}</a>
-                        {% else %}
-                          {{ row.name|default:"—" }}
-                        {% endif %}
-                      </td>
-                      <td class="text-right">{% if row.weight_pct or row.weight_pct == 0 %}{{ row.weight_pct|floatformat:2 }}{% else %}—{% endif %}</td>
-                      <td class="text-right">{{ row.price|default:"—"|floatformat:2 }}</td>
-                      <td class="text-right">{% if row.ret_1d_pct or row.ret_1d_pct == 0 %}{{ row.ret_1d_pct|floatformat:2 }}{% else %}—{% endif %}</td>
-                      <td class="text-right">{% if row.contribution_bp or row.contribution_bp == 0 %}{{ row.contribution_bp|floatformat:2 }}{% else %}—{% endif %}</td>
-                      <td class="text-right">{% if row.aiges_composite or row.aiges_composite == 0 %}{{ row.aiges_composite|floatformat:1 }}{% else %}—{% endif %}</td>
-                    </tr>
-                  {% empty %}
-                    <tr>
-                      <td colspan="7" class="text-center muted">No constituents available.</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
+        <div class="tech100-index__kpis">
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">1D Return</p>
+            <p class="kpi-value">{{ kpis.ret_1d|default:"—"|floatformat:2 }}{% if kpis.ret_1d %}%{% endif %}</p>
           </div>
-          <div class="card sc-card tech100-overview__research-card">
-            <div class="card__header sc-card__header">
-              <div class="sc-card__title">
-                <span class="pill pill--soft">Research handoff</span>
-                <h2 class="h4">Open company research faster</h2>
-                <p class="muted">Use this overview as the scan layer, then open a constituent brief with score context and recent history.</p>
-              </div>
-            </div>
-            {% if tech100_preview %}
-            <div class="tech100-overview__research-grid">
-              {% for company in tech100_preview|slice:":6" %}
-              <a class="tech100-overview__research-item" href="/tech100/company/{{ company.ticker }}/">
-                <div class="tech100-overview__research-top">
-                  <span class="tag tag--brand">{{ company.ticker|default:"Tech100" }}</span>
-                  <span class="tag tag--muted">{{ company.sector|default:"Sector unavailable" }}</span>
-                </div>
-                <h3 class="h5">{{ company.company }}</h3>
-                <div class="tech100-overview__research-scores">
-                  <div>
-                    <span class="muted">Composite</span>
-                    <strong>{{ company.composite|default:"—" }}</strong>
-                  </div>
-                  <div>
-                    <span class="muted">Transparency</span>
-                    <strong>{{ company.transparency|default:"—" }}</strong>
-                  </div>
-                  <div>
-                    <span class="muted">Governance</span>
-                    <strong>{{ company.governance_structure|default:"—" }}</strong>
-                  </div>
-                </div>
-                <span class="launch-card__cta">Open report →</span>
-              </a>
-              {% endfor %}
-            </div>
-            {% else %}
-            <div class="tech100-overview__research-empty">
-              <strong>Company research preview unavailable</strong>
-              <p class="muted">Open the research hub directly to browse the latest constituent reports.</p>
-            </div>
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">1W Return</p>
+            <p class="kpi-value">{{ kpis.ret_1w|default:"—"|floatformat:2 }}{% if kpis.ret_1w %}%{% endif %}</p>
+          </div>
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">1M Return</p>
+            <p class="kpi-value">{{ kpis.ret_1m|default:"—"|floatformat:2 }}{% if kpis.ret_1m %}%{% endif %}</p>
+          </div>
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">YTD Return</p>
+            <p class="kpi-value">
+              {% if kpis.ret_ytd or kpis.ret_ytd == 0 %}
+                {{ kpis.ret_ytd|floatformat:2 }}%
+              {% else %}
+                —
+              {% endif %}
+            </p>
+          </div>
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">Since Inception</p>
+            <p class="kpi-value">{{ kpis.ret_since_inception|default:"—"|floatformat:2 }}{% if kpis.ret_since_inception %}%{% endif %}</p>
+          </div>
+        </div>
+
+        <div class="tech100-index__risk">
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">20D Volatility (ann.)</p>
+            <p class="kpi-value">{{ risk.vol_20d|default:"—"|floatformat:2 }}{% if risk.vol_20d %}%{% endif %}</p>
+          </div>
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">Max Drawdown (range)</p>
+            <p class="kpi-value" id="risk-drawdown">{{ risk.max_drawdown|default:"—"|floatformat:2 }}{% if risk.max_drawdown %}%{% endif %}</p>
+            {% if risk.max_drawdown_peak %}
+              <small class="muted">Peak <span data-date-format="as-of" data-date-value="{{ risk.max_drawdown_peak }}">{{ risk.max_drawdown_peak }}</span> → <span data-date-format="as-of" data-date-value="{{ risk.max_drawdown_trough }}">{{ risk.max_drawdown_trough }}</span></small>
             {% endif %}
-            <div class="tech100-overview__quick-links">
-              <a class="btn btn--secondary btn--sm" href="/tech100/company/">Browse company research</a>
-              <a class="btn btn--ghost btn--sm" href="/tech100/scores/">Open governance scores</a>
+          </div>
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">Best Day</p>
+            <p class="kpi-value"><span id="risk-best-return">{{ risk.best_day_return|default:"—"|floatformat:2 }}</span>{% if risk.best_day_return %}%{% endif %}</p>
+            <small class="muted" id="risk-best-day" data-date-format="as-of" data-date-value="{{ risk.best_day }}">{{ risk.best_day|default:"—" }}</small>
+          </div>
+          <div class="card kpi-card sc-metric-card">
+            <p class="kpi-label">Worst Day</p>
+            <p class="kpi-value"><span id="risk-worst-return">{{ risk.worst_day_return|default:"—"|floatformat:2 }}</span>{% if risk.worst_day_return %}%{% endif %}</p>
+            <small class="muted" id="risk-worst-day" data-date-format="as-of" data-date-value="{{ risk.worst_day }}">{{ risk.worst_day|default:"—" }}</small>
+          </div>
+        </div>
+
+        <div class="card sc-card tech100-index__table-card">
+          <div class="card__header card__header--split sc-card__header">
+            <div class="sc-card__title">
+              <h2 class="h4">Top constituents</h2>
+              <p class="muted">Top 25 by weight for <span data-date-format="as-of" data-date-value="{{ latest_date }}">{{ latest_date }}</span></p>
             </div>
           </div>
+          <div class="table-wrapper table-wrap sc-table-wrap">
+            <table id="tech100-constituents-table" class="table table--wide tech100-table sc-table" aria-label="Top constituents">
+              <thead>
+                <tr>
+                  <th class="text-left">Ticker</th>
+                  <th class="text-left">Name</th>
+                  <th class="text-right">Weight (%)</th>
+                  <th class="text-right">Price</th>
+                  <th class="text-right">1D Return (%)</th>
+                  <th class="text-right">Contribution (bp)</th>
+                  <th class="text-right">AI Governance &amp; Ethics Score</th>
+                </tr>
+              </thead>
+              <tbody id="tech100-constituents-body">
+                {% for row in top_constituents %}
+                  <tr>
+                    <td class="text-left">
+                      {% if row.ticker %}
+                        <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.ticker }}</a>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="text-left">
+                      {% if row.ticker %}
+                        <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.name|default:"—" }}</a>
+                      {% else %}
+                        {{ row.name|default:"—" }}
+                      {% endif %}
+                    </td>
+                    <td class="text-right">{% if row.weight_pct or row.weight_pct == 0 %}{{ row.weight_pct|floatformat:2 }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{{ row.price|default:"—"|floatformat:2 }}</td>
+                    <td class="text-right">{% if row.ret_1d_pct or row.ret_1d_pct == 0 %}{{ row.ret_1d_pct|floatformat:2 }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if row.contribution_bp or row.contribution_bp == 0 %}{{ row.contribution_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                    <td class="text-right">{% if row.aiges_composite or row.aiges_composite == 0 %}{{ row.aiges_composite|floatformat:1 }}{% else %}—{% endif %}</td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="7" class="text-center muted">No constituents available.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card sc-card tech100-index__table-card tech100-index__snapshot">
+          <div class="card__header sc-card__header">
+            <div class="sc-card__title">
+              <h2 class="h4">Latest company scores (snapshot)</h2>
+              <p class="muted">A quick snapshot of AI governance scores before you explore the full index.</p>
+            </div>
+          </div>
+          {% include "partials/tech100_snapshot_table.html" %}
         </div>
 
       {% endif %}
