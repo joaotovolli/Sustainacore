@@ -5233,3 +5233,521 @@ textarea {
         display: inline-flex;
     }
 }
+
+/* Site refresh wave 3 */
+
+.tech100-page__masthead {
+    margin-bottom: 1.15rem;
+}
+
+.tech100-page__masthead .page-masthead__copy {
+    position: relative;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at top left, rgba(31, 95, 191, 0.16), transparent 34%),
+        radial-gradient(circle at 85% 18%, rgba(17, 37, 77, 0.08), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(242, 246, 252, 0.96));
+    box-shadow: 0 20px 48px rgba(10, 23, 53, 0.08);
+}
+
+.tech100-page__masthead .page-masthead__copy::after {
+    content: "";
+    position: absolute;
+    inset: auto 1.8rem 1.2rem auto;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(31, 95, 191, 0.08), transparent 70%);
+    pointer-events: none;
+}
+
+.tech100-page__masthead .page-masthead__copy h1 {
+    max-width: 12ch;
+    font-size: clamp(2.15rem, 4vw, 3.35rem);
+    line-height: 0.96;
+    letter-spacing: -0.05em;
+}
+
+.tech100-page__masthead .lead {
+    max-width: 58ch;
+    margin-bottom: 0;
+    color: #415168;
+}
+
+.tech100-page__meta {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tech100-page__meta .page-masthead__meta-item {
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(10px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.tech100-page__meta .page-masthead__meta-item .muted {
+    font-size: 0.78rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.tech100-page__panel {
+    position: relative;
+    overflow: hidden;
+    gap: 1rem;
+    background:
+        radial-gradient(circle at top right, rgba(111, 160, 255, 0.16), transparent 30%),
+        linear-gradient(180deg, rgba(10, 23, 53, 0.98), rgba(16, 37, 82, 0.96));
+    box-shadow: 0 20px 48px rgba(10, 23, 53, 0.16);
+}
+
+.tech100-page__panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.12), transparent 35%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 45%);
+    pointer-events: none;
+}
+
+.tech100-page__panel > * {
+    position: relative;
+    z-index: 1;
+}
+
+.tech100-page__focus-list {
+    display: grid;
+    gap: 0.7rem;
+}
+
+.tech100-page__focus-list > div {
+    display: grid;
+    gap: 0.18rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(227, 235, 252, 0.1);
+}
+
+.tech100-overview__performance-card,
+.tech100-performance__overview,
+.tech100-performance__attribution,
+.tech100-performance__holdings {
+    border: 1px solid rgba(166, 180, 202, 0.4);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(245, 248, 252, 0.96));
+    box-shadow: 0 16px 34px rgba(15, 28, 63, 0.08);
+}
+
+.tech100-overview__performance-card {
+    padding: clamp(1.2rem, 2vw, 1.55rem);
+}
+
+.tech100-overview__performance-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.95fr);
+    gap: 1rem;
+    align-items: stretch;
+}
+
+.tech100-overview__chart-pane {
+    display: grid;
+    gap: 0.9rem;
+    padding: 1rem;
+    border-radius: 24px;
+    background:
+        linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(255, 255, 255, 0.92));
+    border: 1px solid rgba(197, 209, 225, 0.7);
+}
+
+.tech100-overview__chart .chartjs-render-monitor,
+.tech100-overview__chart canvas,
+.tech100-performance__charts canvas,
+.tech100-performance__bars canvas {
+    width: 100% !important;
+}
+
+.tech100-overview__chart {
+    min-height: 340px;
+    height: 340px;
+}
+
+.tech100-overview__insights-pane {
+    display: grid;
+    gap: 0.9rem;
+    padding: 1rem;
+    border-radius: 24px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.94));
+    border: 1px solid rgba(197, 209, 225, 0.7);
+}
+
+.tech100-overview__insights-copy {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.tech100-overview__metric-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.tech100-overview__metric {
+    display: grid;
+    gap: 0.28rem;
+    padding: 0.95rem 1rem;
+    border-radius: 18px;
+    border: 1px solid rgba(173, 188, 209, 0.45);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.tech100-overview__metric .kpi-value {
+    font-family: "Manrope", "Inter", sans-serif;
+    font-size: 1.4rem;
+    line-height: 1;
+    color: #10264d;
+}
+
+.tech100-overview__metric small {
+    line-height: 1.35;
+}
+
+.tech100-overview__metric-grid--risk .tech100-overview__metric {
+    background: linear-gradient(180deg, rgba(248, 250, 253, 0.96), rgba(255, 255, 255, 0.96));
+}
+
+.tech100-overview__quick-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: auto;
+}
+
+.tech100-overview__secondary-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.95fr);
+    gap: 1rem;
+    margin-top: 1rem;
+    align-items: start;
+}
+
+.tech100-overview__table-card,
+.tech100-overview__research-card {
+    height: 100%;
+    border: 1px solid rgba(166, 180, 202, 0.4);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(245, 248, 252, 0.95));
+    box-shadow: 0 16px 34px rgba(15, 28, 63, 0.08);
+}
+
+.tech100-overview__table-card .sc-card__header,
+.tech100-overview__research-card .sc-card__header {
+    margin-bottom: 1rem;
+}
+
+.tech100-overview__table-card .sc-table-wrap {
+    border-radius: 18px;
+    border: 1px solid rgba(210, 220, 234, 0.85);
+    background: #ffffff;
+    overflow: auto;
+}
+
+.tech100-overview__table-card table {
+    margin: 0;
+}
+
+.tech100-overview__research-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.tech100-overview__research-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem;
+}
+
+.tech100-overview__research-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    min-height: 100%;
+    padding: 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(166, 180, 202, 0.38);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 252, 0.95));
+    color: inherit;
+    text-decoration: none;
+    transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.tech100-overview__research-item:hover,
+.tech100-overview__research-item:focus-visible {
+    transform: translateY(-2px);
+    border-color: rgba(31, 95, 191, 0.34);
+    box-shadow: 0 18px 36px rgba(10, 23, 53, 0.12);
+}
+
+.tech100-overview__research-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.tech100-overview__research-item h3 {
+    margin: 0;
+}
+
+.tech100-overview__research-scores {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+    margin-top: auto;
+}
+
+.tech100-overview__research-scores > div {
+    display: grid;
+    gap: 0.18rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid rgba(166, 180, 202, 0.32);
+}
+
+.tech100-overview__research-empty {
+    padding: 1rem;
+    border-radius: 18px;
+    border: 1px dashed rgba(166, 180, 202, 0.55);
+    background: rgba(248, 251, 255, 0.75);
+}
+
+.tech100-performance__overview {
+    gap: 1.15rem;
+}
+
+.tech100-performance__header {
+    gap: 1.25rem;
+}
+
+.tech100-performance__quality--summary {
+    padding: 0.2rem 0 0.3rem;
+}
+
+.tech100-performance__quality--summary .meta-pill {
+    border: 1px solid rgba(173, 188, 209, 0.45);
+    background: rgba(246, 249, 253, 0.96);
+    color: #18315e;
+    font-weight: 600;
+}
+
+.tech100-performance__charts {
+    grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.95fr);
+    gap: 1rem;
+    align-items: stretch;
+}
+
+.chart-card {
+    border-radius: 22px;
+    border: 1px solid rgba(173, 188, 209, 0.45);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 253, 0.96));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.chart-card h3 {
+    margin-bottom: 0.85rem;
+}
+
+.chart-card__canvas {
+    height: 220px;
+}
+
+.chart-card--feature {
+    grid-row: span 2;
+    min-height: 100%;
+    padding: 1.15rem 1.15rem 1rem;
+    background:
+        radial-gradient(circle at top right, rgba(31, 95, 191, 0.08), transparent 28%),
+        linear-gradient(180deg, rgba(251, 253, 255, 0.99), rgba(246, 249, 253, 0.96));
+}
+
+.chart-card--feature .chart-card__canvas {
+    height: calc(100% - 2rem);
+    min-height: 470px;
+}
+
+.tech100-performance__summary {
+    padding-top: 0.35rem;
+    border-top: 1px solid rgba(210, 220, 234, 0.9);
+}
+
+.tech100-performance__summary .sc-metric-card {
+    border-radius: 18px;
+    border: 1px solid rgba(173, 188, 209, 0.4);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 253, 0.96));
+    box-shadow: none;
+}
+
+.tech100-performance__bars > div {
+    padding: 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(173, 188, 209, 0.38);
+    background: rgba(250, 252, 255, 0.82);
+}
+
+.tech100-performance__filters input,
+.tech100-performance__filters select {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 14px;
+    border: 1px solid rgba(173, 188, 209, 0.58);
+    background: rgba(255, 255, 255, 0.98);
+    padding: 0.75rem 0.9rem;
+    color: #10264d;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.tech100-performance__filters input:focus,
+.tech100-performance__filters select:focus {
+    outline: none;
+    border-color: rgba(31, 95, 191, 0.7);
+    box-shadow: 0 0 0 3px rgba(31, 95, 191, 0.14);
+}
+
+.tech100-performance__holdings-grid {
+    grid-template-columns: minmax(300px, 1.05fr) minmax(280px, 0.95fr);
+    align-items: stretch;
+}
+
+.tech100-performance__sector-summary {
+    display: grid;
+    gap: 0.85rem;
+    padding: 1rem;
+    border-radius: 22px;
+    border: 1px solid rgba(173, 188, 209, 0.42);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 252, 0.95));
+}
+
+.tech100-performance__sector-summary .h5 {
+    margin: 0;
+}
+
+.tech100-performance__sector-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.tech100-performance__sector-item {
+    display: grid;
+    gap: 0.38rem;
+}
+
+.tech100-performance__sector-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.tech100-performance__sector-track {
+    display: block;
+    width: 100%;
+    height: 10px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(205, 216, 232, 0.52);
+}
+
+.tech100-performance__sector-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #7a99c9, #1f427e);
+}
+
+.tech100-performance__holdings .sc-table-wrap,
+.tech100-performance__attribution .sc-table-wrap {
+    border-radius: 18px;
+    border: 1px solid rgba(210, 220, 234, 0.85);
+    background: #ffffff;
+}
+
+@media (max-width: 1200px) {
+    .tech100-page__meta {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tech100-overview__performance-grid,
+    .tech100-overview__secondary-grid,
+    .tech100-performance__holdings-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tech100-overview__research-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1100px) {
+    .tech100-performance__charts {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-card--feature {
+        grid-row: auto;
+    }
+
+    .chart-card--feature .chart-card__canvas {
+        min-height: 320px;
+    }
+}
+
+@media (max-width: 820px) {
+    .tech100-page__masthead .page-masthead__copy h1 {
+        max-width: 100%;
+        font-size: clamp(1.9rem, 7vw, 2.65rem);
+    }
+
+    .tech100-overview__metric-grid,
+    .tech100-overview__research-scores {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .tech100-performance__summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .tech100-page__masthead .page-masthead__copy,
+    .tech100-page__panel,
+    .tech100-overview__chart-pane,
+    .tech100-overview__insights-pane,
+    .tech100-overview__research-item,
+    .tech100-performance__sector-summary,
+    .tech100-performance__bars > div {
+        padding: 1rem;
+        border-radius: 18px;
+    }
+
+    .tech100-page__meta,
+    .tech100-overview__metric-grid,
+    .tech100-overview__research-grid,
+    .tech100-overview__research-scores,
+    .tech100-performance__summary {
+        grid-template-columns: 1fr;
+    }
+
+    .tech100-overview__chart,
+    .chart-card__canvas,
+    .chart-card--feature .chart-card__canvas {
+        min-height: 260px;
+        height: 260px;
+    }
+
+    .tech100-performance__filters {
+        grid-template-columns: 1fr;
+    }
+}

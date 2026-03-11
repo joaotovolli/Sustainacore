@@ -1,0 +1,40 @@
+{
+  "shots": [
+    {
+      "name": "tech100_index_desktop.png",
+      "size": [
+        1280,
+        4976
+      ],
+      "mismatch_pixels": 5387642,
+      "mismatch_percent": 84.5879
+    },
+    {
+      "name": "tech100_index_mobile.png",
+      "size": [
+        805,
+        10112
+      ],
+      "mismatch_pixels": 6895253,
+      "mismatch_percent": 84.7066
+    },
+    {
+      "name": "tech100_performance_desktop.png",
+      "size": [
+        1280,
+        6290
+      ],
+      "mismatch_pixels": 6595100,
+      "mismatch_percent": 81.9145
+    },
+    {
+      "name": "tech100_performance_mobile.png",
+      "size": [
+        406,
+        10580
+      ],
+      "mismatch_pixels": 3629729,
+      "mismatch_percent": 84.5011
+    }
+  ]
+}
