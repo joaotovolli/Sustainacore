@@ -1,0 +1,22 @@
+{
+  "shots": [
+    {
+      "name": "home_desktop.png",
+      "size": [
+        1280,
+        7800
+      ],
+      "mismatch_pixels": 8556320,
+      "mismatch_percent": 85.7003
+    },
+    {
+      "name": "home_mobile.png",
+      "size": [
+        390,
+        14973
+      ],
+      "mismatch_pixels": 5340656,
+      "mismatch_percent": 91.4579
+    }
+  ]
+}

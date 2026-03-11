@@ -1651,7 +1651,6 @@ def tech100_company_root(request):
         "latest_date": latest_date,
         "company_count": len(companies),
         "companies": companies,
-        "sector_options": sorted({item.get("sector") for item in companies if item.get("sector")}),
     }
     return render(request, "tech100_company_root.html", context)
 

@@ -1,0 +1,94 @@
+{
+  "shots": [
+    {
+      "name": "ask2_desktop.png",
+      "size": [
+        1280,
+        2218
+      ],
+      "mismatch_pixels": 2446816,
+      "mismatch_percent": 86.1846
+    },
+    {
+      "name": "ask2_mobile.png",
+      "size": [
+        390,
+        4805
+      ],
+      "mismatch_pixels": 1515920,
+      "mismatch_percent": 80.8944
+    },
+    {
+      "name": "news_desktop.png",
+      "size": [
+        1280,
+        2579
+      ],
+      "mismatch_pixels": 3153615,
+      "mismatch_percent": 95.5317
+    },
+    {
+      "name": "news_mobile.png",
+      "size": [
+        390,
+        4969
+      ],
+      "mismatch_pixels": 1872086,
+      "mismatch_percent": 96.6034
+    },
+    {
+      "name": "tech100_company_root_desktop.png",
+      "size": [
+        1280,
+        4453
+      ],
+      "mismatch_pixels": 5405753,
+      "mismatch_percent": 94.8404
+    },
+    {
+      "name": "tech100_company_root_mobile.png",
+      "size": [
+        390,
+        10895
+      ],
+      "mismatch_pixels": 4044222,
+      "mismatch_percent": 95.1794
+    },
+    {
+      "name": "tech100_index_desktop.png",
+      "size": [
+        1280,
+        4630
+      ],
+      "mismatch_pixels": 4913459,
+      "mismatch_percent": 82.908
+    },
+    {
+      "name": "tech100_index_mobile.png",
+      "size": [
+        805,
+        9564
+      ],
+      "mismatch_pixels": 6744787,
+      "mismatch_percent": 87.6058
+    },
+    {
+      "name": "tech100_performance_desktop.png",
+      "size": [
+        1280,
+        6350
+      ],
+      "mismatch_pixels": 6728840,
+      "mismatch_percent": 82.7859
+    },
+    {
+      "name": "tech100_performance_mobile.png",
+      "size": [
+        406,
+        9983
+      ],
+      "mismatch_pixels": 3317169,
+      "mismatch_percent": 81.8428
+    }
+  ]
+}
