@@ -1,0 +1,8 @@
+Run: run-local-20260311-0056
+Local screenshot diff summary
+home desktop: 2084275 pixels (15.4936%)
+home mobile: 1519726 pixels (22.6726%)
+
+Local verification
+home desktop: overflow=false featuredNews=false ask2Hero=false companyCards=0 fabLabelVisible=true
+home mobile: overflow=false featuredNews=false ask2Hero=false companyCards=0 fabLabelVisible=true

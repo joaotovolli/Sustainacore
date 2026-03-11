@@ -1,0 +1,22 @@
+Run: run-local-20260311-0056
+Local screenshot diff summary
+home desktop: 2084275 pixels (15.4936%)
+home mobile: 1519726 pixels (22.6726%)
+tech100_company_root desktop: 1409929 pixels (21.8846%)
+tech100_company_root mobile: 1067025 pixels (25.1121%)
+ask2 desktop: 1115309 pixels (31.6389%)
+ask2 mobile: 770376 pixels (41.1097%)
+news desktop: 942643 pixels (25.1774%)
+news mobile: 705682 pixels (35.7315%)
+
+Local verification
+home desktop: overflow=false featuredNews=false ask2Hero=false companyCards=0 fabLabelVisible=true
+tech100_company_root desktop: overflow=false featuredNews=false ask2Hero=false companyCards=25 fabLabelVisible=true
+ask2 desktop: overflow=false featuredNews=false ask2Hero=true companyCards=0 fabLabelVisible=true
+news desktop: overflow=false featuredNews=true ask2Hero=false companyCards=0 fabLabelVisible=true
+news_detail desktop: overflow=false featuredNews=false ask2Hero=false companyCards=0 fabLabelVisible=true
+home mobile: overflow=false featuredNews=false ask2Hero=false companyCards=0 fabLabelVisible=true
+tech100_company_root mobile: overflow=false featuredNews=false ask2Hero=false companyCards=25 fabLabelVisible=true
+ask2 mobile: overflow=false featuredNews=false ask2Hero=true companyCards=0 fabLabelVisible=true
+news mobile: overflow=false featuredNews=true ask2Hero=false companyCards=0 fabLabelVisible=true
+news_detail mobile: overflow=false featuredNews=false ask2Hero=false companyCards=0 fabLabelVisible=true

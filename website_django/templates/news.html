@@ -10,15 +10,35 @@
 {% endblock %}
 
 {% block content %}
-<section class="section section--with-header">
+<section class="section section--with-header news-page">
     <div class="shell">
-        <div class="section__header section__header--split">
-            <div>
+        <header class="page-masthead news-page__hero">
+            <div class="page-masthead__copy">
                 <p class="eyebrow">News &amp; Insights</p>
                 <h1>Headlines on ESG transparency and AI governance.</h1>
-                <p class="muted">Curated stories that surface transparency updates, regulatory moves, and accountability signals across the Tech100 AI Ethics &amp; Governance Index cohort.</p>
+                <p class="muted">
+                    Curated stories that surface transparency updates, regulatory moves, and
+                    accountability signals across the Tech100 AI Ethics &amp; Governance Index cohort.
+                </p>
+                <div class="news-page__stats">
+                    <div class="news-page__stat">
+                        <span class="muted">Recent stories</span>
+                        <strong>{{ news_meta.count|default:articles|length }}</strong>
+                    </div>
+                    <div class="news-page__stat">
+                        <span class="muted">Sources</span>
+                        <strong>{{ source_options|length }}</strong>
+                    </div>
+                    <div class="news-page__stat">
+                        <span class="muted">Tracked tags</span>
+                        <strong>{{ tag_options|length }}</strong>
+                    </div>
+                </div>
             </div>
-            <div class="filters">
+            <div class="page-masthead__panel">
+                <span class="pill pill--soft">Refine the feed</span>
+                <h2 class="h4">Narrow the signal without losing context.</h2>
+                <p class="muted">Filter by source, tag, ticker, or timeframe to isolate the coverage stream you need.</p>
                 <form class="filters filters--news" method="get">
                     {% if source_supported %}
                     <label>
@@ -61,19 +81,96 @@
                     </div>
                 </form>
             </div>
-        </div>
+        </header>
         {% if news_error %}
         <div class="alert alert--warning">
             {{ news_error }}
         </div>
         {% endif %}
+        {% if news_error %}
         <div class="news-grid" data-news-list>
-            {% if news_error %}
                 <article class="news-card news-card--empty" data-news-empty-state>
                     <p class="muted">News is temporarily unavailable. Please try again in a moment.</p>
                 </article>
-            {% elif articles %}
-                {% for article in articles %}
+        </div>
+        {% elif articles %}
+            {% with featured=articles|first %}
+            <div class="news-page__lead">
+                <article class="news-card news-card--featured">
+                    {% if featured.has_full_body and featured.id %}
+                    <a class="news-card__link" href="{% url 'news_detail' featured.id %}{% if back_query %}?back={{ back_query|urlencode }}{% endif %}" data-news-link>
+                    {% elif featured.url %}
+                    <a class="news-card__link" href="{{ featured.url }}" target="_blank" rel="noopener noreferrer" data-news-link data-news-external>
+                    {% else %}
+                    <div class="news-card__link">
+                    {% endif %}
+                        <div class="news-card__meta">
+                            {{ featured.source }}{% if featured.published_at %} · {{ featured.published_at|date:"M j, Y" }}{% endif %}
+                        </div>
+                        <h2 class="news-card__title">{{ featured.title }}</h2>
+                        <p class="muted">{{ featured.summary|default_if_none:""|truncatechars:320 }}</p>
+                        {% if featured.tags or featured.categories or featured.pillar_tags or featured.ticker %}
+                        <div class="news-card__tags">
+                            {% if featured.ticker %}
+                            <span class="tag tag--brand">{{ featured.ticker }}</span>
+                            {% endif %}
+                            {% if featured.tags %}
+                                {% for tag in featured.tags %}
+                                <span class="tag">{{ tag }}</span>
+                                {% endfor %}
+                            {% endif %}
+                            {% if featured.categories %}
+                                {% for category in featured.categories %}
+                                <span class="tag tag--muted">{{ category }}</span>
+                                {% endfor %}
+                            {% endif %}
+                            {% if featured.pillar_tags %}
+                                {% for pillar_tag in featured.pillar_tags %}
+                                <span class="tag tag--muted">{{ pillar_tag }}</span>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        <span class="news-card__cta">
+                            {% if featured.has_full_body and featured.id %}Read full article →{% else %}Open source →{% endif %}
+                        </span>
+                    {% if featured.has_full_body or featured.url %}
+                    </a>
+                    {% else %}
+                    </div>
+                    {% endif %}
+                </article>
+                <aside class="news-page__lead-panel">
+                    <span class="pill pill--soft">Coverage focus</span>
+                    <h3 class="h5">Use this page as the fast-moving signal layer for the site.</h3>
+                    <p class="muted">Start with the lead story, then move through filtered headlines for ticker, regulation, or transparency context.</p>
+                    <div class="news-page__lead-points">
+                        <div>
+                            <span class="muted">Default window</span>
+                            <strong>Recent headlines</strong>
+                        </div>
+                        <div>
+                            <span class="muted">Best for</span>
+                            <strong>Regulatory and disclosure scan</strong>
+                        </div>
+                        <div>
+                            <span class="muted">Links into</span>
+                            <strong>Full stories and source references</strong>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+            {% endwith %}
+            {% if articles|length > 1 %}
+            <div class="section__header news-page__subhead">
+                <div>
+                    <span class="pill pill--soft">More coverage</span>
+                    <h2>Recent stories</h2>
+                    <p class="muted">A cleaner scan view for the rest of the feed.</p>
+                </div>
+            </div>
+            <div class="news-grid news-grid--secondary" data-news-list>
+                {% for article in articles|slice:"1:" %}
                 <article class="news-card">
                     {% if article.has_full_body and article.id %}
                     <a class="news-card__link" href="{% url 'news_detail' article.id %}{% if back_query %}?back={{ back_query|urlencode }}{% endif %}" data-news-link>
@@ -86,7 +183,7 @@
                             {{ article.source }}{% if article.published_at %} · {{ article.published_at|date:"M j, Y" }}{% endif %}
                         </div>
                         <h3 class="news-card__title">{{ article.title }}</h3>
-                        <p class="muted">{{ article.summary|default_if_none:""|truncatechars:240 }}</p>
+                        <p class="muted">{{ article.summary|default_if_none:""|truncatechars:220 }}</p>
                         {% if article.tags or article.categories or article.pillar_tags or article.ticker %}
                         <div class="news-card__tags">
                             {% if article.ticker %}
@@ -118,13 +215,20 @@
                     </div>
                     {% endif %}
                 </article>
-                {% endfor %}
-            {% else %}
+                {% empty %}
                 <article class="news-card news-card--empty" data-news-empty-state>
                     <p class="muted">No results for this filter or date range.</p>
                 </article>
+                {% endfor %}
+            </div>
             {% endif %}
+        {% else %}
+        <div class="news-grid" data-news-list>
+            <article class="news-card news-card--empty" data-news-empty-state>
+                <p class="muted">No results for this filter or date range.</p>
+            </article>
         </div>
+        {% endif %}
         {% if prev_url or next_url %}
         <div class="load-more">
             <div class="load-more__actions">

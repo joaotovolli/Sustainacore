@@ -1,0 +1,271 @@
+{
+  "runId": "run-local-20260311-0056",
+  "pages": [
+    "home",
+    "tech100_company_root",
+    "ask2",
+    "news"
+  ],
+  "report": [
+    {
+      "page": "home",
+      "viewport": "desktop",
+      "before": {
+        "width": 1440,
+        "height": 9342
+      },
+      "after": {
+        "width": 1440,
+        "height": 7444
+      },
+      "mismatchPixels": 2084275,
+      "mismatchPercent": 15.4936
+    },
+    {
+      "page": "home",
+      "viewport": "mobile",
+      "before": {
+        "width": 390,
+        "height": 17187
+      },
+      "after": {
+        "width": 390,
+        "height": 14973
+      },
+      "mismatchPixels": 1519726,
+      "mismatchPercent": 22.6726
+    },
+    {
+      "page": "tech100_company_root",
+      "viewport": "desktop",
+      "before": {
+        "width": 1440,
+        "height": 4087
+      },
+      "after": {
+        "width": 1440,
+        "height": 4474
+      },
+      "mismatchPixels": 1409929,
+      "mismatchPercent": 21.8846
+    },
+    {
+      "page": "tech100_company_root",
+      "viewport": "mobile",
+      "before": {
+        "width": 390,
+        "height": 7509
+      },
+      "after": {
+        "width": 390,
+        "height": 10895
+      },
+      "mismatchPixels": 1067025,
+      "mismatchPercent": 25.1121
+    },
+    {
+      "page": "ask2",
+      "viewport": "desktop",
+      "before": {
+        "width": 1440,
+        "height": 1556
+      },
+      "after": {
+        "width": 1440,
+        "height": 2448
+      },
+      "mismatchPixels": 1115309,
+      "mismatchPercent": 31.6389
+    },
+    {
+      "page": "ask2",
+      "viewport": "mobile",
+      "before": {
+        "width": 390,
+        "height": 2819
+      },
+      "after": {
+        "width": 390,
+        "height": 4805
+      },
+      "mismatchPixels": 770376,
+      "mismatchPercent": 41.1097
+    },
+    {
+      "page": "news",
+      "viewport": "desktop",
+      "before": {
+        "width": 1440,
+        "height": 2517
+      },
+      "after": {
+        "width": 1440,
+        "height": 2600
+      },
+      "mismatchPixels": 942643,
+      "mismatchPercent": 25.1774
+    },
+    {
+      "page": "news",
+      "viewport": "mobile",
+      "before": {
+        "width": 390,
+        "height": 5064
+      },
+      "after": {
+        "width": 390,
+        "height": 4969
+      },
+      "mismatchPixels": 705682,
+      "mismatchPercent": 35.7315
+    }
+  ],
+  "verification": [
+    {
+      "page": "home",
+      "viewport": "desktop",
+      "metrics": {
+        "title": "SustainaCore | Open ESG & AI governance",
+        "hasOverflow": false,
+        "featuredNews": false,
+        "ask2Hero": false,
+        "companyCards": 0,
+        "fabLabelVisible": true
+      },
+      "errors": [
+        "console:Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console:AI regulation map: Unable to fetch as-of dates. Error: Request failed: 503\n    at fetchJson (http://127.0.0.1:8013/static/js/ai_regulation.js?v=unknown:413:11)\n    at async hydrateAsOfSelect (http://127.0.0.1:8013/static/js/ai_regulation.js?v=unknown:426:21)\n    at async setup (http://127.0.0.1:8013/static/js/ai_regulation.js?v=unknown:1255:16)"
+      ]
+    },
+    {
+      "page": "tech100_company_root",
+      "viewport": "desktop",
+      "metrics": {
+        "title": "Tech100 Company Research | SustainaCore",
+        "hasOverflow": false,
+        "featuredNews": false,
+        "ask2Hero": false,
+        "companyCards": 25,
+        "fabLabelVisible": true,
+        "filterMetrics": {
+          "visibleCompanyCards": 1,
+          "countText": "1 company",
+          "emptyHidden": true
+        }
+      },
+      "errors": []
+    },
+    {
+      "page": "ask2",
+      "viewport": "desktop",
+      "metrics": {
+        "title": "Ask2 AI Chat | SustainaCore",
+        "hasOverflow": false,
+        "featuredNews": false,
+        "ask2Hero": true,
+        "companyCards": 0,
+        "fabLabelVisible": true
+      },
+      "errors": []
+    },
+    {
+      "page": "news",
+      "viewport": "desktop",
+      "metrics": {
+        "title": "News & Insights | SustainaCore ESG & AI Governance",
+        "hasOverflow": false,
+        "featuredNews": true,
+        "ask2Hero": false,
+        "companyCards": 0,
+        "fabLabelVisible": true
+      },
+      "errors": []
+    },
+    {
+      "page": "news_detail",
+      "viewport": "desktop",
+      "metrics": {
+        "title": "Responsible AI governance updates for Q3",
+        "hasOverflow": false,
+        "featuredNews": false,
+        "ask2Hero": false,
+        "companyCards": 0,
+        "fabLabelVisible": true
+      },
+      "errors": []
+    },
+    {
+      "page": "home",
+      "viewport": "mobile",
+      "metrics": {
+        "title": "SustainaCore | Open ESG & AI governance",
+        "hasOverflow": false,
+        "featuredNews": false,
+        "ask2Hero": false,
+        "companyCards": 0,
+        "fabLabelVisible": true
+      },
+      "errors": [
+        "console:Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+        "console:AI regulation map: Unable to fetch as-of dates. Error: Request failed: 503\n    at fetchJson (http://127.0.0.1:8013/static/js/ai_regulation.js?v=unknown:413:11)\n    at async hydrateAsOfSelect (http://127.0.0.1:8013/static/js/ai_regulation.js?v=unknown:426:21)\n    at async setup (http://127.0.0.1:8013/static/js/ai_regulation.js?v=unknown:1255:16)"
+      ]
+    },
+    {
+      "page": "tech100_company_root",
+      "viewport": "mobile",
+      "metrics": {
+        "title": "Tech100 Company Research | SustainaCore",
+        "hasOverflow": false,
+        "featuredNews": false,
+        "ask2Hero": false,
+        "companyCards": 25,
+        "fabLabelVisible": true,
+        "filterMetrics": {
+          "visibleCompanyCards": 1,
+          "countText": "1 company",
+          "emptyHidden": true
+        }
+      },
+      "errors": []
+    },
+    {
+      "page": "ask2",
+      "viewport": "mobile",
+      "metrics": {
+        "title": "Ask2 AI Chat | SustainaCore",
+        "hasOverflow": false,
+        "featuredNews": false,
+        "ask2Hero": true,
+        "companyCards": 0,
+        "fabLabelVisible": true
+      },
+      "errors": []
+    },
+    {
+      "page": "news",
+      "viewport": "mobile",
+      "metrics": {
+        "title": "News & Insights | SustainaCore ESG & AI Governance",
+        "hasOverflow": false,
+        "featuredNews": true,
+        "ask2Hero": false,
+        "companyCards": 0,
+        "fabLabelVisible": true
+      },
+      "errors": []
+    },
+    {
+      "page": "news_detail",
+      "viewport": "mobile",
+      "metrics": {
+        "title": "Responsible AI governance updates for Q3",
+        "hasOverflow": false,
+        "featuredNews": false,
+        "ask2Hero": false,
+        "companyCards": 0,
+        "fabLabelVisible": true
+      },
+      "errors": []
+    }
+  ]
+}
