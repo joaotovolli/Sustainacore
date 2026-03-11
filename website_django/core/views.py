@@ -1201,9 +1201,8 @@ def home(request):
         if not isinstance(item, dict):
             continue
         item_id = item.get("id")
-        has_full_body = item.get("has_full_body")
         external_url = item.get("url")
-        if item_id and has_full_body:
+        if item_id:
             detail_url = reverse("news_detail", args=[item_id])
         elif external_url:
             detail_url = external_url
@@ -1228,7 +1227,7 @@ def home(request):
                 "tags": item.get("tags") or [],
                 "snippet": snippet,
                 "detail_url": detail_url,
-                "external": bool(external_url and not (item_id and has_full_body)),
+                "external": bool(external_url and not item_id),
             }
         )
 
