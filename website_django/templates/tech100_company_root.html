@@ -18,7 +18,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="section section--with-header">
+<section class="section section--with-header tech100-company-root">
   <div class="shell">
     <div class="tech100-nav__breadcrumb tech100-company__breadcrumb">
       <a href="/tech100/index/">Tech100 AI Ethics &amp; Governance Index</a>
@@ -26,45 +26,116 @@
       <span class="tech100-nav__current">Company research</span>
     </div>
 
-    <header class="page-header">
-      <p class="eyebrow">Tech100 Company Research</p>
-      <h1>Explore Tech100 company reports</h1>
-      <p class="lead">
-        Browse the Tech100 AI Ethics &amp; Governance Index constituents and jump directly to each
-        company’s research report. Each report includes rank, composite score, and rebalance history.
-      </p>
-      <div class="meta-grid">
-        {% if latest_date %}
-        <div class="meta-grid__item">Last updated: <strong>{{ latest_date }}</strong></div>
-        {% endif %}
-        <div class="meta-grid__item">Companies: <strong>{{ company_count }}</strong></div>
-      </div>
-    </header>
-
-    <div class="card">
-      <div class="card__header card__header--split">
-        <div>
-          <h2 class="h4">Company finder</h2>
-          <p class="muted">Select a ticker to open the full Tech100 company report.</p>
+    <header class="page-masthead">
+      <div class="page-masthead__copy">
+        <p class="eyebrow">Tech100 Company Research</p>
+        <h1>Explore Tech100 company reports</h1>
+        <p class="lead">
+          Browse the full Tech100 AI Ethics &amp; Governance Index cohort and jump directly to each
+          company report. Every report brings together ranking context, score history, related peers,
+          and recent rebalance notes.
+        </p>
+        <div class="page-masthead__meta">
+          {% if latest_date %}
+          <div class="page-masthead__meta-item">
+            <span class="muted">Last updated</span>
+            <strong>{{ latest_date }}</strong>
+          </div>
+          {% endif %}
+          <div class="page-masthead__meta-item">
+            <span class="muted">Companies</span>
+            <strong>{{ company_count }}</strong>
+          </div>
+          <div class="page-masthead__meta-item">
+            <span class="muted">Sectors represented</span>
+            <strong>{{ sector_options|length }}</strong>
+          </div>
         </div>
       </div>
-      <div class="tech100-company__finder">
-        <ul class="tech100-company__list">
-          {% for company in companies %}
-          <li>
-            <a href="/tech100/company/{{ company.ticker }}/">
-              <strong>{{ company.company_name }}</strong> ({{ company.ticker }})
-              {% if company.sector %}
-              <span class="muted">— {{ company.sector }}</span>
-              {% endif %}
-            </a>
-          </li>
-          {% empty %}
-          <li class="muted">Company list is unavailable right now. Please try again soon.</li>
-          {% endfor %}
-        </ul>
+      <aside class="page-masthead__panel page-masthead__panel--dark">
+        <span class="pill pill--soft">Research workspace</span>
+        <h2 class="h4">Move from index scan to constituent detail faster.</h2>
+        <p class="muted">
+          Search by company, ticker, or sector, then open the report you need without digging
+          through a plain list.
+        </p>
+        <div class="page-masthead__actions">
+          <a class="btn btn--primary" href="/tech100/index/">Open Tech100 overview</a>
+          <a class="btn btn--ghost" href="/tech100/performance/">View performance</a>
+        </div>
+      </aside>
+    </header>
+
+    <div class="card tech100-company-root__finder" data-company-hub>
+      <div class="tech100-company-root__finder-header">
+        <div>
+          <h2 class="h4">Company finder</h2>
+          <p class="muted">Search the full cohort and open the constituent report directly.</p>
+        </div>
+        <div class="tech100-company-root__finder-controls">
+          <label class="tech100-company-root__field">
+            <span class="ai-reg__field-label">Search</span>
+            <input
+              type="search"
+              placeholder="Search company, ticker, or sector"
+              data-company-search
+            >
+          </label>
+          <label class="tech100-company-root__field">
+            <span class="ai-reg__field-label">Sector</span>
+            <select data-company-sector>
+              <option value="">All sectors</option>
+              {% for sector in sector_options %}
+              <option value="{{ sector }}">{{ sector }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="tech100-company-root__results">
+        <div class="tech100-company-root__summary">
+          <span class="pill pill--soft" data-company-results-count>{{ company_count }} companies</span>
+          <span class="muted">Search updates instantly and keeps the full list on the page.</span>
+        </div>
+        <button type="button" class="btn btn--ghost" data-company-clear>Clear filters</button>
+      </div>
+      <div class="tech100-company-root__grid" data-company-grid>
+        {% for company in companies %}
+        <a
+          class="tech100-company-root__card"
+          href="/tech100/company/{{ company.ticker }}/"
+          data-company-item
+          data-company-sector="{{ company.sector|default:'Unspecified' }}"
+          data-company-search-text="{{ company.company_name|default:'' }} {{ company.ticker|default:'' }} {{ company.sector|default:'' }}"
+        >
+          <div class="tech100-company-root__card-top">
+            <span class="tag tag--brand">{{ company.ticker }}</span>
+            {% if company.sector %}
+            <span class="tag tag--muted">{{ company.sector }}</span>
+            {% endif %}
+          </div>
+          <h3 class="h5">{{ company.company_name }}</h3>
+          <p class="muted">
+            Open the full constituent report with ranking context, score history, and related peers.
+          </p>
+          <span class="launch-card__cta">Open report →</span>
+        </a>
+        {% empty %}
+        <div class="tech100-company-root__empty">
+          <h3 class="h5">Company list unavailable</h3>
+          <p class="muted">Please try again in a moment.</p>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="tech100-company-root__empty" data-company-empty hidden>
+        <h3 class="h5">No matches for this search</h3>
+        <p class="muted">Try a ticker, a broader company name, or clear the sector filter.</p>
       </div>
     </div>
   </div>
 </section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static 'js/tech100_company_root.js' %}?v={{ static_version }}"></script>
 {% endblock %}

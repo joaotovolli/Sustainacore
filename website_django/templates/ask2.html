@@ -5,80 +5,121 @@
 {% block meta_description %}Ask questions about Environmental, Social, and Governance and AI governance with Ask2 AI Chat.{% endblock %}
 
 {% block content %}
-<section class="section section--with-header ask2">
+<section class="section section--with-header ask2 ask2-page">
     <div class="shell">
-        <div class="section__header section__header--split">
-            <div>
-                <p class="eyebrow">Ask2 AI Assistant</p>
-                <h1>Ask questions about ESG and AI governance.</h1>
-                <p class="muted">We route your questions to the SustainaCore backend on VM1 and return grounded answers. No external LLM calls from the browser.</p>
-            </div>
-            <div class="status" data-ask2-status>
-                <span class="status__dot"></span>
-                <span class="status__text" data-ask2-status-text>Ready to chat</span>
-            </div>
-        </div>
-
-        <div class="chat-layout">
-            <div class="chat-panel" aria-live="polite" aria-label="Ask2 conversation">
-                <div class="chat-panel__messages" data-ask2-messages role="log" aria-live="polite" aria-relevant="additions text">
-                    <div class="bubble bubble--assistant">
-                        Hi there! Ask me about ESG transparency, AI oversight, or the Tech100 AI Ethics &amp; Governance Index.
+        <header class="page-masthead ask2-page__hero">
+            <div class="page-masthead__copy">
+                <div class="ask2-page__title-row">
+                    <div>
+                        <p class="eyebrow">Ask2 AI Assistant</p>
+                        <h1>Ask questions about ESG and AI governance.</h1>
+                        <p class="muted">
+                            Ask2 routes your question to the SustainaCore backend and returns grounded
+                            answers tied to our research surfaces. No external browser-side LLM calls.
+                        </p>
+                    </div>
+                    <div class="status" data-ask2-status>
+                        <span class="status__dot"></span>
+                        <span class="status__text" data-ask2-status-text>Ready to chat</span>
                     </div>
                 </div>
-                <div class="chat-panel__meta">
-                    <div class="chat-panel__status" data-ask2-thinking hidden role="status" aria-live="polite">
-                        <span class="spinner" aria-hidden="true"></span>
-                        <span>Assistant is thinking…</span>
-                    </div>
-                    <button type="button" class="chat-panel__jump" data-ask2-jump hidden>
-                        New messages
-                    </button>
-                    <div class="alert alert--error" role="alert" hidden data-ask2-error>
-                        The assistant is temporarily unavailable. Please try again in a moment.
-                    </div>
+                <div class="ask2-page__signals">
+                    <span class="ask2-page__signal">Grounded on SustainaCore data</span>
+                    <span class="ask2-page__signal">Source-aware answers</span>
+                    <span class="ask2-page__signal">Conversation stays in your browser</span>
                 </div>
-                <form class="chat__input" data-ask2-form data-ask2-api="{% url 'ask2:ask2_api' %}">
-                    {% csrf_token %}
-                    <label class="sr-only" for="ask2Input">Your question</label>
-                    <textarea id="ask2Input" name="message" rows="3" placeholder="Type your question here..." required data-ask2-input></textarea>
-                    <div class="chat__actions">
-                        <button type="submit" class="btn btn--primary" data-ask2-send>Send</button>
-                        <div class="muted chat__hint">Press Enter to send · Shift + Enter for a new line</div>
-                    </div>
-                </form>
             </div>
-            <aside class="chat-helper" aria-label="Prompt ideas">
-                <h4>Try asking</h4>
-                <ul>
-                    <li>
-                        <button type="button" class="chat-helper__example" data-ask2-example="Is Microsoft in the Tech100 AI Ethics &amp; Governance Index?">
-                            Is Microsoft in the Tech100 AI Ethics &amp; Governance Index?
-                        </button>
-                    </li>
-                    <li>
-                        <button type="button" class="chat-helper__example" data-ask2-example="How is the Tech100 AI Ethics &amp; Governance Index built and rebalanced?">
-                            How is the Tech100 AI Ethics &amp; Governance Index built and rebalanced?
-                        </button>
-                    </li>
-                    <li>
-                        <button type="button" class="chat-helper__example" data-ask2-example="What does the AI Governance &amp; Ethics Score measure?">
-                            What does the AI Governance &amp; Ethics Score measure?
-                        </button>
-                    </li>
-                    <li>
-                        <button type="button" class="chat-helper__example" data-ask2-example="Show me the top companies by AI Governance &amp; Ethics Score.">
-                            Show me the top companies by AI Governance &amp; Ethics Score.
-                        </button>
-                    </li>
-                    <li>
-                        <button type="button" class="chat-helper__example" data-ask2-example="Summarize the latest AI governance headlines on SustainaCore.">
-                            Summarize the latest AI governance headlines on SustainaCore.
-                        </button>
-                    </li>
+            <aside class="page-masthead__panel page-masthead__panel--dark">
+                <span class="pill pill--soft">Grounded answer flow</span>
+                <h2 class="h4">Use Ask2 when you need a sourced brief fast.</h2>
+                <ul class="page-masthead__list">
+                    <li>Cross-check index methodology, company research, and public governance signals in one thread.</li>
+                    <li>Keep the workflow anchored on SustainaCore evidence instead of generic web chat.</li>
+                    <li>Turn exploratory questions into concise decision-support prompts for teams.</li>
                 </ul>
-                <p class="muted">We keep the conversation in your browser. Each question is sent securely to the SustainaCore backend.</p>
             </aside>
+        </header>
+
+        <div class="ask2-page__workspace">
+            <div class="chat-layout">
+                <div class="chat-panel" aria-live="polite" aria-label="Ask2 conversation">
+                    <div class="chat-panel__header">
+                        <div>
+                            <span class="pill pill--soft">Conversation</span>
+                            <h2 class="h5">Grounded answers in one thread</h2>
+                        </div>
+                        <p class="muted">Ask about methodology, company oversight, regulation, or recent governance headlines.</p>
+                    </div>
+                    <div class="chat-panel__messages" data-ask2-messages role="log" aria-live="polite" aria-relevant="additions text">
+                        <div class="bubble bubble--assistant">
+                            Hi there! Ask me about ESG transparency, AI oversight, or the Tech100 AI Ethics &amp; Governance Index.
+                        </div>
+                    </div>
+                    <div class="chat-panel__meta">
+                        <div class="chat-panel__status" data-ask2-thinking hidden role="status" aria-live="polite">
+                            <span class="spinner" aria-hidden="true"></span>
+                            <span>Assistant is thinking…</span>
+                        </div>
+                        <button type="button" class="chat-panel__jump" data-ask2-jump hidden>
+                            New messages
+                        </button>
+                        <div class="alert alert--error" role="alert" hidden data-ask2-error>
+                            The assistant is temporarily unavailable. Please try again in a moment.
+                        </div>
+                    </div>
+                    <form class="chat__input" data-ask2-form data-ask2-api="{% url 'ask2:ask2_api' %}">
+                        {% csrf_token %}
+                        <label class="sr-only" for="ask2Input">Your question</label>
+                        <textarea id="ask2Input" name="message" rows="3" placeholder="Ask about a company, the index, or AI regulation..." required data-ask2-input></textarea>
+                        <div class="chat__actions">
+                            <button type="submit" class="btn btn--primary" data-ask2-send>Send</button>
+                            <div class="muted chat__hint">Press Enter to send · Shift + Enter for a new line</div>
+                        </div>
+                    </form>
+                </div>
+                <aside class="chat-helper ask2-helper" aria-label="Prompt ideas">
+                    <div class="ask2-helper__section">
+                        <span class="pill pill--soft">Prompt ideas</span>
+                        <h4>Try asking</h4>
+                        <ul>
+                            <li>
+                                <button type="button" class="chat-helper__example" data-ask2-example="Is Microsoft in the Tech100 AI Ethics &amp; Governance Index?">
+                                    Is Microsoft in the Tech100 AI Ethics &amp; Governance Index?
+                                </button>
+                            </li>
+                            <li>
+                                <button type="button" class="chat-helper__example" data-ask2-example="How is the Tech100 AI Ethics &amp; Governance Index built and rebalanced?">
+                                    How is the Tech100 AI Ethics &amp; Governance Index built and rebalanced?
+                                </button>
+                            </li>
+                            <li>
+                                <button type="button" class="chat-helper__example" data-ask2-example="What does the AI Governance &amp; Ethics Score measure?">
+                                    What does the AI Governance &amp; Ethics Score measure?
+                                </button>
+                            </li>
+                            <li>
+                                <button type="button" class="chat-helper__example" data-ask2-example="Show me the top companies by AI Governance &amp; Ethics Score.">
+                                    Show me the top companies by AI Governance &amp; Ethics Score.
+                                </button>
+                            </li>
+                            <li>
+                                <button type="button" class="chat-helper__example" data-ask2-example="Summarize the latest AI governance headlines on SustainaCore.">
+                                    Summarize the latest AI governance headlines on SustainaCore.
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="ask2-helper__section">
+                        <h4>What you get</h4>
+                        <ul class="ask2-helper__list">
+                            <li>Answers shaped around SustainaCore research and public evidence.</li>
+                            <li>Source lists and structured follow-up prompts when available.</li>
+                            <li>A browser-local thread you can use for quick internal briefing.</li>
+                        </ul>
+                    </div>
+                    <p class="muted">We keep the conversation in your browser. Each question is sent securely to the SustainaCore backend.</p>
+                </aside>
+            </div>
         </div>
     </div>
 </section>
