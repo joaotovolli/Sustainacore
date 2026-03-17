@@ -20,6 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from . import views
 from . import tech100_index_views
+from . import tech100_portfolio_views
 from telemetry import views as telemetry_views
 
 urlpatterns = [
@@ -45,6 +46,7 @@ urlpatterns = [
     path("tech100/company/<str:ticker>/", views.tech100_company, name="tech100_company"),
     path("tech100/company/<str:ticker>/download.csv", views.tech100_company_download, name="tech100_company_download"),
     path("tech100/index/", tech100_index_views.tech100_index_overview, name="tech100_index"),
+    path("tech100/portfolio/", tech100_portfolio_views.tech100_portfolio, name="tech100_portfolio"),
     path("tech100/performance/", tech100_index_views.tech100_performance, name="tech100_performance"),
     path("tech100/constituents/", tech100_index_views.tech100_constituents, name="tech100_constituents"),
     path("tech100/attribution/", tech100_index_views.tech100_attribution, name="tech100_attribution"),

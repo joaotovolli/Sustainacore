@@ -12,6 +12,10 @@
       {% with current_label="Performance" %}
         {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
       {% endwith %}
+    {% elif request.path == '/tech100/portfolio/' %}
+      {% with current_label="Portfolio analytics" %}
+        {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
+      {% endwith %}
     {% elif request.path == '/tech100/constituents/' %}
       {% with current_label="Constituents" %}
         {% include "partials/tech100_breadcrumb.html" with current_label=current_label %}
@@ -52,6 +56,13 @@
       {% if request.path == '/tech100/performance/' %}aria-current="page"{% endif %}
     >
       Performance
+    </a>
+    <a
+      class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/portfolio/' %}is-active{% endif %}"
+      href="/tech100/portfolio/"
+      {% if request.path == '/tech100/portfolio/' %}aria-current="page"{% endif %}
+    >
+      Portfolio
     </a>
     <a
       class="tech100-nav__link sc-tabs__link {% if request.path == '/tech100/constituents/' %}is-active{% endif %}"
