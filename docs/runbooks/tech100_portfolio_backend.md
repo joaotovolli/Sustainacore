@@ -1,4 +1,5 @@
 # TECH100 portfolio backend runbook
+<!-- cspell:ignore herfindahl LOWVOL -->
 
 This runbook covers the Oracle-backed portfolio analytics layer for the future `/tech100/portfolio/` page.
 
