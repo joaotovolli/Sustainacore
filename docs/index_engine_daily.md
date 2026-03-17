@@ -31,13 +31,14 @@ Environment:
 
 ## Manual pipeline run (orchestrator)
 
-- Normal timers run ingest → completeness → impute → index calc with ingest enabled.
+- Normal timers run ingest → completeness → index calc → portfolio analytics → impute with ingest enabled.
 - Systemd schedule (UTC): ingest at 00:00 / 05:00 / 09:00 / 13:00; pipeline at 00:30 / 05:30 / 09:30 / 13:30 (~30m after ingest to catch the latest EOD).
 - If canonical prices are ahead of index levels, the pipeline computes the missing trading-day window up to the
   latest canonical date and runs index calc for that window using DB data only.
 - For manual data-preserving checks (skip ingest only):  
   `SC_IDX_PIPELINE_SKIP_INGEST=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_pipeline.py`
 - The orchestrator invokes index calc with `--no-preflight-self-heal` to avoid a second ingest/impute pass because the earlier stages already ran in-process.
+- After index calc, the orchestrator refreshes the TECH100 portfolio analytics tables via `tools/index_engine/build_portfolio_analytics.py`. The refresh is additive and uses only existing `SC_IDX_*` + `TECH11_AI_GOV_ETH_INDEX` sources.
 - Keep `SC_IDX_PIPELINE_SKIP_INGEST` for manual runs only; systemd timers should run with ingest enabled.
 - Ingest readiness: the pipeline probes the provider (SPY) for the target end date and falls back up to two prior trading days. If the provider is not ready, ingest is skipped safely (`sc_idx_ingest_skip: provider_not_ready...`) and exits 0 (no imputation for that date).
 - Trading-day refresh resilience: if the trading-days update returns a transient 403, the job retries with backoff and then proceeds using the cached calendar in Oracle, logging a warning instead of failing the run.

@@ -77,6 +77,20 @@ def collect_health_snapshot(
             {"trade_date": contrib_max},
         )
 
+    portfolio_max = None
+    portfolio_model_count = None
+    try:
+        portfolio_max = _coerce_date(_fetch_scalar("SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY"))
+        if portfolio_max:
+            portfolio_model_count = _fetch_scalar(
+                "SELECT COUNT(DISTINCT model_code) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY "
+                "WHERE trade_date = :trade_date",
+                {"trade_date": portfolio_max},
+            )
+    except Exception:
+        portfolio_max = None
+        portfolio_model_count = None
+
     next_missing = None
     if levels_max:
         next_missing = _coerce_date(
@@ -104,6 +118,10 @@ def collect_health_snapshot(
         "ret_1d_latest": float(ret_1d_latest) if ret_1d_latest is not None else None,
         "contrib_max_date": contrib_max.isoformat() if contrib_max else None,
         "contrib_count_latest_day": int(contrib_count_latest) if contrib_count_latest is not None else None,
+        "portfolio_max_date": portfolio_max.isoformat() if portfolio_max else None,
+        "portfolio_model_count_latest_day": int(portfolio_model_count)
+        if portfolio_model_count is not None
+        else None,
         "next_missing_trading_day": next_missing.isoformat() if next_missing else None,
         "oracle_error_counts_24h": int(oracle_error_count) if oracle_error_count is not None else None,
         "stage_durations_sec": {k: round(v, 2) for k, v in stage_durations.items()},
@@ -123,6 +141,8 @@ def format_health_summary(health: Dict[str, Any]) -> str:
         "ret_1d_latest",
         "contrib_max_date",
         "contrib_count_latest_day",
+        "portfolio_max_date",
+        "portfolio_model_count_latest_day",
         "next_missing_trading_day",
         "oracle_error_counts_24h",
         "last_error",

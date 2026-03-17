@@ -23,6 +23,7 @@ from tools.index_engine.pipeline_state import PipelineStateStore
 
 from index_engine import db as engine_db
 from index_engine import db_index_calc
+from index_engine import db_portfolio_analytics
 from index_engine.run_log import finish_run, start_run
 
 
@@ -73,6 +74,18 @@ def _select_next_missing_trading_day(
 ) -> _dt.date | None:
     for day in trading_days:
         if max_level_date is None or day > max_level_date:
+            return day
+    return None
+
+
+def _select_end_day(
+    trading_days: list[_dt.date],
+    max_canon_date: _dt.date | None,
+) -> _dt.date | None:
+    if max_canon_date is None:
+        return None
+    for day in reversed(trading_days):
+        if day <= max_canon_date:
             return day
     return None
 
@@ -265,6 +278,7 @@ def main(argv: List[str] | None = None) -> int:
         "ingest_prices",
         "completeness_check",
         "calc_index",
+        "portfolio_analytics",
         "impute",
     ]
 
@@ -292,12 +306,14 @@ def main(argv: List[str] | None = None) -> int:
         max_level_date = db_index_calc.fetch_max_level_date()
         target_day = _select_next_missing_trading_day(trading_days, max_level_date)
         max_canon_date = engine_db.fetch_max_canon_trade_date()
+        max_portfolio_date = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
         return {
             "calendar_max": calendar_max,
             "trading_days": trading_days,
             "max_level_date": max_level_date,
             "target_day": target_day,
             "max_canon_date": max_canon_date,
+            "max_portfolio_date": max_portfolio_date,
         }
 
     def _stage_update_trading_days(_args: List[str]) -> tuple[int, str]:
@@ -337,11 +353,7 @@ def main(argv: List[str] | None = None) -> int:
                 f"max_canon={max_canon_date} target_day={target_day.isoformat()}",
             )
         trading_days = target_info["trading_days"]
-        end_day = None
-        for day in reversed(trading_days):
-            if day <= max_canon_date:
-                end_day = day
-                break
+        end_day = _select_end_day(trading_days, max_canon_date)
         if end_day is None:
             return 2, "canon_lag:no_trading_day_at_or_before_canon"
 
@@ -399,11 +411,7 @@ def main(argv: List[str] | None = None) -> int:
         if max_canon_date is None or max_canon_date < target_day:
             return 2, f"canon_lag:max_canon={max_canon_date} target_day={target_day.isoformat()}"
         trading_days = target_info["trading_days"]
-        end_day = None
-        for day in reversed(trading_days):
-            if day <= max_canon_date:
-                end_day = day
-                break
+        end_day = _select_end_day(trading_days, max_canon_date)
         if end_day is None:
             return 2, "canon_lag:no_trading_day_at_or_before_canon"
 
@@ -428,6 +436,45 @@ def main(argv: List[str] | None = None) -> int:
                 f"max_level={max_level_after}",
             )
         return 0, f"levels_advanced_to={max_level_after.isoformat()}"
+
+    def _stage_portfolio_analytics(_args: List[str]) -> tuple[int, str]:
+        from tools.index_engine import build_portfolio_analytics
+
+        target_info = _refresh_targets()
+        max_level_date = target_info["max_level_date"]
+        if max_level_date is None:
+            return 0, "no_levels_available"
+        portfolio_max = target_info["max_portfolio_date"]
+        if portfolio_max is not None and portfolio_max >= max_level_date:
+            return 0, f"portfolio_up_to_date={portfolio_max.isoformat()}"
+
+        trading_days = target_info["trading_days"]
+        start_day = _select_next_missing_trading_day(trading_days, portfolio_max)
+        if start_day is None:
+            start_day = trading_days[0]
+
+        code, detail = _invoke_stage(
+            "portfolio_analytics",
+            build_portfolio_analytics.main,
+            [
+                "--apply-ddl",
+                "--start",
+                start_day.isoformat(),
+                "--end",
+                max_level_date.isoformat(),
+            ],
+        )
+        if code != 0:
+            return code, detail or f"exit_code={code}"
+        max_after = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
+        if max_after is None or max_after < max_level_date:
+            return (
+                2,
+                "portfolio_not_advanced:"
+                f"start_day={start_day.isoformat()} max_level={max_level_date.isoformat()} "
+                f"max_portfolio={max_after}",
+            )
+        return 0, f"portfolio_advanced_to={max_after.isoformat()}"
 
     def _stage_impute(_args: List[str]) -> tuple[int, str]:
         from tools.index_engine import impute_missing_prices
@@ -464,6 +511,7 @@ def main(argv: List[str] | None = None) -> int:
         ("ingest_prices", _stage_ingest, ["--debug"]),
         ("completeness_check", _stage_completeness, []),
         ("calc_index", _stage_calc_index, []),
+        ("portfolio_analytics", _stage_portfolio_analytics, []),
         ("impute", _stage_impute, []),
     ]
 
