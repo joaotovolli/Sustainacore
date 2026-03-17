@@ -3,6 +3,8 @@ import sys
 import types
 from pathlib import Path
 
+import tools.index_engine as index_tools
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -89,7 +91,9 @@ def test_pipeline_skip_ingest(monkeypatch):
     monkeypatch.setattr(pipeline, "PipelineStateStore", lambda pipeline_name=None: store)
 
     update_mod = types.ModuleType("tools.index_engine.update_trading_days")
-    update_mod.update_trading_days = lambda auto_extend=False: calls.append("update_trading_days")
+    update_mod.update_trading_days_with_retry = (
+        lambda auto_extend=False, allow_cached_on_403=False: (True, None)
+    )
     monkeypatch.setitem(sys.modules, "tools.index_engine.update_trading_days", update_mod)
 
     run_daily_mod = types.ModuleType("tools.index_engine.run_daily")
@@ -97,7 +101,7 @@ def test_pipeline_skip_ingest(monkeypatch):
     monkeypatch.setitem(sys.modules, "tools.index_engine.run_daily", run_daily_mod)
 
     check_mod = types.ModuleType("tools.index_engine.check_price_completeness")
-    check_mod.run_check = lambda **kwargs: calls.append("completeness") or {}
+    check_mod.run_check = lambda **kwargs: calls.append("completeness") or {"status": "PASS"}
     monkeypatch.setitem(sys.modules, "tools.index_engine.check_price_completeness", check_mod)
 
     ingest_mod = types.ModuleType("tools.index_engine.ingest_prices")
@@ -108,18 +112,29 @@ def test_pipeline_skip_ingest(monkeypatch):
     calc_mod.main = lambda argv=None: calls.append("calc_index") or 0
     monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
 
+    build_mod = types.ModuleType("tools.index_engine.build_portfolio_analytics")
+    build_mod.main = lambda argv=None: calls.append("portfolio_analytics") or 0
+    monkeypatch.setitem(sys.modules, "tools.index_engine.build_portfolio_analytics", build_mod)
+    monkeypatch.setattr(index_tools, "build_portfolio_analytics", build_mod, raising=False)
+
     impute_mod = types.ModuleType("tools.index_engine.impute_missing_prices")
     impute_mod.main = lambda argv=None: calls.append("impute") or 0
     monkeypatch.setitem(sys.modules, "tools.index_engine.impute_missing_prices", impute_mod)
 
     target_day = dt.date(2026, 1, 7)
     level_state = {"value": dt.date(2026, 1, 6)}
+    portfolio_state = {"value": None}
 
     monkeypatch.setattr(pipeline.engine_db, "fetch_latest_trading_day", lambda: target_day)
     monkeypatch.setattr(pipeline.engine_db, "fetch_trading_days", lambda start, end: [level_state["value"], target_day])
     monkeypatch.setattr(pipeline.engine_db, "fetch_max_canon_trade_date", lambda: target_day)
     monkeypatch.setattr(pipeline.engine_db, "fetch_missing_real_for_trade_date", lambda date: [])
     monkeypatch.setattr(pipeline.engine_db, "fetch_max_imputation_date", lambda: None)
+    monkeypatch.setattr(
+        pipeline.db_portfolio_analytics,
+        "fetch_portfolio_analytics_max_date",
+        lambda: portfolio_state["value"],
+    )
 
     def _fetch_max_level_date():
         return level_state["value"]
@@ -131,12 +146,21 @@ def test_pipeline_skip_ingest(monkeypatch):
 
     calc_mod.main = _calc_main
     monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
+
+    def _build_main(argv=None):
+        calls.append("portfolio_analytics")
+        portfolio_state["value"] = target_day
+        return 0
+
+    build_mod.main = _build_main
+    monkeypatch.setitem(sys.modules, "tools.index_engine.build_portfolio_analytics", build_mod)
+    monkeypatch.setattr(index_tools, "build_portfolio_analytics", build_mod, raising=False)
     monkeypatch.setattr(pipeline.db_index_calc, "fetch_max_level_date", _fetch_max_level_date)
 
     exit_code = pipeline.main([])
     assert exit_code == 0
     assert "ingest" not in calls
-    assert calls == ["completeness", "calc_index", "impute"]
+    assert calls == ["completeness", "calc_index", "portfolio_analytics", "impute"]
 
 
 def test_pipeline_advances_next_missing_day(monkeypatch):
@@ -147,7 +171,9 @@ def test_pipeline_advances_next_missing_day(monkeypatch):
     monkeypatch.setattr(pipeline, "PipelineStateStore", lambda pipeline_name=None: store)
 
     update_mod = types.ModuleType("tools.index_engine.update_trading_days")
-    update_mod.update_trading_days = lambda auto_extend=False: None
+    update_mod.update_trading_days_with_retry = (
+        lambda auto_extend=False, allow_cached_on_403=False: (True, None)
+    )
     monkeypatch.setitem(sys.modules, "tools.index_engine.update_trading_days", update_mod)
 
     run_daily_mod = types.ModuleType("tools.index_engine.run_daily")
@@ -155,7 +181,7 @@ def test_pipeline_advances_next_missing_day(monkeypatch):
     monkeypatch.setitem(sys.modules, "tools.index_engine.run_daily", run_daily_mod)
 
     check_mod = types.ModuleType("tools.index_engine.check_price_completeness")
-    check_mod.run_check = lambda **kwargs: None
+    check_mod.run_check = lambda **kwargs: {"status": "PASS"}
     monkeypatch.setitem(sys.modules, "tools.index_engine.check_price_completeness", check_mod)
 
     ingest_mod = types.ModuleType("tools.index_engine.ingest_prices")
@@ -172,18 +198,35 @@ def test_pipeline_advances_next_missing_day(monkeypatch):
     calc_mod.main = _calc_main
     monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
 
+    portfolio_args = {}
+    build_mod = types.ModuleType("tools.index_engine.build_portfolio_analytics")
+
+    def _build_main(argv=None):
+        portfolio_args["argv"] = list(argv or [])
+        return 0
+
+    build_mod.main = _build_main
+    monkeypatch.setitem(sys.modules, "tools.index_engine.build_portfolio_analytics", build_mod)
+    monkeypatch.setattr(index_tools, "build_portfolio_analytics", build_mod, raising=False)
+
     impute_mod = types.ModuleType("tools.index_engine.impute_missing_prices")
     impute_mod.main = lambda argv=None: 0
     monkeypatch.setitem(sys.modules, "tools.index_engine.impute_missing_prices", impute_mod)
 
     level_date = dt.date(2026, 1, 6)
     target_day = dt.date(2026, 1, 7)
+    portfolio_state = {"value": dt.date(2026, 1, 6)}
 
     monkeypatch.setattr(pipeline.engine_db, "fetch_latest_trading_day", lambda: target_day)
     monkeypatch.setattr(pipeline.engine_db, "fetch_trading_days", lambda start, end: [level_date, target_day])
     monkeypatch.setattr(pipeline.engine_db, "fetch_max_canon_trade_date", lambda: target_day)
     monkeypatch.setattr(pipeline.engine_db, "fetch_missing_real_for_trade_date", lambda date: [])
     monkeypatch.setattr(pipeline.engine_db, "fetch_max_imputation_date", lambda: None)
+    monkeypatch.setattr(
+        pipeline.db_portfolio_analytics,
+        "fetch_portfolio_analytics_max_date",
+        lambda: portfolio_state["value"],
+    )
 
     level_state = {"value": level_date}
 
@@ -195,13 +238,28 @@ def test_pipeline_advances_next_missing_day(monkeypatch):
         calc_args["argv"] = list(argv or [])
         return 0
 
+    def _build_main_with_update(argv=None):
+        portfolio_state["value"] = target_day
+        portfolio_args["argv"] = list(argv or [])
+        return 0
+
     calc_mod.main = _calc_main_with_update
     monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
+    build_mod.main = _build_main_with_update
+    monkeypatch.setitem(sys.modules, "tools.index_engine.build_portfolio_analytics", build_mod)
+    monkeypatch.setattr(index_tools, "build_portfolio_analytics", build_mod, raising=False)
     monkeypatch.setattr(pipeline.db_index_calc, "fetch_max_level_date", _fetch_max_level_date)
 
     exit_code = pipeline.main([])
     assert exit_code == 0
     assert calc_args["argv"][:4] == ["--start", "2026-01-07", "--end", "2026-01-07"]
+    assert portfolio_args["argv"][:5] == [
+        "--apply-ddl",
+        "--start",
+        "2026-01-07",
+        "--end",
+        "2026-01-07",
+    ]
 
 
 def test_pipeline_resume_skips_ok_stages(monkeypatch):
@@ -216,7 +274,9 @@ def test_pipeline_resume_skips_ok_stages(monkeypatch):
     monkeypatch.setattr(pipeline, "PipelineStateStore", lambda pipeline_name=None: store)
 
     update_mod = types.ModuleType("tools.index_engine.update_trading_days")
-    update_mod.update_trading_days = lambda auto_extend=False: calls.append("update_trading_days")
+    update_mod.update_trading_days_with_retry = (
+        lambda auto_extend=False, allow_cached_on_403=False: (True, None)
+    )
     monkeypatch.setitem(sys.modules, "tools.index_engine.update_trading_days", update_mod)
 
     run_daily_mod = types.ModuleType("tools.index_engine.run_daily")
@@ -224,7 +284,7 @@ def test_pipeline_resume_skips_ok_stages(monkeypatch):
     monkeypatch.setitem(sys.modules, "tools.index_engine.run_daily", run_daily_mod)
 
     check_mod = types.ModuleType("tools.index_engine.check_price_completeness")
-    check_mod.run_check = lambda **kwargs: calls.append("completeness") or None
+    check_mod.run_check = lambda **kwargs: calls.append("completeness") or {"status": "PASS"}
     monkeypatch.setitem(sys.modules, "tools.index_engine.check_price_completeness", check_mod)
 
     ingest_mod = types.ModuleType("tools.index_engine.ingest_prices")
@@ -232,18 +292,25 @@ def test_pipeline_resume_skips_ok_stages(monkeypatch):
     monkeypatch.setitem(sys.modules, "tools.index_engine.ingest_prices", ingest_mod)
 
     calc_mod = types.ModuleType("tools.index_engine.calc_index")
+    build_mod = types.ModuleType("tools.index_engine.build_portfolio_analytics")
     impute_mod = types.ModuleType("tools.index_engine.impute_missing_prices")
     impute_mod.main = lambda argv=None: calls.append("impute") or 0
     monkeypatch.setitem(sys.modules, "tools.index_engine.impute_missing_prices", impute_mod)
 
     level_state = {"value": dt.date(2026, 1, 6)}
     target_day = dt.date(2026, 1, 7)
+    portfolio_state = {"value": dt.date(2026, 1, 6)}
 
     monkeypatch.setattr(pipeline.engine_db, "fetch_latest_trading_day", lambda: target_day)
     monkeypatch.setattr(pipeline.engine_db, "fetch_trading_days", lambda start, end: [level_state["value"], target_day])
     monkeypatch.setattr(pipeline.engine_db, "fetch_max_canon_trade_date", lambda: target_day)
     monkeypatch.setattr(pipeline.engine_db, "fetch_missing_real_for_trade_date", lambda date: [])
     monkeypatch.setattr(pipeline.engine_db, "fetch_max_imputation_date", lambda: None)
+    monkeypatch.setattr(
+        pipeline.db_portfolio_analytics,
+        "fetch_portfolio_analytics_max_date",
+        lambda: portfolio_state["value"],
+    )
 
     def _fetch_max_level_date():
         return level_state["value"]
@@ -253,8 +320,16 @@ def test_pipeline_resume_skips_ok_stages(monkeypatch):
         level_state["value"] = target_day
         return 0
 
+    def _build_main(argv=None):
+        calls.append("portfolio_analytics")
+        portfolio_state["value"] = target_day
+        return 0
+
     calc_mod.main = _calc_main
     monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
+    build_mod.main = _build_main
+    monkeypatch.setitem(sys.modules, "tools.index_engine.build_portfolio_analytics", build_mod)
+    monkeypatch.setattr(index_tools, "build_portfolio_analytics", build_mod, raising=False)
     monkeypatch.setattr(pipeline.db_index_calc, "fetch_max_level_date", _fetch_max_level_date)
 
     exit_code = pipeline.main([])
@@ -262,3 +337,4 @@ def test_pipeline_resume_skips_ok_stages(monkeypatch):
     assert "update_trading_days" not in calls
     assert "ingest" not in calls
     assert "completeness" in calls
+    assert "portfolio_analytics" in calls
