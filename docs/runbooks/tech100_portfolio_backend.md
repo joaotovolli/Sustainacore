@@ -62,7 +62,7 @@ python3 tools/oracle/preflight_oracle.py
 ```
 
 If the VM1 Oracle env files are only readable through systemd, run the branch from an
-isolated worktree with the service-like context instead of sourcing env files:
+isolated checkout with the service-like context instead of sourcing env files:
 
 ```bash
 sudo -n systemd-run --wait --collect --pipe --unit=tech100-portfolio-preflight \
