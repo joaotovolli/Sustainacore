@@ -1,0 +1,20 @@
+{
+  "pr": 514,
+  "runId": "run-local-20260317-220213",
+  "preview": "https://preview.sustainacore.org/tech100/portfolio/",
+  "productionPortfolio": "https://sustainacore.org/tech100/portfolio/",
+  "productionIndex": "https://sustainacore.org/tech100/index/",
+  "previewSha": "5ff91025",
+  "artifacts": {
+    "portfolioPreview": "after/portfolio.png",
+    "portfolioChart": "after/portfolio_chart.png",
+    "indexBefore": "before/index_overview.png",
+    "indexAfter": "after/index_overview.png",
+    "indexDiff": "diff/diff_index_overview.png"
+  },
+  "notes": [
+    "The new portfolio route is absent on production, so the portfolio before-state is a 404 by design.",
+    "The index overview diff is used to show the shared Tech100 navigation change before and after the new page is introduced.",
+    "Preview verification was performed after deploy-preview updated VM2 to SHA 5ff91025."
+  ]
+}

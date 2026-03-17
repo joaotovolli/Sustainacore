@@ -75,6 +75,7 @@ const requiredAfter = [
   "tech100.png",
   "index_overview.png",
   "performance.png",
+  "portfolio.png",
   "constituents.png",
   "attribution.png",
   "stats.png",
@@ -92,6 +93,7 @@ for (const name of requiredAfter) {
 diffPair("home.png", "home.png", "diff_home.png");
 diffPair("tech100.png", "tech100.png", "diff_tech100.png");
 diffPair("performance.png", "performance.png", "diff_performance.png");
+diffPair("portfolio.png", "portfolio.png", "diff_portfolio.png");
 diffPair("index_overview.png", "index_overview.png", "diff_index_overview.png");
 diffPair("constituents.png", "constituents.png", "diff_constituents.png");
 diffPair("attribution.png", "attribution.png", "diff_attribution.png");

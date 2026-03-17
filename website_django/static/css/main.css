@@ -3468,6 +3468,170 @@ textarea:focus {
     margin-bottom: 1.5rem;
 }
 
+.tech100-portfolio__section {
+    margin-bottom: 1.5rem;
+}
+
+.tech100-portfolio__hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.9fr);
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+    padding: 1.4rem;
+    background:
+        radial-gradient(circle at top left, rgba(31, 95, 191, 0.12), transparent 40%),
+        linear-gradient(135deg, #ffffff 0%, #f4f7fc 58%, #eef4f8 100%);
+    border: 1px solid rgba(24, 49, 83, 0.09);
+}
+
+.tech100-portfolio__hero-copy,
+.tech100-portfolio__hero-aside {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.tech100-portfolio__eyebrow {
+    margin: 0;
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--brand-blue);
+    font-weight: 700;
+}
+
+.tech100-portfolio__selector {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 0.85rem;
+    margin-bottom: 1.5rem;
+}
+
+.tech100-portfolio__model {
+    min-height: 156px;
+}
+
+.tech100-portfolio__model.is-disabled {
+    opacity: 0.72;
+    pointer-events: none;
+}
+
+.tech100-portfolio__overview-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.tech100-portfolio__selected-meta {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.tech100-portfolio__kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 0.9rem;
+}
+
+.tech100-portfolio__charts {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+    gap: 1.2rem;
+    margin-bottom: 1.2rem;
+}
+
+.tech100-portfolio__chart-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.tech100-portfolio__chart-card--wide {
+    grid-row: span 2;
+}
+
+.tech100-portfolio__canvas {
+    height: 220px;
+}
+
+.tech100-portfolio__canvas--lg {
+    height: 420px;
+}
+
+.tech100-portfolio__row--active {
+    background: rgba(31, 95, 191, 0.05);
+}
+
+.tech100-portfolio__insight-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.2rem;
+}
+
+.tech100-portfolio__factor-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 0.85rem;
+    margin-top: 1rem;
+}
+
+.tech100-portfolio__factor-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.95rem 1rem;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f5f8fc 100%);
+    border: 1px solid var(--border);
+}
+
+.tech100-portfolio__factor-value {
+    font-size: 1.45rem;
+    line-height: 1.1;
+    color: #183153;
+}
+
+.tech100-portfolio__constraint-list,
+.tech100-portfolio__notes {
+    margin: 1rem 0 0;
+    padding-left: 1.1rem;
+    color: var(--text);
+}
+
+.tech100-portfolio__constraint-list li,
+.tech100-portfolio__notes li {
+    margin-bottom: 0.55rem;
+}
+
+.tech100-portfolio__composition-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
+    gap: 1.2rem;
+}
+
+.tech100-portfolio__side-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+}
+
+.tech100-portfolio__table-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.tech100-portfolio__sector-chart {
+    height: 220px;
+    margin-bottom: 0.5rem;
+}
+
+.tech100-portfolio__empty {
+    margin-bottom: 1.5rem;
+}
+
 .meta-stack {
     display: flex;
     gap: 0.75rem;
@@ -3492,6 +3656,17 @@ textarea:focus {
 
     .tech100-home__facts {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tech100-portfolio__hero,
+    .tech100-portfolio__insight-grid,
+    .tech100-portfolio__composition-grid,
+    .tech100-portfolio__charts {
+        grid-template-columns: 1fr;
+    }
+
+    .tech100-portfolio__chart-card--wide {
+        grid-row: auto;
     }
 
     .tech100-nav {

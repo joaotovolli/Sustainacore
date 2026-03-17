@@ -39,6 +39,7 @@ const targets = dedupeTargets(
         { path: tech100Path, name: "tech100.png" },
         { path: "/tech100/index/", name: "index_overview.png" },
         { path: "/tech100/performance/", name: "performance.png" },
+        { path: "/tech100/portfolio/", name: "portfolio.png" },
         { path: "/tech100/constituents/", name: "constituents.png" },
         { path: "/tech100/attribution/", name: "attribution.png" },
         { path: "/tech100/stats/", name: "stats.png" },
@@ -48,6 +49,7 @@ const targets = dedupeTargets(
         { path: "/tech100/", name: "tech100.png" },
         { path: "/tech100/index/", name: "index_overview.png" },
         { path: "/tech100/performance/", name: "performance.png" },
+        { path: "/tech100/portfolio/", name: "portfolio.png" },
         { path: "/tech100/constituents/", name: "constituents.png" },
         { path: "/tech100/attribution/", name: "attribution.png" },
         { path: "/tech100/stats/", name: "stats.png" },
@@ -131,6 +133,25 @@ const validatePerformanceData = async (page) => {
   }
 };
 
+const validatePortfolioData = async (page) => {
+  const emptyState = await page.$("[data-tech100-empty-state], [data-tech100-portfolio-empty]");
+  if (emptyState) {
+    throw new Error("TECH100 portfolio empty-state detected");
+  }
+  const status = await page.$("#tech100-portfolio-status");
+  if (!status) {
+    throw new Error("TECH100 portfolio status marker missing");
+  }
+  const positionsCount = Number((await status.getAttribute("data-positions-count")) || 0);
+  if (positionsCount < 5) {
+    throw new Error(`TECH100 portfolio holdings count too low (${positionsCount})`);
+  }
+  const rows = await page.$$("table[aria-label='Top portfolio holdings'] tbody tr");
+  if (rows.length < 5) {
+    throw new Error(`TECH100 portfolio holdings rows missing (${rows.length})`);
+  }
+};
+
 const run = async () => {
   const browser = await chromium.launch();
   const context = await browser.newContext({
@@ -183,6 +204,11 @@ const run = async () => {
       );
       await validatePerformanceData(page);
     }
+    if (mode === "after" && target.path === "/tech100/portfolio/") {
+      await page.waitForSelector("#tech100-portfolio-status", { timeout: timeoutMs, state: "attached" });
+      await page.waitForSelector("#tech100-portfolio-level-chart", { timeout: timeoutMs });
+      await validatePortfolioData(page);
+    }
     if (target.path === "/tech100/index/") {
       const chart = await page.$("#tech100-level-chart");
       if (chart) {
@@ -192,6 +218,15 @@ const run = async () => {
         process.stdout.write(`saved ${chartPath}\n`);
       } else {
         process.stdout.write("chart selector not found; skipped\n");
+      }
+    }
+    if (target.path === "/tech100/portfolio/") {
+      const chart = await page.$("#tech100-portfolio-level-chart");
+      if (chart) {
+        await page.waitForTimeout(500);
+        const chartPath = path.join(outDir, "portfolio_chart.png");
+        await chart.screenshot({ path: chartPath });
+        process.stdout.write(`saved ${chartPath}\n`);
       }
     }
     if (target.path.includes("tech100")) {
