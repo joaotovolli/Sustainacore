@@ -30,6 +30,18 @@ def _coerce_date(value: object) -> _dt.date | None:
     return None
 
 
+def _is_missing_object_error(exc: Exception) -> bool:
+    text = str(exc)
+    if "ORA-00942" in text or "ORA-04043" in text:
+        return True
+    if exc.args:
+        first = exc.args[0]
+        code = getattr(first, "code", None)
+        if code in {942, 4043}:
+            return True
+    return False
+
+
 def _script_blocks(path: Path) -> list[str]:
     lines = path.read_text(encoding="utf-8").splitlines()
     blocks: list[str] = []
@@ -207,7 +219,12 @@ def fetch_portfolio_analytics_max_date() -> _dt.date | None:
     sql = "SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY"
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql)
+        try:
+            cur.execute(sql)
+        except Exception as exc:
+            if _is_missing_object_error(exc):
+                return None
+            raise
         row = cur.fetchone()
         return _coerce_date(row[0]) if row else None
 
