@@ -36,6 +36,13 @@ class Tech100PortfolioDataTests(SimpleTestCase):
         self.assertEqual(params["trade_date"], trade_date)
         self.assertEqual(params["model_code"], "TECH100_GOV")
 
+    def test_get_timeseries_rows_queries_full_history(self):
+        with mock.patch("core.tech100_portfolio_data._safe_execute_rows", return_value=[]) as exec_mock:
+            data.get_timeseries_rows()
+        sql = exec_mock.call_args.args[0]
+        self.assertIn("SC_IDX_PORTFOLIO_ANALYTICS_DAILY", sql)
+        self.assertNotIn("BETWEEN", sql)
+
     @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     def test_fixture_mode_returns_populated_snapshot(self):
         latest = data.get_latest_trade_date()

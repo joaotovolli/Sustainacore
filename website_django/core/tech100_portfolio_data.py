@@ -817,20 +817,15 @@ def get_timeseries_rows() -> list[dict[str, object]]:
             output.extend(_fixture_series_map()[model_code])
         return output
 
-    latest = get_latest_trade_date()
-    if latest is None:
-        return []
-    start_date = latest - dt.timedelta(days=500)
-    cache_key = _cache_key("timeseries", start_date.isoformat(), latest.isoformat())
+    cache_key = _cache_key("timeseries", "full_history")
 
     def _load() -> list[dict[str, object]]:
         sql = (
             "SELECT model_code, trade_date, level_tr, vol_20d, vol_60d, drawdown_to_date, ret_ytd "
             "FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY "
-            "WHERE trade_date BETWEEN :start_date AND :end_date "
             f"ORDER BY trade_date, {_order_case_sql('model_code')}"
         )
-        rows = _safe_execute_rows(sql, {"start_date": start_date, "end_date": latest})
+        rows = _safe_execute_rows(sql)
         return [
             {
                 "model_code": row[0],

@@ -17,7 +17,10 @@ class Tech100PortfolioViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "TECH100 Portfolio Analytics")
         self.assertContains(response, "data-tech100-portfolio-has-data")
-        self.assertContains(response, "Model comparison")
+        self.assertContains(response, "Portfolio analytics workspace")
+        self.assertContains(response, "Compare against")
+        self.assertNotContains(response, "Data source:")
+        self.assertNotContains(response, "Models covered")
 
     @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     def test_portfolio_view_accepts_model_selector(self):
