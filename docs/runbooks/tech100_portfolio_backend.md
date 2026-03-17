@@ -61,6 +61,22 @@ Always start with Oracle preflight:
 python3 tools/oracle/preflight_oracle.py
 ```
 
+If the VM1 Oracle env files are only readable through systemd, run the branch from an
+isolated worktree with the service-like context instead of sourcing env files:
+
+```bash
+sudo -n systemd-run --wait --collect --pipe --unit=tech100-portfolio-preflight \
+  -p WorkingDirectory=/home/opc/Sustainacore-tech100-portfolio \
+  -p User=opc \
+  -p Group=opc \
+  -p Environment=PYTHONPATH=/home/opc/Sustainacore-tech100-portfolio \
+  -p EnvironmentFile=/etc/sustainacore/db.env \
+  -p EnvironmentFile=/etc/sustainacore/index.env \
+  -p EnvironmentFile=/etc/sustainacore-ai/app.env \
+  -p EnvironmentFile=/etc/sustainacore-ai/secrets.env \
+  -- /home/opc/Sustainacore/.venv/bin/python tools/oracle/preflight_oracle.py
+```
+
 Apply DDL and dry-run the latest window:
 
 ```bash
@@ -77,6 +93,21 @@ Rebuild the full available history:
 
 ```bash
 python3 tools/index_engine/build_portfolio_analytics.py --apply-ddl
+```
+
+VM1 service-like full refresh:
+
+```bash
+sudo -n systemd-run --wait --collect --pipe --unit=tech100-portfolio-refresh \
+  -p WorkingDirectory=/home/opc/Sustainacore-tech100-portfolio \
+  -p User=opc \
+  -p Group=opc \
+  -p Environment=PYTHONPATH=/home/opc/Sustainacore-tech100-portfolio \
+  -p EnvironmentFile=/etc/sustainacore/db.env \
+  -p EnvironmentFile=/etc/sustainacore/index.env \
+  -p EnvironmentFile=/etc/sustainacore-ai/app.env \
+  -p EnvironmentFile=/etc/sustainacore-ai/secrets.env \
+  -- /home/opc/Sustainacore/.venv/bin/python tools/index_engine/build_portfolio_analytics.py --apply-ddl
 ```
 
 ## Verification SQL
