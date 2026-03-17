@@ -1,0 +1,49 @@
+TECH100 Portfolio refinement review
+Run ID: 20260317-234240
+PR: #515
+
+Defects found in the live PR #514 page before refinement
+- Header clutter from source/date/rebalance pills pushed the actual analytics below the fold.
+- Six repeated model cards created visual noise and made comparison harder instead of easier.
+- Controls were fragmented into too many small buttons and did not behave like a unified workspace.
+- The holdings and attribution presentation felt cramped and forced dense horizontal scanning.
+- Methodology and interpretation were buried as a static block instead of attached to the active analysis.
+- Chart formatting and data handling had correctness risks: basis-point labels were misleading, comparison series could misalign by date, and the "Max" range silently truncated history.
+
+What changed in this refinement
+- Replaced the repeated summary cards with a compact model rail plus a single dynamic workspace summary.
+- Consolidated range, benchmark, metric, view, attribution, and holdings controls into one sticky control bar.
+- Promoted one larger primary comparison canvas and paired it with cleaner supporting side panels.
+- Reworked holdings, attribution, and sector sections around switchable views and ranked summaries.
+- Added contextual disclosure panels for interpretation, model meaning, research inputs, and deferred analytics.
+- Fixed full-history range loading, date-aligned chart series, basis-point rendering, and percentage/date formatting.
+
+Exact capture commands
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-515/run-20260317-234240 TECH100_SCREENSHOT_PAGES=portfolio node scripts/tech100_screenshots.mjs --mode before --base-url https://sustainacore.org`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-515/run-20260317-234240 TECH100_SCREENSHOT_PAGES=portfolio node scripts/tech100_screenshots.mjs --mode after --base-url https://preview.sustainacore.org`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-515/run-20260317-234240 node scripts/tech100_screenshot_diff.mjs`
+
+Rendered verification
+- Preview route: `HTTP/2 200`
+- Production route: `HTTP/2 200`
+- Preview build marker: `0dcae26d`
+- Preview markers found: `TECH100 Portfolio Analytics`, `Portfolio analytics workspace`, `Compare against`, `Interpretation and limits`
+- Production still shows removed clutter markers: `Data source: Oracle-backed daily analytics`, `Models covered`, `Analytics posture`, `Unsupported families`
+
+Committed evidence files
+- `docs/screenshots/ui/tech100/pr-515/run-20260317-234240/before/portfolio.png`
+- `docs/screenshots/ui/tech100/pr-515/run-20260317-234240/after/portfolio.png`
+- `docs/screenshots/ui/tech100/pr-515/run-20260317-234240/diff/diff_portfolio.png`
+- `docs/screenshots/ui/tech100/pr-515/run-20260317-234240/before/portfolio_chart.png`
+- `docs/screenshots/ui/tech100/pr-515/run-20260317-234240/after/portfolio_chart.png`
+
+Image dimensions
+- before/portfolio.png: 1440x7068
+- after/portfolio.png: 1440x6644
+- diff/diff_portfolio.png: 1440x1200
+- before/portfolio_chart.png: 570x421
+- after/portfolio_chart.png: 610x431
+
+Diff summary
+- `diff_portfolio.png` generated successfully with mismatch count `181448` over the cropped 1440x1200 comparison window.
+- The reduced page height and larger chart footprint reflect the intended shift away from stacked micro-cards toward a denser workspace layout.
