@@ -3495,8 +3495,27 @@ textarea:focus {
 
 .tech100-portfolio__header-meta {
     margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
     color: var(--muted);
     font-size: 0.92rem;
+}
+
+.tech100-portfolio__header-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.32rem 0.72rem;
+    border-radius: 999px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: rgba(255, 255, 255, 0.76);
+}
+
+.tech100-portfolio__header-meta-item--lag {
+    color: #7a4f13;
+    border-color: rgba(176, 108, 31, 0.18);
+    background: rgba(176, 108, 31, 0.08);
 }
 
 .tech100-portfolio__ticker-shell,
@@ -3607,17 +3626,21 @@ textarea:focus {
 
 .tech100-portfolio__workspace-header {
     display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.9rem;
     margin-bottom: 1rem;
+}
+
+.tech100-portfolio__workspace-intro {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
 }
 
 .tech100-portfolio__workspace-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: flex-end;
+    gap: 0.55rem;
 }
 
 .tech100-portfolio__meta-chip {
@@ -3633,43 +3656,130 @@ textarea:focus {
     font-weight: 600;
 }
 
-.tech100-portfolio__control-bar {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 0.9rem;
-    align-items: end;
-    padding: 1rem 0 1.2rem;
-    margin-bottom: 1rem;
-    border-top: 1px solid rgba(24, 49, 83, 0.08);
-    border-bottom: 1px solid rgba(24, 49, 83, 0.08);
+.tech100-portfolio__meta-chip--primary {
+    background: rgba(24, 49, 83, 0.06);
 }
 
-.tech100-portfolio__control {
+.tech100-portfolio__meta-chip--secondary {
+    background: rgba(31, 95, 191, 0.05);
+}
+
+.tech100-portfolio__meta-chip--lag {
+    border-color: rgba(176, 108, 31, 0.22);
+    background: rgba(176, 108, 31, 0.08);
+    color: #7a4f13;
+}
+
+.tech100-portfolio__freshness-note {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--muted);
+    max-width: 68ch;
+}
+
+.tech100-portfolio__toolbar-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.45fr) minmax(0, 1.1fr);
+    gap: 0.65rem;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: 22px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 248, 252, 0.96)),
+        radial-gradient(circle at top left, rgba(31, 95, 191, 0.06), transparent 34%);
+}
+
+.tech100-portfolio__toolbar-group {
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: 0.8rem;
+    min-width: 0;
+    padding: 0.45rem 1rem;
 }
 
-.tech100-portfolio__control label,
-.tech100-portfolio__control-label {
-    font-size: 0.76rem;
-    letter-spacing: 0.1em;
+.tech100-portfolio__toolbar-group + .tech100-portfolio__toolbar-group {
+    border-left: 1px solid rgba(24, 49, 83, 0.08);
+}
+
+.tech100-portfolio__toolbar-heading {
+    margin: 0;
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--muted);
     font-weight: 700;
 }
 
-.tech100-portfolio__control select {
-    width: 100%;
-    padding: 0.7rem 0.85rem;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    background: #fff;
-    color: var(--text);
-    font: inherit;
+.tech100-portfolio__toolbar-inline,
+.tech100-portfolio__toolbar-segment {
+    display: flex;
+    flex-direction: column;
+    gap: 0.42rem;
 }
 
-.tech100-portfolio__control .sc-segmented,
+.tech100-portfolio__toolbar-inline + .tech100-portfolio__toolbar-inline,
+.tech100-portfolio__toolbar-segment + .tech100-portfolio__toolbar-segment,
+.tech100-portfolio__toolbar-segment + .tech100-portfolio__toolbar-inline {
+    padding-top: 0.7rem;
+    border-top: 1px solid rgba(24, 49, 83, 0.08);
+}
+
+.tech100-portfolio__toolbar-inline label,
+.tech100-portfolio__toolbar-label {
+    font-size: 0.73rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.tech100-portfolio__toolbar-select {
+    width: 100%;
+    min-width: 0;
+    padding: 0.72rem 2.25rem 0.72rem 0.9rem;
+    border-radius: 14px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: linear-gradient(180deg, rgba(248, 250, 253, 0.98), rgba(255, 255, 255, 0.98));
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.tech100-portfolio__toolbar-select:focus,
+.tech100-portfolio__toolbar-select:focus-visible {
+    outline: 2px solid rgba(31, 95, 191, 0.2);
+    outline-offset: 2px;
+}
+
+.tech100-portfolio__toolbar-segmented {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.tech100-portfolio__toolbar-shell .sc-segmented__btn {
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--text);
+    padding: 0.5rem 0.8rem;
+    box-shadow: none;
+}
+
+.tech100-portfolio__toolbar-shell .sc-segmented__btn.is-active {
+    background: rgba(31, 95, 191, 0.08);
+    color: var(--brand-blue);
+    border-color: rgba(31, 95, 191, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(31, 95, 191, 0.04);
+}
+
+.tech100-portfolio__toolbar-shell .sc-segmented__btn:hover,
+.tech100-portfolio__toolbar-shell .sc-segmented__btn:focus-visible {
+    background: rgba(31, 95, 191, 0.06);
+}
+
 .tech100-portfolio__surface-tabs,
 .tech100-portfolio__surface-head .sc-segmented {
     flex-wrap: wrap;
@@ -4010,8 +4120,20 @@ textarea:focus {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .tech100-portfolio__control-bar {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .tech100-portfolio__toolbar-shell {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.3rem;
+        padding: 0.9rem;
+    }
+
+    .tech100-portfolio__toolbar-group {
+        padding: 0.35rem 0;
+    }
+
+    .tech100-portfolio__toolbar-group + .tech100-portfolio__toolbar-group {
+        border-left: 0;
+        border-top: 1px solid rgba(24, 49, 83, 0.08);
+        padding-top: 1rem;
     }
 
     .tech100-portfolio__ticker-head,
@@ -4057,6 +4179,10 @@ textarea:focus {
     .tech100-portfolio__surface-tabs,
     .tech100-portfolio__surface-head .sc-segmented {
         width: 100%;
+    }
+
+    .tech100-portfolio__header-meta {
+        font-size: 0.88rem;
     }
 
     .tech100-portfolio__sector-chart-stage {
@@ -4110,6 +4236,13 @@ textarea:focus {
 
     .nav__link--aux {
         display: none;
+    }
+}
+
+@media (max-width: 700px) {
+    .tech100-portfolio__toolbar-shell .sc-segmented__btn {
+        flex: 1 1 calc(50% - 0.35rem);
+        justify-content: center;
     }
 }
 

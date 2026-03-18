@@ -368,8 +368,10 @@
     const labelEl = document.getElementById("portfolio-selected-label");
     const descriptionEl = document.getElementById("portfolio-selected-description");
     const noteEl = document.getElementById("portfolio-selected-note");
-    const asOfEl = document.getElementById("portfolio-summary-as-of");
+    const portfolioAsOfEl = document.getElementById("portfolio-summary-as-of");
+    const indexAsOfEl = document.getElementById("portfolio-index-as-of");
     const historyEl = document.getElementById("portfolio-history-start");
+    const freshnessNoteEl = document.getElementById("portfolio-freshness-note");
     const summaryStrip = document.getElementById("portfolio-summary-strip");
     const deltaStrip = document.getElementById("portfolio-delta-strip");
     const profileStrip = document.getElementById("portfolio-profile-strip");
@@ -379,7 +381,21 @@
     if (labelEl) labelEl.textContent = model.label;
     if (descriptionEl) descriptionEl.textContent = model.description;
     if (noteEl) noteEl.textContent = model.model_note || model.description;
-    if (asOfEl) asOfEl.innerHTML = `As of ${escapeHtml(formatAsOfDate(workspace.latestTradeDate))}`;
+    if (portfolioAsOfEl) {
+      portfolioAsOfEl.innerHTML = `Portfolio analytics through ${escapeHtml(
+        formatAsOfDate(workspace.latestTradeDate)
+      )}`;
+    }
+    if (indexAsOfEl) {
+      const hasGap =
+        Number(workspace.freshnessGapDays || 0) > 0 && Boolean(workspace.indexLatestTradeDate);
+      indexAsOfEl.hidden = !hasGap;
+      if (hasGap) {
+        indexAsOfEl.innerHTML = `Official TECH100 index through ${escapeHtml(
+          formatAsOfDate(workspace.indexLatestTradeDate)
+        )}`;
+      }
+    }
     if (historyEl) {
       if (workspace.historyStartDate) {
         historyEl.hidden = false;
@@ -387,6 +403,11 @@
       } else {
         historyEl.hidden = true;
       }
+    }
+    if (freshnessNoteEl) {
+      const note = workspace.freshnessNote || "";
+      freshnessNoteEl.hidden = !note;
+      freshnessNoteEl.textContent = note;
     }
 
     if (summaryStrip) {

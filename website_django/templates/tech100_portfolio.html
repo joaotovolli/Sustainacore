@@ -25,7 +25,14 @@
         </div>
         {% if latest_trade_date %}
           <p class="tech100-portfolio__header-meta">
-            Daily analytics through <span data-date-format="as-of" data-date-value="{{ latest_trade_date }}">{{ latest_trade_date }}</span>
+            <span class="tech100-portfolio__header-meta-item">
+              Portfolio analytics through <span data-date-format="as-of" data-date-value="{{ latest_trade_date }}">{{ latest_trade_date }}</span>
+            </span>
+            {% if freshness_gap_days %}
+              <span class="tech100-portfolio__header-meta-item tech100-portfolio__header-meta-item--lag">
+                Official TECH100 index through <span data-date-format="as-of" data-date-value="{{ index_latest_trade_date }}">{{ index_latest_trade_date }}</span>
+              </span>
+            {% endif %}
           </p>
         {% endif %}
       </div>
@@ -115,96 +122,115 @@
         <section id="workspace" class="tech100-portfolio__section">
           <div class="card sc-card tech100-portfolio__workspace-shell">
             <div class="tech100-portfolio__workspace-header">
-              <div>
+              <div class="tech100-portfolio__workspace-intro">
                 <p class="tech100-portfolio__eyebrow">Analytics workspace</p>
                 <h2 class="h2" id="portfolio-selected-label">{{ selected_model.label }}</h2>
                 <p class="muted" id="portfolio-selected-description">{{ selected_model.description }}</p>
-              </div>
-              <div class="tech100-portfolio__workspace-meta">
-                <span class="tech100-portfolio__meta-chip" id="portfolio-summary-as-of">
-                  As of <span data-date-format="as-of" data-date-value="{{ latest_trade_date }}">{{ latest_trade_date }}</span>
-                </span>
-                {% if history_start_date %}
-                  <span class="tech100-portfolio__meta-chip" id="portfolio-history-start">
-                    History from <span data-date-format="as-of" data-date-value="{{ history_start_date }}">{{ history_start_date }}</span>
+                <div class="tech100-portfolio__workspace-meta">
+                  <span class="tech100-portfolio__meta-chip tech100-portfolio__meta-chip--primary" id="portfolio-summary-as-of">
+                    Portfolio analytics through <span data-date-format="as-of" data-date-value="{{ latest_trade_date }}">{{ latest_trade_date }}</span>
                   </span>
-                {% endif %}
+                  <span class="tech100-portfolio__meta-chip tech100-portfolio__meta-chip--secondary{% if freshness_gap_days %} tech100-portfolio__meta-chip--lag{% endif %}"
+                        id="portfolio-index-as-of"
+                        {% if not freshness_gap_days %}hidden{% endif %}>
+                    Official TECH100 index through <span data-date-format="as-of" data-date-value="{{ index_latest_trade_date }}">{{ index_latest_trade_date }}</span>
+                  </span>
+                  {% if history_start_date %}
+                    <span class="tech100-portfolio__meta-chip" id="portfolio-history-start">
+                      History from <span data-date-format="as-of" data-date-value="{{ history_start_date }}">{{ history_start_date }}</span>
+                    </span>
+                  {% endif %}
+                </div>
+                <p class="tech100-portfolio__freshness-note"
+                   id="portfolio-freshness-note"
+                   {% if not freshness_note %}hidden{% endif %}>
+                  {{ freshness_note }}
+                </p>
               </div>
             </div>
 
-            <div class="tech100-portfolio__control-bar" data-tech100-portfolio-controls="1">
-              <div class="tech100-portfolio__control tech100-portfolio__control--select">
-                <label for="tech100-portfolio-model">Model</label>
-                <select id="tech100-portfolio-model" class="select">
-                  {% for model in model_definitions %}
-                    <option value="{{ model.code }}"
-                            {% if model.code == selected_model_code %}selected{% endif %}
-                            {% if not model.is_available %}disabled{% endif %}>
-                      {{ model.label }}{% if not model.is_available %} · unavailable{% endif %}
-                    </option>
-                  {% endfor %}
-                </select>
-              </div>
+            <div class="tech100-portfolio__toolbar-shell" data-tech100-portfolio-controls="1">
+              <div class="tech100-portfolio__toolbar-group tech100-portfolio__toolbar-group--selection">
+                <p class="tech100-portfolio__toolbar-heading">Selection</p>
+                <div class="tech100-portfolio__toolbar-inline">
+                  <label for="tech100-portfolio-model">Model</label>
+                  <select id="tech100-portfolio-model" class="select tech100-portfolio__toolbar-select">
+                    {% for model in model_definitions %}
+                      <option value="{{ model.code }}"
+                              {% if model.code == selected_model_code %}selected{% endif %}
+                              {% if not model.is_available %}disabled{% endif %}>
+                        {{ model.label }}{% if not model.is_available %} · unavailable{% endif %}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
 
-              <div class="tech100-portfolio__control tech100-portfolio__control--select">
-                <label for="tech100-portfolio-benchmark">Compare against</label>
-                <select id="tech100-portfolio-benchmark" class="select">
-                  {% for row in comparison_rows %}
-                    <option value="{{ row.model_code }}" {% if row.model_code == benchmark_code %}selected{% endif %}>
-                      {{ row.model_name }}
-                    </option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              <div class="tech100-portfolio__control tech100-portfolio__control--segmented">
-                <span class="tech100-portfolio__control-label">Range</span>
-                <div class="sc-segmented" aria-label="History range">
-                  {% for option in range_options %}
-                    <button type="button"
-                            class="btn btn--ghost tech100-portfolio-range sc-segmented__btn {% if option.code == range_key %}is-active{% endif %}"
-                            data-range="{{ option.code }}">
-                      {{ option.label }}
-                    </button>
-                  {% endfor %}
+                <div class="tech100-portfolio__toolbar-inline">
+                  <label for="tech100-portfolio-benchmark">Compare against</label>
+                  <select id="tech100-portfolio-benchmark" class="select tech100-portfolio__toolbar-select">
+                    {% for row in comparison_rows %}
+                      <option value="{{ row.model_code }}" {% if row.model_code == benchmark_code %}selected{% endif %}>
+                        {{ row.model_name }}
+                      </option>
+                    {% endfor %}
+                  </select>
                 </div>
               </div>
 
-              <div class="tech100-portfolio__control tech100-portfolio__control--segmented">
-                <span class="tech100-portfolio__control-label">Metric</span>
-                <div class="sc-segmented" aria-label="Chart metric">
-                  {% for option in metric_options %}
-                    <button type="button"
-                            class="btn btn--ghost tech100-portfolio-metric sc-segmented__btn {% if option.code == metric_key %}is-active{% endif %}"
-                            data-metric="{{ option.code }}">
-                      {{ option.label }}
-                    </button>
-                  {% endfor %}
+              <div class="tech100-portfolio__toolbar-group tech100-portfolio__toolbar-group--chart">
+                <p class="tech100-portfolio__toolbar-heading">Chart</p>
+                <div class="tech100-portfolio__toolbar-segment">
+                  <span class="tech100-portfolio__toolbar-label">Range</span>
+                  <div class="sc-segmented tech100-portfolio__toolbar-segmented" aria-label="History range">
+                    {% for option in range_options %}
+                      <button type="button"
+                              class="btn btn--ghost tech100-portfolio-range sc-segmented__btn {% if option.code == range_key %}is-active{% endif %}"
+                              data-range="{{ option.code }}">
+                        {{ option.label }}
+                      </button>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <div class="tech100-portfolio__toolbar-segment">
+                  <span class="tech100-portfolio__toolbar-label">Metric</span>
+                  <div class="sc-segmented tech100-portfolio__toolbar-segmented" aria-label="Chart metric">
+                    {% for option in metric_options %}
+                      <button type="button"
+                              class="btn btn--ghost tech100-portfolio-metric sc-segmented__btn {% if option.code == metric_key %}is-active{% endif %}"
+                              data-metric="{{ option.code }}">
+                        {{ option.label }}
+                      </button>
+                    {% endfor %}
+                  </div>
                 </div>
               </div>
 
-              <div class="tech100-portfolio__control tech100-portfolio__control--segmented">
-                <span class="tech100-portfolio__control-label">View</span>
-                <div class="sc-segmented" aria-label="Chart view mode">
-                  {% for option in view_options %}
-                    <button type="button"
-                            class="btn btn--ghost tech100-portfolio-view sc-segmented__btn {% if option.code == view_mode %}is-active{% endif %}"
-                            data-view="{{ option.code }}">
-                      {{ option.label }}
-                    </button>
-                  {% endfor %}
+              <div class="tech100-portfolio__toolbar-group tech100-portfolio__toolbar-group--analysis">
+                <p class="tech100-portfolio__toolbar-heading">Analysis</p>
+                <div class="tech100-portfolio__toolbar-segment">
+                  <span class="tech100-portfolio__toolbar-label">View</span>
+                  <div class="sc-segmented tech100-portfolio__toolbar-segmented" aria-label="Chart view mode">
+                    {% for option in view_options %}
+                      <button type="button"
+                              class="btn btn--ghost tech100-portfolio-view sc-segmented__btn {% if option.code == view_mode %}is-active{% endif %}"
+                              data-view="{{ option.code }}">
+                        {{ option.label }}
+                      </button>
+                    {% endfor %}
+                  </div>
                 </div>
-              </div>
 
-              <div class="tech100-portfolio__control tech100-portfolio__control--select">
-                <label for="tech100-portfolio-window">Attribution window</label>
-                <select id="tech100-portfolio-window" class="select">
-                  {% for option in attribution_options %}
-                    <option value="{{ option.code }}" {% if option.code == selected_attribution_key %}selected{% endif %}>
-                      {{ option.label }}
-                    </option>
-                  {% endfor %}
-                </select>
+                <div class="tech100-portfolio__toolbar-inline">
+                  <label for="tech100-portfolio-window">Attribution window</label>
+                  <select id="tech100-portfolio-window" class="select tech100-portfolio__toolbar-select">
+                    {% for option in attribution_options %}
+                      <option value="{{ option.code }}" {% if option.code == selected_attribution_key %}selected{% endif %}>
+                        {{ option.label }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -635,5 +661,5 @@
 
 {% block extra_scripts %}
   <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
-  <script src="{% static 'js/tech100-portfolio.js' %}?v=20260318-2" defer></script>
+  <script src="{% static 'js/tech100-portfolio.js' %}?v=20260318-3" defer></script>
 {% endblock %}
