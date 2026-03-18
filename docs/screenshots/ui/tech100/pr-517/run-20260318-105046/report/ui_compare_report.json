@@ -1,0 +1,20 @@
+{
+  "pr": 517,
+  "run_id": "run-20260318-105046",
+  "production_url": "https://sustainacore.org/tech100/portfolio/",
+  "preview_url": "https://preview.sustainacore.org/tech100/portfolio/",
+  "preview_build": "acb4f9ec",
+  "portfolio_effective_date": "2026-03-16",
+  "index_effective_date": "2026-03-17",
+  "files": {
+    "before_full": "before/portfolio.png",
+    "after_full": "after/portfolio.png",
+    "diff_full": "diff/diff_portfolio.png",
+    "before_top": "before/portfolio_top.png",
+    "after_top": "after/portfolio_top.png",
+    "before_toolbar": "before/portfolio_toolbar.png",
+    "after_toolbar": "after/portfolio_toolbar.png",
+    "before_chart": "before/portfolio_chart.png",
+    "after_chart": "after/portfolio_chart.png"
+  }
+}

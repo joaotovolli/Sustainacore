@@ -8,6 +8,7 @@ from django.shortcuts import render
 from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_safe
 
+from core.tech100_index_data import get_latest_trade_date as get_index_latest_trade_date
 from core.tech100_portfolio_data import (
     MODEL_ORDER,
     build_timeseries_payload,
@@ -101,6 +102,25 @@ def _days_stale(trade_date: Optional[dt.date]) -> Optional[int]:
         return None
     delta = dt.date.today() - trade_date
     return max(delta.days, 0)
+
+
+def _freshness_gap_days(
+    portfolio_trade_date: Optional[dt.date],
+    index_trade_date: Optional[dt.date],
+) -> int:
+    if portfolio_trade_date is None or index_trade_date is None:
+        return 0
+    return max((index_trade_date - portfolio_trade_date).days, 0)
+
+
+def _freshness_note(gap_days: int) -> Optional[str]:
+    if gap_days <= 0:
+        return None
+    day_label = "day" if gap_days == 1 else "days"
+    return (
+        f"Portfolio analytics currently trail the official TECH100 index by {gap_days} {day_label}. "
+        "The workspace stays on the portfolio effective date instead of implying benchmark freshness."
+    )
 
 
 def _pick_option(raw_value: Optional[str], *, valid_values: set[str], default: str, upper: bool = False) -> str:
@@ -353,6 +373,16 @@ def tech100_portfolio(request):
             }
             return render(request, "tech100_portfolio.html", context)
 
+        raw_index_latest_trade_date = get_index_latest_trade_date()
+        index_latest_trade_date = latest_trade_date
+        if (
+            raw_index_latest_trade_date is not None
+            and raw_index_latest_trade_date > latest_trade_date
+        ):
+            index_latest_trade_date = raw_index_latest_trade_date
+        freshness_gap_days = _freshness_gap_days(latest_trade_date, index_latest_trade_date)
+        freshness_note = _freshness_note(freshness_gap_days)
+
         timeseries_rows = get_timeseries_rows()
         history_dates = [
             row["trade_date"]
@@ -457,8 +487,13 @@ def tech100_portfolio(request):
             "data_error": False,
             "data_empty": False,
             "latest_trade_date": latest_trade_date.isoformat(),
+            "index_latest_trade_date": index_latest_trade_date.isoformat()
+            if index_latest_trade_date
+            else None,
             "history_start_date": min(history_dates).isoformat() if history_dates else None,
             "stale_days": _days_stale(latest_trade_date),
+            "freshness_gap_days": freshness_gap_days,
+            "freshness_note": freshness_note,
             "selected_model_code": selected_code,
             "selected_model": selected_meta,
             "model_definitions": model_definitions,
@@ -490,7 +525,12 @@ def tech100_portfolio(request):
             "deferred_analytics": get_deferred_analytics(),
             "workspace_payload": {
                 "latestTradeDate": latest_trade_date.isoformat(),
+                "indexLatestTradeDate": index_latest_trade_date.isoformat()
+                if index_latest_trade_date
+                else None,
                 "historyStartDate": min(history_dates).isoformat() if history_dates else None,
+                "freshnessGapDays": freshness_gap_days,
+                "freshnessNote": freshness_note,
                 "selectedModelCode": selected_code,
                 "benchmarkCode": benchmark_code,
                 "rangeKey": range_key,
