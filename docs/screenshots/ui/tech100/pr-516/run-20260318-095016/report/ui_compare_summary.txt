@@ -1,0 +1,58 @@
+TECH100 Portfolio redesign review
+Run ID: 20260318-095016
+PR: #516
+
+Defects found in the current production page before redesign
+- Layout hierarchy was still dominated by framed mini-modules instead of a single analytics workspace.
+- The top summary treatment behaved like a model-card rail rather than a market-style overview ribbon.
+- The main chart shared its row with a right-side matrix and factor rail, which diluted the hero surface.
+- The heavy dark chart slab overpowered the rest of the page and left visually awkward empty depth under the canvas.
+- Holdings, attribution, and sector content were split into cramped side columns instead of owning full-width surfaces.
+- Methodology was fragmented across several small note boxes rather than attached contextually to the active analysis.
+- The page still relied on many small button clusters, which made the interaction model feel busier than necessary.
+
+What changed in this redesign
+- Rebuilt the top of the route around a compact header and a rolling daily model tape fed by the latest live-backed portfolio summaries.
+- Consolidated model, benchmark, range, metric, view, and attribution controls into a single workspace bar.
+- Moved the main chart onto its own full-width row with lighter panel styling and a cleaner legend treatment.
+- Replaced the old right-rail matrix/factor cards with one full-width comparison table plus a selected-model lens strip.
+- Reworked holdings, attribution, and sector tilt into a tabbed full-width analytics explorer rather than split columns.
+- Consolidated research inputs, control explanations, supported analytics, and deferred analytics into cleaner expandable method drawers.
+- Tightened the full-history timeseries query to the six supported model codes so the page path no longer loads unused legacy series.
+
+Exact verification commands
+- `python3 -m py_compile website_django/core/tech100_portfolio_data.py website_django/core/tech100_portfolio_views.py`
+- `node --check website_django/static/js/tech100-portfolio.js`
+- `DJANGO_SECRET_KEY=test /tmp/sustainacore-ui-venv/bin/python website_django/manage.py check`
+- `DJANGO_SECRET_KEY=test /tmp/sustainacore-ui-venv/bin/python -m pytest -q website_django/core/tests/test_tech100_portfolio_data.py website_django/core/tests/test_tech100_portfolio_views.py website_django/core/tests/test_tech100_index_views.py website_django/core/tests/test_tech100_index_data.py`
+- `curl -sS -D /tmp/portfolio516_preview.headers -o /tmp/portfolio516_preview.html https://preview.sustainacore.org/tech100/portfolio/`
+- `curl -sS -D /tmp/portfolio516_prod.headers -o /tmp/portfolio516_prod.html https://sustainacore.org/tech100/portfolio/`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-516/run-20260318-095016 TECH100_SCREENSHOT_PAGES=portfolio node scripts/tech100_screenshots.mjs --mode before --base-url https://sustainacore.org`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-516/run-20260318-095016 TECH100_SCREENSHOT_PAGES=portfolio node scripts/tech100_screenshots.mjs --mode after --base-url https://preview.sustainacore.org`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-516/run-20260318-095016 node scripts/tech100_screenshot_diff.mjs`
+
+Rendered verification
+- Preview route: `HTTP/2 200`
+- Preview build marker: `cc87b5ae`
+- Preview markers found: `Daily model tape`, `Analytics workspace`, `Comparison table and factor lens`, `Holdings, attribution, and sector tilt`, `Method, inputs, and limits`
+- Production route: `HTTP/2 200`
+- Production markers still showing the old layout: `Portfolio analytics workspace`, `Model matrix`, `Factor and sustainable-value lens`, `Holdings and active weights`, `Interpretation and limits`
+
+Committed evidence files
+- `docs/screenshots/ui/tech100/pr-516/run-20260318-095016/before/portfolio.png`
+- `docs/screenshots/ui/tech100/pr-516/run-20260318-095016/after/portfolio.png`
+- `docs/screenshots/ui/tech100/pr-516/run-20260318-095016/diff/diff_portfolio.png`
+- `docs/screenshots/ui/tech100/pr-516/run-20260318-095016/before/portfolio_chart.png`
+- `docs/screenshots/ui/tech100/pr-516/run-20260318-095016/after/portfolio_chart.png`
+
+Image dimensions
+- before/portfolio.png: 1440x6609
+- after/portfolio.png: 1440x5954
+- diff/diff_portfolio.png: 1440x1200
+- before/portfolio_chart.png: 610x431
+- after/portfolio_chart.png: 1028x391
+
+Diff summary
+- `diff_portfolio.png` generated successfully with mismatch count `175760` over the cropped 1440x1200 comparison window.
+- The redesigned page is shorter than production and allocates more width to the chart surface and comparison table.
+- The dedicated `after/portfolio_chart.png` crop is the clearest artifact for the hero chart because the full-page screenshot can include the site sticky header while the browser stitches long-page captures.
