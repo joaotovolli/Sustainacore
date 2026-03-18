@@ -42,6 +42,8 @@ class Tech100PortfolioDataTests(SimpleTestCase):
         sql = exec_mock.call_args.args[0]
         self.assertIn("SC_IDX_PORTFOLIO_ANALYTICS_DAILY", sql)
         self.assertNotIn("BETWEEN", sql)
+        self.assertIn("WHERE model_code IN", sql)
+        self.assertIn("'TECH100_GOV_MOM'", sql)
 
     @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     def test_fixture_mode_returns_populated_snapshot(self):

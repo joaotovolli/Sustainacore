@@ -50,12 +50,11 @@
     const formatter = resolveAxisFormatter(rangeKey, data);
     const labels = chart.data?.labels || [];
     const shortFormatter =
-      typeof dateFormat.formatAxisShort === "function"
-        ? dateFormat.formatAxisShort
-        : formatter;
+      typeof dateFormat.formatAxisShort === "function" ? dateFormat.formatAxisShort : formatter;
     chart.options.scales.x.ticks = {
       ...(chart.options.scales.x.ticks || {}),
       autoSkip: true,
+      maxTicksLimit: 8,
       callback: (value, index) => {
         const label = typeof value === "number" ? labels[value] : labels[index] ?? value;
         const formatted = formatter(label ?? value);
@@ -88,11 +87,7 @@
       const start = new Date(Date.UTC(latest.getUTCFullYear(), 0, 1));
       return points.filter((point) => toDate(point.date) >= start);
     }
-    const daysByRange = {
-      "3m": 90,
-      "6m": 180,
-      "1y": 365,
-    };
+    const daysByRange = { "3m": 90, "6m": 180, "1y": 365 };
     const days = daysByRange[rangeKey] || 180;
     const cutoff = new Date(latest.getTime() - days * 24 * 60 * 60 * 1000);
     return points.filter((point) => toDate(point.date) >= cutoff);
@@ -119,9 +114,7 @@
 
   const alignSeries = (seriesMap, codes) => {
     const labels = Array.from(
-      new Set(
-        codes.flatMap((code) => (seriesMap[code] || []).map((point) => point.date))
-      )
+      new Set(codes.flatMap((code) => (seriesMap[code] || []).map((point) => point.date)))
     ).sort();
     const aligned = {};
     codes.forEach((code) => {
@@ -160,16 +153,21 @@
     return;
   }
 
-  const modelButtons = Array.from(document.querySelectorAll("[data-portfolio-model-button]"));
-  const matrixButtons = Array.from(document.querySelectorAll("[data-model-code]")).filter((el) =>
-    el.classList.contains("tech100-portfolio__matrix-row")
+  const tickerButtons = Array.from(
+    document.querySelectorAll(".tech100-portfolio__ticker-item[data-model-code]")
   );
+  const tableModelButtons = Array.from(
+    document.querySelectorAll(".tech100-portfolio__table-model[data-model-code]")
+  );
+  const comparisonRows = Array.from(document.querySelectorAll("[data-comparison-row]"));
   const rangeButtons = Array.from(document.querySelectorAll(".tech100-portfolio-range"));
   const metricButtons = Array.from(document.querySelectorAll(".tech100-portfolio-metric"));
   const viewButtons = Array.from(document.querySelectorAll(".tech100-portfolio-view"));
   const holdingsViewButtons = Array.from(
     document.querySelectorAll(".tech100-portfolio-holdings-view")
   );
+  const surfaceButtons = Array.from(document.querySelectorAll(".tech100-portfolio-surface"));
+  const modelSelect = document.getElementById("tech100-portfolio-model");
   const benchmarkSelect = document.getElementById("tech100-portfolio-benchmark");
   const attributionSelect = document.getElementById("tech100-portfolio-window");
   const mainChartCanvas = document.getElementById("tech100-portfolio-level-chart");
@@ -183,6 +181,7 @@
     viewMode: statusEl.dataset.viewMode || workspace.viewMode || "absolute",
     attributionKey: statusEl.dataset.attributionKey || workspace.attributionKey || "contrib_ytd",
     holdingsView: statusEl.dataset.holdingsView || workspace.holdingsView || "core",
+    analyticsSurface: statusEl.dataset.analyticsSurface || "holdings",
   };
 
   let mainChart = null;
@@ -210,32 +209,33 @@
     { label: "20D vol", value: summary?.vol_20d_pct, suffix: "%", decimals: 2 },
     { label: "Drawdown", value: summary?.drawdown_to_date_pct, suffix: "%", decimals: 2 },
     { label: "Top 5 weight", value: summary?.top5_weight_pct, suffix: "%", decimals: 2 },
+    { label: "Governance", value: summary?.avg_governance_score, suffix: "pts", decimals: 1 },
   ];
 
-  const buildDeltaCards = (summary, benchmarkSummary) => {
-    const delta = (selected, benchmark) =>
-      selected === null || selected === undefined || benchmark === null || benchmark === undefined
+  const buildDeltaCards = (summary, benchmark) => {
+    const delta = (selected, baseline) =>
+      selected === null || selected === undefined || baseline === null || baseline === undefined
         ? null
-        : Number(selected) - Number(benchmark);
-    const benchmarkLabel = benchmarkSummary?.short_label || benchmarkSummary?.label || "benchmark";
+        : Number(selected) - Number(baseline);
+    const benchmarkLabel = benchmark?.short_label || benchmark?.label || "benchmark";
     return [
       {
         label: "Vs benchmark YTD",
-        value: delta(summary?.ret_ytd_pct, benchmarkSummary?.summary?.ret_ytd_pct),
+        value: delta(summary?.ret_ytd_pct, benchmark?.summary?.ret_ytd_pct),
         suffix: "%",
         decimals: 2,
         detail: `Active return versus ${benchmarkLabel}.`,
       },
       {
         label: "Top 5 delta",
-        value: delta(summary?.top5_weight_pct, benchmarkSummary?.summary?.top5_weight_pct),
+        value: delta(summary?.top5_weight_pct, benchmark?.summary?.top5_weight_pct),
         suffix: "%",
         decimals: 2,
         detail: `Concentration difference versus ${benchmarkLabel}.`,
       },
       {
         label: "Governance delta",
-        value: delta(summary?.avg_governance_score, benchmarkSummary?.summary?.avg_governance_score),
+        value: delta(summary?.avg_governance_score, benchmark?.summary?.avg_governance_score),
         suffix: "pts",
         decimals: 1,
         detail: `Weighted governance composite difference versus ${benchmarkLabel}.`,
@@ -243,16 +243,16 @@
     ];
   };
 
-  const buildFactorCards = (summary, benchmarkSummary) => {
-    const delta = (selected, benchmark) =>
-      selected === null || selected === undefined || benchmark === null || benchmark === undefined
+  const buildFactorCards = (summary, benchmark) => {
+    const delta = (selected, baseline) =>
+      selected === null || selected === undefined || baseline === null || baseline === undefined
         ? null
-        : Number(selected) - Number(benchmark);
+        : Number(selected) - Number(baseline);
     const governanceDelta = delta(
       summary?.avg_governance_score,
-      benchmarkSummary?.summary?.avg_governance_score
+      benchmark?.summary?.avg_governance_score
     );
-    const top5Delta = delta(summary?.top5_weight_pct, benchmarkSummary?.summary?.top5_weight_pct);
+    const top5Delta = delta(summary?.top5_weight_pct, benchmark?.summary?.top5_weight_pct);
     return [
       {
         label: "Governance composite",
@@ -313,7 +313,7 @@
       const field = bpFieldForKey(attributionKey);
       const label = (workspace.attributionKeyLabels || {})[attributionKey];
       return {
-        note: `Attribution view keeps values in basis points and mirrors the selected ${label || attributionKey} window from the control bar.`,
+        note: `Attribution view keeps values in basis points and mirrors the selected ${label || attributionKey} window from the workspace control bar.`,
         headers: ["Company", "Weight", "Active", "1D bp", `${label || "Selected"} bp`, "Gov."],
         cells: (row) => [
           formatPct(row.model_weight_pct, 2),
@@ -369,11 +369,10 @@
     const descriptionEl = document.getElementById("portfolio-selected-description");
     const noteEl = document.getElementById("portfolio-selected-note");
     const asOfEl = document.getElementById("portfolio-summary-as-of");
-    const rebalanceEl = document.getElementById("portfolio-summary-rebalance");
     const historyEl = document.getElementById("portfolio-history-start");
-    const snapshotGrid = document.getElementById("portfolio-snapshot-grid");
-    const deltaGrid = document.getElementById("portfolio-delta-grid");
-    const factorGrid = document.getElementById("portfolio-factor-grid");
+    const summaryStrip = document.getElementById("portfolio-summary-strip");
+    const deltaStrip = document.getElementById("portfolio-delta-strip");
+    const profileStrip = document.getElementById("portfolio-profile-strip");
     const constraintList = document.getElementById("portfolio-constraint-list");
     const constraintEmpty = document.getElementById("portfolio-constraint-empty");
 
@@ -381,14 +380,6 @@
     if (descriptionEl) descriptionEl.textContent = model.description;
     if (noteEl) noteEl.textContent = model.model_note || model.description;
     if (asOfEl) asOfEl.innerHTML = `As of ${escapeHtml(formatAsOfDate(workspace.latestTradeDate))}`;
-    if (rebalanceEl) {
-      if (model.summary?.rebalance_date) {
-        rebalanceEl.hidden = false;
-        rebalanceEl.innerHTML = `Rebalanced ${escapeHtml(formatAsOfDate(model.summary.rebalance_date))}`;
-      } else {
-        rebalanceEl.hidden = true;
-      }
-    }
     if (historyEl) {
       if (workspace.historyStartDate) {
         historyEl.hidden = false;
@@ -398,14 +389,16 @@
       }
     }
 
-    if (snapshotGrid) {
-      snapshotGrid.innerHTML = buildSnapshotCards(model.summary)
+    if (summaryStrip) {
+      summaryStrip.innerHTML = buildSnapshotCards(model.summary)
         .map(
           (card) => `
-            <div class="tech100-portfolio__stat-card">
-              <span class="kpi-label">${escapeHtml(card.label)}</span>
-              <strong class="kpi-value">${
-                card.value === null || card.value === undefined ? "—" : `${formatNumber(card.value, card.decimals)}${escapeHtml(card.suffix)}`
+            <div class="tech100-portfolio__summary-item">
+              <span class="tech100-portfolio__summary-label">${escapeHtml(card.label)}</span>
+              <strong class="tech100-portfolio__summary-value">${
+                card.value === null || card.value === undefined
+                  ? "—"
+                  : `${formatNumber(card.value, card.decimals)}${escapeHtml(card.suffix)}`
               }</strong>
             </div>
           `
@@ -413,14 +406,16 @@
         .join("");
     }
 
-    if (deltaGrid) {
-      deltaGrid.innerHTML = buildDeltaCards(model.summary, benchmark)
+    if (deltaStrip) {
+      deltaStrip.innerHTML = buildDeltaCards(model.summary, benchmark)
         .map(
           (card) => `
-            <div class="tech100-portfolio__delta-card">
-              <span class="kpi-label">${escapeHtml(card.label)}</span>
-              <strong class="kpi-value">${
-                card.value === null || card.value === undefined ? "—" : `${formatNumber(card.value, card.decimals)}${escapeHtml(card.suffix)}`
+            <div class="tech100-portfolio__delta-item">
+              <span class="tech100-portfolio__delta-label">${escapeHtml(card.label)}</span>
+              <strong class="tech100-portfolio__delta-value">${
+                card.value === null || card.value === undefined
+                  ? "—"
+                  : `${formatNumber(card.value, card.decimals)}${escapeHtml(card.suffix)}`
               }</strong>
               <span class="muted">${escapeHtml(card.detail)}</span>
             </div>
@@ -429,14 +424,16 @@
         .join("");
     }
 
-    if (factorGrid) {
-      factorGrid.innerHTML = buildFactorCards(model.summary, benchmark)
+    if (profileStrip) {
+      profileStrip.innerHTML = buildFactorCards(model.summary, benchmark)
         .map(
           (card) => `
-            <div class="tech100-portfolio__factor-card">
-              <span class="kpi-label">${escapeHtml(card.label)}</span>
-              <strong class="tech100-portfolio__factor-value">${
-                card.value === null || card.value === undefined ? "—" : `${formatNumber(card.value, 2)}${escapeHtml(card.suffix)}`
+            <div class="tech100-portfolio__profile-item">
+              <span class="tech100-portfolio__summary-label">${escapeHtml(card.label)}</span>
+              <strong class="tech100-portfolio__summary-value">${
+                card.value === null || card.value === undefined
+                  ? "—"
+                  : `${formatNumber(card.value, 2)}${escapeHtml(card.suffix)}`
               }</strong>
               <span class="muted">${escapeHtml(card.detail)}</span>
             </div>
@@ -455,8 +452,7 @@
         constraintEmpty.hidden = true;
         constraintList.innerHTML = constraints
           .map(
-            (row) =>
-              `<li><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.value)}</li>`
+            (row) => `<li><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.value)}</li>`
           )
           .join("");
       }
@@ -464,17 +460,15 @@
   };
 
   const renderModelSelection = () => {
-    modelButtons.forEach((button) => {
-      const isActive = button.dataset.modelCode === state.selectedModelCode;
-      button.classList.toggle("is-active", isActive);
-      button.setAttribute("aria-selected", isActive ? "true" : "false");
-    });
-    matrixButtons.forEach((button) => {
+    tickerButtons.forEach((button) => {
       button.classList.toggle("is-active", button.dataset.modelCode === state.selectedModelCode);
     });
-    if (benchmarkSelect) {
-      benchmarkSelect.value = state.benchmarkCode;
-    }
+    comparisonRows.forEach((row) => {
+      row.classList.toggle("is-selected", row.dataset.modelCode === state.selectedModelCode);
+      row.classList.toggle("is-benchmark", row.dataset.modelCode === state.benchmarkCode);
+    });
+    if (modelSelect) modelSelect.value = state.selectedModelCode;
+    if (benchmarkSelect) benchmarkSelect.value = state.benchmarkCode;
   };
 
   const renderHoldings = () => {
@@ -504,7 +498,8 @@
 
     if (!tbody) return;
     if (!positions.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="text-center muted">No portfolio holdings available.</td></tr>`;
+      tbody.innerHTML =
+        '<tr><td colspan="6" class="text-center muted">No portfolio holdings available.</td></tr>';
       return;
     }
 
@@ -526,9 +521,7 @@
                 </div>
               </div>
             </td>
-            ${cells
-              .map((value) => `<td class="text-right">${value}</td>`)
-              .join("")}
+            ${cells.map((value) => `<td class="text-right">${value}</td>`).join("")}
           </tr>
         `;
       })
@@ -541,15 +534,17 @@
     const current = buildAttributionRankings(model.positions || [], state.attributionKey);
     const labelTop = document.getElementById("portfolio-attribution-label-top");
     const labelBottom = document.getElementById("portfolio-attribution-label-bottom");
+    const currentEl = document.getElementById("portfolio-attribution-current");
     const topList = document.getElementById("portfolio-attribution-top");
     const bottomList = document.getElementById("portfolio-attribution-bottom");
 
     if (labelTop) labelTop.textContent = current.label;
     if (labelBottom) labelBottom.textContent = current.label;
+    if (currentEl) currentEl.textContent = `${current.label} window`;
 
     const renderList = (rows) => {
       if (!rows?.length) {
-        return `<li class="is-empty">No attribution rows available.</li>`;
+        return '<li class="is-empty">No attribution rows available.</li>';
       }
       return rows
         .map(
@@ -581,9 +576,9 @@
     const rows = [...(model?.sectors || [])];
 
     if (!rows.length) {
-      chartWrap && (chartWrap.hidden = true);
-      tableWrap && (tableWrap.hidden = true);
-      emptyEl && (emptyEl.hidden = false);
+      if (chartWrap) chartWrap.hidden = true;
+      if (tableWrap) tableWrap.hidden = true;
+      if (emptyEl) emptyEl.hidden = false;
       if (sectorChart) {
         sectorChart.destroy();
         sectorChart = null;
@@ -591,9 +586,9 @@
       return;
     }
 
-    chartWrap && (chartWrap.hidden = false);
-    tableWrap && (tableWrap.hidden = false);
-    emptyEl && (emptyEl.hidden = true);
+    if (chartWrap) chartWrap.hidden = false;
+    if (tableWrap) tableWrap.hidden = false;
+    if (emptyEl) emptyEl.hidden = true;
 
     if (tbody) {
       tbody.innerHTML = rows
@@ -633,7 +628,7 @@
                 ? withAlpha("#183153", 0.82)
                 : withAlpha("#b44a3c", 0.82)
             ),
-            borderRadius: 8,
+            borderRadius: 10,
           },
         ],
       },
@@ -643,9 +638,11 @@
         maintainAspectRatio: false,
         scales: {
           x: {
-            ticks: {
-              callback: (value) => `${formatNumber(value, 1)}%`,
-            },
+            grid: { color: "rgba(24, 49, 83, 0.08)", drawBorder: false },
+            ticks: { callback: (value) => `${formatNumber(value, 1)}%` },
+          },
+          y: {
+            grid: { display: false, drawBorder: false },
           },
         },
         plugins: {
@@ -657,6 +654,13 @@
           },
         },
       },
+    });
+  };
+
+  const renderSurfaces = () => {
+    ["holdings", "attribution", "sector"].forEach((surface) => {
+      const panel = document.getElementById(`portfolio-surface-${surface}`);
+      if (panel) panel.hidden = state.analyticsSurface !== surface;
     });
   };
 
@@ -672,6 +676,9 @@
     );
     holdingsViewButtons.forEach((button) =>
       button.classList.toggle("is-active", button.dataset.holdingsView === state.holdingsView)
+    );
+    surfaceButtons.forEach((button) =>
+      button.classList.toggle("is-active", button.dataset.surface === state.analyticsSurface)
     );
     if (attributionSelect) attributionSelect.value = state.attributionKey;
   };
@@ -698,7 +705,10 @@
     const selected = getModel(state.selectedModelCode);
     const benchmark = getModel(state.benchmarkCode);
     const effectiveActive =
-      state.viewMode === "active" && selected && benchmark && state.selectedModelCode !== state.benchmarkCode;
+      state.viewMode === "active" &&
+      selected &&
+      benchmark &&
+      state.selectedModelCode !== state.benchmarkCode;
     const seriesByModel = workspace.seriesByModel || {};
 
     if (!selected || !benchmark) {
@@ -720,10 +730,7 @@
           filterByRange(seriesByModel[state.benchmarkCode] || [], state.rangeKey)
         );
         const { labels, aligned } = alignSeries(
-          {
-            selected: selectedSeries,
-            benchmark: benchmarkSeries,
-          },
+          { selected: selectedSeries, benchmark: benchmarkSeries },
           ["selected", "benchmark"]
         );
         return {
@@ -731,7 +738,7 @@
           datasets: [
             {
               label: `${selected.short_label} active return`,
-              data: labels.map((date, index) => {
+              data: labels.map((_, index) => {
                 const selectedValue = aligned.selected[index];
                 const benchmarkValue = aligned.benchmark[index];
                 return selectedValue === null || benchmarkValue === null
@@ -739,7 +746,7 @@
                   : selectedValue - benchmarkValue;
               }),
               borderColor: selected.color,
-              backgroundColor: withAlpha(selected.color, 0.18),
+              backgroundColor: withAlpha(selected.color, 0.14),
               borderWidth: 3,
               pointRadius: 0,
               tension: 0.18,
@@ -748,7 +755,9 @@
           ],
           title: `Active return versus ${benchmark.short_label}`,
           caption: `${selected.label} is shown as cumulative return spread versus ${benchmark.label} across the selected range.`,
-          legend: [{ label: `${selected.short_label} vs ${benchmark.short_label}`, color: selected.color }],
+          legend: [
+            { label: `${selected.short_label} vs ${benchmark.short_label}`, color: selected.color },
+          ],
         };
       }
 
@@ -765,18 +774,20 @@
           return {
             label: model.short_label,
             data: aligned[code],
-            borderColor:
-              code === state.selectedModelCode ? model.color : withAlpha(model.color, 0.72),
-            backgroundColor: withAlpha(model.color, code === state.selectedModelCode ? 0.18 : 0.08),
-            borderWidth: code === state.selectedModelCode ? 3 : code === state.benchmarkCode ? 2.2 : 1.5,
-            borderDash: code === state.benchmarkCode && code !== state.selectedModelCode ? [7, 4] : undefined,
+            borderColor: code === state.selectedModelCode ? model.color : withAlpha(model.color, 0.78),
+            backgroundColor: "transparent",
+            borderWidth:
+              code === state.selectedModelCode ? 3 : code === state.benchmarkCode ? 2.4 : 1.6,
+            borderDash:
+              code === state.benchmarkCode && code !== state.selectedModelCode ? [7, 4] : undefined,
             pointRadius: 0,
             tension: 0.18,
             spanGaps: false,
           };
         }),
         title: "Relative performance since the range start",
-        caption: "All supported models are rebased to the selected range so differences read as cumulative return, not raw index points.",
+        caption:
+          "All supported models are rebased to the selected range so differences read as cumulative return, not raw index points.",
         legend: codes.map((code) => {
           const model = getModel(code);
           return {
@@ -793,10 +804,7 @@
       };
     }
 
-    const title =
-      state.metricKey === "volatility"
-        ? "Rolling 20D volatility"
-        : "Drawdown history";
+    const title = state.metricKey === "volatility" ? "Rolling 20D volatility" : "Drawdown history";
     const caption =
       state.metricKey === "volatility"
         ? "Volatility is annualized and limited to the supported rolling 20-day measure published by the backend."
@@ -812,10 +820,7 @@
 
     if (effectiveActive) {
       const { labels, aligned } = alignSeries(
-        {
-          selected: selectedSeries,
-          benchmark: benchmarkSeries,
-        },
+        { selected: selectedSeries, benchmark: benchmarkSeries },
         ["selected", "benchmark"]
       );
       return {
@@ -823,7 +828,7 @@
         datasets: [
           {
             label: `${selected.short_label} spread`,
-            data: labels.map((date, index) => {
+            data: labels.map((_, index) => {
               const selectedValue = aligned.selected[index];
               const benchmarkValue = aligned.benchmark[index];
               return selectedValue === null || benchmarkValue === null
@@ -831,7 +836,7 @@
                 : selectedValue - benchmarkValue;
             }),
             borderColor: selected.color,
-            backgroundColor: withAlpha(selected.color, 0.18),
+            backgroundColor: withAlpha(selected.color, 0.12),
             borderWidth: 3,
             pointRadius: 0,
             tension: 0.18,
@@ -840,13 +845,16 @@
         ],
         title: `${title} spread versus ${benchmark.short_label}`,
         caption: `${caption} The active view subtracts ${benchmark.label} from ${selected.label}.`,
-        legend: [{ label: `${selected.short_label} vs ${benchmark.short_label}`, color: selected.color }],
+        legend: [
+          { label: `${selected.short_label} vs ${benchmark.short_label}`, color: selected.color },
+        ],
       };
     }
 
-    const codes = state.selectedModelCode === state.benchmarkCode
-      ? [state.selectedModelCode]
-      : [state.selectedModelCode, state.benchmarkCode];
+    const codes =
+      state.selectedModelCode === state.benchmarkCode
+        ? [state.selectedModelCode]
+        : [state.selectedModelCode, state.benchmarkCode];
     const { labels, aligned } = alignSeries(
       {
         [codes[0]]: selectedSeries,
@@ -865,8 +873,8 @@
               : `${model.short_label} (benchmark)`,
           data: aligned[code],
           borderColor: model.color,
-          backgroundColor: withAlpha(model.color, 0.16),
-          borderWidth: code === state.selectedModelCode ? 3 : 2.2,
+          backgroundColor: "transparent",
+          borderWidth: code === state.selectedModelCode ? 3 : 2.4,
           borderDash: code === state.selectedModelCode ? undefined : [7, 4],
           pointRadius: 0,
           tension: 0.18,
@@ -898,36 +906,30 @@
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
+        layout: { padding: { top: 8, right: 12, bottom: 6, left: 2 } },
         scales: {
           x: {
-            ticks: {
-              color: "rgba(223, 234, 252, 0.84)",
-              maxTicksLimit: 8,
-              autoSkip: true,
-            },
-            grid: {
-              color: "rgba(164, 181, 212, 0.12)",
-            },
+            grid: { display: false, drawBorder: false },
+            ticks: { color: "#5b6777", maxRotation: 0 },
           },
           y: {
+            grid: { color: "rgba(24, 49, 83, 0.08)", drawBorder: false },
             ticks: {
-              color: "rgba(223, 234, 252, 0.84)",
-              callback: (value) => formatPct(value, 1),
-            },
-            grid: {
-              color: "rgba(164, 181, 212, 0.12)",
+              color: "#3a4656",
+              callback: (value) => formatPct(value, 2),
             },
           },
         },
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: "rgba(9, 16, 28, 0.96)",
-            borderColor: "rgba(164, 181, 212, 0.22)",
-            borderWidth: 1,
-            titleColor: "#f7fbff",
-            bodyColor: "#f7fbff",
+            backgroundColor: "#14233b",
+            padding: 12,
             callbacks: {
+              title: (items) => {
+                const label = items?.[0]?.label;
+                return formatAsOfDate(label);
+              },
               label: (context) => `${context.dataset.label}: ${formatPct(context.raw, 2)}`,
             },
           },
@@ -937,25 +939,21 @@
   };
 
   const renderChart = () => {
+    if (!mainChart) return;
+    const config = buildChartConfig();
     const titleEl = document.getElementById("portfolio-chart-title");
     const captionEl = document.getElementById("portfolio-chart-caption");
-    const config = buildChartConfig();
-
     if (titleEl) titleEl.textContent = config.title;
     if (captionEl) captionEl.textContent = config.caption;
-    buildLegend(config.legend || []);
 
-    if (!mainChart) return;
-    mainChart.data = {
-      labels: config.labels,
-      datasets: config.datasets,
-    };
+    mainChart.data.labels = config.labels;
+    mainChart.data.datasets = config.datasets;
     setAxisFormatter(mainChart, state.rangeKey, config.labels);
     mainChart.update();
+    buildLegend(config.legend || []);
   };
 
   const updateUrl = () => {
-    if (!window.history?.replaceState) return;
     const url = new URL(window.location.href);
     url.searchParams.set("model", state.selectedModelCode);
     url.searchParams.set("benchmark", state.benchmarkCode);
@@ -964,81 +962,112 @@
     url.searchParams.set("view", state.viewMode);
     url.searchParams.set("window", state.attributionKey);
     url.searchParams.set("holdings", state.holdingsView);
-    window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}#comparison`);
+    history.replaceState({}, "", url);
   };
 
-  const renderAll = () => {
+  const render = () => {
     ensureValidState();
     renderModelSelection();
     syncControlState();
     renderSummary();
-    renderChart();
     renderHoldings();
     renderAttribution();
     renderSector();
-    updateUrl();
+    renderSurfaces();
+    renderChart();
     dateFormat.applyDateFormatting?.();
   };
 
-  modelButtons.forEach((button) => {
+  const selectModel = (code) => {
+    state.selectedModelCode = code;
+    render();
+    updateUrl();
+  };
+
+  tickerButtons.forEach((button) => {
     button.addEventListener("click", (event) => {
+      if (!button.dataset.modelCode) return;
       event.preventDefault();
-      if (!button.dataset.modelCode) return;
-      state.selectedModelCode = button.dataset.modelCode;
-      renderAll();
+      selectModel(button.dataset.modelCode);
     });
   });
 
-  matrixButtons.forEach((button) => {
+  tableModelButtons.forEach((button) => {
     button.addEventListener("click", () => {
       if (!button.dataset.modelCode) return;
-      state.selectedModelCode = button.dataset.modelCode;
-      renderAll();
+      selectModel(button.dataset.modelCode);
     });
   });
 
-  rangeButtons.forEach((button) => {
+  if (modelSelect) {
+    modelSelect.addEventListener("change", (event) => {
+      state.selectedModelCode = event.target.value;
+      render();
+      updateUrl();
+    });
+  }
+
+  if (benchmarkSelect) {
+    benchmarkSelect.addEventListener("change", (event) => {
+      state.benchmarkCode = event.target.value;
+      render();
+      updateUrl();
+    });
+  }
+
+  rangeButtons.forEach((button) =>
     button.addEventListener("click", () => {
-      if (!button.dataset.range) return;
       state.rangeKey = button.dataset.range;
-      renderAll();
-    });
-  });
+      renderChart();
+      syncControlState();
+      updateUrl();
+    })
+  );
 
-  metricButtons.forEach((button) => {
+  metricButtons.forEach((button) =>
     button.addEventListener("click", () => {
-      if (!button.dataset.metric) return;
       state.metricKey = button.dataset.metric;
-      renderAll();
-    });
-  });
+      renderChart();
+      syncControlState();
+      updateUrl();
+    })
+  );
 
-  viewButtons.forEach((button) => {
+  viewButtons.forEach((button) =>
     button.addEventListener("click", () => {
-      if (!button.dataset.view) return;
       state.viewMode = button.dataset.view;
-      renderAll();
-    });
-  });
+      renderChart();
+      syncControlState();
+      updateUrl();
+    })
+  );
 
-  holdingsViewButtons.forEach((button) => {
+  holdingsViewButtons.forEach((button) =>
     button.addEventListener("click", () => {
-      if (!button.dataset.holdingsView) return;
       state.holdingsView = button.dataset.holdingsView;
-      renderAll();
+      renderHoldings();
+      syncControlState();
+      updateUrl();
+    })
+  );
+
+  surfaceButtons.forEach((button) =>
+    button.addEventListener("click", () => {
+      state.analyticsSurface = button.dataset.surface;
+      renderSurfaces();
+      syncControlState();
+    })
+  );
+
+  if (attributionSelect) {
+    attributionSelect.addEventListener("change", (event) => {
+      state.attributionKey = event.target.value;
+      renderHoldings();
+      renderAttribution();
+      updateUrl();
     });
-  });
-
-  benchmarkSelect?.addEventListener("change", () => {
-    state.benchmarkCode = benchmarkSelect.value;
-    renderAll();
-  });
-
-  attributionSelect?.addEventListener("change", () => {
-    state.attributionKey = attributionSelect.value;
-    renderAll();
-  });
+  }
 
   initCharts();
-  renderAll();
+  render();
 })();

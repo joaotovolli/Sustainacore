@@ -818,11 +818,13 @@ def get_timeseries_rows() -> list[dict[str, object]]:
         return output
 
     cache_key = _cache_key("timeseries", "full_history")
+    model_code_sql = ", ".join(f"'{code}'" for code in MODEL_ORDER)
 
     def _load() -> list[dict[str, object]]:
         sql = (
             "SELECT model_code, trade_date, level_tr, vol_20d, vol_60d, drawdown_to_date, ret_ytd "
             "FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY "
+            f"WHERE model_code IN ({model_code_sql}) "
             f"ORDER BY trade_date, {_order_case_sql('model_code')}"
         )
         rows = _safe_execute_rows(sql)

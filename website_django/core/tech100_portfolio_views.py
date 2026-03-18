@@ -23,7 +23,6 @@ from core.tech100_portfolio_data import (
     get_snapshot_rows,
     get_supported_analytics,
     get_timeseries_rows,
-    summarize_contribution_windows,
 )
 
 logger = logging.getLogger(__name__)
