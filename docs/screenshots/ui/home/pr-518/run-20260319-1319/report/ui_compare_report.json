@@ -1,0 +1,38 @@
+{
+  "page": "tech100-portfolio",
+  "pr": 518,
+  "run_id": "20260319-1319",
+  "prod_url": "https://sustainacore.org/tech100/portfolio/",
+  "preview_url": "https://preview.sustainacore.org/tech100/portfolio/",
+  "prod": {
+    "status": 200,
+    "portfolio_summary_date": "2026-03-18",
+    "official_index_date": "2026-03-18",
+    "has_portfolio_effective_date": false,
+    "has_portfolio_summary_as_of": true,
+    "has_portfolio_index_as_of": true,
+    "has_portfolio_analytics_through": true,
+    "has_official_index_through": true,
+    "has_lag_copy": false,
+    "has_warning": false
+  },
+  "preview": {
+    "status": 200,
+    "portfolio_effective_date": "2026-03-18",
+    "has_portfolio_effective_date": true,
+    "has_portfolio_summary_as_of": false,
+    "has_portfolio_index_as_of": false,
+    "has_portfolio_analytics_through": false,
+    "has_official_index_through": false,
+    "has_lag_copy": false,
+    "has_warning": false
+  },
+  "diff": {
+    "path": "diff/diff_portfolio.png",
+    "mismatch_pixels": 158043
+  },
+  "ci_home_compare": {
+    "run_url": "https://github.com/joaotovolli/Sustainacore/actions/runs/23296297069",
+    "download_command": "gh run download 23296297069 -R joaotovolli/Sustainacore -n ui-home-compare"
+  }
+}
