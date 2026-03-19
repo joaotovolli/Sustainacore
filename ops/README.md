@@ -60,13 +60,16 @@ Manual deploys are also available through **Actions → Deploy after Canary → 
 
 ## VM1 git-based deploy (no manual rsync)
 
-On VM1, `sustainacore-ai.service` runs from `/opt/sustainacore-ai` (a git checkout). To deploy without manual file syncs:
+On VM1, `sustainacore-ai.service` runs from `/opt/sustainacore-ai` and the SC_IDX scheduler
+services run from `/home/opc/Sustainacore`. To keep the API and daily TECH100 pipeline on the
+same reviewed revision without manual file syncs:
 
 ```bash
 ops/scripts/deploy_vm1_git.sh
 ```
 
-The script pulls `origin/main`, installs deps if needed, restarts `sustainacore-ai.service`, and verifies `/healthz`.
+The script fast-forwards both checkouts, installs deps if needed, restarts
+`sustainacore-ai.service`, and verifies `/healthz`.
 
 ## Reverse loop (VM → GitHub → Codex Cloud)
 

@@ -35,6 +35,12 @@ def _fetch_one(sql: str, binds: Dict[str, Any] | None = None) -> tuple[Any, ...]
         return cur.fetchone()
 
 
+def _gap_days(expected: _dt.date | None, actual: _dt.date | None) -> int | None:
+    if expected is None or actual is None:
+        return None
+    return max((expected - actual).days, 0)
+
+
 def collect_health_snapshot(
     *,
     stage_durations: Dict[str, float],
@@ -90,6 +96,8 @@ def collect_health_snapshot(
     except Exception:
         portfolio_max = None
         portfolio_model_count = None
+    portfolio_gap_days = _gap_days(levels_max, portfolio_max)
+    portfolio_in_sync = portfolio_gap_days == 0 if portfolio_gap_days is not None else None
 
     next_missing = None
     if levels_max:
@@ -122,6 +130,9 @@ def collect_health_snapshot(
         "portfolio_model_count_latest_day": int(portfolio_model_count)
         if portfolio_model_count is not None
         else None,
+        "portfolio_expected_date": levels_max.isoformat() if levels_max else None,
+        "portfolio_gap_days": portfolio_gap_days,
+        "portfolio_in_sync": portfolio_in_sync,
         "next_missing_trading_day": next_missing.isoformat() if next_missing else None,
         "oracle_error_counts_24h": int(oracle_error_count) if oracle_error_count is not None else None,
         "stage_durations_sec": {k: round(v, 2) for k, v in stage_durations.items()},
@@ -143,6 +154,9 @@ def format_health_summary(health: Dict[str, Any]) -> str:
         "contrib_count_latest_day",
         "portfolio_max_date",
         "portfolio_model_count_latest_day",
+        "portfolio_expected_date",
+        "portfolio_gap_days",
+        "portfolio_in_sync",
         "next_missing_trading_day",
         "oracle_error_counts_24h",
         "last_error",

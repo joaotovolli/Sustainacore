@@ -42,7 +42,10 @@ sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
 ## Healthy signals
 - Latest `SC_IDX_JOB_RUNS` for `sc_idx_pipeline` is `OK` with `error_msg` showing `last_error=None`.
 - `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, `SC_IDX_STATS_DAILY` max dates align.
+- `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` matches the latest `SC_IDX_LEVELS` trade date after a successful run.
 - `tools/audit/output/pipeline_health_latest.txt` exists and `last_error` is empty/none.
+  - `portfolio_gap_days=0`
+  - `portfolio_in_sync=True`
 
 ## If stuck
 - Safe retry: `sudo systemctl restart sc-idx-pipeline.service`
@@ -63,3 +66,9 @@ sudo cp infra/systemd/sc-idx-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 3) Restart the affected unit or wait for the next timer tick.
+
+## Deploy note
+- VM1 deploys must refresh both repo roots:
+  - `/opt/sustainacore-ai` for `sustainacore-ai.service`
+  - `/home/opc/Sustainacore` for `sc-idx-*` timers and services
+- `ops/scripts/deploy_vm.sh` and `ops/scripts/deploy_vm1_git.sh` handle both paths.

@@ -3493,29 +3493,15 @@ textarea:focus {
     max-width: 78ch;
 }
 
-.tech100-portfolio__header-meta {
+.tech100-portfolio__effective-date {
     margin: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.55rem;
     color: var(--muted);
-    font-size: 0.92rem;
+    font-size: 0.95rem;
+    font-weight: 600;
 }
 
-.tech100-portfolio__header-meta-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.32rem 0.72rem;
-    border-radius: 999px;
-    border: 1px solid rgba(24, 49, 83, 0.08);
-    background: rgba(255, 255, 255, 0.76);
-}
-
-.tech100-portfolio__header-meta-item--lag {
-    color: #7a4f13;
-    border-color: rgba(176, 108, 31, 0.18);
-    background: rgba(176, 108, 31, 0.08);
+.tech100-portfolio__freshness-alert {
+    margin-top: 1rem;
 }
 
 .tech100-portfolio__ticker-shell,
@@ -3637,12 +3623,6 @@ textarea:focus {
     gap: 0.8rem;
 }
 
-.tech100-portfolio__workspace-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.55rem;
-}
-
 .tech100-portfolio__meta-chip {
     display: inline-flex;
     align-items: center;
@@ -3662,19 +3642,6 @@ textarea:focus {
 
 .tech100-portfolio__meta-chip--secondary {
     background: rgba(31, 95, 191, 0.05);
-}
-
-.tech100-portfolio__meta-chip--lag {
-    border-color: rgba(176, 108, 31, 0.22);
-    background: rgba(176, 108, 31, 0.08);
-    color: #7a4f13;
-}
-
-.tech100-portfolio__freshness-note {
-    margin: 0;
-    font-size: 0.9rem;
-    color: var(--muted);
-    max-width: 68ch;
 }
 
 .tech100-portfolio__toolbar-shell {
@@ -4181,7 +4148,7 @@ textarea:focus {
         width: 100%;
     }
 
-    .tech100-portfolio__header-meta {
+    .tech100-portfolio__effective-date {
         font-size: 0.88rem;
     }
 

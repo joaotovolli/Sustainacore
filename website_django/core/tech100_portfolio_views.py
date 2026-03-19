@@ -97,13 +97,6 @@ def _score_delta(selected: Optional[float], benchmark: Optional[float]) -> Optio
     return float(selected) - float(benchmark)
 
 
-def _days_stale(trade_date: Optional[dt.date]) -> Optional[int]:
-    if trade_date is None:
-        return None
-    delta = dt.date.today() - trade_date
-    return max(delta.days, 0)
-
-
 def _freshness_gap_days(
     portfolio_trade_date: Optional[dt.date],
     index_trade_date: Optional[dt.date],
@@ -113,13 +106,12 @@ def _freshness_gap_days(
     return max((index_trade_date - portfolio_trade_date).days, 0)
 
 
-def _freshness_note(gap_days: int) -> Optional[str]:
+def _freshness_warning(gap_days: int) -> Optional[str]:
     if gap_days <= 0:
         return None
-    day_label = "day" if gap_days == 1 else "days"
     return (
-        f"Portfolio analytics currently trail the official TECH100 index by {gap_days} {day_label}. "
-        "The workspace stays on the portfolio effective date instead of implying benchmark freshness."
+        "Daily portfolio refresh is pending. This page stays on the latest completed "
+        "portfolio close until the refresh completes."
     )
 
 
@@ -381,14 +373,9 @@ def tech100_portfolio(request):
         ):
             index_latest_trade_date = raw_index_latest_trade_date
         freshness_gap_days = _freshness_gap_days(latest_trade_date, index_latest_trade_date)
-        freshness_note = _freshness_note(freshness_gap_days)
+        freshness_warning = _freshness_warning(freshness_gap_days)
 
         timeseries_rows = get_timeseries_rows()
-        history_dates = [
-            row["trade_date"]
-            for row in timeseries_rows
-            if isinstance(row.get("trade_date"), dt.date)
-        ]
         snapshot_by_code = {str(row["model_code"]): row for row in snapshot_rows}
         available_codes = [code for code in MODEL_ORDER if code in snapshot_by_code]
         requested_model = (request.GET.get("model") or "TECH100").strip().upper()
@@ -487,13 +474,8 @@ def tech100_portfolio(request):
             "data_error": False,
             "data_empty": False,
             "latest_trade_date": latest_trade_date.isoformat(),
-            "index_latest_trade_date": index_latest_trade_date.isoformat()
-            if index_latest_trade_date
-            else None,
-            "history_start_date": min(history_dates).isoformat() if history_dates else None,
-            "stale_days": _days_stale(latest_trade_date),
             "freshness_gap_days": freshness_gap_days,
-            "freshness_note": freshness_note,
+            "freshness_warning": freshness_warning,
             "selected_model_code": selected_code,
             "selected_model": selected_meta,
             "model_definitions": model_definitions,
@@ -525,12 +507,6 @@ def tech100_portfolio(request):
             "deferred_analytics": get_deferred_analytics(),
             "workspace_payload": {
                 "latestTradeDate": latest_trade_date.isoformat(),
-                "indexLatestTradeDate": index_latest_trade_date.isoformat()
-                if index_latest_trade_date
-                else None,
-                "historyStartDate": min(history_dates).isoformat() if history_dates else None,
-                "freshnessGapDays": freshness_gap_days,
-                "freshnessNote": freshness_note,
                 "selectedModelCode": selected_code,
                 "benchmarkCode": benchmark_code,
                 "rangeKey": range_key,
