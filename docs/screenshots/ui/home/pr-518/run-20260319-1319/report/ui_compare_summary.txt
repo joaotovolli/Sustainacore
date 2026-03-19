@@ -20,7 +20,7 @@ After (preview)
 - Conditional warning absent in the normal state
 
 Diff
-- diff/diff_portfolio.png
+- diff/diff_portfolio.jpg
 - mismatch_pixels=158043
 
 CI artifact
