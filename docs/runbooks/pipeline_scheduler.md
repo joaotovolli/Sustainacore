@@ -1,3 +1,4 @@
+<!-- cspell:ignore readlink -->
 # TECH100 pipeline scheduler (VM1)
 
 ## Scheduler type
