@@ -1,3 +1,4 @@
+<!-- cspell:ignore readlink -->
 # TECH100 pipeline scheduler (VM1)
 
 ## Scheduler type
@@ -18,6 +19,11 @@ Systemd units load (in order):
 
 ## Repo checkout used by systemd
 - Units run from `/home/opc/Sustainacore` with `PYTHONPATH=/home/opc/Sustainacore`.
+- Confirm the resolved scheduler checkout before any investigation or deploy:
+```bash
+readlink -f /home/opc/Sustainacore
+sudo -n -u opc git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD
+```
 
 Do not print env contents in logs or docs.
 
@@ -37,15 +43,27 @@ Do not print env contents in logs or docs.
 systemctl list-timers --all | rg -i "sc-idx"
 systemctl status sc-idx-pipeline.service
 sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
+sudo -n systemd-run --wait --collect --pipe \
+  -p WorkingDirectory=/home/opc/Sustainacore \
+  -p User=opc -p Group=opc \
+  -p Environment=PYTHONPATH=/home/opc/Sustainacore \
+  -p Environment=TNS_ADMIN=/opt/adb_wallet \
+  -p EnvironmentFile=/etc/sustainacore/db.env \
+  -p EnvironmentFile=/etc/sustainacore/index.env \
+  -p EnvironmentFile=/etc/sustainacore-ai/secrets.env \
+  -- /home/opc/Sustainacore/.venv/bin/python tools/index_engine/pipeline_health.py
 ```
 
 ## Healthy signals
 - Latest `SC_IDX_JOB_RUNS` for `sc_idx_pipeline` is `OK` with `error_msg` showing `last_error=None`.
 - `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, `SC_IDX_STATS_DAILY` max dates align.
 - `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` matches the latest `SC_IDX_LEVELS` trade date after a successful run.
+- `SC_IDX_PORTFOLIO_POSITION_DAILY` matches the latest `SC_IDX_LEVELS` trade date after a successful run.
 - `tools/audit/output/pipeline_health_latest.txt` exists and `last_error` is empty/none.
   - `portfolio_gap_days=0`
   - `portfolio_in_sync=True`
+  - `portfolio_position_max_date` matches `portfolio_expected_date`
+  - `repo_head` matches the intended deployed revision
 
 ## If stuck
 - Safe retry: `sudo systemctl restart sc-idx-pipeline.service`
@@ -72,3 +90,5 @@ sudo systemctl daemon-reload
   - `/opt/sustainacore-ai` for `sustainacore-ai.service`
   - `/home/opc/Sustainacore` for `sc-idx-*` timers and services
 - `ops/scripts/deploy_vm.sh` and `ops/scripts/deploy_vm1_git.sh` handle both paths.
+- After deploy, re-run the checkout + health commands above to confirm the scheduler root and the
+  portfolio freshness fields advanced together.
