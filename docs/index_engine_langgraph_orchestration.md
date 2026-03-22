@@ -117,8 +117,26 @@ The report includes:
 - ingest/imputation/index/statistics counts
 - portfolio analytics counts
 - alert decision
+- SMTP delivery state and message ID when email is attempted
 - root cause token
 - next remediation step
+
+Alert rules:
+
+- `failed` and `blocked` attempt email by default
+- `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
+- `daily_budget_stop` only attempts email when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
+- `clean_skip` and smoke runs do not send email
+- the once-per-day gate in `SC_IDX_ALERT_STATE` is only marked after successful SMTP delivery
+
+The daily operator digest is a separate bounded script:
+
+```bash
+python tools/index_engine/daily_telemetry_report.py --send
+```
+
+It reads the latest pipeline report plus telemetry snapshot, optionally enriches with lightweight Oracle
+freshness checks, and writes artifacts under `tools/audit/output/pipeline_daily/`.
 
 ## Verification commands
 

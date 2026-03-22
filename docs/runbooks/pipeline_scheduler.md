@@ -13,6 +13,16 @@ This service runs the LangGraph orchestrator:
 python3 tools/index_engine/run_pipeline.py
 ```
 
+The daily operator report path is separate and scheduled by:
+
+- `sc-telemetry-report.timer` -> `sc-telemetry-report.service`
+
+This runs:
+
+```bash
+python3 tools/index_engine/daily_telemetry_report.py --send
+```
+
 Compatibility units still exist for focused manual use:
 
 - `sc-idx-price-ingest.timer` -> `sc-idx-price-ingest.service`
@@ -45,6 +55,7 @@ Do not print env contents in logs or docs.
 
 - price-ingest compatibility timer: `00:00`, `05:00`, `09:00`, `13:00`
 - primary LangGraph pipeline timer: `00:30`, `05:30`, `09:30`, `13:30`
+- daily SC_IDX telemetry report timer: `06:45`
 - completeness compatibility timer: weekdays `00:10`
 - index-calc compatibility timer: `01:30`
 
@@ -64,6 +75,7 @@ Do not print env contents in logs or docs.
 - `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` match the latest `SC_IDX_LEVELS` trade date after a successful run
 - latest report exists under `tools/audit/output/pipeline_runs/`
 - latest telemetry snapshot exists under `tools/audit/output/pipeline_telemetry/`
+- latest daily report exists under `tools/audit/output/pipeline_daily/`
 - `tools/audit/output/pipeline_health_latest.txt` shows no active `last_error`
 
 ## Logs and status
@@ -71,7 +83,9 @@ Do not print env contents in logs or docs.
 ```bash
 systemctl list-timers --all | rg -i "sc-idx"
 systemctl status sc-idx-pipeline.service
+systemctl status sc-telemetry-report.service
 sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
+sudo journalctl -u sc-telemetry-report.service -n 200 --no-pager
 sudo -n systemd-run --wait --collect --pipe \
   -p WorkingDirectory=/home/opc/Sustainacore \
   -p User=opc -p Group=opc \
@@ -103,11 +117,28 @@ No-provider smoke:
 python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
 ```
 
+Daily report render:
+
+```bash
+python3 tools/index_engine/daily_telemetry_report.py --skip-db --dry-run
+```
+
 Service-equivalent run:
 
 ```bash
 sudo systemctl start sc-idx-pipeline.service
+sudo systemctl start sc-telemetry-report.service
 ```
+
+## Alert behavior
+
+- `failed` and `blocked` attempt failure email by default
+- `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
+- `daily_budget_stop` only emails when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
+- `clean_skip` and smoke runs do not send email
+- same-day dedup uses `SC_IDX_ALERT_STATE`
+- the alert gate is only marked after successful SMTP delivery
+- failed SMTP sends are recorded in the run report and telemetry as `send_failed`
 
 ## Recovery
 
@@ -124,6 +155,7 @@ sudo systemctl start sc-idx-pipeline.service
 ```bash
 sudo cp infra/systemd/sc-idx-*.service /etc/systemd/system/
 sudo cp infra/systemd/sc-idx-*.timer /etc/systemd/system/
+sudo cp infra/systemd/sc-telemetry-report.* /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 

@@ -33,6 +33,7 @@ Primary systemd schedule on VM1:
 
 - ingest compatibility timer: `00:00`, `05:00`, `09:00`, `13:00` UTC
 - primary LangGraph pipeline timer: `00:30`, `05:30`, `09:30`, `13:30` UTC
+- daily operator telemetry report timer: `06:45` UTC via `sc-telemetry-report.timer`
 
 The pipeline timer is deliberately offset from ingest so VM1 can catch the latest EOD availability without overlapping the compatibility unit.
 
@@ -133,8 +134,46 @@ python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --r
 
 - Reports: `tools/audit/output/pipeline_runs/`
 - Telemetry: `tools/audit/output/pipeline_telemetry/`
+- Daily operator report: `tools/audit/output/pipeline_daily/`
 - Health snapshot: `tools/audit/output/pipeline_health_latest.txt`
 - Oracle evidence on failures: `tools/audit/output/oracle_health_*.txt`
+
+## Failure alerts and daily email
+
+Pipeline failure alerts are driven by the LangGraph `decide_alerts` stage and the Oracle-backed
+`SC_IDX_ALERT_STATE` gate.
+
+- `failed` and `blocked` attempt email by default
+- `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
+- `daily_budget_stop` only attempts email when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
+- `clean_skip` and smoke runs do not send email
+- the once-per-day gate is marked only after a successful SMTP delivery
+- if SMTP config is missing or delivery fails, the run report and telemetry record `send_failed`
+
+Required SMTP env names for the pipeline alert path:
+
+- `SMTP_USER`
+- `SMTP_PASS`
+- `MAIL_FROM`
+- `MAIL_TO`
+
+The daily SC_IDX telemetry email is a separate bounded report:
+
+```bash
+python3 tools/index_engine/daily_telemetry_report.py --send
+```
+
+Recipient order:
+
+- `SC_IDX_DAILY_REPORT_RECIPIENTS`
+- `TELEMETRY_REPORT_RECIPIENTS`
+- `MAIL_TO`
+
+The daily report reads the latest pipeline JSON/text/telemetry artifacts, optionally enriches them
+with lightweight Oracle freshness checks, and writes:
+
+- `tools/audit/output/pipeline_daily/sc_idx_daily_report_latest.json`
+- `tools/audit/output/pipeline_daily/sc_idx_daily_report_latest.txt`
 
 ## Provider readiness probe
 
