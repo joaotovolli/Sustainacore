@@ -1,4 +1,4 @@
-"""Email alerts for SC_IDX ingest."""
+"""Email alerts for SC_IDX workflows."""
 from __future__ import annotations
 
 import logging
@@ -6,8 +6,8 @@ import os
 import smtplib
 import time
 from email.message import EmailMessage
+from typing import Any, Optional
 from uuid import uuid4
-from typing import Optional
 
 _LOGGER = logging.getLogger("app.email")
 
@@ -60,21 +60,16 @@ def _record_success() -> None:
     _CIRCUIT_OPEN_UNTIL = 0.0
 
 
-def _send_email_message(
-    mail_to: str,
-    subject: str,
-    body: str,
-    mail_from: Optional[str],
+def smtp_configuration_status(
     *,
+    mail_to: Optional[str] = None,
+    mail_from: Optional[str] = None,
     timeout_override: Optional[float] = None,
     retry_attempts_override: Optional[int] = None,
     retry_base_override: Optional[float] = None,
-    html_body: Optional[str] = None,
-) -> bool:
-    _log_env_once()
-    if _circuit_open():
-        _LOGGER.warning("email_send skipped circuit_open=1")
-        return False
+) -> dict[str, Any]:
+    """Return a safe snapshot of the current SMTP configuration state."""
+
     host = _env("SMTP_HOST", "smtp.ionos.co.uk")
     port_raw = _env("SMTP_PORT", "587")
     timeout_raw = timeout_override if timeout_override is not None else _env("SMTP_TIMEOUT_SEC", "5")
@@ -82,14 +77,15 @@ def _send_email_message(
         retry_attempts_override if retry_attempts_override is not None else _env("SMTP_RETRY_ATTEMPTS", "2")
     )
     retry_base_raw = retry_base_override if retry_base_override is not None else _env("SMTP_RETRY_BASE_SEC", "0.5")
+
     try:
         port = int(port_raw) if port_raw is not None else 587
     except (TypeError, ValueError):
         port = 587
     try:
-        timeout = int(timeout_raw) if timeout_raw is not None else 10
+        timeout = float(timeout_raw) if timeout_raw is not None else 5.0
     except (TypeError, ValueError):
-        timeout = 5
+        timeout = 5.0
     try:
         retries = int(retry_raw) if retry_raw is not None else 2
     except (TypeError, ValueError):
@@ -101,22 +97,82 @@ def _send_email_message(
 
     user = _env("SMTP_USER")
     password = _env("SMTP_PASS")
+    resolved_to = mail_to or _env("MAIL_TO")
     resolved_from = mail_from or _env("MAIL_FROM", user)
 
-    missing = []
+    missing: list[str] = []
     if not host:
         missing.append("SMTP_HOST")
     if not user:
         missing.append("SMTP_USER")
     if not password:
         missing.append("SMTP_PASS")
-    if not mail_to:
+    if not resolved_to:
         missing.append("MAIL_TO")
     if not resolved_from:
         missing.append("MAIL_FROM")
-    if missing:
-        _LOGGER.warning("email_send skipped missing_env=%s", ",".join(missing))
-        return False
+
+    return {
+        "host": host,
+        "port": port,
+        "timeout_sec": timeout,
+        "retry_attempts": max(0, retries),
+        "retry_base_sec": retry_base,
+        "smtp_user_configured": bool(user),
+        "smtp_pass_configured": bool(password),
+        "mail_to_configured": bool(resolved_to),
+        "mail_from_configured": bool(resolved_from),
+        "mail_to_count": len([part for part in str(resolved_to or "").split(",") if part.strip()]),
+        "missing_env": missing,
+        "circuit_open": _circuit_open(),
+        "ready": not missing and not _circuit_open(),
+    }
+
+
+def _send_email_message(
+    mail_to: str,
+    subject: str,
+    body: str,
+    mail_from: Optional[str],
+    *,
+    timeout_override: Optional[float] = None,
+    retry_attempts_override: Optional[int] = None,
+    retry_base_override: Optional[float] = None,
+    html_body: Optional[str] = None,
+) -> dict[str, Any]:
+    _log_env_once()
+    config = smtp_configuration_status(
+        mail_to=mail_to,
+        mail_from=mail_from,
+        timeout_override=timeout_override,
+        retry_attempts_override=retry_attempts_override,
+        retry_base_override=retry_base_override,
+    )
+    host = config["host"]
+    port = int(config["port"])
+    timeout = float(config["timeout_sec"])
+    retries = int(config["retry_attempts"])
+    retry_base = float(config["retry_base_sec"])
+    user = _env("SMTP_USER")
+    password = _env("SMTP_PASS")
+    resolved_from = mail_from or _env("MAIL_FROM", user)
+    result: dict[str, Any] = {
+        **config,
+        "ok": False,
+        "attempted": False,
+        "delivery_state": "not_attempted",
+        "message_id": None,
+        "error": None,
+        "error_class": None,
+    }
+    if config["circuit_open"]:
+        _LOGGER.warning("email_send skipped circuit_open=1")
+        result["delivery_state"] = "circuit_open"
+        return result
+    if config["missing_env"]:
+        _LOGGER.warning("email_send skipped missing_env=%s", ",".join(config["missing_env"]))
+        result["delivery_state"] = "missing_env"
+        return result
 
     msg = EmailMessage()
     msg["From"] = resolved_from
@@ -130,6 +186,7 @@ def _send_email_message(
 
     attempts = max(0, retries) + 1
     for attempt in range(1, attempts + 1):
+        result["attempted"] = True
         try:
             with smtplib.SMTP(host, port, timeout=timeout) as client:
                 client.ehlo()
@@ -145,7 +202,14 @@ def _send_email_message(
                         port,
                         len(refused),
                     )
-                    return False
+                    result.update(
+                        {
+                            "delivery_state": "recipients_refused",
+                            "error_class": "SMTPRecipientsRefused",
+                            "error": f"refused={len(refused)}",
+                        }
+                    )
+                    return result
                 _record_success()
                 to_count = len([part for part in str(msg.get("To", "")).split(",") if part.strip()])
                 _LOGGER.info(
@@ -156,7 +220,15 @@ def _send_email_message(
                     to_count or 0,
                 )
                 print(f"email_send_ok message_id={msg.get('Message-ID')}")
-                return True
+                result.update(
+                    {
+                        "ok": True,
+                        "delivery_state": "sent",
+                        "message_id": msg.get("Message-ID"),
+                        "mail_to_count": to_count or 0,
+                    }
+                )
+                return result
         except smtplib.SMTPAuthenticationError as exc:
             _record_failure()
             _LOGGER.warning(
@@ -167,7 +239,14 @@ def _send_email_message(
                 port,
                 attempt,
             )
-            return False
+            result.update(
+                {
+                    "delivery_state": "smtp_auth_error",
+                    "error_class": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+            return result
         except smtplib.SMTPRecipientsRefused as exc:
             _record_failure()
             _LOGGER.warning(
@@ -178,7 +257,14 @@ def _send_email_message(
                 port,
                 attempt,
             )
-            return False
+            result.update(
+                {
+                    "delivery_state": "recipients_refused",
+                    "error_class": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+            return result
         except Exception as exc:
             _record_failure()
             _LOGGER.warning(
@@ -192,8 +278,39 @@ def _send_email_message(
             if attempt < attempts:
                 time.sleep(max(0.0, retry_base * (2 ** (attempt - 1))))
                 continue
-            return False
-    return False
+            result.update(
+                {
+                    "delivery_state": "smtp_error",
+                    "error_class": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+            return result
+    return result
+
+
+def send_email_result(
+    subject: str,
+    body: str,
+    *,
+    timeout_sec: Optional[float] = None,
+    retry_attempts: Optional[int] = None,
+    retry_base_sec: Optional[float] = None,
+    html_body: Optional[str] = None,
+) -> dict[str, Any]:
+    """Send an email using SMTP STARTTLS and return a safe delivery summary."""
+
+    mail_to = _env("MAIL_TO")
+    return _send_email_message(
+        mail_to or "",
+        subject,
+        body,
+        mail_from=None,
+        timeout_override=timeout_sec,
+        retry_attempts_override=retry_attempts,
+        retry_base_override=retry_base_sec,
+        html_body=html_body,
+    )
 
 
 def send_email(
@@ -205,16 +322,37 @@ def send_email(
     retry_base_sec: Optional[float] = None,
     html_body: Optional[str] = None,
 ) -> bool:
-    """Send an email using SMTP STARTTLS. No-op if required env vars are missing."""
+    """Send an email using SMTP STARTTLS."""
 
-    mail_to = _env("MAIL_TO")
-    if not mail_to:
-        return False
+    result = send_email_result(
+        subject,
+        body,
+        timeout_sec=timeout_sec,
+        retry_attempts=retry_attempts,
+        retry_base_sec=retry_base_sec,
+        html_body=html_body,
+    )
+    return bool(result.get("ok"))
+
+
+def send_email_to_result(
+    mail_to: str,
+    subject: str,
+    body: str,
+    *,
+    mail_from: Optional[str] = None,
+    timeout_sec: Optional[float] = None,
+    retry_attempts: Optional[int] = None,
+    retry_base_sec: Optional[float] = None,
+    html_body: Optional[str] = None,
+) -> dict[str, Any]:
+    """Send an email to the requested recipient and return a safe delivery summary."""
+
     return _send_email_message(
         mail_to,
         subject,
         body,
-        mail_from=None,
+        mail_from=mail_from,
         timeout_override=timeout_sec,
         retry_attempts_override=retry_attempts,
         retry_base_override=retry_base_sec,
@@ -235,18 +373,23 @@ def send_email_to(
 ) -> bool:
     """Send an email to the requested recipient using the configured SMTP settings."""
 
-    if not mail_to:
-        return False
-    return _send_email_message(
+    result = send_email_to_result(
         mail_to,
         subject,
         body,
         mail_from=mail_from,
-        timeout_override=timeout_sec,
-        retry_attempts_override=retry_attempts,
-        retry_base_override=retry_base_sec,
+        timeout_sec=timeout_sec,
+        retry_attempts=retry_attempts,
+        retry_base_sec=retry_base_sec,
         html_body=html_body,
     )
+    return bool(result.get("ok"))
 
 
-__all__ = ["send_email", "send_email_to"]
+__all__ = [
+    "send_email",
+    "send_email_result",
+    "send_email_to",
+    "send_email_to_result",
+    "smtp_configuration_status",
+]

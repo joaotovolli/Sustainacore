@@ -34,3 +34,4 @@ def test_fetch_portfolio_analytics_max_date_returns_none_when_table_missing(monk
         lambda: _MissingObjectConnection(),
     )
     assert db_portfolio_analytics.fetch_portfolio_analytics_max_date() is None
+    assert db_portfolio_analytics.fetch_portfolio_position_max_date() is None

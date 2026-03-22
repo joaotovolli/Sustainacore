@@ -23,8 +23,8 @@ from db_helper import get_connection
 from index_engine import db as engine_db
 from index_engine import db_index_calc
 from index_engine import db_portfolio_analytics
-from index_engine.alert_state import should_send_alert_once_per_day
-from index_engine.alerts import send_email
+from index_engine.alert_state import evaluate_alert_gate, mark_alert_sent
+from index_engine.alerts import send_email_result, smtp_configuration_status
 from index_engine.run_log import fetch_calls_used_today, finish_run, start_run
 from index_engine.run_report import (
     build_pipeline_run_summary,
@@ -1210,6 +1210,7 @@ class SCIdxPipelineRuntime:
             }
 
         portfolio_max_after = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
+        portfolio_position_max_after = db_portfolio_analytics.fetch_portfolio_position_max_date()
         if portfolio_max_after is None or portfolio_max_after < max_level_date:
             return {
                 "status": "FAILED",
@@ -1231,6 +1232,7 @@ class SCIdxPipelineRuntime:
                 "portfolio_start_date": start_day,
                 "portfolio_end_date": max_level_date,
                 "portfolio_max_after": portfolio_max_after,
+                "portfolio_position_max_after": portfolio_position_max_after,
             },
         }
 
@@ -1381,6 +1383,7 @@ class SmokePipelineRuntime(SCIdxPipelineRuntime):
                 "portfolio_start_date": _dt.date(2026, 1, 7),
                 "portfolio_end_date": _dt.date(2026, 1, 7),
                 "portfolio_max_after": _dt.date(2026, 1, 7),
+                "portfolio_position_max_after": _dt.date(2026, 1, 7),
             },
         }
 
@@ -1607,15 +1610,36 @@ def _make_stage_node(stage_name: str, runtime: PipelineRuntime):
 
 
 def _generate_run_report(state: PipelineGraphState, runtime: PipelineRuntime) -> PipelineGraphState:
+    next_state = _refresh_pipeline_report(dict(state), runtime)
+    report_paths = (next_state.get("context") or {}).get("report_paths") or {}
+    result: PipelineStageResult = {
+        "stage": "generate_run_report",
+        "status": "OK",
+        "detail": f"report_json={report_paths.get('json_path')}",
+        "detail_json": {"context": {"report_paths": report_paths}},
+        "attempts": 1,
+        "started_at": _iso_now(),
+        "ended_at": _iso_now(),
+        "duration_sec": 0.0,
+        "counts": report_paths,
+        "warnings": [],
+    }
+    _record_stage_end(runtime, next_state["run_id"], "generate_run_report", result)
+    _apply_stage_outcome(next_state, "generate_run_report", result)
+    return next_state
+
+
+def _refresh_pipeline_report(state: PipelineGraphState, runtime: PipelineRuntime) -> PipelineGraphState:
     next_state: PipelineGraphState = dict(state)
     terminal_status = _derive_terminal_status(next_state)
     next_state["terminal_status"] = terminal_status
+    report_context = dict(next_state.get("context") or {})
     summary = build_pipeline_run_summary(
         run_id=next_state["run_id"],
         terminal_status=terminal_status,
         started_at=next_state["started_at"],
         stage_results=next_state.get("stage_results") or {},
-        context=next_state.get("context") or {},
+        context=report_context,
         warnings=next_state.get("warnings") or [],
         status_reason=next_state.get("status_reason"),
         root_cause=_report_root_cause(next_state),
@@ -1627,20 +1651,25 @@ def _generate_run_report(state: PipelineGraphState, runtime: PipelineRuntime) ->
         report_text=format_pipeline_terminal_report(summary),
         report_dir=runtime.report_dir,
     )
-    result: PipelineStageResult = {
-        "stage": "generate_run_report",
-        "status": "OK",
-        "detail": f"report_json={report_paths['json_path']}",
-        "detail_json": {"context": {"report_paths": report_paths}},
-        "attempts": 1,
-        "started_at": _iso_now(),
-        "ended_at": _iso_now(),
-        "duration_sec": 0.0,
-        "counts": report_paths,
-        "warnings": [],
-    }
-    _record_stage_end(runtime, next_state["run_id"], "generate_run_report", result)
-    _apply_stage_outcome(next_state, "generate_run_report", result)
+    report_context.update({"report_paths": report_paths})
+    next_state["context"] = report_context
+    summary = build_pipeline_run_summary(
+        run_id=next_state["run_id"],
+        terminal_status=terminal_status,
+        started_at=next_state["started_at"],
+        stage_results=next_state.get("stage_results") or {},
+        context=report_context,
+        warnings=next_state.get("warnings") or [],
+        status_reason=next_state.get("status_reason"),
+        root_cause=_report_root_cause(next_state),
+        remediation=next_state.get("remediation"),
+    )
+    report_paths = write_pipeline_run_artifacts(
+        run_id=next_state["run_id"],
+        summary=summary,
+        report_text=format_pipeline_terminal_report(summary),
+        report_dir=runtime.report_dir,
+    )
     next_state["report"] = summary
     return next_state
 
@@ -1669,25 +1698,51 @@ def _decide_alerts(state: PipelineGraphState, runtime: PipelineRuntime) -> Pipel
         "decision": "skipped",
         "alert_name": alert_name,
         "email_sent": False,
+        "deduplicated": False,
+        "gate": None,
+        "delivery": None,
+        "trigger": terminal_status,
     }
     if next_state.get("smoke"):
         alert_payload["decision"] = "skipped"
     elif should_send and alert_name and subject:
         body = format_pipeline_terminal_report(summary)
         try:
-            if should_send_alert_once_per_day(alert_name, detail=body, status=TERMINAL_SHORT_STATUS[terminal_status]):
-                alert_payload["decision"] = "send"
-                alert_payload["email_sent"] = bool(send_email(subject, body))
+            gate = evaluate_alert_gate(alert_name, detail=body)
+            alert_payload["gate"] = gate
+            alert_payload["delivery"] = smtp_configuration_status()
+            if gate["should_send"]:
+                delivery = send_email_result(subject, body)
+                alert_payload["delivery"] = delivery
+                alert_payload["email_sent"] = bool(delivery.get("ok"))
+                if delivery.get("ok"):
+                    mark_alert_sent(
+                        alert_name,
+                        status=TERMINAL_SHORT_STATUS[terminal_status],
+                        detail=body,
+                    )
+                    alert_payload["decision"] = "sent"
+                else:
+                    alert_payload["decision"] = "send_failed"
+                    _append_warning(
+                        next_state,
+                        "alert_send_failed:"
+                        + str(delivery.get("delivery_state") or delivery.get("error_class") or "unknown"),
+                    )
             else:
                 alert_payload["decision"] = "suppressed"
+                alert_payload["deduplicated"] = True
         except Exception as exc:
             alert_payload["decision"] = "error"
             alert_payload["error"] = str(exc)
             _append_warning(next_state, f"alert_decision_failed:{exc}")
 
+    _merge_context(next_state, {"alert_payload": alert_payload})
+    next_state["alert"] = alert_payload
+    next_state = _refresh_pipeline_report(next_state, runtime)
     result: PipelineStageResult = {
         "stage": "decide_alerts",
-        "status": "OK" if alert_payload.get("decision") != "error" else "DEGRADED",
+        "status": "DEGRADED" if alert_payload.get("decision") in {"error", "send_failed"} else "OK",
         "detail": f"alert_decision={alert_payload['decision']}",
         "detail_json": {"context": {"alert_payload": alert_payload}},
         "attempts": 1,
@@ -1695,11 +1750,24 @@ def _decide_alerts(state: PipelineGraphState, runtime: PipelineRuntime) -> Pipel
         "ended_at": _iso_now(),
         "duration_sec": 0.0,
         "counts": alert_payload,
-        "warnings": [f"alert_decision_failed:{alert_payload['error']}"] if alert_payload.get("error") else [],
+        "warnings": (
+            [f"alert_decision_failed:{alert_payload['error']}"] if alert_payload.get("error") else []
+        )
+        + (
+            [
+                "alert_send_failed:"
+                + str(
+                    (alert_payload.get("delivery") or {}).get("delivery_state")
+                    or (alert_payload.get("delivery") or {}).get("error_class")
+                    or "unknown"
+                )
+            ]
+            if alert_payload.get("decision") == "send_failed"
+            else []
+        ),
     }
     _record_stage_end(runtime, next_state["run_id"], "decide_alerts", result)
     _apply_stage_outcome(next_state, "decide_alerts", result)
-    next_state["alert"] = alert_payload
     return next_state
 
 
@@ -1713,10 +1781,17 @@ def _emit_telemetry(state: PipelineGraphState, runtime: PipelineRuntime) -> Pipe
         "terminal_status": _derive_terminal_status(next_state),
         "status_reason": next_state.get("status_reason"),
         "root_cause": _report_root_cause(next_state),
+        "remediation": next_state.get("remediation"),
+        "started_at": next_state.get("started_at"),
+        "ended_at": (next_state.get("context") or {}).get("ended_at"),
+        "duration_sec": (report or {}).get("duration_sec"),
         "report_generated": bool(report),
         "email_sent": bool(alert.get("email_sent")),
+        "alert": alert,
         "warnings": next_state.get("warnings") or [],
         "stage_results": next_state.get("stage_results") or {},
+        "retry_counts": (report or {}).get("retry_counts"),
+        "total_retry_count": (report or {}).get("total_retry_count"),
         "freshness": {
             "canon_max_date": (next_state.get("context") or {}).get("max_canon_after_ingest")
             or (next_state.get("context") or {}).get("max_canon_before"),
@@ -1726,13 +1801,20 @@ def _emit_telemetry(state: PipelineGraphState, runtime: PipelineRuntime) -> Pipe
             "portfolio_max_date": (next_state.get("context") or {}).get("portfolio_max_after")
             or (next_state.get("context") or {}).get("max_portfolio_before"),
         },
+        "alignment": (report or {}).get("alignment"),
+        "provider_readiness": (report or {}).get("provider_readiness"),
+        "artifact_paths": dict((report or {}).get("artifact_paths") or {}),
     }
     telemetry_path = runtime.telemetry_dir / f"sc_idx_pipeline_{next_state['run_id']}.json"
     latest_path = runtime.telemetry_dir / "sc_idx_pipeline_latest.json"
+    telemetry_payload["artifact_paths"]["telemetry_path"] = str(telemetry_path)
     payload_text = _json_dumps(telemetry_payload) + "\n"
     telemetry_path.write_text(payload_text, encoding="utf-8")
     latest_path.write_text(payload_text, encoding="utf-8")
     print(f"sc_idx_pipeline_telemetry {payload_text.strip()}", flush=True)
+    _merge_context(next_state, {"telemetry_path": str(telemetry_path)})
+    next_state["telemetry"] = telemetry_payload
+    next_state = _refresh_pipeline_report(next_state, runtime)
 
     result: PipelineStageResult = {
         "stage": "emit_telemetry",
@@ -1748,7 +1830,6 @@ def _emit_telemetry(state: PipelineGraphState, runtime: PipelineRuntime) -> Pipe
     }
     _record_stage_end(runtime, next_state["run_id"], "emit_telemetry", result)
     _apply_stage_outcome(next_state, "emit_telemetry", result)
-    next_state["telemetry"] = telemetry_payload
     return next_state
 
 
@@ -1756,8 +1837,24 @@ def _persist_terminal_status(state: PipelineGraphState, runtime: PipelineRuntime
     next_state: PipelineGraphState = dict(state)
     terminal_status = _derive_terminal_status(next_state)
     short_status = TERMINAL_SHORT_STATUS[terminal_status]
-    report = dict(next_state.get("report") or {})
     context = dict(next_state.get("context") or {})
+    if not context.get("ended_at"):
+        context["ended_at"] = _iso_now()
+    next_state["context"] = context
+    next_state = _refresh_pipeline_report(next_state, runtime)
+    report = dict(next_state.get("report") or {})
+    telemetry = dict(next_state.get("telemetry") or {})
+    telemetry_path = context.get("telemetry_path")
+    if telemetry and telemetry_path:
+        telemetry["ended_at"] = context.get("ended_at")
+        telemetry["duration_sec"] = report.get("duration_sec")
+        telemetry["artifact_paths"] = dict((report or {}).get("artifact_paths") or {})
+        telemetry["artifact_paths"]["telemetry_path"] = telemetry_path
+        payload_text = _json_dumps(telemetry) + "\n"
+        telemetry_file = Path(str(telemetry_path))
+        telemetry_file.write_text(payload_text, encoding="utf-8")
+        (runtime.telemetry_dir / "sc_idx_pipeline_latest.json").write_text(payload_text, encoding="utf-8")
+        next_state["telemetry"] = telemetry
     try:
         if not next_state.get("smoke"):
             health = collect_health_snapshot(

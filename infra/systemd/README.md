@@ -40,11 +40,43 @@ sudo systemctl start sc-idx-pipeline.service
 python tools/index_engine/run_pipeline.py --restart
 ```
 
+## SC_IDX daily telemetry report (systemd)
+
+Units live under `infra/systemd/`:
+
+- `sc-telemetry-report.service`
+- `sc-telemetry-report.timer`
+
+### Behavior
+
+- Runs the daily SC_IDX operator report:
+  - `/usr/bin/python3 /home/opc/Sustainacore/tools/index_engine/daily_telemetry_report.py --send`
+- Uses the same VM1 env files as the pipeline:
+  - `/etc/sustainacore/db.env`
+  - `/etc/sustainacore/index.env`
+  - `/etc/sustainacore-ai/secrets.env`
+- Sets `TNS_ADMIN=/opt/adb_wallet`
+- Writes artifacts under `tools/audit/output/pipeline_daily/`
+- Uses `flock -n /tmp/sc-telemetry-report.lock`
+- Timer schedule: **06:45 UTC** with `Persistent=true`
+
+### Manual run
+
+```bash
+sudo systemctl start sc-telemetry-report.service
+# or directly
+python tools/index_engine/daily_telemetry_report.py --skip-db --dry-run
+```
+
 ### Install / enable
 ```bash
 sudo cp infra/systemd/sc-idx-price-ingest.* /etc/systemd/system/
+sudo cp infra/systemd/sc-idx-pipeline.* /etc/systemd/system/
+sudo cp infra/systemd/sc-telemetry-report.* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now sc-idx-price-ingest.timer
+sudo systemctl enable --now sc-idx-pipeline.timer
+sudo systemctl enable --now sc-telemetry-report.timer
 ```
 
 ### Manual run

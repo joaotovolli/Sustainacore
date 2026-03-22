@@ -146,8 +146,9 @@ Environment variables (optional):
   - Installed path on VM2:
     - `/opt/sustainacore/geoip/dbip-city-lite.mmdb`
 
-## Telemetry usage report (VM1)
-The VM1 report script still reads `WKSP_ESGAPEX.W_WEB_EVENT` directly today:
+## Web telemetry usage report (VM1, ad hoc)
+The VM1 web telemetry usage script still reads `WKSP_ESGAPEX.W_WEB_EVENT` directly today.
+It is no longer the scheduled SC_IDX daily email path:
 ```bash
 python tools/telemetry/usage_report.py --dry-run
 python tools/telemetry/usage_report.py --all --dry-run
@@ -164,14 +165,6 @@ Filters (env-driven, no secrets in Git):
 - `TELEMETRY_PROBE_PATH_REGEX` (optional)
 - `TELEMETRY_REPORT_RECIPIENTS` (comma-separated email list; fallback to `MAIL_TO`)
 - `TELEMETRY_REPORT_CALL_TIMEOUT_MS` (per-query timeout; default 30000ms)
-
-Systemd scheduling (VM1):
-```bash
-sudo cp infra/systemd/sc-telemetry-report.* /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now sc-telemetry-report.timer
-```
-Default schedule is **06:45 UTC** with a lock (`/tmp/sc-telemetry-report.lock`) to prevent overlap.
 
 ## SC_IDX operational telemetry (VM1)
 
@@ -192,14 +185,102 @@ Signals include:
 - provider readiness outcome
 - ingest/imputation/index/statistics counts
 - report generation status
-- email decision
+- email decision and SMTP delivery state
 - freshness dates for canon, levels, and stats
+- portfolio analytics freshness and alignment
+- remediation and artifact paths
 
 Use the pipeline smoke path for no-provider verification:
 
 ```bash
 python tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
 ```
+
+Failure alert semantics for the LangGraph pipeline:
+
+- `failed` and `blocked` attempt email by default
+- `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
+- `daily_budget_stop` only attempts email when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
+- `clean_skip` and smoke runs do not send email
+
+Duplicate-suppression rules:
+
+- alert gate state is stored in `SC_IDX_ALERT_STATE`
+- the once-per-day gate is evaluated before send
+- the gate is only marked after a successful SMTP delivery
+- if SMTP config is missing or delivery fails, the report records `send_failed` and the gate is not consumed
+
+Required SMTP env names for SC_IDX pipeline alerts:
+
+- `SMTP_USER`
+- `SMTP_PASS`
+- `MAIL_FROM`
+- `MAIL_TO`
+
+## SC_IDX daily telemetry report (VM1)
+
+VM1 now has a dedicated daily SC_IDX operator report instead of sending the website `W_WEB_EVENT`
+usage report. The scheduled path is:
+
+- `sc-telemetry-report.timer` -> `sc-telemetry-report.service`
+- entrypoint: `python tools/index_engine/daily_telemetry_report.py --send`
+
+The service loads:
+
+- `/etc/sustainacore/db.env`
+- `/etc/sustainacore/index.env`
+- `/etc/sustainacore-ai/secrets.env`
+- `TNS_ADMIN=/opt/adb_wallet`
+
+Artifacts written by the daily report:
+
+- `tools/audit/output/pipeline_daily/sc_idx_daily_report_<UTC_DATE>.json`
+- `tools/audit/output/pipeline_daily/sc_idx_daily_report_<UTC_DATE>.txt`
+- `tools/audit/output/pipeline_daily/sc_idx_daily_report_latest.json`
+- `tools/audit/output/pipeline_daily/sc_idx_daily_report_latest.txt`
+
+Recipient resolution order:
+
+- `SC_IDX_DAILY_REPORT_RECIPIENTS`
+- `TELEMETRY_REPORT_RECIPIENTS`
+- `MAIL_TO`
+
+Report sections:
+
+- headline summary
+- freshness and alignment
+- stage-by-stage outcome
+- data quality and operations
+- alerts and risk signals
+- artifact paths
+
+Safe verification commands:
+
+```bash
+source .venv/bin/activate
+python tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
+python tools/index_engine/daily_telemetry_report.py --skip-db --dry-run
+python - <<'PY'
+from app.index_engine.alerts import smtp_configuration_status
+print(smtp_configuration_status())
+PY
+```
+
+Expected signals:
+
+- the smoke run writes fresh pipeline JSON/text and telemetry artifacts
+- the daily report renders from those artifacts without provider calls
+- `smtp_configuration_status()` prints only booleans, counts, and missing env names, never secret values
+
+Systemd scheduling (VM1):
+
+```bash
+sudo cp infra/systemd/sc-telemetry-report.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sc-telemetry-report.timer
+```
+
+Default schedule is **06:45 UTC** with a lock (`/tmp/sc-telemetry-report.lock`) to prevent overlap.
 
 ## Tech100 related companies (VM1)
 The related companies job pre-computes top candidates for Tech100 company pages using consented telemetry:

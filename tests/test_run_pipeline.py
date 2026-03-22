@@ -14,6 +14,7 @@ from index_engine.orchestration import (
     PipelineArgs,
     PipelineGraphState,
     SmokePipelineRuntime,
+    _decide_alerts,
     build_pipeline_graph,
     run_pipeline,
 )
@@ -90,6 +91,9 @@ def test_smoke_success_writes_report_and_terminal_state(tmp_path):
     report_paths = (state.get("context") or {}).get("report_paths") or {}
     assert exit_code == 0
     assert state["terminal_status"] == "success"
+    assert state["report"]["ended_at"] is not None
+    assert state["telemetry"]["ended_at"] is not None
+    assert state["report"]["duration_sec"] is not None
     assert Path(report_paths["json_path"]).exists()
     assert Path(report_paths["text_path"]).exists()
 
@@ -229,3 +233,238 @@ def test_cli_honors_skip_ingest_env(monkeypatch):
 
     assert exit_code == 0
     assert captured["args"].skip_ingest is True
+
+
+def test_failed_alert_send_failure_does_not_mark_gate(monkeypatch, tmp_path):
+    calls = {"marked": 0}
+
+    def _fake_gate(*args, **kwargs):
+        return {"should_send": True, "reason": "first_send", "state": {}, "detail_hash": "abc"}
+
+    def _fake_mark(*args, **kwargs):
+        calls["marked"] += 1
+
+    def _fake_send(*args, **kwargs):
+        return {
+            "ok": False,
+            "attempted": True,
+            "ready": False,
+            "delivery_state": "missing_env",
+            "missing_env": ["MAIL_TO"],
+        }
+
+    monkeypatch.setattr("index_engine.orchestration.evaluate_alert_gate", _fake_gate)
+    monkeypatch.setattr("index_engine.orchestration.mark_alert_sent", _fake_mark)
+    monkeypatch.setattr("index_engine.orchestration.send_email_result", _fake_send)
+    monkeypatch.setattr(
+        "index_engine.orchestration.smtp_configuration_status",
+        lambda: {"ready": False, "missing_env": ["MAIL_TO"], "delivery_state": "missing_env"},
+    )
+
+    runtime = SmokePipelineRuntime(smoke_scenario="failed", report_dir=tmp_path, state_store=_FakeStore())
+    state = _state(
+        smoke=False,
+        terminal_status="failed",
+        status_reason="calc_index",
+        remediation="rerun calc",
+        warnings=[],
+        context={
+            "ended_at": "2026-01-07T00:05:00+00:00",
+            "levels_max_after": "2026-01-07",
+            "stats_max_after": "2026-01-07",
+            "portfolio_max_after": "2026-01-07",
+            "candidate_end_date": "2026-01-07",
+            "ready_end_date": "2026-01-07",
+            "calc_start_date": "2026-01-07",
+            "calc_end_date": "2026-01-07",
+        },
+        stage_results={
+            "calc_index": {
+                "stage": "calc_index",
+                "status": "FAILED",
+                "detail": "calc_failed",
+                "counts": {},
+                "warnings": [],
+                "attempts": 1,
+                "duration_sec": 1.2,
+            }
+        },
+    )
+
+    final_state = _decide_alerts(state, runtime)
+
+    assert final_state["alert"]["decision"] == "send_failed"
+    assert final_state["alert"]["email_sent"] is False
+    assert calls["marked"] == 0
+    assert final_state["report"]["alert_decision"]["decision"] == "send_failed"
+
+
+def test_failed_alert_suppressed_when_already_sent(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "index_engine.orchestration.evaluate_alert_gate",
+        lambda *args, **kwargs: {
+            "should_send": False,
+            "reason": "already_sent_today",
+            "state": {"last_sent_utc_date": "2026-01-07"},
+            "detail_hash": "abc",
+        },
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.smtp_configuration_status",
+        lambda: {"ready": True, "missing_env": [], "delivery_state": "not_attempted"},
+    )
+
+    runtime = SmokePipelineRuntime(smoke_scenario="failed", report_dir=tmp_path, state_store=_FakeStore())
+    state = _state(
+        smoke=False,
+        terminal_status="failed",
+        status_reason="calc_index",
+        context={"ended_at": "2026-01-07T00:05:00+00:00"},
+        stage_results={
+            "calc_index": {
+                "stage": "calc_index",
+                "status": "FAILED",
+                "detail": "calc_failed",
+                "counts": {},
+                "warnings": [],
+                "attempts": 1,
+                "duration_sec": 1.2,
+            }
+        },
+    )
+
+    final_state = _decide_alerts(state, runtime)
+
+    assert final_state["alert"]["decision"] == "suppressed"
+    assert final_state["alert"]["deduplicated"] is True
+    assert final_state["report"]["alert_decision"]["gate"]["reason"] == "already_sent_today"
+
+
+def test_blocked_alert_sends_and_marks_gate(monkeypatch, tmp_path):
+    calls = {"marked": 0, "sent": 0}
+
+    monkeypatch.setattr(
+        "index_engine.orchestration.evaluate_alert_gate",
+        lambda *args, **kwargs: {
+            "should_send": True,
+            "reason": "first_send",
+            "state": {},
+            "detail_hash": "abc",
+        },
+    )
+
+    def _fake_mark(*args, **kwargs):
+        calls["marked"] += 1
+
+    def _fake_send(*args, **kwargs):
+        calls["sent"] += 1
+        return {
+            "ok": True,
+            "attempted": True,
+            "ready": True,
+            "delivery_state": "sent",
+            "message_id": "<msg-123@sustainacore.org>",
+            "mail_to_count": 2,
+            "missing_env": [],
+        }
+
+    monkeypatch.setattr("index_engine.orchestration.mark_alert_sent", _fake_mark)
+    monkeypatch.setattr("index_engine.orchestration.send_email_result", _fake_send)
+    monkeypatch.setattr(
+        "index_engine.orchestration.smtp_configuration_status",
+        lambda: {"ready": True, "missing_env": [], "delivery_state": "not_attempted"},
+    )
+
+    runtime = SmokePipelineRuntime(smoke_scenario="blocked", report_dir=tmp_path, state_store=_FakeStore())
+    state = _state(
+        smoke=False,
+        terminal_status="blocked",
+        status_reason="acquire_lock",
+        context={"ended_at": "2026-01-07T00:05:00+00:00"},
+        stage_results={
+            "acquire_lock": {
+                "stage": "acquire_lock",
+                "status": "BLOCKED",
+                "detail": "lock_busy",
+                "counts": {},
+                "warnings": [],
+                "attempts": 1,
+                "duration_sec": 0.2,
+            }
+        },
+    )
+
+    final_state = _decide_alerts(state, runtime)
+
+    assert calls["sent"] == 1
+    assert calls["marked"] == 1
+    assert final_state["alert"]["decision"] == "sent"
+    assert final_state["alert"]["email_sent"] is True
+    assert final_state["report"]["alert_decision"]["delivery"]["message_id"] == "<msg-123@sustainacore.org>"
+
+
+def test_degraded_alert_requires_opt_in(monkeypatch, tmp_path):
+    calls = {"sent": 0}
+
+    monkeypatch.delenv("SC_IDX_EMAIL_ON_DEGRADED", raising=False)
+    monkeypatch.setattr(
+        "index_engine.orchestration.send_email_result",
+        lambda *args, **kwargs: calls.__setitem__("sent", calls["sent"] + 1),
+    )
+
+    runtime = SmokePipelineRuntime(smoke_scenario="degraded", report_dir=tmp_path, state_store=_FakeStore())
+    state = _state(
+        smoke=False,
+        terminal_status="success_with_degradation",
+        status_reason="imputation_or_replacement",
+        context={"ended_at": "2026-01-07T00:05:00+00:00"},
+        stage_results={
+            "imputation_or_replacement": {
+                "stage": "imputation_or_replacement",
+                "status": "DEGRADED",
+                "detail": "imputation_used",
+                "counts": {"total_imputed": 2},
+                "warnings": ["imputed_rows"],
+                "attempts": 1,
+                "duration_sec": 0.4,
+            }
+        },
+    )
+
+    final_state = _decide_alerts(state, runtime)
+
+    assert calls["sent"] == 0
+    assert final_state["alert"]["decision"] == "skipped"
+
+
+def test_clean_skip_alerts_are_not_sent(monkeypatch, tmp_path):
+    calls = {"sent": 0}
+
+    monkeypatch.setattr(
+        "index_engine.orchestration.send_email_result",
+        lambda *args, **kwargs: calls.__setitem__("sent", calls["sent"] + 1),
+    )
+
+    runtime = SmokePipelineRuntime(smoke_scenario="clean_skip", report_dir=tmp_path, state_store=_FakeStore())
+    state = _state(
+        smoke=False,
+        terminal_status="clean_skip",
+        status_reason="provider_not_ready",
+        context={"ended_at": "2026-01-07T00:05:00+00:00"},
+        stage_results={
+            "readiness_probe": {
+                "stage": "readiness_probe",
+                "status": "SKIP",
+                "detail": "provider_not_ready",
+                "counts": {},
+                "warnings": [],
+                "attempts": 1,
+                "duration_sec": 0.1,
+            }
+        },
+    )
+
+    final_state = _decide_alerts(state, runtime)
+
+    assert calls["sent"] == 0
+    assert final_state["alert"]["decision"] == "skipped"

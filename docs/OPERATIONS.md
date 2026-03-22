@@ -99,6 +99,7 @@
 - The SC_IDX / TECH100 operational pipeline now uses LangGraph as the primary orchestration layer.
 - Operator entrypoint: `python3 tools/index_engine/run_pipeline.py`.
 - Primary scheduler: `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`.
+- Daily operator report scheduler: `sc-telemetry-report.timer` -> `sc-telemetry-report.service`.
 - The graph is deliberately thin and low-memory:
   - no daemon
   - no Redis/Celery
@@ -108,7 +109,19 @@
 - Run artifacts:
   - reports: `tools/audit/output/pipeline_runs/`
   - telemetry: `tools/audit/output/pipeline_telemetry/`
+  - daily operator reports: `tools/audit/output/pipeline_daily/`
   - health snapshot: `tools/audit/output/pipeline_health_latest.txt`
 - Compact run status codes in `SC_IDX_JOB_RUNS`:
   - `OK`, `DEGRADED`, `SKIP`, `ERROR`, `BLOCKED`
+- Failure email policy:
+  - `failed` and `blocked` attempt email by default
+  - `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
+  - `daily_budget_stop` only emails when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
+  - `clean_skip` and smoke runs do not email
+- Alert duplicate-suppression state is stored in `SC_IDX_ALERT_STATE`; the gate is only marked after successful SMTP delivery.
+- SMTP env names for SC_IDX alerts: `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`.
+- Daily report recipients resolve in this order:
+  - `SC_IDX_DAILY_REPORT_RECIPIENTS`
+  - `TELEMETRY_REPORT_RECIPIENTS`
+  - `MAIL_TO`
 - See [SC_IDX LangGraph orchestration](index_engine_langgraph_orchestration.md) for node layout, retry rules, and verification.
