@@ -11,6 +11,7 @@ User=opc
 WorkingDirectory=/home/opc/Sustainacore
 Environment=PYTHONPATH=/home/opc/Sustainacore
 Environment=PYTHONUNBUFFERED=1
+Environment=TNS_ADMIN=/opt/adb_wallet
 EnvironmentFile=/etc/sustainacore/db.env
 EnvironmentFile=/etc/sustainacore/index.env
 EnvironmentFile=/etc/sustainacore-ai/secrets.env
@@ -18,7 +19,7 @@ RuntimeMaxSec=7200
 ExecStartPre=/usr/bin/test -r /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/test -r /etc/sustainacore/index.env
 ExecStartPre=/usr/bin/test -r /etc/sustainacore-ai/secrets.env
-ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore-ai/secrets.env /etc/sustainacore/index.env
+ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore/index.env /etc/sustainacore-ai/secrets.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/index.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env

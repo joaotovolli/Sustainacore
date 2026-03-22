@@ -1,0 +1,10 @@
+Evidence capture (prod vs local frontend override):
+- Production data/page: https://sustainacore.org/ai-regulation/
+- Local frontend override: ai_reg.css + ai_regulation.js from feature/ai-reg-atlas-followup
+- Desktop globe captures use WebGL-enabled headless Chromium
+- EU functional proof uses forced-2D capture + DOM assertions against production data
+
+Artifacts:
+- Before: ai_reg_card_desktop_3d.png, ai_reg_eu_desktop_3d.png, ai_reg_card_mobile.png
+- After: ai_reg_card_desktop_3d.png, ai_reg_eu_desktop_3d.png, ai_reg_card_mobile.png
+- Diff: ai_reg_card_desktop_3d_diff.png, ai_reg_eu_desktop_3d_diff.png, ai_reg_card_mobile_diff.png

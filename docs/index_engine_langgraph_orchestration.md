@@ -36,11 +36,12 @@ The current graph executes these nodes in order, with conditional terminal branc
 6. `completeness_check`
 7. `imputation_or_replacement`
 8. `calc_index`
-9. `generate_run_report`
-10. `decide_alerts`
-11. `emit_telemetry`
-12. `persist_terminal_status`
-13. `release_lock`
+9. `portfolio_analytics`
+10. `generate_run_report`
+11. `decide_alerts`
+12. `emit_telemetry`
+13. `persist_terminal_status`
+14. `release_lock`
 
 Important routing behavior:
 
@@ -49,6 +50,7 @@ Important routing behavior:
 - `readiness_probe` can end the run as `clean_skip` for `provider_not_ready`
 - `completeness_check` can degrade into `imputation_or_replacement` instead of failing immediately
 - `imputation_or_replacement` rechecks completeness before `calc_index`
+- `portfolio_analytics` refreshes additive TECH100 portfolio tables after index/statistics advance
 - `generate_run_report`, `decide_alerts`, `emit_telemetry`, `persist_terminal_status`, and `release_lock`
   still run after failures so the run concludes cleanly
 
@@ -113,6 +115,7 @@ The report includes:
 - provider/readiness budget data
 - retry counts
 - ingest/imputation/index/statistics counts
+- portfolio analytics counts
 - alert decision
 - root cause token
 - next remediation step

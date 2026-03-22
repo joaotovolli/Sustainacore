@@ -1,3 +1,4 @@
+<!-- cspell:ignore readlink -->
 # SustainaCore Operations Guide
 
 This guide explains the forward canary → deploy automation, the reverse "VM → GitHub" loop, and the guardrails that keep alerts actionable without flooding inboxes.
@@ -6,7 +7,8 @@ This guide explains the forward canary → deploy automation, the reverse "VM �
 
 The canary workflow (`.github/workflows/canary.yml`) runs automatically on:
 
-- Pushes to `main` that touch `app/**`, `ops/**`, `db/**`, or `.github/**`.
+- Pushes to `main` that touch VM1-relevant backend paths such as `app/**`, `tools/**`,
+  `oracle_scripts/**`, `infra/systemd/**`, `ops/**`, `db/**`, `db_helper.py`, or `.github/**`.
 - Pull requests that modify the same paths.
 - Manual runs via **Actions → Canary + Self-Heal → Run workflow**.
 - A nightly cron at 06:30 UTC.
@@ -52,6 +54,8 @@ Because preflight skips gracefully, only real execution failures trigger these a
 `.github/workflows/deploy.yml` listens for successful completions of the canary workflow on `main`.
 
 - Deploy reuses the secrets preflight; missing credentials result in a skipped run with a step summary.
+- The automatic trigger keys off the canonical workflow name `Canary + Self-Heal`; do not use the
+  workflow file path as a `workflow_run.workflows` entry.
 - The job checks out the exact commit that passed canary (`github.event.workflow_run.head_sha`) and runs `ops/scripts/deploy_vm.sh`, passing the SSH key path via `SSH_KEY`.
 - On failure, the workflow updates/creates a `<!-- deploy-alert -->` comment on the originating PR with the latest log snippet and another self-heal plan.
 - On success, the `<!-- deploy-status -->` comment confirms deployment and links the run.
@@ -60,13 +64,33 @@ Manual deploys are also available through **Actions → Deploy after Canary → 
 
 ## VM1 git-based deploy (no manual rsync)
 
-On VM1, `sustainacore-ai.service` runs from `/opt/sustainacore-ai` (a git checkout). To deploy without manual file syncs:
+On VM1, `sustainacore-ai.service` runs from `/opt/sustainacore-ai` and the SC_IDX scheduler
+services run from `/home/opc/Sustainacore`. To keep the API and daily TECH100 pipeline on the
+same reviewed revision without manual file syncs:
 
 ```bash
 ops/scripts/deploy_vm1_git.sh
 ```
 
-The script pulls `origin/main`, installs deps if needed, restarts `sustainacore-ai.service`, and verifies `/healthz`.
+The script fast-forwards both checkouts, installs deps if needed, restarts
+`sustainacore-ai.service`, and verifies `/healthz`.
+
+After any VM1 deploy that touches the daily pipeline, verify the scheduler checkout and portfolio
+freshness in the service-like environment:
+
+```bash
+readlink -f /home/opc/Sustainacore
+sudo -n -u opc git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD
+sudo -n systemd-run --wait --collect --pipe \
+  -p WorkingDirectory=/home/opc/Sustainacore \
+  -p User=opc -p Group=opc \
+  -p Environment=PYTHONPATH=/home/opc/Sustainacore \
+  -p Environment=TNS_ADMIN=/opt/adb_wallet \
+  -p EnvironmentFile=/etc/sustainacore/db.env \
+  -p EnvironmentFile=/etc/sustainacore/index.env \
+  -p EnvironmentFile=/etc/sustainacore-ai/secrets.env \
+  -- /home/opc/Sustainacore/.venv/bin/python tools/index_engine/pipeline_health.py
+```
 
 ## Reverse loop (VM → GitHub → Codex Cloud)
 

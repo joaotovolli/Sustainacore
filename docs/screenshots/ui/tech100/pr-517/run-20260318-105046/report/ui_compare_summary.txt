@@ -1,0 +1,22 @@
+Missing screenshot: home.png
+Missing screenshot: tech100.png
+Missing screenshot: index_overview.png
+Missing screenshot: performance.png
+Missing screenshot: constituents.png
+Missing screenshot: attribution.png
+Missing screenshot: stats.png
+Skipping diff for home.png (missing file)
+Skipping diff for tech100.png (missing file)
+Skipping diff for performance.png (missing file)
+diff /mnt/c/codex/Sustainacore-portfolio-toolbar/docs/screenshots/ui/tech100/pr-517/run-20260318-105046/diff/diff_portfolio.png (mismatch: 171151)
+Skipping diff for index_overview.png (missing file)
+Skipping diff for constituents.png (missing file)
+Skipping diff for attribution.png (missing file)
+Skipping diff for stats.png (missing file)
+supplemental before: before/portfolio_top.png
+supplemental after: after/portfolio_top.png
+supplemental before: before/portfolio_toolbar.png
+supplemental after: after/portfolio_toolbar.png
+preview build: acb4f9ec
+preview portfolio date: 2026-03-16
+preview index date: 2026-03-17

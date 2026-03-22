@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import subprocess
 from pathlib import Path
 from typing import Any, Dict
 
@@ -33,6 +34,35 @@ def _fetch_one(sql: str, binds: Dict[str, Any] | None = None) -> tuple[Any, ...]
         cur = conn.cursor()
         cur.execute(sql, binds or {})
         return cur.fetchone()
+
+
+def _fetch_scalar_or_none(sql: str, binds: Dict[str, Any] | None = None) -> Any:
+    try:
+        return _fetch_scalar(sql, binds)
+    except Exception:
+        return None
+
+
+def _git_head() -> str | None:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    value = proc.stdout.strip()
+    return value or None
+
+
+def _gap_days(expected: _dt.date | None, actual: _dt.date | None) -> int | None:
+    if expected is None or actual is None:
+        return None
+    return max((expected - actual).days, 0)
 
 
 def collect_health_snapshot(
@@ -77,6 +107,28 @@ def collect_health_snapshot(
             {"trade_date": contrib_max},
         )
 
+    portfolio_max = None
+    portfolio_model_count = None
+    try:
+        portfolio_max = _coerce_date(_fetch_scalar("SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY"))
+        if portfolio_max:
+            portfolio_model_count = _fetch_scalar(
+                "SELECT COUNT(DISTINCT model_code) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY "
+                "WHERE trade_date = :trade_date",
+                {"trade_date": portfolio_max},
+            )
+    except Exception:
+        portfolio_max = None
+        portfolio_model_count = None
+    portfolio_gap_days = _gap_days(levels_max, portfolio_max)
+    portfolio_in_sync = portfolio_gap_days == 0 if portfolio_gap_days is not None else None
+    portfolio_position_max = _coerce_date(
+        _fetch_scalar_or_none("SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_POSITION_DAILY")
+    )
+    portfolio_opt_inputs_max = _coerce_date(
+        _fetch_scalar_or_none("SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_OPT_INPUTS")
+    )
+
     next_missing = None
     if levels_max:
         next_missing = _coerce_date(
@@ -104,6 +156,21 @@ def collect_health_snapshot(
         "ret_1d_latest": float(ret_1d_latest) if ret_1d_latest is not None else None,
         "contrib_max_date": contrib_max.isoformat() if contrib_max else None,
         "contrib_count_latest_day": int(contrib_count_latest) if contrib_count_latest is not None else None,
+        "portfolio_max_date": portfolio_max.isoformat() if portfolio_max else None,
+        "portfolio_model_count_latest_day": int(portfolio_model_count)
+        if portfolio_model_count is not None
+        else None,
+        "portfolio_position_max_date": portfolio_position_max.isoformat()
+        if portfolio_position_max
+        else None,
+        "portfolio_opt_inputs_max_date": portfolio_opt_inputs_max.isoformat()
+        if portfolio_opt_inputs_max
+        else None,
+        "portfolio_expected_date": levels_max.isoformat() if levels_max else None,
+        "portfolio_gap_days": portfolio_gap_days,
+        "portfolio_in_sync": portfolio_in_sync,
+        "repo_root": str(REPO_ROOT.resolve()),
+        "repo_head": _git_head(),
         "next_missing_trading_day": next_missing.isoformat() if next_missing else None,
         "oracle_error_counts_24h": int(oracle_error_count) if oracle_error_count is not None else None,
         "stage_durations_sec": {k: round(v, 2) for k, v in stage_durations.items()},
@@ -123,6 +190,15 @@ def format_health_summary(health: Dict[str, Any]) -> str:
         "ret_1d_latest",
         "contrib_max_date",
         "contrib_count_latest_day",
+        "portfolio_max_date",
+        "portfolio_model_count_latest_day",
+        "portfolio_position_max_date",
+        "portfolio_opt_inputs_max_date",
+        "portfolio_expected_date",
+        "portfolio_gap_days",
+        "portfolio_in_sync",
+        "repo_root",
+        "repo_head",
         "next_missing_trading_day",
         "oracle_error_counts_24h",
         "last_error",
@@ -143,3 +219,14 @@ def write_health_artifact(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(format_health_summary(health) + "\n", encoding="utf-8")
     return output_path
+
+
+def main() -> int:
+    health = collect_health_snapshot(stage_durations={}, last_error=None)
+    print(format_health_summary(health))
+    write_health_artifact(health)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -11,12 +11,13 @@ for path in (REPO_ROOT, APP_ROOT):
         sys.path.insert(0, str(path))
 
 from index_engine.orchestration import (
+    PipelineArgs,
     PipelineGraphState,
     SmokePipelineRuntime,
     build_pipeline_graph,
     run_pipeline,
-    PipelineArgs,
 )
+import tools.index_engine.run_pipeline as pipeline_cli
 
 
 @dataclass
@@ -180,3 +181,51 @@ def test_resume_skips_completed_stage(tmp_path):
     assert runtime.preflight_calls == 0
     assert final_state["stage_results"]["preflight_oracle"]["detail"] == "oracle_user=RESUMED"
     assert final_state["terminal_status"] == "success"
+
+
+def test_graph_runs_portfolio_stage_before_report(tmp_path):
+    class PortfolioRuntime(SmokePipelineRuntime):
+        def __init__(self):
+            super().__init__(
+                smoke_scenario="success",
+                report_dir=tmp_path,
+                state_store=_FakeStore(),
+            )
+            self.portfolio_calls = 0
+
+        def portfolio_analytics(self, state):
+            self.portfolio_calls += 1
+            return {
+                "status": "OK",
+                "detail": "portfolio_advanced_to=2026-01-07",
+                "counts": {
+                    "portfolio_analytics_rows": 6,
+                    "portfolio_position_rows": 18,
+                    "portfolio_optimizer_rows": 18,
+                },
+                "context": {"portfolio_max_after": dt.date(2026, 1, 7)},
+            }
+
+    runtime = PortfolioRuntime()
+    graph = build_pipeline_graph(runtime)
+    final_state = graph.invoke(_state())
+
+    assert runtime.portfolio_calls == 1
+    assert final_state["stage_results"]["portfolio_analytics"]["status"] == "OK"
+    assert final_state["report"]["counts"]["portfolio_analytics_rows"] == 6
+
+
+def test_cli_honors_skip_ingest_env(monkeypatch):
+    captured = {}
+
+    def _fake_run_pipeline(args):
+        captured["args"] = args
+        return 0, {"terminal_status": "success"}
+
+    monkeypatch.setenv("SC_IDX_PIPELINE_SKIP_INGEST", "1")
+    monkeypatch.setattr(pipeline_cli, "run_pipeline", _fake_run_pipeline)
+
+    exit_code = pipeline_cli.main([])
+
+    assert exit_code == 0
+    assert captured["args"].skip_ingest is True

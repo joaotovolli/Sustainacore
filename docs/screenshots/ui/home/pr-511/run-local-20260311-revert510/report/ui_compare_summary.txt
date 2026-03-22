@@ -1,0 +1,2 @@
+home_desktop.png: 8556320 px (85.7003%)
+home_mobile.png: 5340656 px (91.4579%)

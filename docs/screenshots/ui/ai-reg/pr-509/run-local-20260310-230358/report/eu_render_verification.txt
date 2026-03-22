@@ -1,0 +1,10 @@
+EU render verification (forced-2D DOM proof against production data):
+- Current prod EU label: Focus: European Union
+- Current prod France path present: false
+- Current prod France stroke width: (missing)
+- Local override initial label: Brief: United States
+- Local override initial viewBox: 170.44 10.67 728.56 284.89
+- Local override EU label: Focus: European Union
+- Local override France path present: true
+- Local override France stroke width: 1.15
+- Local override EU viewBox: 422.26 33.30 222.22 150.82

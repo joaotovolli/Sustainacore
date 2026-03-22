@@ -3468,17 +3468,610 @@ textarea:focus {
     margin-bottom: 1.5rem;
 }
 
-.meta-stack {
-    display: flex;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+.tech100-portfolio__section {
+    margin-bottom: 1.6rem;
 }
 
-.meta-pill {
-    background: #eef2f6;
+.tech100-portfolio__eyebrow {
+    margin: 0;
+    font-size: 0.76rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--brand-blue);
+    font-weight: 700;
+}
+
+.tech100-portfolio__section--tight {
+    margin-bottom: 1rem;
+}
+
+.tech100-portfolio__header {
+    gap: 0.6rem;
+}
+
+.tech100-portfolio__header-copy {
+    max-width: 78ch;
+}
+
+.tech100-portfolio__effective-date {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.tech100-portfolio__freshness-alert {
+    margin-top: 1rem;
+}
+
+.tech100-portfolio__ticker-shell,
+.tech100-portfolio__workspace-shell,
+.tech100-portfolio__comparison-table-card,
+.tech100-portfolio__analytics-card,
+.tech100-portfolio__research-drawer {
+    padding: 1.4rem;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    box-shadow: 0 18px 36px rgba(15, 28, 63, 0.06);
+}
+
+.tech100-portfolio__ticker-shell {
+    overflow: hidden;
+    background:
+        radial-gradient(circle at top left, rgba(31, 95, 191, 0.08), transparent 34%),
+        linear-gradient(180deg, #ffffff 0%, #f6f9fc 100%);
+}
+
+.tech100-portfolio__ticker-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-end;
+    margin-bottom: 1rem;
+}
+
+.tech100-portfolio__ticker-head > .muted {
+    max-width: 36rem;
+    margin: 0;
+}
+
+.tech100-portfolio__ticker {
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 252, 0.98));
+}
+
+.tech100-portfolio__ticker:focus-within {
+    outline: 2px solid rgba(31, 95, 191, 0.35);
+    outline-offset: 2px;
+}
+
+.tech100-portfolio__ticker-track {
+    display: flex;
+    width: max-content;
+    animation: tech100-portfolio-ticker 34s linear infinite;
+}
+
+.tech100-portfolio__ticker:hover .tech100-portfolio__ticker-track,
+.tech100-portfolio__ticker:focus-within .tech100-portfolio__ticker-track {
+    animation-play-state: paused;
+}
+
+.tech100-portfolio__ticker-group {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.35rem 0;
+}
+
+.tech100-portfolio__ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 1rem;
+    min-width: max-content;
+    padding: 0.9rem 1.1rem;
+    color: var(--text);
+    text-decoration: none;
+    white-space: nowrap;
+    border-right: 1px solid rgba(24, 49, 83, 0.08);
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tech100-portfolio__ticker-item:hover,
+.tech100-portfolio__ticker-item:focus-visible {
+    background: rgba(31, 95, 191, 0.08);
+    outline: none;
+}
+
+.tech100-portfolio__ticker-item.is-active {
+    background: rgba(31, 95, 191, 0.12);
+}
+
+.tech100-portfolio__ticker-title {
+    font-size: 0.88rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--brand-blue);
+}
+
+.tech100-portfolio__ticker-stat {
+    font-size: 0.89rem;
+    color: var(--muted);
+}
+
+.tech100-portfolio__ticker-footnote {
+    margin: 0.9rem 0 0;
+}
+
+.tech100-portfolio__workspace-shell {
+    background:
+        radial-gradient(circle at top left, rgba(31, 95, 191, 0.07), transparent 32%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
+}
+
+.tech100-portfolio__workspace-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.tech100-portfolio__workspace-intro {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.tech100-portfolio__meta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.82rem;
     border-radius: 999px;
-    padding: 0.35rem 0.85rem;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: rgba(255, 255, 255, 0.88);
+    color: var(--text);
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.tech100-portfolio__meta-chip--primary {
+    background: rgba(24, 49, 83, 0.06);
+}
+
+.tech100-portfolio__meta-chip--secondary {
+    background: rgba(31, 95, 191, 0.05);
+}
+
+.tech100-portfolio__toolbar-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.45fr) minmax(0, 1.1fr);
+    gap: 0.65rem;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: 22px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 248, 252, 0.96)),
+        radial-gradient(circle at top left, rgba(31, 95, 191, 0.06), transparent 34%);
+}
+
+.tech100-portfolio__toolbar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    min-width: 0;
+    padding: 0.45rem 1rem;
+}
+
+.tech100-portfolio__toolbar-group + .tech100-portfolio__toolbar-group {
+    border-left: 1px solid rgba(24, 49, 83, 0.08);
+}
+
+.tech100-portfolio__toolbar-heading {
+    margin: 0;
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.tech100-portfolio__toolbar-inline,
+.tech100-portfolio__toolbar-segment {
+    display: flex;
+    flex-direction: column;
+    gap: 0.42rem;
+}
+
+.tech100-portfolio__toolbar-inline + .tech100-portfolio__toolbar-inline,
+.tech100-portfolio__toolbar-segment + .tech100-portfolio__toolbar-segment,
+.tech100-portfolio__toolbar-segment + .tech100-portfolio__toolbar-inline {
+    padding-top: 0.7rem;
+    border-top: 1px solid rgba(24, 49, 83, 0.08);
+}
+
+.tech100-portfolio__toolbar-inline label,
+.tech100-portfolio__toolbar-label {
+    font-size: 0.73rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.tech100-portfolio__toolbar-select {
+    width: 100%;
+    min-width: 0;
+    padding: 0.72rem 2.25rem 0.72rem 0.9rem;
+    border-radius: 14px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: linear-gradient(180deg, rgba(248, 250, 253, 0.98), rgba(255, 255, 255, 0.98));
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.tech100-portfolio__toolbar-select:focus,
+.tech100-portfolio__toolbar-select:focus-visible {
+    outline: 2px solid rgba(31, 95, 191, 0.2);
+    outline-offset: 2px;
+}
+
+.tech100-portfolio__toolbar-segmented {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.tech100-portfolio__toolbar-shell .sc-segmented__btn {
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--text);
+    padding: 0.5rem 0.8rem;
+    box-shadow: none;
+}
+
+.tech100-portfolio__toolbar-shell .sc-segmented__btn.is-active {
+    background: rgba(31, 95, 191, 0.08);
+    color: var(--brand-blue);
+    border-color: rgba(31, 95, 191, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(31, 95, 191, 0.04);
+}
+
+.tech100-portfolio__toolbar-shell .sc-segmented__btn:hover,
+.tech100-portfolio__toolbar-shell .sc-segmented__btn:focus-visible {
+    background: rgba(31, 95, 191, 0.06);
+}
+
+.tech100-portfolio__surface-tabs,
+.tech100-portfolio__surface-head .sc-segmented {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.tech100-portfolio__summary-strip,
+.tech100-portfolio__profile-strip,
+.tech100-portfolio__research-stats {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.tech100-portfolio__profile-strip {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(24, 49, 83, 0.08);
+}
+
+.tech100-portfolio__research-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-top: 0.9rem;
+}
+
+.tech100-portfolio__summary-item,
+.tech100-portfolio__profile-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.tech100-portfolio__summary-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.tech100-portfolio__summary-value {
+    font-size: 1.35rem;
+    line-height: 1.08;
+    color: var(--text);
+}
+
+.tech100-portfolio__delta-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin: 1rem 0;
+    padding: 1rem 0;
+    border-top: 1px solid rgba(24, 49, 83, 0.08);
+    border-bottom: 1px solid rgba(24, 49, 83, 0.08);
+}
+
+.tech100-portfolio__delta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.tech100-portfolio__delta-label {
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.tech100-portfolio__delta-value {
+    font-size: 1.2rem;
+    line-height: 1.08;
+}
+
+.tech100-portfolio__info-panel {
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.82);
+    padding: 0.1rem 1rem 0.95rem;
+}
+
+.tech100-portfolio__info-panel summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 0.72rem 0 0.42rem;
+    font-weight: 700;
+}
+
+.tech100-portfolio__info-panel summary::-webkit-details-marker {
+    display: none;
+}
+
+.tech100-portfolio__info-panel p {
+    margin: 0.35rem 0 0;
+    line-height: 1.55;
+}
+
+.tech100-portfolio__info-panel--workspace {
+    margin-bottom: 1rem;
+}
+
+.tech100-portfolio__info-panel--inline {
+    max-width: 22rem;
+}
+
+.tech100-portfolio__chart-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-top: 0.25rem;
+}
+
+.tech100-portfolio__section-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.tech100-portfolio__chart-stage {
+    min-height: 390px;
+    padding: 0.85rem 0.75rem 0.45rem;
+    border-radius: 20px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: linear-gradient(180deg, #ffffff 0%, #f5f8fb 100%);
+}
+
+.tech100-portfolio__chart-stage canvas {
+    width: 100%;
+    height: 390px !important;
+}
+
+.tech100-portfolio__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+
+.tech100-portfolio__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.78rem;
+    border-radius: 999px;
+    background: rgba(24, 49, 83, 0.06);
+    color: var(--text);
     font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.tech100-portfolio__legend-item.is-muted {
+    opacity: 0.78;
+}
+
+.tech100-portfolio__legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+}
+
+.tech100-portfolio__constraint-list,
+.tech100-portfolio__notes {
+    margin: 1rem 0 0;
+    padding-left: 1.1rem;
+    color: var(--text);
+}
+
+.tech100-portfolio__constraint-list li,
+.tech100-portfolio__notes li {
+    margin-bottom: 0.55rem;
+}
+
+.tech100-portfolio__comparison-row.is-selected {
+    background: rgba(31, 95, 191, 0.06);
+}
+
+.tech100-portfolio__comparison-row.is-benchmark {
+    box-shadow: inset 3px 0 0 rgba(31, 95, 191, 0.35);
+}
+
+.tech100-portfolio__table-model {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+}
+
+.tech100-portfolio__table-model span {
+    font-weight: 700;
+}
+
+.tech100-portfolio__table-model small {
+    color: var(--muted);
+}
+
+.tech100-portfolio__table-model--muted {
+    cursor: default;
+}
+
+.tech100-portfolio__surface-tabs {
+    margin-top: 1rem;
+}
+
+.tech100-portfolio__surface {
+    margin-top: 1.2rem;
+}
+
+.tech100-portfolio__surface-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 0.95rem;
+}
+
+.tech100-portfolio__company-cell {
+    display: flex;
+    gap: 0.7rem;
+    align-items: flex-start;
+}
+
+.tech100-portfolio__company-ticker {
+    min-width: 54px;
+    font-weight: 700;
+}
+
+.tech100-portfolio__attribution-board {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.tech100-portfolio__attribution-panel {
+    padding: 1rem;
+    border-radius: 16px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
+}
+
+.tech100-portfolio__mini-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.88rem;
+}
+
+.tech100-portfolio__rank-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.tech100-portfolio__rank-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.9rem;
+    align-items: baseline;
+    padding: 0.75rem 0.85rem;
+    border-radius: 12px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: rgba(255, 255, 255, 0.92);
+}
+
+.tech100-portfolio__rank-list li > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.12rem;
+}
+
+.tech100-portfolio__rank-list li.is-empty {
+    color: var(--muted);
+    justify-content: flex-start;
+}
+
+.tech100-portfolio__sector-chart-stage {
+    height: 300px;
+    margin-bottom: 1rem;
+    padding: 0.65rem 0.5rem;
+    border-radius: 18px;
+    border: 1px solid rgba(24, 49, 83, 0.08);
+    background: linear-gradient(180deg, #ffffff 0%, #f6f9fc 100%);
+}
+
+.tech100-portfolio__accordion {
+    border-top: 1px solid rgba(24, 49, 83, 0.08);
+    padding-top: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.tech100-portfolio__accordion summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 0.1rem 0 0.45rem;
+    font-weight: 700;
+}
+
+.tech100-portfolio__accordion summary::-webkit-details-marker {
+    display: none;
+}
+
+.tech100-portfolio__empty {
+    margin-bottom: 1.5rem;
+}
+
+@keyframes tech100-portfolio-ticker {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%);
+    }
 }
 
 @media (max-width: 900px) {
@@ -3492,6 +4085,75 @@ textarea:focus {
 
     .tech100-home__facts {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tech100-portfolio__toolbar-shell {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.3rem;
+        padding: 0.9rem;
+    }
+
+    .tech100-portfolio__toolbar-group {
+        padding: 0.35rem 0;
+    }
+
+    .tech100-portfolio__toolbar-group + .tech100-portfolio__toolbar-group {
+        border-left: 0;
+        border-top: 1px solid rgba(24, 49, 83, 0.08);
+        padding-top: 1rem;
+    }
+
+    .tech100-portfolio__ticker-head,
+    .tech100-portfolio__workspace-header,
+    .tech100-portfolio__section-heading,
+    .tech100-portfolio__surface-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .tech100-portfolio__summary-strip,
+    .tech100-portfolio__delta-strip,
+    .tech100-portfolio__profile-strip,
+    .tech100-portfolio__research-metrics,
+    .tech100-portfolio__research-stats,
+    .tech100-portfolio__attribution-board {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tech100-portfolio__chart-stage,
+    .tech100-portfolio__chart-stage canvas {
+        min-height: 340px;
+        height: 340px !important;
+    }
+
+    .tech100-portfolio__ticker {
+        overflow-x: auto;
+    }
+
+    .tech100-portfolio__ticker-track {
+        animation: none;
+        width: auto;
+    }
+
+    .tech100-portfolio__ticker-group--duplicate {
+        display: none;
+    }
+
+    .tech100-portfolio__ticker-item {
+        min-width: 280px;
+    }
+
+    .tech100-portfolio__surface-tabs,
+    .tech100-portfolio__surface-head .sc-segmented {
+        width: 100%;
+    }
+
+    .tech100-portfolio__effective-date {
+        font-size: 0.88rem;
+    }
+
+    .tech100-portfolio__sector-chart-stage {
+        height: 260px;
     }
 
     .tech100-nav {
@@ -3540,6 +4202,28 @@ textarea:focus {
     }
 
     .nav__link--aux {
+        display: none;
+    }
+}
+
+@media (max-width: 700px) {
+    .tech100-portfolio__toolbar-shell .sc-segmented__btn {
+        flex: 1 1 calc(50% - 0.35rem);
+        justify-content: center;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tech100-portfolio__ticker {
+        overflow-x: auto;
+    }
+
+    .tech100-portfolio__ticker-track {
+        animation: none;
+        width: auto;
+    }
+
+    .tech100-portfolio__ticker-group--duplicate {
         display: none;
     }
 }

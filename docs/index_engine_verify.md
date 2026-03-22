@@ -64,6 +64,7 @@ Expected signals:
   - `BLOCKED`
 - latest report exists in `tools/audit/output/pipeline_runs/`
 - latest telemetry snapshot exists in `tools/audit/output/pipeline_telemetry/`
+- `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` max dates match the latest `SC_IDX_LEVELS` trade date
 
 ### 5. Scheduler checks
 

@@ -18,6 +18,7 @@ LangGraph is the orchestrator, not the compute engine. Existing scripts still do
 - completeness: `tools/index_engine/check_price_completeness.py`
 - imputation: `tools/index_engine/impute_missing_prices.py`
 - index + statistics: `tools/index_engine/calc_index.py`
+- portfolio analytics: `tools/index_engine/build_portfolio_analytics.py`
 
 ## Operational stages
 
@@ -31,11 +32,12 @@ The primary VM1 graph coordinates:
 6. completeness check
 7. imputation plus bounded replacement attempts
 8. index and statistics calculation
-9. report generation
-10. alert decisioning
-11. telemetry emission
-12. terminal status persistence
-13. lock release
+9. portfolio analytics refresh
+10. report generation
+11. alert decisioning
+12. telemetry emission
+13. terminal status persistence
+14. lock release
 
 ## Data tables
 
@@ -55,6 +57,12 @@ The primary VM1 graph coordinates:
   - daily constituent contribution rows
 - `SC_IDX_STATS_DAILY`
   - returns and volatility statistics
+- `SC_IDX_PORTFOLIO_ANALYTICS_DAILY`
+  - TECH100 portfolio KPI snapshots
+- `SC_IDX_PORTFOLIO_POSITION_DAILY`
+  - TECH100 model/benchmark holdings and attribution rows
+- `SC_IDX_PORTFOLIO_OPT_INPUTS`
+  - optimizer-ready portfolio signals
 - `SC_IDX_PIPELINE_STATE`
   - LangGraph node-level durable state
 - `SC_IDX_JOB_RUNS`

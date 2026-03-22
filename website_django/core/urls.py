@@ -20,6 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from . import views
 from . import tech100_index_views
+from . import tech100_portfolio_views
 from telemetry import views as telemetry_views
 
 urlpatterns = [
@@ -45,6 +46,7 @@ urlpatterns = [
     path("tech100/company/<str:ticker>/", views.tech100_company, name="tech100_company"),
     path("tech100/company/<str:ticker>/download.csv", views.tech100_company_download, name="tech100_company_download"),
     path("tech100/index/", tech100_index_views.tech100_index_overview, name="tech100_index"),
+    path("tech100/portfolio/", tech100_portfolio_views.tech100_portfolio, name="tech100_portfolio"),
     path("tech100/performance/", tech100_index_views.tech100_performance, name="tech100_performance"),
     path("tech100/constituents/", tech100_index_views.tech100_constituents, name="tech100_constituents"),
     path("tech100/attribution/", tech100_index_views.tech100_attribution, name="tech100_attribution"),
@@ -59,6 +61,7 @@ urlpatterns = [
     path("telemetry/event/", csrf_exempt(telemetry_views.telemetry_event), name="telemetry_event"),
     path("telemetry/health/", telemetry_views.telemetry_health, name="telemetry_health"),
     path("telemetry/debug/headers/", telemetry_views.telemetry_debug_headers, name="telemetry_debug_headers"),
+    path("api/tech100/rebalance_dates", tech100_index_views.api_tech100_rebalance_dates),
     path("api/tech100/index-levels", tech100_index_views.api_tech100_index_levels),
     path("api/tech100/index/attribution", tech100_index_views.api_tech100_performance_attribution),
     path("api/tech100/index/holdings", tech100_index_views.api_tech100_holdings),

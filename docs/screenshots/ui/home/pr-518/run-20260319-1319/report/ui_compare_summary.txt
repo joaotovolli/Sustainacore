@@ -1,0 +1,28 @@
+TECH100 Portfolio Compare Summary
+PR: #518
+Run: 20260319-1319
+Prod: https://sustainacore.org/tech100/portfolio/
+Preview: https://preview.sustainacore.org/tech100/portfolio/
+
+Before (prod)
+- HTTP 200
+- Portfolio analytics through: 2026-03-18
+- Official TECH100 index through: 2026-03-18
+- Dual date markers present
+- Single effective-date marker absent
+
+After (preview)
+- HTTP 200
+- As of 2026-03-18
+- Single effective-date marker present
+- Dual date markers removed
+- Lag / delay copy absent
+- Conditional warning absent in the normal state
+
+Diff
+- diff/diff_portfolio.jpg
+- mismatch_pixels=158043
+
+CI artifact
+- Home compare run: https://github.com/joaotovolli/Sustainacore/actions/runs/23296297069
+- Download: gh run download 23296297069 -R joaotovolli/Sustainacore -n ui-home-compare

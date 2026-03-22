@@ -22,6 +22,7 @@ for path in (REPO_ROOT, APP_ROOT):
 from db_helper import get_connection
 from index_engine import db as engine_db
 from index_engine import db_index_calc
+from index_engine import db_portfolio_analytics
 from index_engine.alert_state import should_send_alert_once_per_day
 from index_engine.alerts import send_email
 from index_engine.run_log import fetch_calls_used_today, finish_run, start_run
@@ -53,6 +54,7 @@ STAGE_SEQUENCE = [
     "completeness_check",
     "imputation_or_replacement",
     "calc_index",
+    "portfolio_analytics",
     "generate_run_report",
     "decide_alerts",
     "emit_telemetry",
@@ -143,6 +145,9 @@ class PipelineRuntime(Protocol):
         ...
 
     def calc_index(self, state: PipelineGraphState) -> dict[str, Any]:
+        ...
+
+    def portfolio_analytics(self, state: PipelineGraphState) -> dict[str, Any]:
         ...
 
     def release_lock(self, state: PipelineGraphState) -> dict[str, Any]:
@@ -296,6 +301,40 @@ def _fetch_current_max_stats_date() -> _dt.date | None:
     return _coerce_date(_fetch_scalar("SELECT MAX(trade_date) FROM SC_IDX_STATS_DAILY"))
 
 
+def _fetch_current_max_portfolio_date() -> _dt.date | None:
+    return _coerce_date(_fetch_scalar("SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY"))
+
+
+def _query_portfolio_counts(start_date: _dt.date, end_date: _dt.date) -> dict[str, int | None]:
+    binds = {"start_date": start_date, "end_date": end_date}
+    return {
+        "portfolio_analytics_rows": int(
+            _fetch_scalar(
+                "SELECT COUNT(*) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY "
+                "WHERE trade_date BETWEEN :start_date AND :end_date",
+                binds,
+            )
+            or 0
+        ),
+        "portfolio_position_rows": int(
+            _fetch_scalar(
+                "SELECT COUNT(*) FROM SC_IDX_PORTFOLIO_POSITION_DAILY "
+                "WHERE trade_date BETWEEN :start_date AND :end_date",
+                binds,
+            )
+            or 0
+        ),
+        "portfolio_optimizer_rows": int(
+            _fetch_scalar(
+                "SELECT COUNT(*) FROM SC_IDX_PORTFOLIO_OPT_INPUTS "
+                "WHERE trade_date BETWEEN :start_date AND :end_date",
+                binds,
+            )
+            or 0
+        ),
+    }
+
+
 def _select_next_missing_trading_day(
     trading_days: list[_dt.date],
     max_level_date: _dt.date | None,
@@ -388,6 +427,11 @@ class SCIdxPipelineRuntime:
 
         return calc_index
 
+    def _load_portfolio_analytics_module(self):
+        from tools.index_engine import build_portfolio_analytics
+
+        return build_portfolio_analytics
+
     def _load_completeness_module(self):
         from tools.index_engine import check_price_completeness
 
@@ -408,6 +452,7 @@ class SCIdxPipelineRuntime:
             "completeness_check": {"max_attempts": 2, "backoff_base_sec": oracle_backoff},
             "imputation_or_replacement": {"max_attempts": 2, "backoff_base_sec": oracle_backoff},
             "calc_index": {"max_attempts": 2, "backoff_base_sec": oracle_backoff},
+            "portfolio_analytics": {"max_attempts": 2, "backoff_base_sec": oracle_backoff},
         }
         return stage_specific.get(stage_name, {"max_attempts": 1, "backoff_base_sec": 0.0})
 
@@ -542,6 +587,7 @@ class SCIdxPipelineRuntime:
 
         max_canon_date = engine_db.fetch_max_canon_trade_date()
         max_level_date = db_index_calc.fetch_max_level_date()
+        max_portfolio_date = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
         next_missing_canon = run_daily.select_next_missing_trading_day(trading_days, max_canon_trade_date=max_canon_date)
         next_missing_level = _select_next_missing_trading_day(trading_days, max_level_date)
         ingest_required = (
@@ -611,6 +657,7 @@ class SCIdxPipelineRuntime:
             "provider_usage_remaining": provider_usage_remaining,
             "max_canon_before": max_canon_date,
             "max_level_before": max_level_date,
+            "max_portfolio_before": max_portfolio_date,
         }
         return {
             "status": status,
@@ -1109,6 +1156,84 @@ class SCIdxPipelineRuntime:
             },
         }
 
+    def portfolio_analytics(self, state: PipelineGraphState) -> dict[str, Any]:
+        build_module = self._load_portfolio_analytics_module()
+        context = state.get("context") or {}
+        trading_days = context.get("trading_days") or []
+        max_level_date = _coerce_date(context.get("levels_max_after")) or db_index_calc.fetch_max_level_date()
+        if max_level_date is None:
+            return {"status": "SKIP", "detail": "no_levels_available"}
+
+        portfolio_max_before = (
+            _coerce_date(context.get("max_portfolio_before"))
+            or db_portfolio_analytics.fetch_portfolio_analytics_max_date()
+        )
+        if portfolio_max_before is not None and portfolio_max_before >= max_level_date:
+            return {
+                "status": "SKIP",
+                "detail": f"portfolio_up_to_date={portfolio_max_before.isoformat()}",
+                "context": {"portfolio_max_after": portfolio_max_before},
+            }
+
+        start_day = _select_next_missing_trading_day(trading_days, portfolio_max_before) if trading_days else None
+        if start_day is None:
+            start_day = max(BASE_DATE, max_level_date)
+
+        try:
+            code = build_module.main(
+                [
+                    "--apply-ddl",
+                    "--skip-preflight",
+                    "--start",
+                    start_day.isoformat(),
+                    "--end",
+                    max_level_date.isoformat(),
+                ]
+            )
+        except Exception as exc:
+            return {
+                "status": "FAILED",
+                "detail": "portfolio_analytics_exception",
+                "error": str(exc),
+                "error_token": "portfolio_analytics_exception",
+                "retryable": True,
+                "remediation": "Inspect portfolio analytics logs and Oracle state, then rerun once.",
+            }
+        if code != 0:
+            return {
+                "status": "FAILED",
+                "detail": "portfolio_analytics_exit_code",
+                "error": f"portfolio_analytics_exit_code={code}",
+                "error_token": "portfolio_analytics_exit_code",
+                "retryable": True,
+                "remediation": "Run `python3 tools/index_engine/build_portfolio_analytics.py --apply-ddl --dry-run` on VM1.",
+            }
+
+        portfolio_max_after = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
+        if portfolio_max_after is None or portfolio_max_after < max_level_date:
+            return {
+                "status": "FAILED",
+                "detail": "portfolio_not_advanced",
+                "error": (
+                    f"start_day={start_day.isoformat()} max_level={max_level_date.isoformat()} "
+                    f"max_portfolio={portfolio_max_after}"
+                ),
+                "error_token": "portfolio_not_advanced",
+                "remediation": "Re-run the portfolio refresh for the missing window and verify the additive tables advanced.",
+            }
+
+        counts = _query_portfolio_counts(start_day, max_level_date)
+        return {
+            "status": "OK",
+            "detail": f"portfolio_advanced_to={portfolio_max_after.isoformat()}",
+            "counts": counts,
+            "context": {
+                "portfolio_start_date": start_day,
+                "portfolio_end_date": max_level_date,
+                "portfolio_max_after": portfolio_max_after,
+            },
+        }
+
     def release_lock(self, state: PipelineGraphState) -> dict[str, Any]:
         if self._lock_handle is None:
             return {"status": "SKIP", "detail": "lock_not_held"}
@@ -1240,6 +1365,22 @@ class SmokePipelineRuntime(SCIdxPipelineRuntime):
                 "calc_end_date": _dt.date(2026, 1, 7),
                 "levels_max_after": _dt.date(2026, 1, 7),
                 "stats_max_after": _dt.date(2026, 1, 7),
+            },
+        }
+
+    def portfolio_analytics(self, state: PipelineGraphState) -> dict[str, Any]:
+        return {
+            "status": "OK",
+            "detail": "smoke_portfolio_advanced",
+            "counts": {
+                "portfolio_analytics_rows": 6,
+                "portfolio_position_rows": 18,
+                "portfolio_optimizer_rows": 18,
+            },
+            "context": {
+                "portfolio_start_date": _dt.date(2026, 1, 7),
+                "portfolio_end_date": _dt.date(2026, 1, 7),
+                "portfolio_max_after": _dt.date(2026, 1, 7),
             },
         }
 
@@ -1582,6 +1723,8 @@ def _emit_telemetry(state: PipelineGraphState, runtime: PipelineRuntime) -> Pipe
             "levels_max_date": (next_state.get("context") or {}).get("levels_max_after")
             or (next_state.get("context") or {}).get("max_level_before"),
             "stats_max_date": (next_state.get("context") or {}).get("stats_max_after"),
+            "portfolio_max_date": (next_state.get("context") or {}).get("portfolio_max_after")
+            or (next_state.get("context") or {}).get("max_portfolio_before"),
         },
     }
     telemetry_path = runtime.telemetry_dir / f"sc_idx_pipeline_{next_state['run_id']}.json"
@@ -1706,6 +1849,13 @@ def _route_after_calc(state: PipelineGraphState) -> str:
     terminal = _derive_terminal_status(state)
     if terminal in {"failed", "blocked"}:
         return "generate_run_report"
+    return "portfolio_analytics"
+
+
+def _route_after_portfolio(state: PipelineGraphState) -> str:
+    terminal = _derive_terminal_status(state)
+    if terminal in {"failed", "blocked"}:
+        return "generate_run_report"
     return "generate_run_report"
 
 
@@ -1720,6 +1870,7 @@ def build_pipeline_graph(runtime: PipelineRuntime):
         "completeness_check",
         "imputation_or_replacement",
         "calc_index",
+        "portfolio_analytics",
         "release_lock",
     ]:
         graph.add_node(stage_name, _make_stage_node(stage_name, runtime))
@@ -1737,6 +1888,7 @@ def build_pipeline_graph(runtime: PipelineRuntime):
     graph.add_conditional_edges("completeness_check", _route_after_completeness)
     graph.add_conditional_edges("imputation_or_replacement", _route_after_impute)
     graph.add_conditional_edges("calc_index", _route_after_calc)
+    graph.add_conditional_edges("portfolio_analytics", _route_after_portfolio)
     graph.add_edge("generate_run_report", "decide_alerts")
     graph.add_edge("decide_alerts", "emit_telemetry")
     graph.add_edge("emit_telemetry", "persist_terminal_status")

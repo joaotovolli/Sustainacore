@@ -1,0 +1,29 @@
+Evidence capture for PR #514
+
+Preview:
+- https://preview.sustainacore.org/tech100/portfolio/
+
+Production:
+- https://sustainacore.org/tech100/portfolio/ (expected 404 before release)
+- https://sustainacore.org/tech100/index/
+
+Preview SHA:
+- 5ff91025
+
+Commands:
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-514/run-local-20260317-220213 TECH100_SCREENSHOT_PAGES=portfolio node scripts/tech100_screenshots.mjs --mode before --base-url https://sustainacore.org`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-514/run-local-20260317-220213 TECH100_SCREENSHOT_PAGES=portfolio node scripts/tech100_screenshots.mjs --mode after --base-url https://preview.sustainacore.org`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-514/run-local-20260317-220213 TECH100_SCREENSHOT_PAGES=index_overview,portfolio node scripts/tech100_screenshots.mjs --mode before --base-url https://sustainacore.org`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-514/run-local-20260317-220213 TECH100_SCREENSHOT_PAGES=index_overview,portfolio node scripts/tech100_screenshots.mjs --mode after --base-url https://preview.sustainacore.org`
+- `TECH100_SCREENSHOT_DIR=ui/tech100/pr-514/run-local-20260317-220213 node scripts/tech100_screenshot_diff.mjs`
+
+Artifacts:
+- `after/portfolio.png`: full preview render of the new portfolio analytics page
+- `after/portfolio_chart.png`: comparison chart crop from the new page
+- `before/index_overview.png` and `after/index_overview.png`: Tech100 overview before/after navigation state
+- `diff/diff_index_overview.png`: section-level diff showing the new Portfolio entry in the existing Tech100 navigation
+
+Notes:
+- Production has no `/tech100/portfolio/` route yet, so the new-page "before" capture is an expected 404 rather than a visual baseline.
+- The portfolio preview page renders live data and stays within the existing Tech100 visual language.
+- The index overview diff is intentionally used as the before/after/diff proof for the shared Tech100 navigation change.

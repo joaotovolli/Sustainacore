@@ -18,8 +18,8 @@
 - HTTP (80) redirects to HTTPS (443).
 
 ## Tech100 API routing
-- `/api/tech100/company/` and `/api/tech100/companies` are served by the VM2 Django app (local Gunicorn).
-- The remaining `/api/tech100/` routes continue to proxy to the VM1 backend.
+- The public `/api/tech100/*` routes are served by the VM2 Django app (local Gunicorn).
+- VM2 still uses the authenticated VM1 `/api/tech100` helper server-side where needed, but browsers should stay on the VM2 public routes.
 - Keep `/etc/nginx/sites-available/sustainacore` in sync with `infra/nginx/sustainacore.conf`, then run:
   ```bash
   sudo nginx -t && sudo systemctl reload nginx

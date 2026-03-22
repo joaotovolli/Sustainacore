@@ -1,0 +1,54 @@
+[
+  {
+    "target": "home_section",
+    "viewport": "desktop",
+    "before": "/tmp/ai-reg-final-check/sections/before/home_section_desktop.png",
+    "after": "/tmp/ai-reg-final-check/sections/after/home_section_desktop.png",
+    "diff": "/tmp/ai-reg-final-check/sections/diff/home_section_desktop_diff.png",
+    "stats": {
+      "width": 1152,
+      "height": 1727,
+      "mismatchPixels": 480909,
+      "mismatchPercent": 24.1723
+    }
+  },
+  {
+    "target": "ai_reg_card",
+    "viewport": "desktop",
+    "before": "/tmp/ai-reg-final-check/sections/before/ai_reg_card_desktop.png",
+    "after": "/tmp/ai-reg-final-check/sections/after/ai_reg_card_desktop.png",
+    "diff": "/tmp/ai-reg-final-check/sections/diff/ai_reg_card_desktop_diff.png",
+    "stats": {
+      "width": 1096,
+      "height": 1807,
+      "mismatchPixels": 410569,
+      "mismatchPercent": 20.7309
+    }
+  },
+  {
+    "target": "home_section",
+    "viewport": "mobile",
+    "before": "/tmp/ai-reg-final-check/sections/before/home_section_mobile.png",
+    "after": "/tmp/ai-reg-final-check/sections/after/home_section_mobile.png",
+    "diff": "/tmp/ai-reg-final-check/sections/diff/home_section_mobile_diff.png",
+    "stats": {
+      "width": 358,
+      "height": 3522,
+      "mismatchPixels": 185439,
+      "mismatchPercent": 14.7072
+    }
+  },
+  {
+    "target": "ai_reg_card",
+    "viewport": "mobile",
+    "before": "/tmp/ai-reg-final-check/sections/before/ai_reg_card_mobile.png",
+    "after": "/tmp/ai-reg-final-check/sections/after/ai_reg_card_mobile.png",
+    "diff": "/tmp/ai-reg-final-check/sections/diff/ai_reg_card_mobile_diff.png",
+    "stats": {
+      "width": 318,
+      "height": 3592,
+      "mismatchPixels": 190235,
+      "mismatchPercent": 16.6543
+    }
+  }
+]

@@ -1,0 +1,17 @@
+Evidence capture (prod vs preview):
+- Production: https://sustainacore.org/
+- Preview: https://preview.sustainacore.org/
+- Preview build: bb44be3e
+- Scope: homepage Global AI Regulation section (`.ai-reg-home`)
+- Viewports: desktop (1440px), mobile (390px)
+- Local capture via Playwright against public prod/preview URLs
+
+Artifacts:
+- Before: `before/home_section_desktop.png`, `before/home_section_mobile.png`
+- After: `after/home_section_desktop.png`, `after/home_section_mobile.png`
+- Diff: `diff/home_section_desktop_diff.png`, `diff/home_section_mobile_diff.png`
+
+Visual read:
+- Section hierarchy is materially stronger with a premium toolbar, cleaner globe framing, and a tighter right-hand brief.
+- Controls, summary chips, and legend read as a coherent product surface instead of a raw widget wrapper.
+- Mobile remains usable, with the stacked summary and filter controls preserved.

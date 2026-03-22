@@ -1,8 +1,9 @@
+<!-- cspell:ignore readlink -->
 # TECH100 pipeline scheduler (VM1)
 
 ## Primary scheduler
 
-VM1 uses systemd timers. The primary orchestration path is now:
+VM1 uses systemd timers. The primary orchestration path is:
 
 - `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`
 
@@ -12,21 +13,31 @@ This service runs the LangGraph orchestrator:
 python3 tools/index_engine/run_pipeline.py
 ```
 
-## Related compatibility units
-
-These units still exist for compatibility and focused manual use, but they are not the primary control plane:
+Compatibility units still exist for focused manual use:
 
 - `sc-idx-price-ingest.timer` -> `sc-idx-price-ingest.service`
 - `sc-idx-completeness-check.timer` -> `sc-idx-completeness-check.service`
 - `sc-idx-index-calc.timer` -> `sc-idx-index-calc.service`
 
-## Environment files
+## Environment and checkout
 
 Systemd units load:
 
 - `/etc/sustainacore/db.env`
 - `/etc/sustainacore/index.env`
 - `/etc/sustainacore-ai/secrets.env`
+
+Systemd also sets:
+
+- `TNS_ADMIN=/opt/adb_wallet`
+- `PYTHONPATH=/home/opc/Sustainacore`
+
+Confirm the scheduler checkout before any investigation or deploy:
+
+```bash
+readlink -f /home/opc/Sustainacore
+sudo -n -u opc git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD
+```
 
 Do not print env contents in logs or docs.
 
@@ -39,24 +50,51 @@ Do not print env contents in logs or docs.
 
 ## Lock and runtime guardrails
 
-- overlap guard: `/tmp/sc_idx_pipeline.lock`
-- primary service runtime limit: `RuntimeMaxSec=3600`
-- restart storm guardrails remain in systemd `StartLimit*`
+- ingest + pipeline use the shared lock `/tmp/sc_idx_pipeline.lock` via `flock -n`
+- primary pipeline runtime limit: `RuntimeMaxSec=3600`
+- ingest runtime limit: `RuntimeMaxSec=7200`
+- restart storm guardrails remain in the units through `StartLimit*`
 - retries inside the graph are bounded and stage-specific
 
 ## Healthy signals
 
 - latest `SC_IDX_JOB_RUNS` row for `job_name='sc_idx_pipeline'` is `OK`, `DEGRADED`, or `SKIP`
 - latest `SC_IDX_PIPELINE_STATE` rows show the node sequence reaching `persist_terminal_status`
+- `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, and `SC_IDX_STATS_DAILY` max dates align where expected
+- `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` match the latest `SC_IDX_LEVELS` trade date after a successful run
 - latest report exists under `tools/audit/output/pipeline_runs/`
 - latest telemetry snapshot exists under `tools/audit/output/pipeline_telemetry/`
+- `tools/audit/output/pipeline_health_latest.txt` shows no active `last_error`
+
+## Logs and status
+
+```bash
+systemctl list-timers --all | rg -i "sc-idx"
+systemctl status sc-idx-pipeline.service
+sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
+sudo -n systemd-run --wait --collect --pipe \
+  -p WorkingDirectory=/home/opc/Sustainacore \
+  -p User=opc -p Group=opc \
+  -p Environment=PYTHONPATH=/home/opc/Sustainacore \
+  -p Environment=TNS_ADMIN=/opt/adb_wallet \
+  -p EnvironmentFile=/etc/sustainacore/db.env \
+  -p EnvironmentFile=/etc/sustainacore/index.env \
+  -p EnvironmentFile=/etc/sustainacore-ai/secrets.env \
+  -- /home/opc/Sustainacore/.venv/bin/python tools/index_engine/pipeline_health.py
+```
 
 ## Manual runs
 
-Primary run:
+Primary fresh run:
 
 ```bash
 python3 tools/index_engine/run_pipeline.py --restart
+```
+
+Normal resume:
+
+```bash
+python3 tools/index_engine/run_pipeline.py
 ```
 
 No-provider smoke:
@@ -65,31 +103,23 @@ No-provider smoke:
 python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
 ```
 
-Systemd-run equivalent:
+Service-equivalent run:
 
 ```bash
 sudo systemctl start sc-idx-pipeline.service
 ```
 
-## Logs and status
-
-```bash
-systemctl list-timers --all | rg -i "sc-idx"
-systemctl status sc-idx-pipeline.service
-sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
-```
-
 ## Recovery
 
-- normal resume: `python3 tools/index_engine/run_pipeline.py`
-- force a fresh run: `python3 tools/index_engine/run_pipeline.py --restart`
-- if Oracle preflight blocks, fix wallet/env first, then rerun
-- if the pipeline reports `BLOCKED` because the lock is busy, wait for the active run to conclude instead of forcing overlap
+- safe retry: `sudo systemctl restart sc-idx-pipeline.service`
+- if Oracle preflight blocks, fix wallet/env access first, then rerun
+- if the pipeline returns `BLOCKED` because the lock is busy, wait for the active run to conclude
+- do not delete `SC_IDX_PIPELINE_STATE` unless following an explicit emergency recovery procedure
 
 ## Update workflow
 
 1. Edit repo-managed units under `infra/systemd/`.
-2. Install to VM1 and reload:
+2. Copy them to VM1 and reload:
 
 ```bash
 sudo cp infra/systemd/sc-idx-*.service /etc/systemd/system/
@@ -98,3 +128,11 @@ sudo systemctl daemon-reload
 ```
 
 3. Restart the affected unit or wait for the next timer tick.
+
+## Deploy note
+
+- VM1 deploys must refresh both repo roots:
+  - `/opt/sustainacore-ai` for `sustainacore-ai.service`
+  - `/home/opc/Sustainacore` for `sc-idx-*` timers and services
+- `ops/scripts/deploy_vm.sh` and `ops/scripts/deploy_vm1_git.sh` handle both paths
+- after deploy, re-run the checkout and health commands above to confirm the scheduler root and the portfolio freshness fields advanced together

@@ -142,6 +142,9 @@ def format_pipeline_terminal_report(summary: Dict[str, Any]) -> str:
         "constituent_rows",
         "contribution_rows",
         "stats_rows",
+        "portfolio_analytics_rows",
+        "portfolio_position_rows",
+        "portfolio_optimizer_rows",
         "replacement_calls_used",
     ]:
         lines.append(f"{key}: {counts.get(key, 'n/a')}")

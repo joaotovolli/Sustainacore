@@ -1,0 +1,644 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Tech100 Portfolio Analytics | SustainaCore{% endblock %}
+{% block meta_description %}Compare official TECH100 against supported governance, momentum, low-volatility, and hybrid model portfolios with real portfolio analytics from SustainaCore.{% endblock %}
+
+{% block extra_head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="tech100-index tech100-portfolio-page">
+  <section class="section section--with-header sc-section sc-section--with-header">
+    <div class="shell sc-container">
+      <div class="section__header sc-page-header tech100-portfolio__header">
+        <div class="tech100-portfolio__header-copy">
+          <span class="pill pill--soft">Tech100 Portfolio Analytics</span>
+          <h1>TECH100 Portfolio Analytics</h1>
+          <p class="muted">A portfolio research workspace built only on the model families and analytics the merged TECH100 backend contract actually supports.</p>
+          {% if latest_trade_date %}
+            <p class="tech100-portfolio__effective-date" id="portfolio-effective-date">
+              As of <span data-date-format="as-of" data-date-value="{{ latest_trade_date }}">{{ latest_trade_date }}</span>
+            </p>
+          {% endif %}
+          <p class="disclaimer-banner">
+            <a class="text-link" href="/tech100/methodology/">Methodology &amp; Limitations</a>
+            <span class="disclaimer-banner__corrections"> · <a class="text-link" href="/corrections/">Corrections &amp; Complaints</a></span>
+            · Research only. Not investment advice. Daily analytics only. No live optimizer is exposed on this page.
+          </p>
+        </div>
+      </div>
+
+      {% with tech100_current="Portfolio analytics" %}
+        {% include "partials/tech100_nav.html" %}
+      {% endwith %}
+
+      {% if freshness_warning %}
+        <div class="alert alert--warning tech100-portfolio__freshness-alert" id="portfolio-freshness-warning">
+          {{ freshness_warning }}
+        </div>
+      {% endif %}
+
+      {% if data_error %}
+        <div class="alert alert--warning" data-tech100-empty-state="1">
+          TECH100 portfolio analytics are temporarily unavailable. The page is hiding portfolio sections instead of rendering partial claims.
+        </div>
+      {% elif data_empty %}
+        <div class="card sc-card tech100-portfolio__empty" data-tech100-portfolio-empty="1">
+          <h2 class="h4">Portfolio analytics are not populated yet.</h2>
+          <p class="muted">The page stays online, but live portfolio sections remain hidden until the backend refresh populates the merged analytics tables again.</p>
+        </div>
+      {% else %}
+        <div id="tech100-portfolio-status"
+             data-tech100-portfolio-has-data="1"
+             data-selected-model="{{ selected_model_code }}"
+             data-benchmark-code="{{ benchmark_code }}"
+             data-positions-count="{{ positions_count }}"
+             data-sector-count="{{ sector_count }}"
+             data-range-key="{{ range_key }}"
+             data-metric-key="{{ metric_key }}"
+             data-view-mode="{{ view_mode }}"
+             data-attribution-key="{{ selected_attribution_key }}"
+             data-holdings-view="{{ holdings_view }}"
+             data-analytics-surface="holdings"></div>
+
+        <section class="tech100-portfolio__section tech100-portfolio__section--tight" aria-label="Daily model ribbon">
+          <div class="card sc-card tech100-portfolio__ticker-shell">
+            <div class="tech100-portfolio__ticker-head">
+              <div>
+                <p class="tech100-portfolio__eyebrow">Daily model tape</p>
+                <h2 class="h4">Latest close across the supported model set</h2>
+              </div>
+              <p class="muted">The ribbon rolls the latest daily YTD return, volatility, drawdown, concentration, and governance metrics. Motion pauses on hover and keyboard focus.</p>
+            </div>
+
+            <div class="tech100-portfolio__ticker" tabindex="0" aria-label="Rolling portfolio analytics ribbon">
+              <div class="tech100-portfolio__ticker-track">
+                <div class="tech100-portfolio__ticker-group">
+                  {% for model in model_definitions %}
+                    {% if model.is_available and model.summary %}
+                      <a class="tech100-portfolio__ticker-item {% if model.is_selected %}is-active{% endif %}"
+                         href="/tech100/portfolio/?model={{ model.code }}#workspace"
+                         data-portfolio-model-button
+                         data-model-code="{{ model.code }}">
+                        <span class="tech100-portfolio__ticker-title">{{ model.short_label }}</span>
+                        <span class="tech100-portfolio__ticker-stat">YTD {% if model.summary.ret_ytd_pct or model.summary.ret_ytd_pct == 0 %}{{ model.summary.ret_ytd_pct|floatformat:2 }}%{% else %}—{% endif %}</span>
+                        <span class="tech100-portfolio__ticker-stat">20D vol {% if model.summary.vol_20d_pct or model.summary.vol_20d_pct == 0 %}{{ model.summary.vol_20d_pct|floatformat:2 }}%{% else %}—{% endif %}</span>
+                        <span class="tech100-portfolio__ticker-stat">Drawdown {% if model.summary.drawdown_to_date_pct or model.summary.drawdown_to_date_pct == 0 %}{{ model.summary.drawdown_to_date_pct|floatformat:2 }}%{% else %}—{% endif %}</span>
+                        <span class="tech100-portfolio__ticker-stat">Top 5 {% if model.summary.top5_weight_pct or model.summary.top5_weight_pct == 0 %}{{ model.summary.top5_weight_pct|floatformat:2 }}%{% else %}—{% endif %}</span>
+                        <span class="tech100-portfolio__ticker-stat">Gov {% if model.summary.avg_governance_score or model.summary.avg_governance_score == 0 %}{{ model.summary.avg_governance_score|floatformat:1 }}{% else %}—{% endif %}</span>
+                      </a>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+
+                <div class="tech100-portfolio__ticker-group tech100-portfolio__ticker-group--duplicate" aria-hidden="true">
+                  {% for model in model_definitions %}
+                    {% if model.is_available and model.summary %}
+                      <a class="tech100-portfolio__ticker-item {% if model.is_selected %}is-active{% endif %}"
+                         href="/tech100/portfolio/?model={{ model.code }}#workspace"
+                         tabindex="-1"
+                         data-portfolio-model-button
+                         data-model-code="{{ model.code }}">
+                        <span class="tech100-portfolio__ticker-title">{{ model.short_label }}</span>
+                        <span class="tech100-portfolio__ticker-stat">YTD {% if model.summary.ret_ytd_pct or model.summary.ret_ytd_pct == 0 %}{{ model.summary.ret_ytd_pct|floatformat:2 }}%{% else %}—{% endif %}</span>
+                        <span class="tech100-portfolio__ticker-stat">20D vol {% if model.summary.vol_20d_pct or model.summary.vol_20d_pct == 0 %}{{ model.summary.vol_20d_pct|floatformat:2 }}%{% else %}—{% endif %}</span>
+                        <span class="tech100-portfolio__ticker-stat">Drawdown {% if model.summary.drawdown_to_date_pct or model.summary.drawdown_to_date_pct == 0 %}{{ model.summary.drawdown_to_date_pct|floatformat:2 }}%{% else %}—{% endif %}</span>
+                        <span class="tech100-portfolio__ticker-stat">Top 5 {% if model.summary.top5_weight_pct or model.summary.top5_weight_pct == 0 %}{{ model.summary.top5_weight_pct|floatformat:2 }}%{% else %}—{% endif %}</span>
+                        <span class="tech100-portfolio__ticker-stat">Gov {% if model.summary.avg_governance_score or model.summary.avg_governance_score == 0 %}{{ model.summary.avg_governance_score|floatformat:1 }}{% else %}—{% endif %}</span>
+                      </a>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <p class="tech100-portfolio__ticker-footnote muted">These are latest daily analytics, not intraday prices. Unsupported factor families remain intentionally absent from the tape.</p>
+          </div>
+        </section>
+
+        <section id="workspace" class="tech100-portfolio__section">
+          <div class="card sc-card tech100-portfolio__workspace-shell">
+            <div class="tech100-portfolio__workspace-header">
+              <div class="tech100-portfolio__workspace-intro">
+                <p class="tech100-portfolio__eyebrow">Analytics workspace</p>
+                <h2 class="h2" id="portfolio-selected-label">{{ selected_model.label }}</h2>
+                <p class="muted" id="portfolio-selected-description">{{ selected_model.description }}</p>
+              </div>
+            </div>
+
+            <div class="tech100-portfolio__toolbar-shell" data-tech100-portfolio-controls="1">
+              <div class="tech100-portfolio__toolbar-group tech100-portfolio__toolbar-group--selection">
+                <p class="tech100-portfolio__toolbar-heading">Selection</p>
+                <div class="tech100-portfolio__toolbar-inline">
+                  <label for="tech100-portfolio-model">Model</label>
+                  <select id="tech100-portfolio-model" class="select tech100-portfolio__toolbar-select">
+                    {% for model in model_definitions %}
+                      <option value="{{ model.code }}"
+                              {% if model.code == selected_model_code %}selected{% endif %}
+                              {% if not model.is_available %}disabled{% endif %}>
+                        {{ model.label }}{% if not model.is_available %} · unavailable{% endif %}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="tech100-portfolio__toolbar-inline">
+                  <label for="tech100-portfolio-benchmark">Compare against</label>
+                  <select id="tech100-portfolio-benchmark" class="select tech100-portfolio__toolbar-select">
+                    {% for row in comparison_rows %}
+                      <option value="{{ row.model_code }}" {% if row.model_code == benchmark_code %}selected{% endif %}>
+                        {{ row.model_name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+
+              <div class="tech100-portfolio__toolbar-group tech100-portfolio__toolbar-group--chart">
+                <p class="tech100-portfolio__toolbar-heading">Chart</p>
+                <div class="tech100-portfolio__toolbar-segment">
+                  <span class="tech100-portfolio__toolbar-label">Range</span>
+                  <div class="sc-segmented tech100-portfolio__toolbar-segmented" aria-label="History range">
+                    {% for option in range_options %}
+                      <button type="button"
+                              class="btn btn--ghost tech100-portfolio-range sc-segmented__btn {% if option.code == range_key %}is-active{% endif %}"
+                              data-range="{{ option.code }}">
+                        {{ option.label }}
+                      </button>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <div class="tech100-portfolio__toolbar-segment">
+                  <span class="tech100-portfolio__toolbar-label">Metric</span>
+                  <div class="sc-segmented tech100-portfolio__toolbar-segmented" aria-label="Chart metric">
+                    {% for option in metric_options %}
+                      <button type="button"
+                              class="btn btn--ghost tech100-portfolio-metric sc-segmented__btn {% if option.code == metric_key %}is-active{% endif %}"
+                              data-metric="{{ option.code }}">
+                        {{ option.label }}
+                      </button>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+
+              <div class="tech100-portfolio__toolbar-group tech100-portfolio__toolbar-group--analysis">
+                <p class="tech100-portfolio__toolbar-heading">Analysis</p>
+                <div class="tech100-portfolio__toolbar-segment">
+                  <span class="tech100-portfolio__toolbar-label">View</span>
+                  <div class="sc-segmented tech100-portfolio__toolbar-segmented" aria-label="Chart view mode">
+                    {% for option in view_options %}
+                      <button type="button"
+                              class="btn btn--ghost tech100-portfolio-view sc-segmented__btn {% if option.code == view_mode %}is-active{% endif %}"
+                              data-view="{{ option.code }}">
+                        {{ option.label }}
+                      </button>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <div class="tech100-portfolio__toolbar-inline">
+                  <label for="tech100-portfolio-window">Attribution window</label>
+                  <select id="tech100-portfolio-window" class="select tech100-portfolio__toolbar-select">
+                    {% for option in attribution_options %}
+                      <option value="{{ option.code }}" {% if option.code == selected_attribution_key %}selected{% endif %}>
+                        {{ option.label }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="tech100-portfolio__summary-strip" id="portfolio-summary-strip">
+              {% for card in selected_snapshot_cards %}
+                <div class="tech100-portfolio__summary-item">
+                  <span class="tech100-portfolio__summary-label">{{ card.label }}</span>
+                  <strong class="tech100-portfolio__summary-value">
+                    {% if card.decimals == None %}
+                      {{ card.value|default:"—" }}
+                    {% elif card.value or card.value == 0 %}
+                      {{ card.value|floatformat:card.decimals }}{{ card.suffix }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </strong>
+                </div>
+              {% endfor %}
+            </div>
+
+            <div class="tech100-portfolio__delta-strip" id="portfolio-delta-strip">
+              {% for card in selected_delta_cards %}
+                <div class="tech100-portfolio__delta-item">
+                  <span class="tech100-portfolio__delta-label">{{ card.label }}</span>
+                  <strong class="tech100-portfolio__delta-value">
+                    {% if card.value or card.value == 0 %}
+                      {{ card.value|floatformat:card.decimals }}{{ card.suffix }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </strong>
+                  <span class="muted">{{ card.detail }}</span>
+                </div>
+              {% endfor %}
+            </div>
+
+            <details class="tech100-portfolio__info-panel tech100-portfolio__info-panel--workspace">
+              <summary>How to read the selected model</summary>
+              <p id="portfolio-selected-note">{{ selected_model_note }}</p>
+              <p class="muted">The headline strip uses only metrics already proven live in the portfolio analytics backend: return, volatility, drawdown, concentration, governance, and supported tilts.</p>
+            </details>
+
+            <div id="comparison" class="tech100-portfolio__chart-shell">
+              <div class="tech100-portfolio__section-heading">
+                <div>
+                  <p class="tech100-portfolio__eyebrow">Comparison</p>
+                  <h3 class="h2" id="portfolio-chart-title">Relative performance since the range start</h3>
+                  <p class="muted" id="portfolio-chart-caption">All supported models are rebased to the selected range so differences read as cumulative return, not raw index points.</p>
+                </div>
+                <details class="tech100-portfolio__info-panel tech100-portfolio__info-panel--inline">
+                  <summary>Chart method</summary>
+                  <p>Relative view rebases each portfolio at the selected range start. Volatility and drawdown reuse the same control bar without implying unsupported factor families or a live optimizer.</p>
+                </details>
+              </div>
+              <div class="tech100-portfolio__chart-stage">
+                <canvas id="tech100-portfolio-level-chart" role="img" aria-label="TECH100 portfolio comparison chart"></canvas>
+              </div>
+              <div class="tech100-portfolio__legend" id="tech100-portfolio-legend"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="models" class="tech100-portfolio__section">
+          <div class="card sc-card tech100-portfolio__comparison-table-card">
+            <div class="tech100-portfolio__section-heading">
+              <div>
+                <p class="tech100-portfolio__eyebrow">Supported model families</p>
+                <h2 class="h3">Comparison table and factor lens</h2>
+                <p class="muted">The table keeps the supported models on one full-width surface so the differences read clearly without squeezing them into side cards.</p>
+              </div>
+              <details class="tech100-portfolio__info-panel tech100-portfolio__info-panel--inline">
+                <summary>Lens definitions</summary>
+                <p>Governance, momentum, low volatility, concentration, and sector tilt are live-backed. Classical value, fundamental quality, dividend yield, and small-cap families are intentionally absent.</p>
+              </details>
+            </div>
+
+            <div class="table-wrapper table-wrap sc-table-wrap tech100-table-wrap">
+              <table class="table table--wide tech100-table sc-table" aria-label="Portfolio model comparison">
+                <thead>
+                  <tr>
+                    <th class="text-left">Model</th>
+                    <th class="text-right">YTD</th>
+                    <th class="text-right">20D vol</th>
+                    <th class="text-right">Drawdown</th>
+                    <th class="text-right">Top 5</th>
+                    <th class="text-right">Gov.</th>
+                    <th class="text-right">20D mom</th>
+                    <th class="text-right">60D low vol</th>
+                    <th class="text-right">Sector tilt</th>
+                  </tr>
+                </thead>
+                <tbody id="portfolio-comparison-body">
+                  {% for model in model_definitions %}
+                    <tr class="tech100-portfolio__comparison-row {% if model.code == selected_model_code %}is-selected{% endif %}{% if model.code == benchmark_code %} is-benchmark{% endif %}"
+                        data-comparison-row
+                        data-model-code="{{ model.code }}">
+                      <td class="text-left">
+                        {% if model.is_available and model.summary %}
+                          <button type="button" class="tech100-portfolio__table-model" data-portfolio-model-button data-model-code="{{ model.code }}">
+                            <span>{{ model.label }}</span>
+                            <small>{{ model.description }}</small>
+                          </button>
+                        {% else %}
+                          <div class="tech100-portfolio__table-model tech100-portfolio__table-model--muted">
+                            <span>{{ model.label }}</span>
+                            <small>Unavailable on the latest day</small>
+                          </div>
+                        {% endif %}
+                      </td>
+                      {% if model.is_available and model.summary %}
+                        <td class="text-right">{% if model.summary.ret_ytd_pct or model.summary.ret_ytd_pct == 0 %}{{ model.summary.ret_ytd_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if model.summary.vol_20d_pct or model.summary.vol_20d_pct == 0 %}{{ model.summary.vol_20d_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if model.summary.drawdown_to_date_pct or model.summary.drawdown_to_date_pct == 0 %}{{ model.summary.drawdown_to_date_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if model.summary.top5_weight_pct or model.summary.top5_weight_pct == 0 %}{{ model.summary.top5_weight_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if model.summary.avg_governance_score or model.summary.avg_governance_score == 0 %}{{ model.summary.avg_governance_score|floatformat:1 }}{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if model.summary.avg_momentum_20d_pct or model.summary.avg_momentum_20d_pct == 0 %}{{ model.summary.avg_momentum_20d_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if model.summary.avg_low_vol_60d_pct or model.summary.avg_low_vol_60d_pct == 0 %}{{ model.summary.avg_low_vol_60d_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if model.summary.factor_sector_tilt_abs_pct or model.summary.factor_sector_tilt_abs_pct == 0 %}{{ model.summary.factor_sector_tilt_abs_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                      {% else %}
+                        <td class="text-right">—</td>
+                        <td class="text-right">—</td>
+                        <td class="text-right">—</td>
+                        <td class="text-right">—</td>
+                        <td class="text-right">—</td>
+                        <td class="text-right">—</td>
+                        <td class="text-right">—</td>
+                        <td class="text-right">—</td>
+                      {% endif %}
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="tech100-portfolio__profile-strip" id="portfolio-profile-strip">
+              {% for card in factor_cards %}
+                <div class="tech100-portfolio__profile-item">
+                  <span class="tech100-portfolio__summary-label">{{ card.label }}</span>
+                  <strong class="tech100-portfolio__summary-value">
+                    {% if card.value or card.value == 0 %}
+                      {{ card.value|floatformat:2 }}{{ card.suffix }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </strong>
+                  <span class="muted">{{ card.detail }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+
+        <section id="analytics" class="tech100-portfolio__section">
+          <div class="card sc-card tech100-portfolio__analytics-card">
+            <div class="tech100-portfolio__section-heading">
+              <div>
+                <p class="tech100-portfolio__eyebrow">Composition</p>
+                <h2 class="h3">Holdings, attribution, and sector tilt</h2>
+                <p class="muted">Switch the surface instead of forcing the key tables and charts into cramped side columns.</p>
+              </div>
+              <details class="tech100-portfolio__info-panel tech100-portfolio__info-panel--inline">
+                <summary>Data availability</summary>
+                <p>Missing holdings, sector rows, or constraint rows hide only the affected surface. The rest of the workspace remains usable.</p>
+              </details>
+            </div>
+
+            <div class="tech100-portfolio__surface-tabs sc-segmented" aria-label="Analytics surface">
+              <button type="button" class="btn btn--ghost tech100-portfolio-surface sc-segmented__btn is-active" data-surface="holdings">Holdings</button>
+              <button type="button" class="btn btn--ghost tech100-portfolio-surface sc-segmented__btn" data-surface="attribution">Attribution</button>
+              <button type="button" class="btn btn--ghost tech100-portfolio-surface sc-segmented__btn" data-surface="sector">Sector tilt</button>
+            </div>
+
+            <div class="tech100-portfolio__surface" id="portfolio-surface-holdings">
+              <div class="tech100-portfolio__surface-head">
+                <div>
+                  <h3 class="h4">Holdings table</h3>
+                  <p class="muted" id="portfolio-holdings-note">The table keeps the core portfolio view visible by default and swaps the auxiliary columns when you change the view.</p>
+                </div>
+                <div class="sc-segmented" aria-label="Holdings table view">
+                  {% for option in holdings_view_options %}
+                    <button type="button"
+                            class="btn btn--ghost tech100-portfolio-holdings-view sc-segmented__btn {% if option.code == holdings_view %}is-active{% endif %}"
+                            data-holdings-view="{{ option.code }}">
+                      {{ option.label }}
+                    </button>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="table-wrapper table-wrap sc-table-wrap tech100-table-wrap">
+                <table id="portfolio-holdings-table" class="table table--wide tech100-table sc-table" aria-label="Top portfolio holdings">
+                  <thead>
+                    <tr>
+                      <th class="text-left">Company</th>
+                      <th class="text-right">Weight</th>
+                      <th class="text-right">Active</th>
+                      {% if holdings_view == "signals" %}
+                        <th class="text-right">Gov.</th>
+                        <th class="text-right">20D Mom</th>
+                        <th class="text-right">60D Low Vol</th>
+                      {% elif holdings_view == "attribution" %}
+                        <th class="text-right">1D bp</th>
+                        <th class="text-right">{{ selected_attribution.label }} bp</th>
+                        <th class="text-right">Gov.</th>
+                      {% else %}
+                        <th class="text-right">Benchmark</th>
+                        <th class="text-right">YTD bp</th>
+                        <th class="text-right">Quality</th>
+                      {% endif %}
+                    </tr>
+                  </thead>
+                  <tbody id="portfolio-holdings-body">
+                    {% for row in positions %}
+                      <tr>
+                        <td class="text-left">
+                          <div class="tech100-portfolio__company-cell">
+                            <a class="text-link tech100-portfolio__company-ticker" href="{% url 'tech100_company' row.ticker %}">{{ row.ticker }}</a>
+                            <div>
+                              <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.company_name|default:"—" }}</a>
+                              <div class="muted">{{ row.sector|default:"Unclassified" }}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="text-right">{% if row.model_weight_pct or row.model_weight_pct == 0 %}{{ row.model_weight_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if row.active_weight_pct or row.active_weight_pct == 0 %}{{ row.active_weight_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        {% if holdings_view == "signals" %}
+                          <td class="text-right">{% if row.governance_score or row.governance_score == 0 %}{{ row.governance_score|floatformat:1 }}{% else %}—{% endif %}</td>
+                          <td class="text-right">{% if row.momentum_20d_pct or row.momentum_20d_pct == 0 %}{{ row.momentum_20d_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                          <td class="text-right">{% if row.low_vol_60d_pct or row.low_vol_60d_pct == 0 %}{{ row.low_vol_60d_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        {% elif holdings_view == "attribution" %}
+                          <td class="text-right">{% if row.contrib_1d_bp or row.contrib_1d_bp == 0 %}{{ row.contrib_1d_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                          {% if selected_attribution_key == "contrib_1d" %}
+                            <td class="text-right">{% if row.contrib_1d_bp or row.contrib_1d_bp == 0 %}{{ row.contrib_1d_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                          {% elif selected_attribution_key == "contrib_5d" %}
+                            <td class="text-right">{% if row.contrib_5d_bp or row.contrib_5d_bp == 0 %}{{ row.contrib_5d_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                          {% elif selected_attribution_key == "contrib_20d" %}
+                            <td class="text-right">{% if row.contrib_20d_bp or row.contrib_20d_bp == 0 %}{{ row.contrib_20d_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                          {% elif selected_attribution_key == "contrib_mtd" %}
+                            <td class="text-right">{% if row.contrib_mtd_bp or row.contrib_mtd_bp == 0 %}{{ row.contrib_mtd_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                          {% else %}
+                            <td class="text-right">{% if row.contrib_ytd_bp or row.contrib_ytd_bp == 0 %}{{ row.contrib_ytd_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                          {% endif %}
+                          <td class="text-right">{% if row.governance_score or row.governance_score == 0 %}{{ row.governance_score|floatformat:1 }}{% else %}—{% endif %}</td>
+                        {% else %}
+                          <td class="text-right">{% if row.benchmark_weight_pct or row.benchmark_weight_pct == 0 %}{{ row.benchmark_weight_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                          <td class="text-right">{% if row.contrib_ytd_bp or row.contrib_ytd_bp == 0 %}{{ row.contrib_ytd_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                          <td class="text-right">{{ row.price_quality|default:"—" }}</td>
+                        {% endif %}
+                      </tr>
+                    {% empty %}
+                      <tr>
+                        <td colspan="6" class="text-center muted">No portfolio holdings available.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="tech100-portfolio__surface" id="portfolio-surface-attribution" hidden>
+              <div class="tech100-portfolio__surface-head">
+                <div>
+                  <h3 class="h4">Attribution focus</h3>
+                  <p class="muted">Contribution is shown in basis points and responds to the window selected in the workspace control bar.</p>
+                </div>
+                <span class="tech100-portfolio__meta-chip" id="portfolio-attribution-current">{{ selected_attribution.label }} window</span>
+              </div>
+
+              <div class="tech100-portfolio__attribution-board">
+                <div class="tech100-portfolio__attribution-panel">
+                  <div class="tech100-portfolio__mini-heading">
+                    <span>Top contributors</span>
+                    <strong id="portfolio-attribution-label-top">{{ selected_attribution.label }}</strong>
+                  </div>
+                  <ul class="tech100-portfolio__rank-list" id="portfolio-attribution-top">
+                    {% for row in selected_attribution.top %}
+                      <li>
+                        <div>
+                          <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.ticker }}</a>
+                          <span class="muted">{{ row.sector|default:"Unclassified" }}</span>
+                        </div>
+                        <strong>{{ row.metric_bp|floatformat:2 }} bp</strong>
+                      </li>
+                    {% empty %}
+                      <li class="is-empty">No attribution rows available.</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+
+                <div class="tech100-portfolio__attribution-panel">
+                  <div class="tech100-portfolio__mini-heading">
+                    <span>Detractors</span>
+                    <strong id="portfolio-attribution-label-bottom">{{ selected_attribution.label }}</strong>
+                  </div>
+                  <ul class="tech100-portfolio__rank-list" id="portfolio-attribution-bottom">
+                    {% for row in selected_attribution.bottom %}
+                      <li>
+                        <div>
+                          <a class="text-link" href="{% url 'tech100_company' row.ticker %}">{{ row.ticker }}</a>
+                          <span class="muted">{{ row.sector|default:"Unclassified" }}</span>
+                        </div>
+                        <strong>{{ row.metric_bp|floatformat:2 }} bp</strong>
+                      </li>
+                    {% empty %}
+                      <li class="is-empty">No detractor rows available.</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div class="tech100-portfolio__surface" id="portfolio-surface-sector" hidden>
+              <div class="tech100-portfolio__surface-head">
+                <div>
+                  <h3 class="h4">Sector tilt</h3>
+                  <p class="muted">Displayed when sector rows exist for the selected model and date.</p>
+                </div>
+              </div>
+
+              <div class="tech100-portfolio__sector-chart-stage" id="portfolio-sector-chart-wrap" {% if not sector_rows %}hidden{% endif %}>
+                <canvas id="tech100-portfolio-sector-chart" role="img" aria-label="Sector tilt chart"></canvas>
+              </div>
+
+              <div class="table-wrapper table-wrap sc-table-wrap tech100-table-wrap" id="portfolio-sector-table-wrap" {% if not sector_rows %}hidden{% endif %}>
+                <table id="portfolio-sector-table" class="table tech100-table sc-table" aria-label="Sector weights">
+                  <thead>
+                    <tr>
+                      <th class="text-left">Sector</th>
+                      <th class="text-right">Active</th>
+                      <th class="text-right">YTD bp</th>
+                    </tr>
+                  </thead>
+                  <tbody id="portfolio-sector-body">
+                    {% for row in sector_rows %}
+                      <tr>
+                        <td class="text-left">{{ row.sector }}</td>
+                        <td class="text-right">{% if row.active_sector_weight_pct or row.active_sector_weight_pct == 0 %}{{ row.active_sector_weight_pct|floatformat:2 }}%{% else %}—{% endif %}</td>
+                        <td class="text-right">{% if row.contrib_ytd_bp or row.contrib_ytd_bp == 0 %}{{ row.contrib_ytd_bp|floatformat:2 }}{% else %}—{% endif %}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <p class="muted" id="portfolio-sector-empty" {% if sector_rows %}hidden{% endif %}>Sector rows are unavailable for the selected model or date. The rest of the workspace remains usable.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="method" class="tech100-portfolio__section">
+          <div class="card sc-card tech100-portfolio__research-drawer">
+            <div class="tech100-portfolio__section-heading">
+              <div>
+                <p class="tech100-portfolio__eyebrow">Research design</p>
+                <h2 class="h3">Method, inputs, and limits</h2>
+                <p class="muted">Secondary explanation stays tucked away until requested, but the page still documents what is supported and what is intentionally absent.</p>
+              </div>
+            </div>
+
+            <details class="tech100-portfolio__accordion" open>
+              <summary>Research inputs and constraints</summary>
+              <div class="tech100-portfolio__research-stats">
+                <div class="tech100-portfolio__summary-item">
+                  <span class="tech100-portfolio__summary-label">Input rows</span>
+                  <strong class="tech100-portfolio__summary-value">{{ optimizer_summary.input_count|default:"—" }}</strong>
+                </div>
+                <div class="tech100-portfolio__summary-item">
+                  <span class="tech100-portfolio__summary-label">Eligible rows</span>
+                  <strong class="tech100-portfolio__summary-value">{{ optimizer_summary.eligible_count|default:"—" }}</strong>
+                </div>
+                <div class="tech100-portfolio__summary-item">
+                  <span class="tech100-portfolio__summary-label">Avg governance</span>
+                  <strong class="tech100-portfolio__summary-value">{{ optimizer_summary.avg_governance_score|default:"—"|floatformat:1 }}</strong>
+                </div>
+                <div class="tech100-portfolio__summary-item">
+                  <span class="tech100-portfolio__summary-label">Avg momentum</span>
+                  <strong class="tech100-portfolio__summary-value">{% if optimizer_summary.avg_momentum_20d_pct or optimizer_summary.avg_momentum_20d_pct == 0 %}{{ optimizer_summary.avg_momentum_20d_pct|floatformat:2 }}%{% else %}—{% endif %}</strong>
+                </div>
+              </div>
+
+              <ul class="tech100-portfolio__constraint-list" id="portfolio-constraint-list" {% if not constraints %}hidden{% endif %}>
+                {% if constraints %}
+                  {% for row in constraints %}
+                    <li><strong>{{ row.label }}:</strong> {{ row.value }}</li>
+                  {% endfor %}
+                {% endif %}
+              </ul>
+              <p class="muted" id="portfolio-constraint-empty" {% if constraints %}hidden{% endif %}>Constraint rows are not available for the selected model on this environment.</p>
+            </details>
+
+            <details class="tech100-portfolio__accordion">
+              <summary>What the controls do</summary>
+              <ul class="tech100-portfolio__notes">
+                <li><strong>Model</strong> changes the entire workspace and can also be selected from the rolling ribbon or the comparison table.</li>
+                <li><strong>Compare against</strong> changes the active-return and active-risk baseline without implying unsupported analytics.</li>
+                <li><strong>Metric</strong> switches between relative performance, rolling volatility, and drawdown using the same aligned date set.</li>
+                <li><strong>Attribution window</strong> updates both the attribution surface and the attribution view inside the holdings table.</li>
+              </ul>
+            </details>
+
+            <details class="tech100-portfolio__accordion" open>
+              <summary>Supported now</summary>
+              <ul class="tech100-portfolio__notes">
+                {% for item in supported_analytics %}
+                  <li>{{ item }}</li>
+                {% endfor %}
+              </ul>
+            </details>
+
+            <details class="tech100-portfolio__accordion">
+              <summary>Intentionally deferred</summary>
+              <ul class="tech100-portfolio__notes">
+                {% for item in deferred_analytics %}
+                  <li>{{ item }}</li>
+                {% endfor %}
+              </ul>
+            </details>
+          </div>
+        </section>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+{% if not data_error and not data_empty %}
+  {{ workspace_payload|json_script:"tech100-portfolio-workspace" }}
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/date-format.js' %}?v=20251221" defer></script>
+  <script src="{% static 'js/tech100-portfolio.js' %}?v=20260318-3" defer></script>
+{% endblock %}
