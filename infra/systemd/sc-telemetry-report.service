@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily web telemetry usage report
+Description=Daily SC_IDX telemetry report
 After=network-online.target
 Wants=network-online.target
 
@@ -9,11 +9,15 @@ User=opc
 WorkingDirectory=/home/opc/Sustainacore
 Environment=PYTHONPATH=/home/opc/Sustainacore
 Environment=PYTHONUNBUFFERED=1
+Environment=TNS_ADMIN=/opt/adb_wallet
 EnvironmentFile=/etc/sustainacore/db.env
+EnvironmentFile=/etc/sustainacore/index.env
 EnvironmentFile=/etc/sustainacore-ai/secrets.env
-EnvironmentFile=-/etc/sustainacore.env
-RuntimeMaxSec=900
-ExecStart=/usr/bin/flock -n /tmp/sc-telemetry-report.lock /usr/bin/python3 /home/opc/Sustainacore/tools/telemetry/usage_report.py --all --send
+TimeoutStartSec=900
+ExecStartPre=/usr/bin/test -r /etc/sustainacore/db.env
+ExecStartPre=/usr/bin/test -r /etc/sustainacore/index.env
+ExecStartPre=/usr/bin/test -r /etc/sustainacore-ai/secrets.env
+ExecStart=/usr/bin/flock -n /tmp/sc-telemetry-report.lock /usr/bin/python3 /home/opc/Sustainacore/tools/index_engine/daily_telemetry_report.py --send
 
 [Install]
 WantedBy=multi-user.target

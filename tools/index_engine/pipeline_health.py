@@ -146,6 +146,25 @@ def collect_health_snapshot(
         "AND error_msg LIKE '%ORA-%'"
     )
 
+    alignment_candidates = [
+        value
+        for value in [
+            canon_max,
+            levels_max,
+            stats_max,
+            portfolio_max,
+            portfolio_position_max,
+        ]
+        if value is not None
+    ]
+    if not alignment_candidates:
+        alignment_verdict = "unknown"
+    elif len({value.isoformat() for value in alignment_candidates}) == 1:
+        alignment_verdict = "aligned"
+    else:
+        max_gap = (max(alignment_candidates) - min(alignment_candidates)).days
+        alignment_verdict = "partially_aligned" if max_gap <= 1 else "out_of_sync"
+
     return {
         "calendar_max_date": calendar_max.isoformat() if calendar_max else None,
         "canon_max_date": canon_max.isoformat() if canon_max else None,
@@ -173,6 +192,7 @@ def collect_health_snapshot(
         "repo_head": _git_head(),
         "next_missing_trading_day": next_missing.isoformat() if next_missing else None,
         "oracle_error_counts_24h": int(oracle_error_count) if oracle_error_count is not None else None,
+        "alignment_verdict": alignment_verdict,
         "stage_durations_sec": {k: round(v, 2) for k, v in stage_durations.items()},
         "last_error": last_error,
     }
@@ -201,6 +221,7 @@ def format_health_summary(health: Dict[str, Any]) -> str:
         "repo_head",
         "next_missing_trading_day",
         "oracle_error_counts_24h",
+        "alignment_verdict",
         "last_error",
     ]:
         lines.append(f"{key}={health.get(key)}")

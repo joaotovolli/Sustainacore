@@ -39,6 +39,18 @@ def test_send_email_no_env(monkeypatch):
     assert called["count"] == 0
 
 
+def test_send_email_result_reports_missing_env(monkeypatch):
+    for name in ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "MAIL_FROM", "MAIL_TO"):
+        monkeypatch.delenv(name, raising=False)
+
+    result = alerts.send_email_result("subj", "body")
+
+    assert result["ok"] is False
+    assert result["attempted"] is False
+    assert result["delivery_state"] == "missing_env"
+    assert set(result["missing_env"]) >= {"SMTP_USER", "SMTP_PASS", "MAIL_TO", "MAIL_FROM"}
+
+
 def test_send_email_success(monkeypatch):
     called = {"count": 0, "subject": None, "body": None}
 
@@ -78,6 +90,45 @@ def test_send_email_success(monkeypatch):
     assert called["count"] == 1
     assert called["subject"] == "hello"
     assert "world" in called["body"]
+
+
+def test_send_email_result_success(monkeypatch):
+    class DummySMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def ehlo(self):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def send_message(self, msg):
+            return {}
+
+    monkeypatch.setattr(alerts.smtplib, "SMTP", DummySMTP)
+    monkeypatch.setenv("SMTP_HOST", "smtp.test")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USER", "user@test")
+    monkeypatch.setenv("SMTP_PASS", "secret")
+    monkeypatch.setenv("MAIL_FROM", "from@test")
+    monkeypatch.setenv("MAIL_TO", "to@test")
+
+    result = alerts.send_email_result("hello", "world")
+
+    assert result["ok"] is True
+    assert result["attempted"] is True
+    assert result["delivery_state"] == "sent"
+    assert result["mail_to_count"] == 1
 
 
 def test_format_run_report_truncates_error():

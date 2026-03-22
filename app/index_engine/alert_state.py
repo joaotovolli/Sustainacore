@@ -29,19 +29,11 @@ def should_send_today(last_sent_date: Optional[_dt.date], today: _dt.date) -> bo
     return last_sent_date != today
 
 
-def should_send_alert(
-    alert_name: str,
-    *,
-    detail: Optional[str] = None,
-    now: Optional[_dt.datetime] = None,
-) -> bool:
-    """Return True if alert should be sent (once per UTC day)."""
-
-    today = _utc_today(now)
-    detail_hash = _hash_detail(detail)
+def get_alert_state(alert_name: str) -> dict[str, object]:
+    """Return the persisted alert gate state for the requested alert."""
 
     sql = (
-        "SELECT last_sent_utc_date, last_detail_hash "
+        "SELECT last_sent_utc_date, last_sent_at, last_status, last_detail_hash "
         "FROM SC_IDX_ALERT_STATE "
         "WHERE alert_name = :alert_name"
     )
@@ -51,16 +43,70 @@ def should_send_alert(
         row = cur.fetchone()
 
     if not row:
-        return True
+        return {
+            "alert_name": alert_name,
+            "exists": False,
+            "last_sent_utc_date": None,
+            "last_sent_at": None,
+            "last_status": None,
+            "last_detail_hash": None,
+        }
 
-    last_sent_date, last_hash = row
+    last_sent_date, last_sent_at, last_status, last_detail_hash = row
     if isinstance(last_sent_date, _dt.datetime):
         last_sent_date = last_sent_date.date()
+    return {
+        "alert_name": alert_name,
+        "exists": True,
+        "last_sent_utc_date": last_sent_date.isoformat() if last_sent_date else None,
+        "last_sent_at": last_sent_at.isoformat() if isinstance(last_sent_at, _dt.datetime) else None,
+        "last_status": str(last_status) if last_status is not None else None,
+        "last_detail_hash": str(last_detail_hash) if last_detail_hash is not None else None,
+    }
 
-    if not should_send_today(last_sent_date, today):
-        return False
 
-    return True
+def evaluate_alert_gate(
+    alert_name: str,
+    *,
+    detail: Optional[str] = None,
+    now: Optional[_dt.datetime] = None,
+) -> dict[str, object]:
+    """Return whether an alert is allowed to send and why."""
+
+    today = _utc_today(now)
+    state = get_alert_state(alert_name)
+    last_sent_raw = state.get("last_sent_utc_date")
+    last_sent_date = _dt.date.fromisoformat(str(last_sent_raw)) if last_sent_raw else None
+    detail_hash = _hash_detail(detail)
+
+    if last_sent_date is None:
+        reason = "first_send"
+        should_send = True
+    elif should_send_today(last_sent_date, today):
+        reason = "new_utc_day"
+        should_send = True
+    else:
+        reason = "already_sent_today"
+        should_send = False
+
+    return {
+        "alert_name": alert_name,
+        "should_send": should_send,
+        "reason": reason,
+        "today_utc": today.isoformat(),
+        "detail_hash": detail_hash,
+        "state": state,
+    }
+
+
+def should_send_alert(
+    alert_name: str,
+    *,
+    detail: Optional[str] = None,
+    now: Optional[_dt.datetime] = None,
+) -> bool:
+    """Return True if alert should be sent (once per UTC day)."""
+    return bool(evaluate_alert_gate(alert_name, detail=detail, now=now)["should_send"])
 
 
 def mark_alert_sent(
@@ -119,6 +165,8 @@ def should_send_alert_once_per_day(
 
 
 __all__ = [
+    "evaluate_alert_gate",
+    "get_alert_state",
     "mark_alert_sent",
     "should_send_alert",
     "should_send_alert_once_per_day",

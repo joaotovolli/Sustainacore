@@ -216,7 +216,15 @@ def fetch_price_rows(
 
 
 def fetch_portfolio_analytics_max_date() -> _dt.date | None:
-    sql = "SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY"
+    return _fetch_max_trade_date("SC_IDX_PORTFOLIO_ANALYTICS_DAILY")
+
+
+def fetch_portfolio_position_max_date() -> _dt.date | None:
+    return _fetch_max_trade_date("SC_IDX_PORTFOLIO_POSITION_DAILY")
+
+
+def _fetch_max_trade_date(table_name: str) -> _dt.date | None:
+    sql = f"SELECT MAX(trade_date) FROM {table_name}"
     with get_connection() as conn:
         cur = conn.cursor()
         try:
@@ -326,6 +334,7 @@ __all__ = [
     "fetch_official_daily_rows",
     "fetch_official_position_rows",
     "fetch_portfolio_analytics_max_date",
+    "fetch_portfolio_position_max_date",
     "fetch_price_rows",
     "fetch_trade_date_bounds",
     "persist_outputs",
