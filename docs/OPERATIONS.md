@@ -83,3 +83,21 @@
 - Embedding parity, readiness results, and multi-hit orchestrator fallbacks emit structured logs (`sustainacore.embed`, `app.readyz`, `app.multihit`).
 - Retrieval responses include `meta.scope`, `meta.filters`, and the detected `top_score` to aid debugging.
 - The `/ask2_direct` and `/ask2_simple` endpoints echo `meta.insufficient_context` and the configured scope for diagnostics.
+
+## SC_IDX orchestration (VM1)
+- The SC_IDX / TECH100 operational pipeline now uses LangGraph as the primary orchestration layer.
+- Operator entrypoint: `python3 tools/index_engine/run_pipeline.py`.
+- Primary scheduler: `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`.
+- The graph is deliberately thin and low-memory:
+  - no daemon
+  - no Redis/Celery
+  - bounded retries
+  - bounded readiness fallbacks
+  - repo-native JSON artifacts plus Oracle-backed stage state
+- Run artifacts:
+  - reports: `tools/audit/output/pipeline_runs/`
+  - telemetry: `tools/audit/output/pipeline_telemetry/`
+  - health snapshot: `tools/audit/output/pipeline_health_latest.txt`
+- Compact run status codes in `SC_IDX_JOB_RUNS`:
+  - `OK`, `DEGRADED`, `SKIP`, `ERROR`, `BLOCKED`
+- See [SC_IDX LangGraph orchestration](index_engine_langgraph_orchestration.md) for node layout, retry rules, and verification.

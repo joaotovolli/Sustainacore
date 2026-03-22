@@ -51,6 +51,7 @@
     "joaotovolli",
     "journalctl",
     "kwargs",
+    "LangGraph",
     "letsencrypt",
     "mktemp",
     "multihit",

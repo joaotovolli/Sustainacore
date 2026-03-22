@@ -1,264 +1,182 @@
 import datetime as dt
-import sys
-import types
+import json
+from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+APP_ROOT = REPO_ROOT / "app"
+for path in (REPO_ROOT, APP_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-import tools.index_engine.run_pipeline as pipeline
+from index_engine.orchestration import (
+    PipelineGraphState,
+    SmokePipelineRuntime,
+    build_pipeline_graph,
+    run_pipeline,
+    PipelineArgs,
+)
 
 
+@dataclass
 class _Record:
-    def __init__(self, status: str):
-        now = dt.datetime(2026, 1, 7, tzinfo=dt.timezone.utc)
-        self.status = status
-        self.started_at = now
-        self.ended_at = now
-        self.details = None
+    status: str
+    details: str | None = None
+    started_at: dt.datetime | None = None
+    ended_at: dt.datetime | None = None
 
 
 class _FakeStore:
-    def __init__(self, *, resume_run_id=None, stage_records=None):
-        self.run_id = "run-1"
-        self.resume_run_id = resume_run_id
+    def __init__(self, stage_records=None):
         self.stage_records = stage_records or {}
-        self.started = {}
 
     def create_run_id(self):
-        return self.run_id
+        return "run-test"
 
     def fetch_resume_run_id(self, run_date=None):
-        return self.resume_run_id
+        return "run-test"
 
     def fetch_stage_statuses(self, run_id):
         return self.stage_records
 
     def record_stage_start(self, run_id, stage_name, details=None):
-        self.started[stage_name] = details
+        now = dt.datetime(2026, 1, 7, tzinfo=dt.timezone.utc)
+        self.stage_records[stage_name] = _Record(
+            status="STARTED",
+            details=details,
+            started_at=now,
+            ended_at=None,
+        )
 
     def record_stage_end(self, run_id, stage_name, status, details=None):
-        self.stage_records[stage_name] = _Record(status)
+        now = dt.datetime(2026, 1, 7, tzinfo=dt.timezone.utc)
+        self.stage_records[stage_name] = _Record(
+            status=status,
+            details=details,
+            started_at=now,
+            ended_at=now,
+        )
 
 
-def _patch_health(monkeypatch):
-    monkeypatch.setattr(pipeline, "collect_health_snapshot", lambda stage_durations, last_error: {})
-    monkeypatch.setattr(pipeline, "format_health_summary", lambda health: "summary")
-    monkeypatch.setattr(pipeline, "write_health_artifact", lambda health: None)
-    monkeypatch.setattr(pipeline, "start_run", lambda *args, **kwargs: None)
-    monkeypatch.setattr(pipeline, "finish_run", lambda *args, **kwargs: None)
-
-
-def test_invoke_stage_handles_noarg_main(monkeypatch):
-    original_argv = sys.argv[:]
-    seen = {}
-
-    def noarg_main():
-        seen["argv"] = sys.argv[:]
-        return 0
-
-    code, detail = pipeline._invoke_stage("noarg", noarg_main, ["--foo", "bar"])
-    assert code == 0
-    assert detail is None
-    assert seen["argv"][1:] == ["--foo", "bar"]
-    assert sys.argv == original_argv
-
-
-def test_invoke_stage_handles_argv_main():
-    captured = []
-
-    def argv_main(argv):
-        captured.extend(argv)
-        return 0
-
-    code, _detail = pipeline._invoke_stage("withargv", argv_main, ["a", "b"])
-    assert code == 0
-    assert captured == ["a", "b"]
-
-
-def test_pipeline_skip_ingest(monkeypatch):
-    calls = []
-    store = _FakeStore()
-    _patch_health(monkeypatch)
-
-    monkeypatch.setenv("SC_IDX_PIPELINE_SKIP_INGEST", "1")
-    monkeypatch.delenv("MARKET_DATA_API_BASE_URL", raising=False)
-    monkeypatch.delenv("SC_MARKET_DATA_API_KEY", raising=False)
-    monkeypatch.delenv("MARKET_DATA_API_KEY", raising=False)
-    monkeypatch.setattr(pipeline, "PipelineStateStore", lambda pipeline_name=None: store)
-
-    update_mod = types.ModuleType("tools.index_engine.update_trading_days")
-    update_mod.update_trading_days = lambda auto_extend=False: calls.append("update_trading_days")
-    monkeypatch.setitem(sys.modules, "tools.index_engine.update_trading_days", update_mod)
-
-    run_daily_mod = types.ModuleType("tools.index_engine.run_daily")
-    run_daily_mod.main = lambda argv=None: calls.append("ingest") or 0
-    monkeypatch.setitem(sys.modules, "tools.index_engine.run_daily", run_daily_mod)
-
-    check_mod = types.ModuleType("tools.index_engine.check_price_completeness")
-    check_mod.run_check = lambda **kwargs: calls.append("completeness") or {}
-    monkeypatch.setitem(sys.modules, "tools.index_engine.check_price_completeness", check_mod)
-
-    ingest_mod = types.ModuleType("tools.index_engine.ingest_prices")
-    ingest_mod._run_backfill_missing = lambda args: calls.append("backfill_missing")
-    monkeypatch.setitem(sys.modules, "tools.index_engine.ingest_prices", ingest_mod)
-
-    calc_mod = types.ModuleType("tools.index_engine.calc_index")
-    calc_mod.main = lambda argv=None: calls.append("calc_index") or 0
-    monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
-
-    impute_mod = types.ModuleType("tools.index_engine.impute_missing_prices")
-    impute_mod.main = lambda argv=None: calls.append("impute") or 0
-    monkeypatch.setitem(sys.modules, "tools.index_engine.impute_missing_prices", impute_mod)
-
-    target_day = dt.date(2026, 1, 7)
-    level_state = {"value": dt.date(2026, 1, 6)}
-
-    monkeypatch.setattr(pipeline.engine_db, "fetch_latest_trading_day", lambda: target_day)
-    monkeypatch.setattr(pipeline.engine_db, "fetch_trading_days", lambda start, end: [level_state["value"], target_day])
-    monkeypatch.setattr(pipeline.engine_db, "fetch_max_canon_trade_date", lambda: target_day)
-    monkeypatch.setattr(pipeline.engine_db, "fetch_missing_real_for_trade_date", lambda date: [])
-    monkeypatch.setattr(pipeline.engine_db, "fetch_max_imputation_date", lambda: None)
-
-    def _fetch_max_level_date():
-        return level_state["value"]
-
-    def _calc_main(argv=None):
-        calls.append("calc_index")
-        level_state["value"] = target_day
-        return 0
-
-    calc_mod.main = _calc_main
-    monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
-    monkeypatch.setattr(pipeline.db_index_calc, "fetch_max_level_date", _fetch_max_level_date)
-
-    exit_code = pipeline.main([])
-    assert exit_code == 0
-    assert "ingest" not in calls
-    assert calls == ["completeness", "calc_index", "impute"]
-
-
-def test_pipeline_advances_next_missing_day(monkeypatch):
-    calls = []
-    store = _FakeStore()
-    _patch_health(monkeypatch)
-
-    monkeypatch.setattr(pipeline, "PipelineStateStore", lambda pipeline_name=None: store)
-
-    update_mod = types.ModuleType("tools.index_engine.update_trading_days")
-    update_mod.update_trading_days = lambda auto_extend=False: None
-    monkeypatch.setitem(sys.modules, "tools.index_engine.update_trading_days", update_mod)
-
-    run_daily_mod = types.ModuleType("tools.index_engine.run_daily")
-    run_daily_mod.main = lambda argv=None: 0
-    monkeypatch.setitem(sys.modules, "tools.index_engine.run_daily", run_daily_mod)
-
-    check_mod = types.ModuleType("tools.index_engine.check_price_completeness")
-    check_mod.run_check = lambda **kwargs: None
-    monkeypatch.setitem(sys.modules, "tools.index_engine.check_price_completeness", check_mod)
-
-    ingest_mod = types.ModuleType("tools.index_engine.ingest_prices")
-    ingest_mod._run_backfill_missing = lambda args: None
-    monkeypatch.setitem(sys.modules, "tools.index_engine.ingest_prices", ingest_mod)
-
-    calc_args = {}
-    calc_mod = types.ModuleType("tools.index_engine.calc_index")
-
-    def _calc_main(argv=None):
-        calc_args["argv"] = list(argv or [])
-        return 0
-
-    calc_mod.main = _calc_main
-    monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
-
-    impute_mod = types.ModuleType("tools.index_engine.impute_missing_prices")
-    impute_mod.main = lambda argv=None: 0
-    monkeypatch.setitem(sys.modules, "tools.index_engine.impute_missing_prices", impute_mod)
-
-    level_date = dt.date(2026, 1, 6)
-    target_day = dt.date(2026, 1, 7)
-
-    monkeypatch.setattr(pipeline.engine_db, "fetch_latest_trading_day", lambda: target_day)
-    monkeypatch.setattr(pipeline.engine_db, "fetch_trading_days", lambda start, end: [level_date, target_day])
-    monkeypatch.setattr(pipeline.engine_db, "fetch_max_canon_trade_date", lambda: target_day)
-    monkeypatch.setattr(pipeline.engine_db, "fetch_missing_real_for_trade_date", lambda date: [])
-    monkeypatch.setattr(pipeline.engine_db, "fetch_max_imputation_date", lambda: None)
-
-    level_state = {"value": level_date}
-
-    def _fetch_max_level_date():
-        return level_state["value"]
-
-    def _calc_main_with_update(argv=None):
-        level_state["value"] = target_day
-        calc_args["argv"] = list(argv or [])
-        return 0
-
-    calc_mod.main = _calc_main_with_update
-    monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
-    monkeypatch.setattr(pipeline.db_index_calc, "fetch_max_level_date", _fetch_max_level_date)
-
-    exit_code = pipeline.main([])
-    assert exit_code == 0
-    assert calc_args["argv"][:4] == ["--start", "2026-01-07", "--end", "2026-01-07"]
-
-
-def test_pipeline_resume_skips_ok_stages(monkeypatch):
-    calls = []
-    stage_records = {
-        "update_trading_days": _Record("OK"),
-        "ingest_prices": _Record("OK"),
+def _state(**overrides) -> PipelineGraphState:
+    state: PipelineGraphState = {
+        "run_id": "run-test",
+        "run_date": "2026-01-07",
+        "started_at": "2026-01-07T00:00:00+00:00",
+        "resume": False,
+        "restart": True,
+        "smoke": True,
+        "skip_ingest": False,
+        "smoke_scenario": "success",
+        "warnings": [],
+        "stage_results": {},
+        "context": {},
+        "report": {},
+        "alert": {},
+        "telemetry": {},
+        "terminal_status": None,
     }
-    store = _FakeStore(resume_run_id="run-1", stage_records=stage_records)
-    _patch_health(monkeypatch)
+    state.update(overrides)
+    return state
 
-    monkeypatch.setattr(pipeline, "PipelineStateStore", lambda pipeline_name=None: store)
 
-    update_mod = types.ModuleType("tools.index_engine.update_trading_days")
-    update_mod.update_trading_days = lambda auto_extend=False: calls.append("update_trading_days")
-    monkeypatch.setitem(sys.modules, "tools.index_engine.update_trading_days", update_mod)
+def test_smoke_success_writes_report_and_terminal_state(tmp_path):
+    exit_code, state = run_pipeline(
+        PipelineArgs(smoke=True, smoke_scenario="success", report_dir=tmp_path, restart=True)
+    )
 
-    run_daily_mod = types.ModuleType("tools.index_engine.run_daily")
-    run_daily_mod.main = lambda argv=None: calls.append("ingest") or 0
-    monkeypatch.setitem(sys.modules, "tools.index_engine.run_daily", run_daily_mod)
-
-    check_mod = types.ModuleType("tools.index_engine.check_price_completeness")
-    check_mod.run_check = lambda **kwargs: calls.append("completeness") or None
-    monkeypatch.setitem(sys.modules, "tools.index_engine.check_price_completeness", check_mod)
-
-    ingest_mod = types.ModuleType("tools.index_engine.ingest_prices")
-    ingest_mod._run_backfill_missing = lambda args: None
-    monkeypatch.setitem(sys.modules, "tools.index_engine.ingest_prices", ingest_mod)
-
-    calc_mod = types.ModuleType("tools.index_engine.calc_index")
-    impute_mod = types.ModuleType("tools.index_engine.impute_missing_prices")
-    impute_mod.main = lambda argv=None: calls.append("impute") or 0
-    monkeypatch.setitem(sys.modules, "tools.index_engine.impute_missing_prices", impute_mod)
-
-    level_state = {"value": dt.date(2026, 1, 6)}
-    target_day = dt.date(2026, 1, 7)
-
-    monkeypatch.setattr(pipeline.engine_db, "fetch_latest_trading_day", lambda: target_day)
-    monkeypatch.setattr(pipeline.engine_db, "fetch_trading_days", lambda start, end: [level_state["value"], target_day])
-    monkeypatch.setattr(pipeline.engine_db, "fetch_max_canon_trade_date", lambda: target_day)
-    monkeypatch.setattr(pipeline.engine_db, "fetch_missing_real_for_trade_date", lambda date: [])
-    monkeypatch.setattr(pipeline.engine_db, "fetch_max_imputation_date", lambda: None)
-
-    def _fetch_max_level_date():
-        return level_state["value"]
-
-    def _calc_main(argv=None):
-        calls.append("calc_index")
-        level_state["value"] = target_day
-        return 0
-
-    calc_mod.main = _calc_main
-    monkeypatch.setitem(sys.modules, "tools.index_engine.calc_index", calc_mod)
-    monkeypatch.setattr(pipeline.db_index_calc, "fetch_max_level_date", _fetch_max_level_date)
-
-    exit_code = pipeline.main([])
+    report_paths = (state.get("context") or {}).get("report_paths") or {}
     assert exit_code == 0
-    assert "update_trading_days" not in calls
-    assert "ingest" not in calls
-    assert "completeness" in calls
+    assert state["terminal_status"] == "success"
+    assert Path(report_paths["json_path"]).exists()
+    assert Path(report_paths["text_path"]).exists()
+
+
+def test_smoke_terminal_scenarios(tmp_path):
+    scenarios = {
+        "clean_skip": (0, "clean_skip"),
+        "failed": (1, "failed"),
+        "blocked": (2, "blocked"),
+        "degraded": (0, "success_with_degradation"),
+    }
+
+    for scenario, expected in scenarios.items():
+        exit_code, state = run_pipeline(
+            PipelineArgs(smoke=True, smoke_scenario=scenario, report_dir=tmp_path / scenario, restart=True)
+        )
+        assert exit_code == expected[0]
+        assert state["terminal_status"] == expected[1]
+
+
+def test_graph_retries_transient_stage_once_then_recovers(tmp_path):
+    class RetryRuntime(SmokePipelineRuntime):
+        def __init__(self):
+            super().__init__(
+                smoke_scenario="success",
+                report_dir=tmp_path,
+                state_store=_FakeStore(),
+            )
+            self.completeness_attempts = 0
+
+        def completeness_check(self, state):
+            self.completeness_attempts += 1
+            if self.completeness_attempts == 1:
+                return {
+                    "status": "FAILED",
+                    "detail": "transient_oracle",
+                    "error": "ORA-12545: Connect failed",
+                    "error_token": "oracle_transient",
+                    "retryable": True,
+                }
+            return {"status": "OK", "detail": "recovered"}
+
+    runtime = RetryRuntime()
+    graph = build_pipeline_graph(runtime)
+    final_state = graph.invoke(_state())
+
+    assert runtime.completeness_attempts == 2
+    assert final_state["terminal_status"] == "success"
+    assert final_state["stage_results"]["completeness_check"]["status"] == "OK"
+
+
+def test_resume_skips_completed_stage(tmp_path):
+    stage_payload = {
+        "stage": "preflight_oracle",
+        "status": "OK",
+        "detail": "oracle_user=RESUMED",
+        "detail_json": {"context": {"oracle_user": "RESUMED"}, "counts": {}, "warnings": []},
+        "attempts": 1,
+        "started_at": "2026-01-07T00:00:00+00:00",
+        "ended_at": "2026-01-07T00:00:00+00:00",
+        "duration_sec": 0.0,
+        "counts": {},
+        "warnings": [],
+    }
+    store = _FakeStore(
+        {
+            "preflight_oracle": _Record(
+                status="OK",
+                details=json.dumps(stage_payload),
+                started_at=dt.datetime(2026, 1, 7, tzinfo=dt.timezone.utc),
+                ended_at=dt.datetime(2026, 1, 7, tzinfo=dt.timezone.utc),
+            )
+        }
+    )
+
+    class ResumeRuntime(SmokePipelineRuntime):
+        def __init__(self):
+            super().__init__(smoke_scenario="success", report_dir=tmp_path, state_store=store)
+            self.preflight_calls = 0
+
+        def preflight_oracle(self, state):
+            self.preflight_calls += 1
+            return super().preflight_oracle(state)
+
+    runtime = ResumeRuntime()
+    graph = build_pipeline_graph(runtime)
+    final_state = graph.invoke(_state(resume=True, restart=False))
+
+    assert runtime.preflight_calls == 0
+    assert final_state["stage_results"]["preflight_oracle"]["detail"] == "oracle_user=RESUMED"
+    assert final_state["terminal_status"] == "success"

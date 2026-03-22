@@ -225,11 +225,30 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - For “index levels stuck while prices update”, follow the “Stuck index levels” section in `docs/runbooks/price_ingest_and_backfill.md`.
 
 ## SC_IDX Pipeline Robustness (VM1)
-- Pipeline state is tracked in `SC_IDX_PIPELINE_STATE`; `python3 tools/index_engine/run_pipeline.py` resumes by default.
+- LangGraph is the primary orchestration pattern for the SC_IDX / TECH100 operational pipeline on VM1.
+- Primary entrypoint: `python3 tools/index_engine/run_pipeline.py`.
+- Primary systemd scheduler: `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`.
+- Pipeline state is tracked in `SC_IDX_PIPELINE_STATE`; `python3 tools/index_engine/run_pipeline.py` resumes safe completed nodes by default.
 - Force a full restart with `python3 tools/index_engine/run_pipeline.py --restart`.
+- Use `python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart` for a no-provider smoke run.
+- Terminal outcomes are:
+  - `success`
+  - `success_with_degradation`
+  - `clean_skip`
+  - `failed`
+  - `blocked`
+- `SC_IDX_JOB_RUNS.STATUS` stores the compact terminal code:
+  - `OK` -> `success`
+  - `DEGRADED` -> `success_with_degradation`
+  - `SKIP` -> `clean_skip`
+  - `ERROR` -> `failed`
+  - `BLOCKED` -> `blocked`
+- Run reports are written under `tools/audit/output/pipeline_runs/`.
+- Structured telemetry snapshots are written under `tools/audit/output/pipeline_telemetry/`.
 - Health summaries are persisted in `SC_IDX_JOB_RUNS` (job_name=`sc_idx_pipeline`) and written to `tools/audit/output/pipeline_health_latest.txt`.
 - Oracle retry knobs: `SC_IDX_ORACLE_RETRY_ATTEMPTS` (default 5) and `SC_IDX_ORACLE_RETRY_BASE_SEC` (default 1).
 - Impute guardrails: `SC_IDX_IMPUTE_LOOKBACK_DAYS` (default 30) and `SC_IDX_IMPUTE_TIMEOUT_SEC` (default 300).
+- Imputed replacement guardrails: `SC_IDX_IMPUTED_REPLACEMENT_DAYS` (default 30) and `SC_IDX_IMPUTED_REPLACEMENT_LIMIT` (default 10).
 - Oracle evidence files on failure: `tools/audit/output/oracle_health_*.txt` (no secrets).
 - Systemd SC_IDX units load `/etc/sustainacore/index.env` for non-secret pipeline config (e.g., `MARKET_DATA_API_BASE_URL`).
 

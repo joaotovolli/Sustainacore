@@ -1,65 +1,100 @@
 # TECH100 pipeline scheduler (VM1)
 
-## Scheduler type
-- VM1 uses systemd timers for the TECH100 pipeline.
-- Primary units:
-  - `sc-idx-pipeline.timer` → `sc-idx-pipeline.service`
-  - `sc-idx-price-ingest.timer` → `sc-idx-price-ingest.service`
-  - `sc-idx-completeness-check.timer` → `sc-idx-completeness-check.service`
-  - `sc-idx-index-calc.timer` → `sc-idx-index-calc.service`
+## Primary scheduler
+
+VM1 uses systemd timers. The primary orchestration path is now:
+
+- `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`
+
+This service runs the LangGraph orchestrator:
+
+```bash
+python3 tools/index_engine/run_pipeline.py
+```
+
+## Related compatibility units
+
+These units still exist for compatibility and focused manual use, but they are not the primary control plane:
+
+- `sc-idx-price-ingest.timer` -> `sc-idx-price-ingest.service`
+- `sc-idx-completeness-check.timer` -> `sc-idx-completeness-check.service`
+- `sc-idx-index-calc.timer` -> `sc-idx-index-calc.service`
 
 ## Environment files
-Systemd units load (in order):
-- `/etc/sustainacore/db.env` (Oracle + non-secret defaults)
-- `/etc/sustainacore-ai/secrets.env` (API keys / SMTP secrets)
-- `/etc/sustainacore/index.env` (non-secret SC_IDX runtime config, including `MARKET_DATA_API_BASE_URL`)
-- `/etc/sustainacore/index.env` (non-secret SC_IDX runtime config, including `MARKET_DATA_API_BASE_URL`)
-- `/etc/sustainacore-ai/secrets.env` (API keys / SMTP secrets)
 
-## Repo checkout used by systemd
-- Units run from `/home/opc/Sustainacore` with `PYTHONPATH=/home/opc/Sustainacore`.
+Systemd units load:
+
+- `/etc/sustainacore/db.env`
+- `/etc/sustainacore/index.env`
+- `/etc/sustainacore-ai/secrets.env`
 
 Do not print env contents in logs or docs.
 
 ## Schedule (UTC)
-- Price ingest: `00:00`, `05:00`, `09:00`, `13:00`
-- Pipeline: `00:30`, `05:30`, `09:30`, `13:30`
-- Completeness check: weekdays `00:10`
-- Index calc: `01:30`
 
-## Lock + runtime guardrails
-- Ingest + pipeline use a shared file lock: `/tmp/sc_idx_pipeline.lock` via `flock -n`.
-- Runtime limits (systemd): `RuntimeMaxSec=7200` for ingest, `RuntimeMaxSec=3600` for pipeline.
-- Restart limits (systemd): ingest + pipeline units set StartLimit to prevent restart storms if a failure repeats.
+- price-ingest compatibility timer: `00:00`, `05:00`, `09:00`, `13:00`
+- primary LangGraph pipeline timer: `00:30`, `05:30`, `09:30`, `13:30`
+- completeness compatibility timer: weekdays `00:10`
+- index-calc compatibility timer: `01:30`
 
-## Status + logs
+## Lock and runtime guardrails
+
+- overlap guard: `/tmp/sc_idx_pipeline.lock`
+- primary service runtime limit: `RuntimeMaxSec=3600`
+- restart storm guardrails remain in systemd `StartLimit*`
+- retries inside the graph are bounded and stage-specific
+
+## Healthy signals
+
+- latest `SC_IDX_JOB_RUNS` row for `job_name='sc_idx_pipeline'` is `OK`, `DEGRADED`, or `SKIP`
+- latest `SC_IDX_PIPELINE_STATE` rows show the node sequence reaching `persist_terminal_status`
+- latest report exists under `tools/audit/output/pipeline_runs/`
+- latest telemetry snapshot exists under `tools/audit/output/pipeline_telemetry/`
+
+## Manual runs
+
+Primary run:
+
+```bash
+python3 tools/index_engine/run_pipeline.py --restart
+```
+
+No-provider smoke:
+
+```bash
+python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
+```
+
+Systemd-run equivalent:
+
+```bash
+sudo systemctl start sc-idx-pipeline.service
+```
+
+## Logs and status
+
 ```bash
 systemctl list-timers --all | rg -i "sc-idx"
 systemctl status sc-idx-pipeline.service
 sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
 ```
 
-## Healthy signals
-- Latest `SC_IDX_JOB_RUNS` for `sc_idx_pipeline` is `OK` with `error_msg` showing `last_error=None`.
-- `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, `SC_IDX_STATS_DAILY` max dates align.
-- `tools/audit/output/pipeline_health_latest.txt` exists and `last_error` is empty/none.
+## Recovery
 
-## If stuck
-- Safe retry: `sudo systemctl restart sc-idx-pipeline.service`
-- Force a fresh pipeline run only if state is stale: `python3 tools/index_engine/run_pipeline.py --restart`
-- Do not delete `SC_IDX_PIPELINE_STATE` unless following the emergency procedure in the ops checklist.
+- normal resume: `python3 tools/index_engine/run_pipeline.py`
+- force a fresh run: `python3 tools/index_engine/run_pipeline.py --restart`
+- if Oracle preflight blocks, fix wallet/env first, then rerun
+- if the pipeline reports `BLOCKED` because the lock is busy, wait for the active run to conclude instead of forcing overlap
 
-## Manual run (same env as timer)
-```bash
-sudo systemctl start sc-idx-pipeline.service
-```
+## Update workflow
 
-## Update workflow (systemd)
-1) Edit the unit in repo under `infra/systemd/`.
-2) Copy to `/etc/systemd/system/` and reload:
+1. Edit repo-managed units under `infra/systemd/`.
+2. Install to VM1 and reload:
+
 ```bash
 sudo cp infra/systemd/sc-idx-*.service /etc/systemd/system/
 sudo cp infra/systemd/sc-idx-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
-3) Restart the affected unit or wait for the next timer tick.
+
+3. Restart the affected unit or wait for the next timer tick.

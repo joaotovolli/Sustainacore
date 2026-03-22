@@ -2,6 +2,10 @@
 
 This tool verifies whether TECH100 has enough canonical price history to calculate index levels. It focuses on canonical prices in `SC_IDX_PRICES_CANON` and ignores weekends and inferred market holidays.
 
+In the primary VM1 pipeline, this is no longer a standalone end state. The LangGraph orchestrator uses the
+strict completeness check before index calculation and, when gaps remain, routes into imputation plus a
+bounded replacement pass before rechecking completeness.
+
 ### What it checks
 
 - Generates weekday candidates between the requested start and end dates.
@@ -22,6 +26,12 @@ Examples:
 python tools/index_engine/check_price_completeness.py --start 2025-01-02 --end 2025-12-31
 python tools/index_engine/check_price_completeness.py --since-base --end 2025-12-31
 python tools/index_engine/check_price_completeness.py --since-base --end today --email-on-fail
+```
+
+Primary operational entrypoint:
+
+```bash
+python3 tools/index_engine/run_pipeline.py
 ```
 
 Optional flags:

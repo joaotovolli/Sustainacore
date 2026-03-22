@@ -1,24 +1,96 @@
-## SC_IDX ingest verification (VM1)
+## SC_IDX pipeline verification (VM1)
 
 Run from the repo root unless noted.
 
-1) Verify market data credits and Oracle rows
+### 1. LangGraph smoke path
+
+No Oracle writes, no provider credits:
 
 ```bash
-python tools/index_engine/verify_pipeline.py
-```
-If the CLI user cannot read `/etc/sustainacore*` env files, run the command with `sudo` (and set `PYTHONPATH=/home/opc/.local/lib/python3.9/site-packages` if `oracledb` is installed in the user site-packages).
-The script reads `/api_usage` for a per-minute before/after delta and fetches the latest AAPL daily bar; daily credit limits are enforced separately via `SC_IDX_MARKET_DATA_DAILY_LIMIT` (default 800) and `SC_IDX_MARKET_DATA_DAILY_BUFFER` recorded in Oracle job runs. Ensure `MARKET_DATA_API_KEY` and `MARKET_DATA_API_BASE_URL` are available in the env files.
-The provider uses a shared throttle (default 6 calls per 120s) with a cross-process lock at `/tmp/sc_idx_market_data.lock`; override with `SC_IDX_MARKET_DATA_CALLS_PER_WINDOW` and `SC_IDX_MARKET_DATA_WINDOW_SECONDS` if needed.
-
-2) Confirm the systemd timer is scheduled
-
-```bash
-systemctl list-timers --all | grep sc-idx
+source .venv/bin/activate
+python tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
 ```
 
-3) Review recent service logs
+Expected signals:
+
+- exit code `0`
+- text/JSON reports under `tools/audit/output/pipeline_runs/`
+- telemetry JSON under `tools/audit/output/pipeline_telemetry/`
+
+### 2. Targeted orchestration tests
 
 ```bash
-journalctl -u sc-idx-price-ingest.service -n 200 --no-pager
+source .venv/bin/activate
+pytest -q \
+  tests/test_run_pipeline.py \
+  tests/test_run_pipeline_helpers.py \
+  tests/test_run_daily_selection.py \
+  tests/test_run_daily_guards.py \
+  tests/test_run_daily_oracle_preflight.py \
+  tests/test_run_daily_trading_days.py \
+  tests/test_market_data_readiness.py \
+  tests/test_index_engine_impute_replacement.py
+```
+
+Expected result:
+
+- all tests pass
+
+### 3. Oracle preflight
+
+```bash
+python3 tools/oracle/preflight_oracle.py
+```
+
+Expected result:
+
+- Oracle user prints successfully
+- no wallet/env error
+
+### 4. VM1 operational run
+
+```bash
+python3 tools/index_engine/run_pipeline.py --restart
+```
+
+Expected signals:
+
+- latest `SC_IDX_PIPELINE_STATE` rows show the node sequence for the run
+- latest `SC_IDX_JOB_RUNS` row for `job_name='sc_idx_pipeline'` ends in one of:
+  - `OK`
+  - `DEGRADED`
+  - `SKIP`
+  - `ERROR`
+  - `BLOCKED`
+- latest report exists in `tools/audit/output/pipeline_runs/`
+- latest telemetry snapshot exists in `tools/audit/output/pipeline_telemetry/`
+
+### 5. Scheduler checks
+
+```bash
+systemctl list-timers --all | rg -i "sc-idx"
+systemctl status sc-idx-pipeline.service
+sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
+```
+
+Expected result:
+
+- `sc-idx-pipeline.timer` is present and scheduled
+- `sc-idx-pipeline.service` is the primary VM1 orchestration service
+
+### 6. Run-state verification query
+
+```sql
+SELECT run_id, status, error_msg, started_at, ended_at
+FROM SC_IDX_JOB_RUNS
+WHERE job_name = 'sc_idx_pipeline'
+ORDER BY started_at DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+```sql
+SELECT run_id, stage_name, stage_status, started_at, ended_at
+FROM SC_IDX_PIPELINE_STATE
+ORDER BY started_at DESC
+FETCH FIRST 50 ROWS ONLY;
 ```

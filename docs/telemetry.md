@@ -172,6 +172,34 @@ sudo systemctl enable --now sc-telemetry-report.timer
 ```
 Default schedule is **06:45 UTC** with a lock (`/tmp/sc-telemetry-report.lock`) to prevent overlap.
 
+## SC_IDX operational telemetry (VM1)
+
+The SC_IDX / TECH100 pipeline now emits lightweight server-side operational telemetry as part of the
+LangGraph orchestration path. This is distinct from website telemetry and does not involve client-side
+tracking.
+
+Files written on each run:
+
+- `tools/audit/output/pipeline_telemetry/sc_idx_pipeline_<RUN_ID>.json`
+- `tools/audit/output/pipeline_telemetry/sc_idx_pipeline_latest.json`
+
+Signals include:
+
+- terminal status
+- node timings
+- retry counts
+- provider readiness outcome
+- ingest/imputation/index/statistics counts
+- report generation status
+- email decision
+- freshness dates for canon, levels, and stats
+
+Use the pipeline smoke path for no-provider verification:
+
+```bash
+python tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
+```
+
 ## Tech100 related companies (VM1)
 The related companies job precomputes top candidates for Tech100 company pages using consented telemetry:
 ```bash

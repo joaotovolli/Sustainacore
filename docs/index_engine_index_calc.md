@@ -2,6 +2,10 @@
 
 This document describes how the TECH100 index is calculated and stored daily.
 
+In production, this script is now invoked by the SC_IDX LangGraph pipeline after completeness and
+imputation have been resolved for the target window. The orchestrator calls it with
+`--no-preflight-self-heal` because ingest, readiness, and imputation are handled earlier in the graph.
+
 ## What the script does
 
 `tools/index_engine/calc_index.py`:
@@ -65,6 +69,12 @@ Optional flags:
 - `--max-dates` / `--max-tickers` / `--max-samples`
 - `--email-on-fail` (send one alert/day when strict fails)
 - `--dry-run` (print missing diagnostics only)
+
+Primary orchestrated entrypoint:
+
+```bash
+python3 tools/index_engine/run_pipeline.py
+```
 
 ## Strict failure diagnostics
 

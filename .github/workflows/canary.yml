@@ -6,12 +6,18 @@ on:
       - main
     paths:
       - 'app/**'
+      - 'tools/index_engine/**'
+      - 'infra/systemd/**'
+      - 'oracle_scripts/sc_idx*.sql'
       - 'ops/**'
       - 'db/**'
       - '.github/**'
   pull_request:
     paths:
       - 'app/**'
+      - 'tools/index_engine/**'
+      - 'infra/systemd/**'
+      - 'oracle_scripts/sc_idx*.sql'
       - 'ops/**'
       - 'db/**'
       - '.github/**'
@@ -45,6 +51,9 @@ jobs:
           filters: |
             relevant:
               - 'app/**'
+              - 'tools/index_engine/**'
+              - 'infra/systemd/**'
+              - 'oracle_scripts/sc_idx*.sql'
               - 'ops/**'
               - 'db/**'
               - '.github/**'
