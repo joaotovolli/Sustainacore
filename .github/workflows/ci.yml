@@ -7,6 +7,53 @@ on:
     - cron: "0 6 * * *"
 
 jobs:
+  sc-idx-orchestration:
+    name: SC_IDX orchestration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-sc-idx-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-sc-idx-
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Run SC_IDX orchestration tests
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_run_pipeline.py \
+            tests/test_run_pipeline_helpers.py \
+            tests/test_run_daily_selection.py \
+            tests/test_run_daily_guards.py \
+            tests/test_run_daily_oracle_preflight.py \
+            tests/test_run_daily_trading_days.py \
+            tests/test_market_data_readiness.py \
+            tests/test_index_engine_impute_replacement.py
+      - name: Run LangGraph smoke orchestration
+        run: |
+          set -euo pipefail
+          python tools/index_engine/run_pipeline.py \
+            --smoke \
+            --smoke-scenario degraded \
+            --restart \
+            --report-dir artifacts/sc_idx_pipeline_smoke
+      - name: Upload SC_IDX smoke artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sc-idx-pipeline-smoke
+          path: artifacts/sc_idx_pipeline_smoke
+
   guard-secrets:
     name: Ensure sensitive files are ignored
     runs-on: ubuntu-latest
@@ -76,7 +123,7 @@ jobs:
     name: Mobile VRT (desktop hard gate)
     runs-on: ubuntu-latest
     needs: vrt-changes
-    if: github.event_name != 'pull_request' && needs.vrt-changes.outputs.ui == 'true'
+    if: github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && needs.vrt-changes.outputs.ui == 'true'
     steps:
       - uses: actions/checkout@v4
         with:

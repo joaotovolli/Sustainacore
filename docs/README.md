@@ -5,6 +5,7 @@ Welcome to the Sustainacore documentation index. Use the links below to explore 
 - [Contributing guide](../CONTRIBUTING.md)
 - [Security policy](../SECURITY.md)
 - [Operations playbook](OPERATIONS.md)
+- [SC_IDX LangGraph orchestration](index_engine_langgraph_orchestration.md)
 - [Release notes](RELEASE_NOTES.md)
 - [Frontend workflow (VM2)](frontend_workflow_vm2.md)
 - [GEO AI regulation Oracle data platform](geo_ai_reg/README.md)

@@ -1,65 +1,49 @@
-import datetime as dt
+import sys
+from pathlib import Path
 
-import tools.index_engine.run_pipeline as pipeline
+REPO_ROOT = Path(__file__).resolve().parents[1]
+APP_ROOT = REPO_ROOT / "app"
+for path in (REPO_ROOT, APP_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-
-class _FakeRecord:
-    def __init__(self, status="OK"):
-        now = dt.datetime(2026, 1, 7, tzinfo=dt.timezone.utc)
-        self.status = status
-        self.started_at = now
-        self.ended_at = now
-        self.details = None
+from index_engine.orchestration import _derive_terminal_status, _is_oracle_transient_error
 
 
-class _FakeStore:
-    def __init__(self):
-        self.records = {}
-
-    def record_stage_start(self, run_id, stage_name, details=None):
-        self.records[stage_name] = _FakeRecord("STARTED")
-
-    def record_stage_end(self, run_id, stage_name, status, details=None):
-        self.records[stage_name] = _FakeRecord(status)
+def test_is_oracle_transient_error_matches_known_tokens():
+    assert _is_oracle_transient_error("ORA-12545: Connect failed")
+    assert _is_oracle_transient_error(RuntimeError("ORA-29002: SSL failure"))
+    assert not _is_oracle_transient_error("ORA-01017: invalid username/password")
 
 
-def test_compute_impute_window_prefers_latest_of_impute_and_lookback():
-    max_level = dt.date(2026, 1, 7)
-    max_impute = dt.date(2026, 1, 1)
-    window = pipeline._compute_impute_window(
-        max_level_date=max_level,
-        max_impute_date=max_impute,
-        lookback_days=30,
-    )
-    assert window is not None
-    start, end = window
-    assert end == max_level
-    assert start == max_impute + dt.timedelta(days=1)
+def test_derive_terminal_status_prefers_failed_and_blocked():
+    failed_state = {
+        "stage_results": {
+            "ingest_prices": {"status": "FAILED"},
+            "calc_index": {"status": "OK"},
+        },
+        "warnings": [],
+    }
+    blocked_state = {
+        "stage_results": {
+            "preflight_oracle": {"status": "BLOCKED"},
+        },
+        "warnings": [],
+    }
+    degraded_state = {
+        "stage_results": {
+            "completeness_check": {"status": "DEGRADED"},
+        },
+        "warnings": ["canon_incomplete"],
+    }
+    skip_state = {
+        "stage_results": {
+            "determine_target_dates": {"status": "SKIP"},
+        },
+        "warnings": [],
+    }
 
-
-def test_run_stage_with_retries_on_oracle_error(monkeypatch):
-    store = _FakeStore()
-    calls = {"count": 0}
-    sleeps = []
-
-    def _stage(args):
-        calls["count"] += 1
-        if calls["count"] < 3:
-            raise RuntimeError("ORA-12545: Connect failed")
-        return 0
-
-    monkeypatch.setattr(pipeline.time, "sleep", lambda value: sleeps.append(value))
-
-    result = pipeline._run_stage_with_retries(
-        name="oracle_stage",
-        func=_stage,
-        args=[],
-        state_store=store,
-        run_id="run-1",
-        max_attempts=3,
-        backoff_base_sec=1,
-    )
-
-    assert result.status == "OK"
-    assert calls["count"] == 3
-    assert sleeps == [1, 2]
+    assert _derive_terminal_status(failed_state) == "failed"
+    assert _derive_terminal_status(blocked_state) == "blocked"
+    assert _derive_terminal_status(degraded_state) == "success_with_degradation"
+    assert _derive_terminal_status(skip_state) == "clean_skip"

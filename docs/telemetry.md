@@ -1,3 +1,4 @@
+<!-- cspell:ignore googlebot cooldown tablespace GEOIP MMDB geoip dbip mmdb -->
 # Web Telemetry (Consent-Aware)
 
 This document describes the privacy-friendly telemetry system for sustainacore.org.
@@ -36,7 +37,7 @@ Ask2 content (stored in Oracle):
 - Content is truncated to 20,000 characters per message.
 - Use `manage.py purge_ask2_chats --days N` to remove older conversations.
 
-## Data minimisation
+## Data minimization
 - `ip_trunc`: IPv4 /24 or IPv6 /48
 - `ip_hash`: salted hash (uses `TELEMETRY_HASH_SALT` or `SECRET_KEY`)
 - `W_WEB_EVENT` now stores compact event rows by default:
@@ -55,7 +56,7 @@ Ask2 content (stored in Oracle):
 
 ## Storage model
 - Raw request/event rows stay in `W_WEB_EVENT` for a short operational window.
-- Long-lived rollups live in `W_WEB_EVENT_DAILY`.
+- Long-lived aggregates live in `W_WEB_EVENT_DAILY`.
 - The daily table keeps:
   - UTC day
   - event type + subtype
@@ -172,8 +173,36 @@ sudo systemctl enable --now sc-telemetry-report.timer
 ```
 Default schedule is **06:45 UTC** with a lock (`/tmp/sc-telemetry-report.lock`) to prevent overlap.
 
+## SC_IDX operational telemetry (VM1)
+
+The SC_IDX / TECH100 pipeline now emits lightweight server-side operational telemetry as part of the
+LangGraph orchestration path. This is distinct from website telemetry and does not involve client-side
+tracking.
+
+Files written on each run:
+
+- `tools/audit/output/pipeline_telemetry/sc_idx_pipeline_<RUN_ID>.json`
+- `tools/audit/output/pipeline_telemetry/sc_idx_pipeline_latest.json`
+
+Signals include:
+
+- terminal status
+- node timings
+- retry counts
+- provider readiness outcome
+- ingest/imputation/index/statistics counts
+- report generation status
+- email decision
+- freshness dates for canon, levels, and stats
+
+Use the pipeline smoke path for no-provider verification:
+
+```bash
+python tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
+```
+
 ## Tech100 related companies (VM1)
-The related companies job precomputes top candidates for Tech100 company pages using consented telemetry:
+The related companies job pre-computes top candidates for Tech100 company pages using consented telemetry:
 ```bash
 python tools/telemetry/related_companies.py --window-days 30 --top-k 12
 python tools/telemetry/related_companies.py --window-days 30 --top-k 12 --dry-run

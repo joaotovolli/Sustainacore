@@ -1,25 +1,39 @@
 <!-- cspell:ignore readlink -->
 # TECH100 pipeline scheduler (VM1)
 
-## Scheduler type
-- VM1 uses systemd timers for the TECH100 pipeline.
-- Primary units:
-  - `sc-idx-pipeline.timer` → `sc-idx-pipeline.service`
-  - `sc-idx-price-ingest.timer` → `sc-idx-price-ingest.service`
-  - `sc-idx-completeness-check.timer` → `sc-idx-completeness-check.service`
-  - `sc-idx-index-calc.timer` → `sc-idx-index-calc.service`
+## Primary scheduler
 
-## Environment files
-Systemd units load (in order):
-- `/etc/sustainacore/db.env` (Oracle + non-secret defaults)
-- `/etc/sustainacore-ai/secrets.env` (API keys / SMTP secrets)
-- `/etc/sustainacore/index.env` (non-secret SC_IDX runtime config, including `MARKET_DATA_API_BASE_URL`)
-- `/etc/sustainacore/index.env` (non-secret SC_IDX runtime config, including `MARKET_DATA_API_BASE_URL`)
-- `/etc/sustainacore-ai/secrets.env` (API keys / SMTP secrets)
+VM1 uses systemd timers. The primary orchestration path is:
 
-## Repo checkout used by systemd
-- Units run from `/home/opc/Sustainacore` with `PYTHONPATH=/home/opc/Sustainacore`.
-- Confirm the resolved scheduler checkout before any investigation or deploy:
+- `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`
+
+This service runs the LangGraph orchestrator:
+
+```bash
+python3 tools/index_engine/run_pipeline.py
+```
+
+Compatibility units still exist for focused manual use:
+
+- `sc-idx-price-ingest.timer` -> `sc-idx-price-ingest.service`
+- `sc-idx-completeness-check.timer` -> `sc-idx-completeness-check.service`
+- `sc-idx-index-calc.timer` -> `sc-idx-index-calc.service`
+
+## Environment and checkout
+
+Systemd units load:
+
+- `/etc/sustainacore/db.env`
+- `/etc/sustainacore/index.env`
+- `/etc/sustainacore-ai/secrets.env`
+
+Systemd also sets:
+
+- `TNS_ADMIN=/opt/adb_wallet`
+- `PYTHONPATH=/home/opc/Sustainacore`
+
+Confirm the scheduler checkout before any investigation or deploy:
+
 ```bash
 readlink -f /home/opc/Sustainacore
 sudo -n -u opc git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD
@@ -28,17 +42,32 @@ sudo -n -u opc git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short 
 Do not print env contents in logs or docs.
 
 ## Schedule (UTC)
-- Price ingest: `00:00`, `05:00`, `09:00`, `13:00`
-- Pipeline: `00:30`, `05:30`, `09:30`, `13:30`
-- Completeness check: weekdays `00:10`
-- Index calc: `01:30`
 
-## Lock + runtime guardrails
-- Ingest + pipeline use a shared file lock: `/tmp/sc_idx_pipeline.lock` via `flock -n`.
-- Runtime limits (systemd): `RuntimeMaxSec=7200` for ingest, `RuntimeMaxSec=3600` for pipeline.
-- Restart limits (systemd): ingest + pipeline units set StartLimit to prevent restart storms if a failure repeats.
+- price-ingest compatibility timer: `00:00`, `05:00`, `09:00`, `13:00`
+- primary LangGraph pipeline timer: `00:30`, `05:30`, `09:30`, `13:30`
+- completeness compatibility timer: weekdays `00:10`
+- index-calc compatibility timer: `01:30`
 
-## Status + logs
+## Lock and runtime guardrails
+
+- ingest + pipeline use the shared lock `/tmp/sc_idx_pipeline.lock` via `flock -n`
+- primary pipeline runtime limit: `RuntimeMaxSec=3600`
+- ingest runtime limit: `RuntimeMaxSec=7200`
+- restart storm guardrails remain in the units through `StartLimit*`
+- retries inside the graph are bounded and stage-specific
+
+## Healthy signals
+
+- latest `SC_IDX_JOB_RUNS` row for `job_name='sc_idx_pipeline'` is `OK`, `DEGRADED`, or `SKIP`
+- latest `SC_IDX_PIPELINE_STATE` rows show the node sequence reaching `persist_terminal_status`
+- `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, and `SC_IDX_STATS_DAILY` max dates align where expected
+- `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` match the latest `SC_IDX_LEVELS` trade date after a successful run
+- latest report exists under `tools/audit/output/pipeline_runs/`
+- latest telemetry snapshot exists under `tools/audit/output/pipeline_telemetry/`
+- `tools/audit/output/pipeline_health_latest.txt` shows no active `last_error`
+
+## Logs and status
+
 ```bash
 systemctl list-timers --all | rg -i "sc-idx"
 systemctl status sc-idx-pipeline.service
@@ -54,41 +83,56 @@ sudo -n systemd-run --wait --collect --pipe \
   -- /home/opc/Sustainacore/.venv/bin/python tools/index_engine/pipeline_health.py
 ```
 
-## Healthy signals
-- Latest `SC_IDX_JOB_RUNS` for `sc_idx_pipeline` is `OK` with `error_msg` showing `last_error=None`.
-- `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, `SC_IDX_STATS_DAILY` max dates align.
-- `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` matches the latest `SC_IDX_LEVELS` trade date after a successful run.
-- `SC_IDX_PORTFOLIO_POSITION_DAILY` matches the latest `SC_IDX_LEVELS` trade date after a successful run.
-- `tools/audit/output/pipeline_health_latest.txt` exists and `last_error` is empty/none.
-  - `portfolio_gap_days=0`
-  - `portfolio_in_sync=True`
-  - `portfolio_position_max_date` matches `portfolio_expected_date`
-  - `repo_head` matches the intended deployed revision
+## Manual runs
 
-## If stuck
-- Safe retry: `sudo systemctl restart sc-idx-pipeline.service`
-- Force a fresh pipeline run only if state is stale: `python3 tools/index_engine/run_pipeline.py --restart`
-- Do not delete `SC_IDX_PIPELINE_STATE` unless following the emergency procedure in the ops checklist.
+Primary fresh run:
 
-## Manual run (same env as timer)
+```bash
+python3 tools/index_engine/run_pipeline.py --restart
+```
+
+Normal resume:
+
+```bash
+python3 tools/index_engine/run_pipeline.py
+```
+
+No-provider smoke:
+
+```bash
+python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
+```
+
+Service-equivalent run:
+
 ```bash
 sudo systemctl start sc-idx-pipeline.service
 ```
 
-## Update workflow (systemd)
-1) Edit the unit in repo under `infra/systemd/`.
-2) Copy to `/etc/systemd/system/` and reload:
+## Recovery
+
+- safe retry: `sudo systemctl restart sc-idx-pipeline.service`
+- if Oracle preflight blocks, fix wallet/env access first, then rerun
+- if the pipeline returns `BLOCKED` because the lock is busy, wait for the active run to conclude
+- do not delete `SC_IDX_PIPELINE_STATE` unless following an explicit emergency recovery procedure
+
+## Update workflow
+
+1. Edit repo-managed units under `infra/systemd/`.
+2. Copy them to VM1 and reload:
+
 ```bash
 sudo cp infra/systemd/sc-idx-*.service /etc/systemd/system/
 sudo cp infra/systemd/sc-idx-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
-3) Restart the affected unit or wait for the next timer tick.
+
+3. Restart the affected unit or wait for the next timer tick.
 
 ## Deploy note
+
 - VM1 deploys must refresh both repo roots:
   - `/opt/sustainacore-ai` for `sustainacore-ai.service`
   - `/home/opc/Sustainacore` for `sc-idx-*` timers and services
-- `ops/scripts/deploy_vm.sh` and `ops/scripts/deploy_vm1_git.sh` handle both paths.
-- After deploy, re-run the checkout + health commands above to confirm the scheduler root and the
-  portfolio freshness fields advanced together.
+- `ops/scripts/deploy_vm.sh` and `ops/scripts/deploy_vm1_git.sh` handle both paths
+- after deploy, re-run the checkout and health commands above to confirm the scheduler root and the portfolio freshness fields advanced together

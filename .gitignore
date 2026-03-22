@@ -38,3 +38,5 @@ key.pem
 /opt/adb_wallet_tp/*
 tools/audit/output/pipeline_health_latest.txt
 tools/audit/output/pipeline_state_latest.json
+tools/audit/output/pipeline_runs/
+tools/audit/output/pipeline_telemetry/

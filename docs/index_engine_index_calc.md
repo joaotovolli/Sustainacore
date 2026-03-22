@@ -1,6 +1,11 @@
+<!-- cspell:ignore LOOKBACK -->
 # TECH100 Index Engine v1
 
 This document describes how the TECH100 index is calculated and stored daily.
+
+In production, this script is now invoked by the SC_IDX LangGraph pipeline after completeness and
+imputation have been resolved for the target window. The orchestrator calls it with
+`--no-preflight-self-heal` because ingest, readiness, and imputation are handled earlier in the graph.
 
 ## What the script does
 
@@ -43,7 +48,7 @@ Daily levels:
   - `MV_t = Σ Shares_i * Price_i(t)`
   - `Level_TR(t) = MV_t / Divisor(rebalance)`
 
-Stats lookbacks:
+Stats lookback windows:
 
 - Rolling return/volatility windows pull prior levels from Oracle so single-day recomputes still populate `ret_1d/ret_5d/ret_20d/vol_20d`.
 
@@ -65,6 +70,12 @@ Optional flags:
 - `--max-dates` / `--max-tickers` / `--max-samples`
 - `--email-on-fail` (send one alert/day when strict fails)
 - `--dry-run` (print missing diagnostics only)
+
+Primary orchestrated entrypoint:
+
+```bash
+python3 tools/index_engine/run_pipeline.py
+```
 
 ## Strict failure diagnostics
 

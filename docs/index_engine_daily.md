@@ -1,156 +1,195 @@
-# Index engine pipeline cadence
+<!-- cspell:ignore LOOKBACK -->
+# SC_IDX daily pipeline cadence
 
-The pipeline runs every 6 hours (00:30, 06:30, 12:30, 18:30 UTC). The flow now:
+## Primary VM1 flow
 
-- Calls `/api_usage` once (cost: 1 credit) only for per-minute awareness (plan_limit=8 on the Basic tier). Minute-level throttling is enforced by the provider’s shared throttle/lock (default 6 calls per 120 seconds, process-serialized).
-- Computes daily usage from Oracle: `SUM(PROVIDER_CALLS_USED)` in `SC_IDX_JOB_RUNS` for `provider='MARKET_DATA'` and `started_at` in the current UTC day (`TRUNC(SYSTIMESTAMP)` window).
-- Applies a daily cap: `remaining_daily = daily_limit - calls_used_today`, `max_provider_calls = max(0, remaining_daily - daily_buffer)`. Environment:
-  - `SC_IDX_MARKET_DATA_DAILY_LIMIT` (default 800)
-  - `SC_IDX_MARKET_DATA_DAILY_BUFFER` (default 25; falls back to `SC_IDX_MARKET_DATA_CREDIT_BUFFER` if set)
-- Hitting the daily cap prints `daily_budget_stop: ...` and exits 0 so systemd does not treat it as a failure (email only when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`).
-- Fetches the latest available EOD trade date using `SPY` and ingests up to the latest trading day <= that provider date.
-- Refreshes the explicit trading-day calendar (`SC_IDX_TRADING_DAYS`) before ingest.
-- Starts from the next trading day after `MAX(trade_date)` in `SC_IDX_PRICES_CANON` (falls back to the end date if already caught up).
-- Runs `tools/index_engine/ingest_prices.py --backfill --start <next_missing> --end <latest_eod> --max-provider-calls <computed>` and passes `SC_IDX_TICKERS` when present for the ticker list.
-- Executes a strict completeness check against `SC_IDX_TRADING_DAYS`. If gaps remain, it runs carry-forward imputation and emails detailed alerts.
-- Alerts are suppressed to once per UTC day per alert type (completeness fail, missing-without-prior, daily digest) via `SC_IDX_ALERT_STATE`.
-- Replacement attempts re-fetch real prices for a bounded subset of imputed rows and overwrite canonical imputed rows when real data arrives.
+The primary VM1 operational path is the LangGraph pipeline:
 
-Environment:
+```bash
+python3 tools/index_engine/run_pipeline.py
+```
 
-- `SC_MARKET_DATA_API_KEY` or `MARKET_DATA_API_KEY` must be set (never logged).
-- `MARKET_DATA_API_BASE_URL` must be set (base URL for the provider API).
-- All index-engine CLI tools auto-load environment files (best-effort) on startup via `tools/index_engine/env_loader.py`, reading (in order): `/etc/sustainacore/db.env`, `/etc/sustainacore/index.env`, then `/etc/sustainacore-ai/secrets.env`. Explicit shell env vars still win.
-- `SC_IDX_MARKET_DATA_DAILY_LIMIT` sets the daily call ceiling (default 800).
-- `SC_IDX_MARKET_DATA_DAILY_BUFFER` reserves extra headroom near the daily cap (default 25; alias `SC_IDX_MARKET_DATA_CREDIT_BUFFER` for back-compat).
-- Provider throttle override (rarely needed): `SC_IDX_MARKET_DATA_CALLS_PER_WINDOW` (default 6) and `SC_IDX_MARKET_DATA_WINDOW_SECONDS` (default 120). All provider calls are serialized via `/tmp/sc_idx_market_data.lock` to avoid cross-process spikes.
-- Optional debug: `SC_IDX_MARKET_DATA_DEBUG_HTTP=1` logs redacted HTTP diagnostics (status, safe headers, short body snippet) for provider errors.
-- Optional: `SC_IDX_TICKERS` (comma separated), `SC_IDX_ENABLE_IMPUTATION` (default 1), `SC_IDX_IMPUTED_REPLACEMENT_DAYS` (default 30), `SC_IDX_IMPUTED_REPLACEMENT_LIMIT` (default 10), and `SC_IDX_DAILY_DIGEST_ALWAYS` (default 0).
-- Email alerts on failure use SMTP envs from `/etc/sustainacore-ai/secrets.env`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`. Errors trigger an email with a compact run report; set `SC_IDX_EMAIL_ON_BUDGET_STOP=1` to also email budget stops.
-- Daily usage and statuses are persisted in `SC_IDX_JOB_RUNS` (DDL: `oracle_scripts/sc_idx_job_runs_v1.sql`). Run `oracle_scripts/sc_idx_job_runs_v1_drop.sql` to drop if rollback is needed. Example query: `SELECT run_id, status, error_msg, started_at, ended_at FROM SC_IDX_JOB_RUNS ORDER BY started_at DESC FETCH FIRST 20 ROWS ONLY;`
+It is scheduled by `sc-idx-pipeline.timer` and coordinates:
 
-## Manual pipeline run (orchestrator)
+- Oracle preflight
+- trading-day refresh
+- provider budget planning
+- provider readiness probe
+- ingest
+- completeness check
+- imputation plus bounded replacement attempts
+- index + statistics calculation
+- TECH100 portfolio analytics refresh
+- report generation
+- alert decisions
+- telemetry emission
+- terminal status persistence
 
-- Normal timers run ingest → completeness → index calc → portfolio analytics → impute with ingest enabled.
-- Systemd schedule (UTC): ingest at 00:00 / 05:00 / 09:00 / 13:00; pipeline at 00:30 / 05:30 / 09:30 / 13:30 (~30m after ingest to catch the latest EOD).
-- If canonical prices are ahead of index levels, the pipeline computes the missing trading-day window up to the
-  latest canonical date and runs index calc for that window using DB data only.
-- For manual data-preserving checks (skip ingest only):  
-  `SC_IDX_PIPELINE_SKIP_INGEST=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_pipeline.py`
-- The orchestrator invokes index calc with `--no-preflight-self-heal` to avoid a second ingest/impute pass because the earlier stages already ran in-process.
-- After index calc, the orchestrator refreshes the TECH100 portfolio analytics tables via `tools/index_engine/build_portfolio_analytics.py`. The refresh is additive and uses only existing `SC_IDX_*` + `TECH11_AI_GOV_ETH_INDEX` sources.
-- Keep `SC_IDX_PIPELINE_SKIP_INGEST` for manual runs only; systemd timers should run with ingest enabled.
-- Ingest readiness: the pipeline probes the provider (SPY) for the target end date and falls back up to two prior trading days. If the provider is not ready, ingest is skipped safely (`sc_idx_ingest_skip: provider_not_ready...`) and exits 0 (no imputation for that date).
-- Trading-day refresh resilience: if the trading-days update returns a transient 403, the job retries with backoff and then proceeds using the cached calendar in Oracle, logging a warning instead of failing the run.
+The standalone ingest, completeness, and index-calc units remain compatibility tools and should not be treated as the primary orchestration path.
 
-## Provider readiness probe (SPY)
+## Scheduling
 
-- Provider latest EOD is detected via SPY. The candidate ingest end date is the latest trading day on/before that provider date (and before today).
-- Readiness probe: fetch a small descending window for SPY on the candidate date. If the provider reports “no data”, fall back to the previous trading day, up to two fallbacks total (3 attempts).
-- If none of the attempts return data, ingest exits 0 with `sc_idx_ingest_skip: provider_not_ready candidate_end=... tried=[...]` to avoid hammering the provider or creating future-date rows.
-- No future-date rule: the pipeline never writes CANON/IMPUTED rows for dates after the provider’s latest EOD.
+Primary systemd schedule on VM1:
 
-## Why result=OK but will_ingest=0?
+- ingest compatibility timer: `00:00`, `05:00`, `09:00`, `13:00` UTC
+- primary LangGraph pipeline timer: `00:30`, `05:30`, `09:30`, `13:30` UTC
 
-- `sc_idx_ingest_probe: result=OK` means the provider is ready for the chosen end date.
-- `sc_idx_ingest_actions: will_ingest=0` means there was nothing to fetch:
-  - impacted universe already has REAL (or acceptable) canonical rows for that date, and
-  - there are no eligible IMPUTED rows to replace within the bounded replacement window.
-- This is expected; it saves credits and still runs completeness/impute/index calc afterwards.
+The pipeline timer is deliberately offset from ingest so VM1 can catch the latest EOD availability without overlapping the compatibility unit.
 
-## Debug quick check
+## Budget and readiness behavior
 
-- Provider availability probe:  
-  `PYTHONUNBUFFERED=1 PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/debug_provider_availability.py --debug`
-- Recent pipeline logs:  
-  `sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager`
+- Daily call budget is derived from `SC_IDX_JOB_RUNS` usage for `provider='MARKET_DATA'`.
+- Budget envs:
+  - `SC_IDX_MARKET_DATA_DAILY_LIMIT`
+  - `SC_IDX_MARKET_DATA_DAILY_BUFFER`
+  - `SC_IDX_MARKET_DATA_CREDIT_BUFFER` (back-compat alias)
+- If the budget is exhausted before work begins, the run concludes `clean_skip` with reason `daily_budget_stop`.
+- Provider readiness probes use a bounded fallback window and conclude `clean_skip` with reason `provider_not_ready` when no candidate date is ready.
+- Mid-run budget exhaustion is recorded as a degraded outcome instead of looping forever.
+- Provider/API calls remain serialized through the existing lock and throttle controls; LangGraph only decides when to call them.
+
+## Portfolio analytics refresh
+
+After `calc_index`, the graph refreshes the TECH100 portfolio analytics backend through:
+
+```bash
+python3 tools/index_engine/build_portfolio_analytics.py --apply-ddl --skip-preflight
+```
+
+Operational rules:
+
+- the stage is additive and uses only existing TECH100 / SC_IDX Oracle sources
+- it advances `SC_IDX_PORTFOLIO_ANALYTICS_DAILY`, `SC_IDX_PORTFOLIO_POSITION_DAILY`, and `SC_IDX_PORTFOLIO_OPT_INPUTS`
+- it verifies that portfolio freshness reaches the current `SC_IDX_LEVELS` max trade date
+- it runs only for the missing portfolio window, not for the full history on every timer tick
+
+## Resume and terminal states
+
+- Safe completed nodes are resumed by default using `SC_IDX_PIPELINE_STATE`.
+- Force a fresh run:
+
+```bash
+python3 tools/index_engine/run_pipeline.py --restart
+```
+
+Terminal outcomes:
+
+- `success`
+- `success_with_degradation`
+- `clean_skip`
+- `failed`
+- `blocked`
+
+Oracle stores the compact terminal code in `SC_IDX_JOB_RUNS.STATUS`:
+
+- `OK`
+- `DEGRADED`
+- `SKIP`
+- `ERROR`
+- `BLOCKED`
+
+## Compatibility and operator flags
+
+- Skip ingest but keep downstream DB-only stages when possible:
+
+```bash
+python3 tools/index_engine/run_pipeline.py --skip-ingest
+```
+
+- Back-compat skip-ingest env for manual operator runs:
+
+```bash
+SC_IDX_PIPELINE_SKIP_INGEST=1 python3 tools/index_engine/run_pipeline.py
+```
+
+- No-provider smoke path:
+
+```bash
+python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
+```
+
+## Key env and guardrails
+
+- Provider/API:
+  - `SC_MARKET_DATA_API_KEY` or `MARKET_DATA_API_KEY`
+  - `MARKET_DATA_API_BASE_URL`
+- Oracle runtime:
+  - systemd units load `/etc/sustainacore/db.env`, `/etc/sustainacore/index.env`, `/etc/sustainacore-ai/secrets.env`
+  - systemd units set `TNS_ADMIN=/opt/adb_wallet`
+- Oracle retry knobs:
+  - `SC_IDX_ORACLE_RETRY_ATTEMPTS`
+  - `SC_IDX_ORACLE_RETRY_BASE_SEC`
+- Impute guardrails:
+  - `SC_IDX_IMPUTE_LOOKBACK_DAYS`
+  - `SC_IDX_IMPUTE_TIMEOUT_SEC`
+- Imputed replacement guardrails:
+  - `SC_IDX_IMPUTED_REPLACEMENT_DAYS`
+  - `SC_IDX_IMPUTED_REPLACEMENT_LIMIT`
+- Alert options:
+  - `SC_IDX_EMAIL_ON_BUDGET_STOP`
+  - `SC_IDX_EMAIL_ON_DEGRADED`
+
+## Outputs
+
+- Reports: `tools/audit/output/pipeline_runs/`
+- Telemetry: `tools/audit/output/pipeline_telemetry/`
+- Health snapshot: `tools/audit/output/pipeline_health_latest.txt`
+- Oracle evidence on failures: `tools/audit/output/oracle_health_*.txt`
+
+## Provider readiness probe
+
+- Provider latest EOD is detected via the probe symbol on the latest trading day at or before today.
+- Readiness uses a bounded fallback window and never loops forever.
+- If none of the candidate dates is ready, the run exits `clean_skip` with `provider_not_ready`.
+- The pipeline never writes future-date CANON or IMPUTED rows.
 
 ## Oracle preflight
 
-- `tools/index_engine/run_daily.py` runs an Oracle preflight (`SELECT USER FROM dual`) before doing any provider/API work.
-- If the wallet/env is broken, the job prints wallet diagnostics (TNS_ADMIN + best-effort `sqlnet.ora`/`cwallet.sso` checks), writes an `ERROR` run log row with error token `oracle_preflight_failed`, sends an email alert (if SMTP is configured), and exits with code `2` so systemd treats it as a failure.
+- `tools/index_engine/run_pipeline.py` runs Oracle preflight before any provider/API work.
+- If the wallet/env is broken, the run records a terminal `blocked` or `failed` outcome with a concrete remediation token.
+- Always start VM1 diagnostics with:
 
-New CLI flag:
-
-- `--max-provider-calls N` enforces the credit budget in backfill runs. Each ticker download counts as one provider call.
-
-Environment files and permissions:
-
-- Service unit (`infra/systemd/sc-idx-price-ingest.service`) now pre-checks `EnvironmentFile` readability with `ExecStartPre` and prints `ls -l`/`namei -l` for `/etc/sustainacore/db.env` and `/etc/sustainacore-ai/secrets.env` to make permission failures obvious.
-- Use `tools/index_engine/fix_env_permissions.sh` to set expected ownership/mode (root:opc 640, directories 750) and SELinux context `etc_t` if enabled.
-
-Alert testing and failure drills:
-
-- To force an error without spending credits: run `python tools/index_engine/verify_sc_idx_env.py --force-fail-run` (uses `SC_IDX_FORCE_FAIL=1`, sends an ERROR email if SMTP envs are present).
-- To send a benign ping email without failing the ingest: `python tools/index_engine/verify_sc_idx_env.py --send-email`.
-- To inspect recent outcomes: `SELECT run_id, status, error_msg, provider_calls_used, raw_upserts, canon_upserts, end_date FROM SC_IDX_JOB_RUNS ORDER BY started_at DESC FETCH FIRST 20 ROWS ONLY;`.
-
-## VM1 Verification Checklist
-
-Apply trading-day DDL (idempotent, run twice):
 ```bash
-python - <<'PY'
-from pathlib import Path
-from db_helper import get_connection
-
-sql_path = Path("oracle_scripts/sc_idx_trading_days_v1.sql")
-script = sql_path.read_text(encoding="utf-8")
-blocks = [b.strip() for b in script.split("/\n") if b.strip()]
-
-def run_blocks():
-    with get_connection() as conn:
-        cur = conn.cursor()
-        for block in blocks:
-            cur.execute(block)
-        conn.commit()
-
-run_blocks()
-run_blocks()
-PY
+python3 tools/oracle/preflight_oracle.py
 ```
 
-Confirm tables exist:
-```sql
-SELECT COUNT(*) FROM SC_IDX_TRADING_DAYS;
-SELECT COUNT(*) FROM SC_IDX_IMPUTATIONS;
-```
+## VM1 verification
 
-Populate trading days + latest EOD:
+Targeted test coverage:
+
 ```bash
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/update_trading_days.py --start 2025-01-02
-```
-Expected output:
-```
-latest_eod_date_spy=YYYY-MM-DD
-inserted_count=N total_count=M
+source .venv/bin/activate
+pytest -q \
+  tests/test_run_pipeline.py \
+  tests/test_run_pipeline_helpers.py \
+  tests/test_run_daily_selection.py \
+  tests/test_run_daily_guards.py \
+  tests/test_run_daily_oracle_preflight.py \
+  tests/test_run_daily_trading_days.py \
+  tests/test_market_data_readiness.py \
+  tests/test_index_engine_impute_replacement.py
 ```
 
-Verify date range:
-```sql
-SELECT MIN(trade_date), MAX(trade_date), COUNT(*) FROM SC_IDX_TRADING_DAYS;
-```
+Smoke path:
 
-Latest EOD detection (dry run):
 ```bash
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_daily.py --debug --dry-run
-```
-Expected output (snippet):
-```
-latest_eod_date_spy=YYYY-MM-DD
+source .venv/bin/activate
+python tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart
 ```
 
-Strict completeness + imputation drill:
-```sql
-DELETE FROM SC_IDX_PRICES_CANON WHERE ticker=:t AND trade_date=:d;
-COMMIT;
-```
+Operational checks:
+
 ```bash
-PYTHONPATH=/opt/sustainacore-ai python tools/index_engine/run_pipeline.py --start 2025-01-02 --end 2025-01-02 --debug
+systemctl status sc-idx-pipeline.service
+sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
 ```
 
-Check run log:
+Portfolio freshness spot-check:
+
 ```sql
-SELECT run_id, status, error_msg, provider_calls_used, raw_upserts, canon_upserts, end_date
-FROM SC_IDX_JOB_RUNS
-ORDER BY started_at DESC FETCH FIRST 10 ROWS ONLY;
+SELECT MAX(trade_date) FROM SC_IDX_LEVELS;
+SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_ANALYTICS_DAILY;
+SELECT MAX(trade_date) FROM SC_IDX_PORTFOLIO_POSITION_DAILY;
 ```
+
+See [SC_IDX LangGraph orchestration](index_engine_langgraph_orchestration.md) for the graph layout and persistence rules, and [TECH100 portfolio backend runbook](runbooks/tech100_portfolio_backend.md) for the portfolio stage details.
