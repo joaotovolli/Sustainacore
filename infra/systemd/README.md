@@ -1,3 +1,4 @@
+<!-- cspell:ignore sysconfig -->
 ## SC_IDX daily price ingest (systemd)
 
 Units live under `infra/systemd/`:
@@ -8,7 +9,6 @@ Units live under `infra/systemd/`:
 - Runs incremental backfill up to yesterday UTC via `/usr/bin/python3 /home/opc/Sustainacore/tools/index_engine/run_daily.py`.
 - This is now a compatibility ingest unit. The primary orchestration path is `sc-idx-pipeline.service`.
 - Default range: start `2025-01-02` to `end = (UTC today - 1 day)`, ticker batches sized to stay under provider plan limits.
-- Environment files loaded on VM1: `/etc/sustainacore/db.env`, `/etc/sustainacore-ai/secrets.env`, `/etc/sustainacore/index.env`.
 - Environment files loaded on VM1: `/etc/sustainacore/db.env`, `/etc/sustainacore/index.env` (non-secret runtime config), `/etc/sustainacore-ai/secrets.env`.
 - Timer schedule: **00:00 + 05:00 UTC** with `Persistent=true` so missed runs catch up on restart.
 

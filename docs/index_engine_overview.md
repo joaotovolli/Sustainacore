@@ -34,7 +34,7 @@ The primary VM1 graph coordinates:
 8. index and statistics calculation
 9. portfolio analytics refresh
 10. report generation
-11. alert decisioning
+11. alert decisions
 12. telemetry emission
 13. terminal status persistence
 14. lock release

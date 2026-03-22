@@ -71,7 +71,7 @@ LangGraph is the orchestrator, but the durability layer is repo-native and Oracl
 - `tools/audit/output/pipeline_telemetry/`
   - structured operational telemetry snapshots
 
-LangGraph’s built-in checkpointer is intentionally not used here because the existing Oracle state and
+LangGraph’s built-in checkpoint backend is intentionally not used here because the existing Oracle state and
 repo-local artifacts are lighter, already operationally accepted, and safer for the VM limits.
 
 ## Retry and timeout rules

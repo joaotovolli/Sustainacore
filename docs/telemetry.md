@@ -1,3 +1,4 @@
+<!-- cspell:ignore googlebot cooldown tablespace GEOIP MMDB geoip dbip mmdb -->
 # Web Telemetry (Consent-Aware)
 
 This document describes the privacy-friendly telemetry system for sustainacore.org.
@@ -36,7 +37,7 @@ Ask2 content (stored in Oracle):
 - Content is truncated to 20,000 characters per message.
 - Use `manage.py purge_ask2_chats --days N` to remove older conversations.
 
-## Data minimisation
+## Data minimization
 - `ip_trunc`: IPv4 /24 or IPv6 /48
 - `ip_hash`: salted hash (uses `TELEMETRY_HASH_SALT` or `SECRET_KEY`)
 - `W_WEB_EVENT` now stores compact event rows by default:
@@ -55,7 +56,7 @@ Ask2 content (stored in Oracle):
 
 ## Storage model
 - Raw request/event rows stay in `W_WEB_EVENT` for a short operational window.
-- Long-lived rollups live in `W_WEB_EVENT_DAILY`.
+- Long-lived aggregates live in `W_WEB_EVENT_DAILY`.
 - The daily table keeps:
   - UTC day
   - event type + subtype
@@ -201,7 +202,7 @@ python tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --re
 ```
 
 ## Tech100 related companies (VM1)
-The related companies job precomputes top candidates for Tech100 company pages using consented telemetry:
+The related companies job pre-computes top candidates for Tech100 company pages using consented telemetry:
 ```bash
 python tools/telemetry/related_companies.py --window-days 30 --top-k 12
 python tools/telemetry/related_companies.py --window-days 30 --top-k 12 --dry-run

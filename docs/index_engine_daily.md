@@ -1,3 +1,4 @@
+<!-- cspell:ignore LOOKBACK -->
 # SC_IDX daily pipeline cadence
 
 ## Primary VM1 flow
@@ -20,7 +21,7 @@ It is scheduled by `sc-idx-pipeline.timer` and coordinates:
 - index + statistics calculation
 - TECH100 portfolio analytics refresh
 - report generation
-- alert decisioning
+- alert decisions
 - telemetry emission
 - terminal status persistence
 

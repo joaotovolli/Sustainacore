@@ -1,3 +1,4 @@
+<!-- cspell:ignore LOOKBACK -->
 # TECH100 Index Engine v1
 
 This document describes how the TECH100 index is calculated and stored daily.
@@ -47,7 +48,7 @@ Daily levels:
   - `MV_t = Σ Shares_i * Price_i(t)`
   - `Level_TR(t) = MV_t / Divisor(rebalance)`
 
-Stats lookbacks:
+Stats lookback windows:
 
 - Rolling return/volatility windows pull prior levels from Oracle so single-day recomputes still populate `ret_1d/ret_5d/ret_20d/vol_20d`.
 
