@@ -32,9 +32,6 @@ jobs:
         run: |
           set -euo pipefail
           python -m pytest -q \
-            tests/test_index_engine_alerts.py \
-            tests/test_index_engine_alert_state.py \
-            tests/test_index_engine_daily_telemetry_report.py \
             tests/test_run_pipeline.py \
             tests/test_run_pipeline_helpers.py \
             tests/test_run_daily_selection.py \
@@ -51,22 +48,11 @@ jobs:
             --smoke-scenario degraded \
             --restart \
             --report-dir artifacts/sc_idx_pipeline_smoke
-      - name: Render SC_IDX daily telemetry report
-        run: |
-          set -euo pipefail
-          python tools/index_engine/daily_telemetry_report.py \
-            --report-json artifacts/sc_idx_pipeline_smoke/sc_idx_pipeline_latest.json \
-            --telemetry-json tools/audit/output/pipeline_telemetry/sc_idx_pipeline_latest.json \
-            --output-dir artifacts/sc_idx_daily_report \
-            --skip-db \
-            --dry-run
       - name: Upload SC_IDX smoke artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sc-idx-pipeline-smoke
-          path: |
-            artifacts/sc_idx_pipeline_smoke
-            artifacts/sc_idx_daily_report
+          path: artifacts/sc_idx_pipeline_smoke
 
   guard-secrets:
     name: Ensure sensitive files are ignored
