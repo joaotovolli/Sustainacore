@@ -136,7 +136,7 @@ sudo systemctl start sc-telemetry-report.service
 - `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
 - `daily_budget_stop` only emails when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
 - `clean_skip` and smoke runs do not send email
-- same-day dedup uses `SC_IDX_ALERT_STATE`
+- same-day duplicate suppression uses `SC_IDX_ALERT_STATE`
 - the alert gate is only marked after successful SMTP delivery
 - failed SMTP sends are recorded in the run report and telemetry as `send_failed`
 

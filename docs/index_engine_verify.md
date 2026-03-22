@@ -69,7 +69,7 @@ pytest -q \
 Expected result:
 
 - `failed` and `blocked` alert paths are covered
-- same-day dedup suppression is covered
+- same-day duplicate suppression is covered
 - failed SMTP sends do not consume the once-per-day gate
 
 ### 4. Daily telemetry report rendering

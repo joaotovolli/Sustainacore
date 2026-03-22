@@ -257,7 +257,7 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
   - `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
   - `daily_budget_stop` only emails when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
   - `clean_skip` and smoke runs do not send email
-- Alert dedup state lives in `SC_IDX_ALERT_STATE`; the once-per-day gate is marked only after successful SMTP delivery.
+- Alert duplicate-suppression state lives in `SC_IDX_ALERT_STATE`; the once-per-day gate is marked only after successful SMTP delivery.
 - Required SMTP env names for SC_IDX alerts are `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, and `MAIL_TO`.
 - Daily report recipients resolve in this order:
   - `SC_IDX_DAILY_REPORT_RECIPIENTS`

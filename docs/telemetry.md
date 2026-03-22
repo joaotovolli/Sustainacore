@@ -203,7 +203,7 @@ Failure alert semantics for the LangGraph pipeline:
 - `daily_budget_stop` only attempts email when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
 - `clean_skip` and smoke runs do not send email
 
-Dedup rules:
+Duplicate-suppression rules:
 
 - alert gate state is stored in `SC_IDX_ALERT_STATE`
 - the once-per-day gate is evaluated before send

@@ -118,7 +118,7 @@
   - `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
   - `daily_budget_stop` only emails when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
   - `clean_skip` and smoke runs do not email
-- Alert dedup state is stored in `SC_IDX_ALERT_STATE`; the gate is only marked after successful SMTP delivery.
+- Alert duplicate-suppression state is stored in `SC_IDX_ALERT_STATE`; the gate is only marked after successful SMTP delivery.
 - SMTP env names for SC_IDX alerts: `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`.
 - Daily report recipients resolve in this order:
   - `SC_IDX_DAILY_REPORT_RECIPIENTS`
