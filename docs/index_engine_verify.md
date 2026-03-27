@@ -31,6 +31,7 @@ pytest -q \
   tests/test_run_daily_guards.py \
   tests/test_run_daily_oracle_preflight.py \
   tests/test_run_daily_trading_days.py \
+  tests/test_update_trading_days_auto.py \
   tests/test_market_data_readiness.py \
   tests/test_index_engine_impute_replacement.py
 ```
@@ -69,6 +70,7 @@ pytest -q \
 Expected result:
 
 - `failed` and `blocked` alert paths are covered
+- stale and repeated-degraded alert paths are covered
 - same-day duplicate suppression is covered
 - failed SMTP sends do not consume the once-per-day gate
 
@@ -82,7 +84,7 @@ python tools/index_engine/daily_telemetry_report.py --skip-db --dry-run
 Expected result:
 
 - the report renders from the latest pipeline artifacts
-- output includes freshness, alignment, stage outcomes, alert state, and artifact paths
+- output includes freshness, alignment, stale signals, expected target date, alert state, repo identity, and artifact paths
 - artifacts are written under `tools/audit/output/pipeline_daily/`
 
 ### 5. Oracle preflight
@@ -113,6 +115,8 @@ Expected signals:
   - `BLOCKED`
 - latest report exists in `tools/audit/output/pipeline_runs/`
 - latest telemetry snapshot exists in `tools/audit/output/pipeline_telemetry/`
+- latest report/health artifacts show the active `repo_root` and `repo_head`
+- `expected_target_date` and `latest_complete_date` do not show an unexpected lag
 - `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` max dates match the latest `SC_IDX_LEVELS` trade date
 
 ### 7. Scheduler checks
@@ -137,7 +141,21 @@ Expected result:
 - `sc-telemetry-report.timer` is present and scheduled
 - `sc-telemetry-report.service` points to `tools/index_engine/daily_telemetry_report.py --send`
 
-### 8. Run-state verification query
+### 8. Freshness and deploy-drift triage
+
+```bash
+systemctl show sc-idx-pipeline.service -p WorkingDirectory -p ExecStart
+grep -E '^(repo_root|repo_head|calendar_max_date|levels_max_date|stats_max_date|portfolio_max_date|portfolio_position_max_date|alignment_verdict|last_error)=' \
+  tools/audit/output/pipeline_health_latest.txt
+```
+
+Expected result:
+
+- the active `WorkingDirectory` matches the repo root reported in the health artifact
+- the reported `repo_head` matches the intended deployed commit
+- freshness dates and `last_error` explain whether the incident is scheduler drift, stale data, or a true code failure
+
+### 9. Run-state verification query
 
 ```sql
 SELECT run_id, status, error_msg, started_at, ended_at

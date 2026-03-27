@@ -109,8 +109,11 @@ Each run writes:
 The report includes:
 
 - terminal status
+- overall operator health verdict (`Healthy`, `Degraded`, `Failed`, `Blocked`, `Stale`, `Skipped`)
 - node-by-node status
 - latest data date
+- expected target date and source
+- latest complete downstream date
 - impacted date range
 - provider/readiness budget data
 - retry counts
@@ -118,16 +121,39 @@ The report includes:
 - portfolio analytics counts
 - alert decision
 - SMTP delivery state and message ID when email is attempted
+- stale signals and freshness lag by key table
+- deployed `repo_root` and `repo_head`
 - root cause token
 - next remediation step
 
 Alert rules:
 
 - `failed` and `blocked` attempt email by default
-- `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
+- `stale` attempts email by default, even if the graph technically concluded
+- repeated `success_with_degradation` attempts email by default after
+  `SC_IDX_ALERT_DEGRADED_REPEAT_THRESHOLD` consecutive degraded runs
+- single `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
 - `daily_budget_stop` only attempts email when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
-- `clean_skip` and smoke runs do not send email
+- `clean_skip` only stays quiet when freshness is not stale
+- smoke runs do not send email
 - the once-per-day gate in `SC_IDX_ALERT_STATE` is only marked after successful SMTP delivery
+
+Stale detection:
+
+- The graph does not treat a completed control flow as equivalent to a healthy data outcome.
+- A run/report becomes `Stale` when:
+  - `SC_IDX_PRICES_CANON` advances ahead of `SC_IDX_LEVELS`
+  - `SC_IDX_LEVELS` advances ahead of `SC_IDX_STATS_DAILY`
+  - `SC_IDX_LEVELS` advances ahead of `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` or
+    `SC_IDX_PORTFOLIO_POSITION_DAILY`
+  - the latest complete downstream date lags the expected target date by more than
+    `SC_IDX_STALE_ALLOWED_LAG_DAYS`
+- When trading-day refresh degrades on a persistent provider timeout or 403, the planner can use a
+  bounded weekday fallback (`SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP`) to avoid masking a one-day stale
+  calendar table behind an incorrect `clean_skip`.
+- LangGraph coordinates retries, routing, and reporting; it does not magically fix a VM1 checkout
+  checkout, a broken provider, or a stale Oracle table unless a stage explicitly detects and surfaces
+  that condition.
 
 The daily operator digest is a separate bounded script:
 
@@ -175,3 +201,5 @@ Expected signals:
 - telemetry JSON exists under `tools/audit/output/pipeline_telemetry/`
 - `SC_IDX_PIPELINE_STATE` contains node rows for the run
 - `SC_IDX_JOB_RUNS` latest `sc_idx_pipeline` row shows `OK`, `DEGRADED`, `SKIP`, `ERROR`, or `BLOCKED`
+- the latest report exposes `expected_target_date`, `latest_complete_date`, stale signals, and
+  deployed `repo_root` / `repo_head`

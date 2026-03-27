@@ -133,12 +133,28 @@ sudo systemctl start sc-telemetry-report.service
 ## Alert behavior
 
 - `failed` and `blocked` attempt failure email by default
-- `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
+- `stale` attempts email by default, even when the graph technically concluded
+- repeated `success_with_degradation` attempts email by default after
+  `SC_IDX_ALERT_DEGRADED_REPEAT_THRESHOLD` consecutive degraded runs
+- single `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
 - `daily_budget_stop` only emails when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
-- `clean_skip` and smoke runs do not send email
+- `clean_skip` only stays quiet when freshness is not stale
+- smoke runs do not send email
 - same-day duplicate suppression uses `SC_IDX_ALERT_STATE`
 - the alert gate is only marked after successful SMTP delivery
 - failed SMTP sends are recorded in the run report and telemetry as `send_failed`
+
+## Freshness triage
+
+- Read the latest run report, telemetry snapshot, and `tools/audit/output/pipeline_health_latest.txt`
+  together.
+- Compare:
+  - `expected_target_date`
+  - `latest_complete_date`
+  - max dates in canon / levels / stats / portfolio tables
+- Treat any `overall_health=Stale` verdict as actionable, even if `terminal_status=clean_skip`.
+- Use `repo_root` and `repo_head` from the health snapshot plus `systemctl show ... WorkingDirectory`
+  to confirm the VM1 scheduler is running the expected checkout before debugging code paths.
 
 ## Recovery
 
@@ -167,4 +183,8 @@ sudo systemctl daemon-reload
   - `/opt/sustainacore-ai` for `sustainacore-ai.service`
   - `/home/opc/Sustainacore` for `sc-idx-*` timers and services
 - `ops/scripts/deploy_vm.sh` and `ops/scripts/deploy_vm1_git.sh` handle both paths
-- after deploy, re-run the checkout and health commands above to confirm the scheduler root and the portfolio freshness fields advanced together
+- after deploy, re-run the checkout and health commands above to confirm:
+  - the active systemd `WorkingDirectory`
+  - the deployed `repo_head`
+  - the latest report/health artifacts show the same repo identity
+  - the portfolio freshness fields advanced together

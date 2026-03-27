@@ -129,6 +129,9 @@ python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --r
 - Alert options:
   - `SC_IDX_EMAIL_ON_BUDGET_STOP`
   - `SC_IDX_EMAIL_ON_DEGRADED`
+  - `SC_IDX_ALERT_DEGRADED_REPEAT_THRESHOLD`
+  - `SC_IDX_STALE_ALLOWED_LAG_DAYS`
+  - `SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP`
 
 ## Outputs
 
@@ -144,9 +147,14 @@ Pipeline failure alerts are driven by the LangGraph `decide_alerts` stage and th
 `SC_IDX_ALERT_STATE` gate.
 
 - `failed` and `blocked` attempt email by default
-- `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
+- `stale` attempts email by default, even when the graph technically concluded as `clean_skip`
+  or `success_with_degradation`
+- repeated `success_with_degradation` attempts email by default after
+  `SC_IDX_ALERT_DEGRADED_REPEAT_THRESHOLD` consecutive degraded runs
+- single `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
 - `daily_budget_stop` only attempts email when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
-- `clean_skip` and smoke runs do not send email
+- `clean_skip` only stays quiet when the freshness verdict is not `stale`
+- smoke runs do not send email
 - the once-per-day gate is marked only after a successful SMTP delivery
 - if SMTP config is missing or delivery fails, the run report and telemetry record `send_failed`
 
@@ -174,6 +182,29 @@ with lightweight Oracle freshness checks, and writes:
 
 - `tools/audit/output/pipeline_daily/sc_idx_daily_report_latest.json`
 - `tools/audit/output/pipeline_daily/sc_idx_daily_report_latest.txt`
+
+Freshness and stale detection:
+
+- The report computes a first-class freshness verdict from the expected target date and the latest
+  dates in:
+  - `SC_IDX_PRICES_CANON`
+  - `SC_IDX_LEVELS`
+  - `SC_IDX_STATS_DAILY`
+  - `SC_IDX_PORTFOLIO_ANALYTICS_DAILY`
+  - `SC_IDX_PORTFOLIO_POSITION_DAILY`
+- `Stale` is raised when:
+  - prices advance but levels do not
+  - levels advance but stats do not
+  - levels advance but portfolio analytics or positions do not
+  - the latest complete downstream date lags the expected target date by more than
+    `SC_IDX_STALE_ALLOWED_LAG_DAYS`
+- The expected target date can come from:
+  - the live trading calendar
+  - the readiness probe
+  - a bounded weekday fallback when trading-day refresh degraded on a timeout or 403
+  - a provider-guard estimate when the calendar gap is larger than the safe fallback window
+- `SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP` bounds that synthetic weekday fallback so VM1 does not
+  silently invent a long calendar range.
 
 ## Provider readiness probe
 

@@ -40,3 +40,36 @@ def test_run_daily_degrades_on_trading_days_403(monkeypatch, capsys):
     stderr = capsys.readouterr().err
     assert exit_code == 0
     assert "cached calendar" in stderr
+
+
+def test_run_daily_uses_weekday_fallback_after_timeout(monkeypatch, capsys):
+    from tools.index_engine import run_daily
+
+    class FakeProvider:
+        def fetch_api_usage(self):
+            return {"current_usage": 0, "plan_limit": 1000}
+
+    fake_trading_days_module = type(
+        "FakeTradingDays",
+        (),
+        {"update_trading_days_with_retry": staticmethod(lambda **_kwargs: (False, "market_data_timeout"))},
+    )
+
+    def fake_resolve_end_date(_provider, _symbol, _today):
+        trading_days = [dt.date(2026, 3, 25)]
+        provider_latest = dt.date(2026, 3, 26)
+        return provider_latest, trading_days, dt.date(2026, 3, 25)
+
+    monkeypatch.setattr(run_daily, "_load_provider_module", lambda: FakeProvider())
+    monkeypatch.setattr(run_daily, "_load_trading_days_module", lambda: fake_trading_days_module())
+    monkeypatch.setattr(run_daily, "_resolve_end_date", fake_resolve_end_date)
+    monkeypatch.setattr(run_daily, "fetch_calls_used_today", lambda _provider: 0)
+    monkeypatch.setattr(run_daily, "_oracle_preflight_or_exit", lambda **kwargs: "TEST")
+    monkeypatch.setattr(run_daily._db_module, "fetch_max_canon_trade_date", lambda: None)
+
+    exit_code = run_daily.main(["--dry-run"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "weekday fallback" in captured.err
+    assert "latest_eod_date_spy=2026-03-26" in captured.out

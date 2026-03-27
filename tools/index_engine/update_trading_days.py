@@ -34,6 +34,19 @@ def _is_market_data_403(exc: Exception) -> bool:
     return "market_data_http_error:403" in str(exc)
 
 
+def _is_market_data_timeout(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        token in text
+        for token in (
+            "timed out",
+            "timeout",
+            "read operation timed out",
+            "read timed out",
+        )
+    )
+
+
 def _sleep_backoff(attempt: int, *, base_sec: float = DEFAULT_RETRY_BASE_SEC, cap_sec: float = 30.0) -> None:
     delay = min(cap_sec, base_sec * (2 ** max(0, attempt - 1)))
     jitter = random.random() * 0.5
@@ -151,15 +164,17 @@ def update_trading_days_with_retry(
     max_attempts: int = DEFAULT_RETRY_ATTEMPTS,
     backoff_base_sec: float = DEFAULT_RETRY_BASE_SEC,
     allow_cached_on_403: bool = True,
+    allow_cached_on_timeout: bool = True,
 ) -> tuple[bool, str | None]:
-    """Retry trading-day refresh and fall back to cached calendar on persistent 403."""
+    """Retry trading-day refresh and fall back to cached calendar on persistent provider access failures."""
 
     for attempt in range(1, max_attempts + 1):
         try:
             update_trading_days(auto_extend=auto_extend)
             return True, None
         except Exception as exc:
-            if _is_market_data_403(exc):
+            if _is_market_data_403(exc) or _is_market_data_timeout(exc):
+                error_token = "market_data_http_error:403" if _is_market_data_403(exc) else "market_data_timeout"
                 print(
                     "update_trading_days_retry: attempt={attempt}/{total} error={error}".format(
                         attempt=attempt,
@@ -171,12 +186,14 @@ def update_trading_days_with_retry(
                 if attempt < max_attempts:
                     _sleep_backoff(attempt, base_sec=backoff_base_sec)
                     continue
-                if allow_cached_on_403:
+                if (_is_market_data_403(exc) and allow_cached_on_403) or (
+                    _is_market_data_timeout(exc) and allow_cached_on_timeout
+                ):
                     print(
-                        "update_trading_days_fallback: cached_calendar reason=market_data_http_error:403",
+                        f"update_trading_days_fallback: cached_calendar reason={error_token}",
                         file=sys.stderr,
                     )
-                    return False, "market_data_http_error:403"
+                    return False, error_token
             raise
     return False, "update_trading_days_failed"
 

@@ -10,9 +10,12 @@ import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+APP_ROOT = REPO_ROOT / "app"
+for path in (REPO_ROOT, APP_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
+from index_engine.data_quality import generate_weekdays
 from tools.index_engine.env_loader import load_default_env
 from tools.index_engine.oracle_preflight import (
     collect_wallet_diagnostics,
@@ -30,6 +33,7 @@ PROBE_SYMBOL_ENV = "SC_IDX_PROBE_SYMBOL"
 EMAIL_ON_BUDGET_STOP_ENV = "SC_IDX_EMAIL_ON_BUDGET_STOP"
 TRADING_DAYS_RETRY_ENV = "SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS"
 TRADING_DAYS_RETRY_BASE_ENV = "SC_IDX_TRADING_DAYS_RETRY_BASE_SEC"
+TRADING_DAY_FALLBACK_MAX_GAP_ENV = "SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP"
 
 
 def _load_provider_module():
@@ -128,13 +132,17 @@ def _compute_daily_budget(daily_limit: int, daily_buffer: int, calls_used_today:
     return remaining_daily, max_provider_calls
 
 
+def _eligible_guard_date(provider_latest: _dt.date, today_utc: _dt.date) -> _dt.date:
+    return min(provider_latest, today_utc - _dt.timedelta(days=1))
+
+
 def compute_eligible_end_date(
     *,
     provider_latest: _dt.date,
     today_utc: _dt.date,
     trading_days: list[_dt.date],
 ) -> _dt.date | None:
-    guard_date = min(provider_latest, today_utc - _dt.timedelta(days=1))
+    guard_date = _eligible_guard_date(provider_latest, today_utc)
     eligible = [day for day in trading_days if day <= guard_date]
     if not eligible:
         return None
@@ -159,6 +167,59 @@ def select_next_missing_trading_day(
         if max_canon_trade_date is None or day > max_canon_trade_date:
             return day
     return None
+
+
+def extend_trading_days_with_weekday_fallback(
+    trading_days: list[_dt.date],
+    *,
+    provider_latest: _dt.date,
+    today_utc: _dt.date,
+    max_gap_days: int | None = None,
+) -> tuple[list[_dt.date], list[_dt.date]]:
+    ordered = sorted(set(trading_days))
+    if not ordered:
+        return ordered, []
+    guard_date = _eligible_guard_date(provider_latest, today_utc)
+    last_known = ordered[-1]
+    if guard_date <= last_known:
+        return ordered, []
+
+    fallback_limit = _env_int(TRADING_DAY_FALLBACK_MAX_GAP_ENV, 3) if max_gap_days is None else max(0, max_gap_days)
+    synthetic_days = generate_weekdays(last_known + _dt.timedelta(days=1), guard_date)
+    if not synthetic_days or len(synthetic_days) > fallback_limit:
+        return ordered, []
+    return ordered + synthetic_days, synthetic_days
+
+
+def derive_expected_target_date(
+    *,
+    provider_latest: _dt.date,
+    today_utc: _dt.date,
+    trading_days: list[_dt.date],
+    allow_weekday_fallback: bool = False,
+    max_gap_days: int | None = None,
+) -> tuple[_dt.date | None, str, list[_dt.date], list[_dt.date]]:
+    effective_days = sorted(set(trading_days))
+    synthetic_days: list[_dt.date] = []
+    source = "calendar"
+    if allow_weekday_fallback:
+        effective_days, synthetic_days = extend_trading_days_with_weekday_fallback(
+            effective_days,
+            provider_latest=provider_latest,
+            today_utc=today_utc,
+            max_gap_days=max_gap_days,
+        )
+        if synthetic_days:
+            source = "weekday_fallback"
+
+    end_date = compute_eligible_end_date(
+        provider_latest=provider_latest,
+        today_utc=today_utc,
+        trading_days=effective_days,
+    ) if effective_days else None
+    if end_date is not None:
+        return end_date, source, effective_days, synthetic_days
+    return _eligible_guard_date(provider_latest, today_utc), "provider_guard_estimate", effective_days, synthetic_days
 
 
 def _resolve_end_date(
@@ -479,17 +540,24 @@ def main(argv: list[str] | None = None) -> int:
     trading_days_max = trading_days[-1] if trading_days else None
     if trading_days_max and provider_latest and trading_days_max < provider_latest:
         if trading_days_refresh_failed:
+            end_date, expected_source, trading_days, synthetic_days = derive_expected_target_date(
+                provider_latest=provider_latest,
+                today_utc=today_utc,
+                trading_days=trading_days,
+                allow_weekday_fallback=True,
+            )
             print(
                 "warning: trading_days behind provider; using cached calendar "
                 f"max_trading_day={trading_days_max.isoformat()} provider_latest={provider_latest.isoformat()}",
                 file=sys.stderr,
             )
-            provider_latest = trading_days_max
-            end_date = compute_eligible_end_date(
-                provider_latest=provider_latest,
-                today_utc=today_utc,
-                trading_days=trading_days,
-            )
+            if synthetic_days:
+                print(
+                    "warning: trading_days weekday fallback "
+                    f"start={synthetic_days[0].isoformat()} end={synthetic_days[-1].isoformat()} "
+                    f"count={len(synthetic_days)} source={expected_source}",
+                    file=sys.stderr,
+                )
         else:
             summary["status"] = "ERROR"
             summary["error_msg"] = (

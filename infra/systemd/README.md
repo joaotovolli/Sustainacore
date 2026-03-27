@@ -30,6 +30,8 @@ Units live under `infra/systemd/`:
   - `/etc/sustainacore-ai/secrets.env`
 - Writes reports under `tools/audit/output/pipeline_runs/`.
 - Writes telemetry under `tools/audit/output/pipeline_telemetry/`.
+- Writes health snapshots under `tools/audit/output/pipeline_health_latest.txt`, including
+  `repo_root`, `repo_head`, freshness dates, and `last_error`.
 - Timer schedule: **00:30, 05:30, 09:30, 13:30 UTC** with `Persistent=true`.
 
 ### Manual run
@@ -38,6 +40,14 @@ Units live under `infra/systemd/`:
 sudo systemctl start sc-idx-pipeline.service
 # or directly
 python tools/index_engine/run_pipeline.py --restart
+```
+
+Before assuming the installed unit matches the repo copy, verify the active systemd checkout:
+
+```bash
+systemctl show sc-idx-pipeline.service -p WorkingDirectory -p ExecStart
+grep -E '^(repo_root|repo_head|calendar_max_date|levels_max_date|stats_max_date|portfolio_max_date|portfolio_position_max_date|alignment_verdict|last_error)=' \
+  tools/audit/output/pipeline_health_latest.txt
 ```
 
 ## SC_IDX daily telemetry report (systemd)
@@ -57,6 +67,9 @@ Units live under `infra/systemd/`:
   - `/etc/sustainacore-ai/secrets.env`
 - Sets `TNS_ADMIN=/opt/adb_wallet`
 - Writes artifacts under `tools/audit/output/pipeline_daily/`
+- The report surfaces `overall_health` (`Healthy` / `Degraded` / `Failed` / `Blocked` / `Stale` / `Skipped`),
+  expected target date, latest complete date, stale signals, alert send/suppression state, and
+  deployed repo identity.
 - Uses `flock -n /tmp/sc-telemetry-report.lock`
 - Timer schedule: **06:45 UTC** with `Persistent=true`
 
