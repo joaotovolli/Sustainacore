@@ -153,8 +153,8 @@ sudo systemctl start sc-telemetry-report.service
   - `latest_complete_date`
   - max dates in canon / levels / stats / portfolio tables
 - Treat any `overall_health=Stale` verdict as actionable, even if `terminal_status=clean_skip`.
-- Use `repo_root` and `repo_head` from the health snapshot or canary summary to confirm the VM1
-  scheduler is running the expected checkout before debugging code paths.
+- Use `repo_root` and `repo_head` from the health snapshot plus `systemctl show ... WorkingDirectory`
+  to confirm the VM1 scheduler is running the expected checkout before debugging code paths.
 
 ## Recovery
 
