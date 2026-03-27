@@ -455,6 +455,65 @@ jobs:
             printf '%s\n' "$tail_output"
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
+      - name: Inspect remote SC_IDX pipeline identity
+        if: ${{ steps.run.outputs.status == '0' }}
+        env:
+          VM_HOST: ${{ steps.resolve.outputs.target_host }}
+          VM_USER: ${{ secrets.VM_USER }}
+          SSH_KEY_PATH: ${{ steps.key.outputs.path }}
+          USE_JUMP: ${{ steps.resolve.outputs.use_jump }}
+          VM2_HOST: ${{ secrets.VM2_HOST }}
+          VM2_USER: ${{ secrets.VM2_USER }}
+          VM2_KEY_PATH: ${{ steps.vm2-key.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_common_opts=(
+            -i "$SSH_KEY_PATH"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=10
+            -o ServerAliveInterval=5
+            -o ServerAliveCountMax=1
+            -o StrictHostKeyChecking=accept-new
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts"
+          )
+
+          remote_script="$RUNNER_TEMP/remote_pipeline_identity.sh"
+          cat >"$remote_script" <<'EOF'
+            set -euo pipefail
+            systemctl show sc-idx-pipeline.service -p FragmentPath -p WorkingDirectory -p ExecStart 2>/dev/null || true
+            wd="$(systemctl show sc-idx-pipeline.service -p WorkingDirectory --value 2>/dev/null || true)"
+            if [[ -n "${wd:-}" && -d "$wd/.git" ]]; then
+              echo "git_head=$(git -C "$wd" rev-parse --short HEAD 2>/dev/null || true)"
+            fi
+            if [[ -n "${wd:-}" && -f "$wd/tools/audit/output/pipeline_health_latest.txt" ]]; then
+              grep -E '^(repo_root|repo_head|calendar_max_date|levels_max_date|stats_max_date|portfolio_max_date|portfolio_position_max_date|alignment_verdict|last_error)=' \
+                "$wd/tools/audit/output/pipeline_health_latest.txt" || true
+            fi
+          EOF
+
+          set +e
+          if [[ "${USE_JUMP:-false}" == "true" ]]; then
+            proxy_cmd="ssh -i $VM2_KEY_PATH -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts -W %h:%p $VM2_USER@$VM2_HOST"
+            identity_output=$(ssh "${ssh_common_opts[@]}" -o "ProxyCommand=$proxy_cmd" "$VM_USER@$VM_HOST" 'bash -s' <"$remote_script" 2>&1)
+            status=$?
+          else
+            identity_output=$(ssh "${ssh_common_opts[@]}" "$VM_USER@$VM_HOST" 'bash -s' <"$remote_script" 2>&1)
+            status=$?
+          fi
+          set -e
+
+          {
+            echo ""
+            echo "### Remote SC_IDX pipeline identity"
+            echo ""
+            echo "- exit_code: \`$status\`"
+            echo ""
+            echo '```'
+            printf '%s\n' "$identity_output"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
       - name: Fail canary if remote command failed
         if: ${{ steps.run.outputs.status != '0' }}
         run: |

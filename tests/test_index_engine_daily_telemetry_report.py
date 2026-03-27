@@ -115,12 +115,17 @@ def test_daily_summary_flags_stale_portfolio():
             "stats_max_date": "2026-01-07",
             "portfolio_analytics_max_date": "2026-01-05",
             "portfolio_position_max_date": "2026-01-05",
+            "repo_root": "/repo",
+            "repo_head": "abc1234",
         },
     )
 
-    assert report["headline"]["overall_health"] == "Degraded"
+    assert report["headline"]["overall_health"] == "Stale"
     assert report["headline"]["portfolio_in_sync"] is False
+    assert report["headline"]["repo_head"] == "abc1234"
     assert report["freshness"]["alignment"]["verdict"] == "out_of_sync"
+    assert report["freshness"]["health"]["verdict"] == "stale"
+    assert "portfolio_analytics_behind_levels" in report["freshness"]["health"]["stale_signals"]
 
 
 def test_daily_report_renders_clean_skip():

@@ -247,6 +247,11 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Structured telemetry snapshots are written under `tools/audit/output/pipeline_telemetry/`.
 - Daily SC_IDX telemetry artifacts are written under `tools/audit/output/pipeline_daily/`.
 - Health summaries are persisted in `SC_IDX_JOB_RUNS` (job_name=`sc_idx_pipeline`) and written to `tools/audit/output/pipeline_health_latest.txt`.
+- Health and daily-report artifacts include `repo_root` and `repo_head`; use them to verify the deployed VM1 checkout instead of assuming `origin/main` is live.
+- The pipeline computes a first-class freshness verdict from expected target date vs actual table dates.
+  - `SC_IDX_STALE_ALLOWED_LAG_DAYS` (default 0) defines tolerated lag before the run/report becomes `Stale`.
+  - `SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP` (default 3 weekdays) bounds the synthetic weekday fallback used when trading-day refresh degrades on a provider timeout or 403.
+  - A stale verdict is raised when prices advance but levels do not, levels advance but stats do not, levels advance but portfolio tables do not, or the latest complete downstream date lags the expected target date.
 - Oracle retry knobs: `SC_IDX_ORACLE_RETRY_ATTEMPTS` (default 5) and `SC_IDX_ORACLE_RETRY_BASE_SEC` (default 1).
 - Impute guardrails: `SC_IDX_IMPUTE_LOOKBACK_DAYS` (default 30) and `SC_IDX_IMPUTE_TIMEOUT_SEC` (default 300).
 - Imputed replacement guardrails: `SC_IDX_IMPUTED_REPLACEMENT_DAYS` (default 30) and `SC_IDX_IMPUTED_REPLACEMENT_LIMIT` (default 10).
@@ -254,9 +259,12 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Systemd SC_IDX units load `/etc/sustainacore/index.env` for non-secret pipeline config (e.g., `MARKET_DATA_API_BASE_URL`).
 - Failure alert email policy:
   - `failed` and `blocked` attempt email by default
-  - `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
+  - `stale` attempts email by default, even when the graph technically concluded as `clean_skip` or `success_with_degradation`
+  - repeated `success_with_degradation` runs attempt email by default after `SC_IDX_ALERT_DEGRADED_REPEAT_THRESHOLD` consecutive degraded runs (default 2)
+  - single `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
   - `daily_budget_stop` only emails when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
-  - `clean_skip` and smoke runs do not send email
+  - `clean_skip` only stays quiet when freshness is not stale
+  - smoke runs do not send email
 - Alert duplicate-suppression state lives in `SC_IDX_ALERT_STATE`; the once-per-day gate is marked only after successful SMTP delivery.
 - Required SMTP env names for SC_IDX alerts are `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, and `MAIL_TO`.
 - Daily report recipients resolve in this order:
@@ -264,6 +272,7 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
   - `TELEMETRY_REPORT_RECIPIENTS`
   - `MAIL_TO`
 - VM1 daily report scheduler: `sc-telemetry-report.timer` -> `sc-telemetry-report.service`, which runs `python3 tools/index_engine/daily_telemetry_report.py --send`.
+- The daily report is operator-grade: it shows `overall_health` (`Healthy` / `Degraded` / `Failed` / `Blocked` / `Stale` / `Skipped`), expected target date, latest complete date, stale signals, alert send/suppression state, artifact paths, and deployed repo identity.
 
 ## FI -> FISV Normalization (VM1)
 - Ticker normalization is enforced in ingest + DB helpers: `FI` is mapped to `FISV`.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -30,6 +31,8 @@ HEALTH_LABELS = {
     "failed": "Failed",
     "blocked": "Blocked",
 }
+
+STALE_LABEL = "Stale"
 
 
 def _val(summary: Dict[str, Any], key: str, default: str = "n/a") -> str:
@@ -149,6 +152,94 @@ def _lag_days(reference_date: Any, subject_date: Any) -> int | None:
     return max(0, (ref - subject).days)
 
 
+def _stale_allowed_lag_days() -> int:
+    raw = os.getenv("SC_IDX_STALE_ALLOWED_LAG_DAYS", "0").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def _freshness_health(
+    freshness: Dict[str, Any],
+    *,
+    expected_target_date: Any = None,
+    allowed_lag_days: int | None = None,
+) -> dict[str, Any]:
+    dates = {
+        "canon": _parse_date(freshness.get("canon_max_date")),
+        "levels": _parse_date(freshness.get("levels_max_date")),
+        "stats": _parse_date(freshness.get("stats_max_date")),
+        "portfolio_analytics": _parse_date(
+            freshness.get("portfolio_analytics_max_date") or freshness.get("portfolio_max_date")
+        ),
+        "portfolio_positions": _parse_date(
+            freshness.get("portfolio_position_max_date") or freshness.get("portfolio_positions_max_date")
+        ),
+    }
+    expected = _parse_date(expected_target_date)
+    allowed = _stale_allowed_lag_days() if allowed_lag_days is None else max(0, int(allowed_lag_days))
+    latest_complete_candidates = [
+        dates["levels"],
+        dates["stats"],
+        dates["portfolio_analytics"],
+        dates["portfolio_positions"],
+    ]
+    latest_complete_present = [value for value in latest_complete_candidates if value is not None]
+    latest_complete = min(latest_complete_present) if latest_complete_present else None
+    lag_days = {key: _lag_days(expected, value) for key, value in dates.items()}
+    latest_complete_lag = _lag_days(expected, latest_complete)
+
+    signals: list[str] = []
+    if dates["canon"] and dates["levels"] and dates["canon"] > dates["levels"]:
+        signals.append("levels_behind_prices")
+    if dates["levels"] and dates["stats"] and dates["levels"] > dates["stats"]:
+        signals.append("stats_behind_levels")
+    if dates["levels"] and dates["portfolio_analytics"] and dates["levels"] > dates["portfolio_analytics"]:
+        signals.append("portfolio_analytics_behind_levels")
+    if dates["levels"] and dates["portfolio_positions"] and dates["levels"] > dates["portfolio_positions"]:
+        signals.append("portfolio_positions_behind_levels")
+    if latest_complete_lag is not None and latest_complete_lag > allowed:
+        signals.append("latest_complete_lagging_expected")
+    for key, lag in lag_days.items():
+        if lag is not None and lag > allowed:
+            signals.append(f"{key}_lagging_expected")
+
+    deduped_signals: list[str] = []
+    for signal in signals:
+        if signal not in deduped_signals:
+            deduped_signals.append(signal)
+
+    if deduped_signals:
+        verdict = "stale"
+        reason = deduped_signals[0]
+    elif any(value is not None for value in dates.values()):
+        verdict = "fresh"
+        reason = "aligned_with_expected"
+    else:
+        verdict = "unknown"
+        reason = "no_freshness_dates"
+
+    return {
+        "verdict": verdict,
+        "reason": reason,
+        "expected_target_date": expected.isoformat() if expected else None,
+        "latest_complete_date": latest_complete.isoformat() if latest_complete else None,
+        "allowed_lag_days": allowed,
+        "lag_days": {key: lag for key, lag in lag_days.items()},
+        "lag_days_latest_complete": latest_complete_lag,
+        "stale_signals": deduped_signals,
+    }
+
+
+def _overall_health_label(terminal_status: str | None, freshness_health: Dict[str, Any] | None = None) -> str:
+    if terminal_status in {"failed", "blocked"}:
+        return HEALTH_LABELS.get(terminal_status, terminal_status or "Unknown")
+    if (freshness_health or {}).get("verdict") == "stale":
+        return STALE_LABEL
+    return HEALTH_LABELS.get(terminal_status, terminal_status or "Unknown")
+
+
 def _primary_stage(stage_results: Dict[str, Dict[str, Any]], terminal_status: str, status_reason: str | None) -> str | None:
     if status_reason and status_reason in stage_results:
         return status_reason
@@ -263,19 +354,41 @@ def build_pipeline_run_summary(
         "portfolio_analytics_max_date": context.get("portfolio_max_after") or context.get("max_portfolio_before"),
         "portfolio_position_max_date": context.get("portfolio_position_max_after"),
     }
+    expected_target_date = (
+        context.get("expected_target_date")
+        or context.get("ready_end_date")
+        or context.get("candidate_end_date")
+        or context.get("calendar_max_date")
+    )
+    freshness_health = _freshness_health(freshness, expected_target_date=expected_target_date)
+    freshness.update(
+        {
+            "expected_target_date": freshness_health.get("expected_target_date"),
+            "expected_target_source": context.get("expected_target_source"),
+            "latest_complete_date": freshness_health.get("latest_complete_date"),
+            "allowed_lag_days": freshness_health.get("allowed_lag_days"),
+            "lag_days": freshness_health.get("lag_days"),
+            "lag_days_latest_complete": freshness_health.get("lag_days_latest_complete"),
+            "health": freshness_health,
+        }
+    )
     alignment = _alignment_summary(freshness)
     ended_at = context.get("ended_at")
     duration_sec = _duration_seconds(started_at, ended_at)
     stage_outcomes = _stage_outcomes(stage_results)
     primary_stage = _primary_stage(stage_results, terminal_status, status_reason)
     alert_decision = context.get("alert_payload")
+    runtime_identity = {
+        "repo_root": context.get("repo_root"),
+        "repo_head": context.get("repo_head"),
+    }
 
     return {
         "environment": "VM1",
         "job_name": "sc_idx_pipeline",
         "run_id": run_id,
         "terminal_status": terminal_status,
-        "overall_health": HEALTH_LABELS.get(terminal_status, terminal_status),
+        "overall_health": _overall_health_label(terminal_status, freshness_health),
         "started_at": _iso(started_at),
         "ended_at": _iso(ended_at),
         "duration_sec": duration_sec,
@@ -302,11 +415,14 @@ def build_pipeline_run_summary(
         "stage_statuses": stage_statuses,
         "stage_results": stage_results,
         "stage_outcomes": stage_outcomes,
+        "recent_terminal_history": list(context.get("recent_terminal_history") or []),
         "retry_counts": retry_counts,
         "total_retry_count": sum(retry_counts.values()),
         "provider_readiness": {
             "candidate_end_date": context.get("candidate_end_date"),
             "ready_end_date": context.get("ready_end_date"),
+            "expected_target_date": freshness_health.get("expected_target_date"),
+            "expected_target_source": context.get("expected_target_source"),
             "provider_usage_current": context.get("provider_usage_current"),
             "provider_usage_limit": context.get("provider_usage_limit"),
             "provider_usage_remaining": context.get("provider_usage_remaining"),
@@ -324,9 +440,13 @@ def build_pipeline_run_summary(
             "statistics_completed": bool(counts.get("stats_rows")) or stage_statuses.get("calc_index") == "OK",
             "portfolio_completed": stage_statuses.get("portfolio_analytics") == "OK",
             "lock_contention": terminal_status == "blocked" and (primary_stage == "acquire_lock"),
+            "freshness_verdict": freshness_health.get("verdict"),
+            "freshness_reason": freshness_health.get("reason"),
+            "stale_signals": list(freshness_health.get("stale_signals") or []),
         },
         "alert_decision": alert_decision,
         "artifact_paths": _artifact_paths(context),
+        "runtime_identity": runtime_identity,
     }
 
 
@@ -339,6 +459,8 @@ def format_pipeline_terminal_report(summary: Dict[str, Any]) -> str:
     alert = summary.get("alert_decision") or {}
     artifacts = summary.get("artifact_paths") or {}
     operational = summary.get("operational_state") or {}
+    freshness_health = (freshness.get("health") or {}) if isinstance(freshness.get("health"), dict) else {}
+    runtime_identity = summary.get("runtime_identity") or {}
 
     lines = [
         "SC_IDX / TECH100 Pipeline Terminal Report",
@@ -354,10 +476,16 @@ def format_pipeline_terminal_report(summary: Dict[str, Any]) -> str:
         f"- started_at: {summary.get('started_at') or 'n/a'}",
         f"- ended_at: {summary.get('ended_at') or 'n/a'}",
         f"- duration_sec: {summary.get('duration_sec') if summary.get('duration_sec') is not None else 'n/a'}",
+        f"- repo_root: {runtime_identity.get('repo_root') or 'n/a'}",
+        f"- repo_head: {runtime_identity.get('repo_head') or 'n/a'}",
         "",
         "Data window and freshness:",
+        f"- expected_target_date: {freshness.get('expected_target_date') or readiness.get('expected_target_date') or 'n/a'}",
+        f"- expected_target_source: {freshness.get('expected_target_source') or readiness.get('expected_target_source') or 'n/a'}",
         f"- latest_successful_trade_date: {summary.get('latest_successful_trade_date') or 'n/a'}",
         f"- latest_data_date: {summary.get('latest_data_date') or 'n/a'}",
+        f"- latest_complete_date: {freshness.get('latest_complete_date') or 'n/a'}",
+        f"- lag_days_latest_complete: {freshness.get('lag_days_latest_complete')}",
         f"- impacted_start: {impacted.get('start') or 'n/a'}",
         f"- impacted_end: {impacted.get('end') or 'n/a'}",
         f"- provider_ready_date: {readiness.get('ready_end_date') or 'n/a'}",
@@ -366,7 +494,15 @@ def format_pipeline_terminal_report(summary: Dict[str, Any]) -> str:
         f"- stats_max_date: {freshness.get('stats_max_date') or 'n/a'}",
         f"- portfolio_analytics_max_date: {freshness.get('portfolio_analytics_max_date') or freshness.get('portfolio_max_date') or 'n/a'}",
         f"- portfolio_position_max_date: {freshness.get('portfolio_position_max_date') or 'n/a'}",
+        f"- lag_days_canon: {(freshness.get('lag_days') or {}).get('canon')}",
+        f"- lag_days_levels: {(freshness.get('lag_days') or {}).get('levels')}",
+        f"- lag_days_stats: {(freshness.get('lag_days') or {}).get('stats')}",
+        f"- lag_days_portfolio_analytics: {(freshness.get('lag_days') or {}).get('portfolio_analytics')}",
+        f"- lag_days_portfolio_positions: {(freshness.get('lag_days') or {}).get('portfolio_positions')}",
         f"- alignment_verdict: {alignment.get('verdict') or 'n/a'}",
+        f"- freshness_verdict: {freshness_health.get('verdict') or 'n/a'}",
+        f"- freshness_reason: {freshness_health.get('reason') or 'n/a'}",
+        f"- stale_signals: {','.join(freshness_health.get('stale_signals') or []) or 'none'}",
         "",
         "Operational state:",
         f"- provider_ready: {operational.get('provider_ready')}",
@@ -389,6 +525,7 @@ def format_pipeline_terminal_report(summary: Dict[str, Any]) -> str:
         "Alert delivery:",
         f"- alert_name: {alert.get('alert_name') or 'n/a'}",
         f"- decision: {alert.get('decision') or 'n/a'}",
+        f"- trigger_reason: {alert.get('trigger_reason') or 'n/a'}",
         f"- email_sent: {alert.get('email_sent')}",
         f"- gate_reason: {((alert.get('gate') or {}).get('reason')) or 'n/a'}",
         f"- deduplicated: {alert.get('deduplicated')}",
@@ -419,6 +556,15 @@ def format_pipeline_terminal_report(summary: Dict[str, Any]) -> str:
             f"warnings={warnings} "
             f"counts={counts_json}"
         )
+
+    lines.append("")
+    lines.append("Recent terminal history:")
+    history = summary.get("recent_terminal_history") or []
+    if history:
+        for item in history:
+            lines.append(f"- {item}")
+    else:
+        lines.append("- none")
 
     lines.append("")
     lines.append("Warnings:")
@@ -456,6 +602,26 @@ def build_pipeline_daily_summary(
         "portfolio_position_max_date": health.get("portfolio_position_max_date")
         or (summary.get("freshness") or {}).get("portfolio_position_max_date"),
     }
+    expected_target_date = (
+        (summary.get("freshness") or {}).get("expected_target_date")
+        or (summary.get("provider_readiness") or {}).get("expected_target_date")
+        or (summary.get("provider_readiness") or {}).get("ready_end_date")
+        or (summary.get("provider_readiness") or {}).get("candidate_end_date")
+        or freshness.get("calendar_max_date")
+    )
+    freshness_health = _freshness_health(freshness, expected_target_date=expected_target_date)
+    freshness.update(
+        {
+            "expected_target_date": freshness_health.get("expected_target_date"),
+            "expected_target_source": (summary.get("freshness") or {}).get("expected_target_source")
+            or (summary.get("provider_readiness") or {}).get("expected_target_source"),
+            "latest_complete_date": freshness_health.get("latest_complete_date"),
+            "allowed_lag_days": freshness_health.get("allowed_lag_days"),
+            "lag_days": freshness_health.get("lag_days"),
+            "lag_days_latest_complete": freshness_health.get("lag_days_latest_complete"),
+            "health": freshness_health,
+        }
+    )
     alignment = _alignment_summary(freshness)
     levels_date = freshness.get("levels_max_date")
     portfolio_positions_date = freshness.get("portfolio_position_max_date")
@@ -479,31 +645,26 @@ def build_pipeline_daily_summary(
     report = {
         "generated_at": generated_at or _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "headline": {
-            "overall_health": HEALTH_LABELS.get(summary.get("terminal_status"), summary.get("terminal_status") or "Unknown"),
+            "overall_health": _overall_health_label(
+                summary.get("terminal_status") or telemetry.get("terminal_status"),
+                freshness_health,
+            ),
             "latest_run_id": summary.get("run_id") or telemetry.get("run_id"),
             "terminal_status": summary.get("terminal_status") or telemetry.get("terminal_status"),
             "started_at": summary.get("started_at"),
             "ended_at": summary.get("ended_at"),
             "total_duration_sec": summary.get("duration_sec"),
             "latest_successful_trade_date": summary.get("latest_successful_trade_date") or freshness.get("levels_max_date"),
+            "expected_target_date": freshness_health.get("expected_target_date"),
+            "latest_complete_date": freshness_health.get("latest_complete_date"),
+            "lag_days_latest_complete": freshness_health.get("lag_days_latest_complete"),
             "today_target_processed": today_target_processed,
             "portfolio_in_sync": portfolio_in_sync,
+            "repo_root": health.get("repo_root") or ((summary.get("runtime_identity") or {}).get("repo_root")),
+            "repo_head": health.get("repo_head") or ((summary.get("runtime_identity") or {}).get("repo_head")),
         },
         "freshness": {
             **freshness,
-            "lag_days": {
-                "canon": _lag_days(freshness.get("calendar_max_date"), freshness.get("canon_max_date")),
-                "levels": _lag_days(freshness.get("calendar_max_date"), freshness.get("levels_max_date")),
-                "stats": _lag_days(freshness.get("calendar_max_date"), freshness.get("stats_max_date")),
-                "portfolio_analytics": _lag_days(
-                    freshness.get("calendar_max_date"),
-                    freshness.get("portfolio_analytics_max_date"),
-                ),
-                "portfolio_positions": _lag_days(
-                    freshness.get("calendar_max_date"),
-                    freshness.get("portfolio_position_max_date"),
-                ),
-            },
             "alignment": alignment,
         },
         "stage_outcomes": _stage_outcomes(stage_results),
@@ -529,6 +690,8 @@ def build_pipeline_daily_summary(
             "email_sent": bool(alert.get("email_sent")),
             "decision": alert.get("decision"),
             "deduplicated": alert.get("deduplicated"),
+            "trigger": alert.get("trigger"),
+            "trigger_reason": alert.get("trigger_reason"),
             "gate_reason": (alert.get("gate") or {}).get("reason"),
             "smtp_ready": (alert.get("delivery") or {}).get("ready"),
             "smtp_delivery_state": (alert.get("delivery") or {}).get("delivery_state"),
@@ -554,6 +717,7 @@ def format_pipeline_daily_report(report: Dict[str, Any]) -> str:
     headline = report.get("headline") or {}
     freshness = report.get("freshness") or {}
     alignment = freshness.get("alignment") or {}
+    freshness_health = (freshness.get("health") or {}) if isinstance(freshness.get("health"), dict) else {}
     operations = report.get("operations") or {}
     alerts = report.get("alerts") or {}
     artifacts = report.get("artifacts") or {}
@@ -571,17 +735,29 @@ def format_pipeline_daily_report(report: Dict[str, Any]) -> str:
         f"- started_at: {headline.get('started_at') or 'n/a'}",
         f"- ended_at: {headline.get('ended_at') or 'n/a'}",
         f"- total_duration_sec: {headline.get('total_duration_sec') if headline.get('total_duration_sec') is not None else 'n/a'}",
+        f"- expected_target_date: {headline.get('expected_target_date') or 'n/a'}",
         f"- latest_successful_trade_date: {headline.get('latest_successful_trade_date') or 'n/a'}",
+        f"- latest_complete_date: {headline.get('latest_complete_date') or 'n/a'}",
+        f"- lag_days_latest_complete: {headline.get('lag_days_latest_complete')}",
         f"- todays_target_processed: {headline.get('today_target_processed')}",
         f"- portfolio_in_sync: {headline.get('portfolio_in_sync')}",
+        f"- repo_root: {headline.get('repo_root') or 'n/a'}",
+        f"- repo_head: {headline.get('repo_head') or 'n/a'}",
         "",
         "Section 2: Freshness and alignment",
+        f"- expected_target_date: {freshness.get('expected_target_date') or 'n/a'}",
+        f"- expected_target_source: {freshness.get('expected_target_source') or 'n/a'}",
         f"- calendar_max_date: {freshness.get('calendar_max_date') or 'n/a'}",
         f"- canon_max_date: {freshness.get('canon_max_date') or 'n/a'}",
         f"- levels_max_date: {freshness.get('levels_max_date') or 'n/a'}",
         f"- stats_max_date: {freshness.get('stats_max_date') or 'n/a'}",
         f"- portfolio_analytics_max_date: {freshness.get('portfolio_analytics_max_date') or 'n/a'}",
         f"- portfolio_position_max_date: {freshness.get('portfolio_position_max_date') or 'n/a'}",
+        f"- latest_complete_date: {freshness.get('latest_complete_date') or 'n/a'}",
+        f"- freshness_verdict: {freshness_health.get('verdict') or 'n/a'}",
+        f"- freshness_reason: {freshness_health.get('reason') or 'n/a'}",
+        f"- allowed_lag_days: {freshness.get('allowed_lag_days')}",
+        f"- lag_days_latest_complete: {freshness.get('lag_days_latest_complete')}",
         f"- lag_days_canon: {(freshness.get('lag_days') or {}).get('canon')}",
         f"- lag_days_levels: {(freshness.get('lag_days') or {}).get('levels')}",
         f"- lag_days_stats: {(freshness.get('lag_days') or {}).get('stats')}",
@@ -589,6 +765,7 @@ def format_pipeline_daily_report(report: Dict[str, Any]) -> str:
         f"- lag_days_portfolio_positions: {(freshness.get('lag_days') or {}).get('portfolio_positions')}",
         f"- alignment_verdict: {alignment.get('verdict') or 'n/a'}",
         f"- alignment_reason: {alignment.get('reason') or 'n/a'}",
+        f"- stale_signals: {','.join(freshness_health.get('stale_signals') or []) or 'none'}",
         "",
         "Section 3: Stage-by-stage outcome",
     ]
@@ -629,6 +806,8 @@ def format_pipeline_daily_report(report: Dict[str, Any]) -> str:
             "Section 5: Alerts and risk signals",
             f"- email_sent: {alerts.get('email_sent')}",
             f"- decision: {alerts.get('decision') or 'n/a'}",
+            f"- trigger: {alerts.get('trigger') or 'n/a'}",
+            f"- trigger_reason: {alerts.get('trigger_reason') or 'n/a'}",
             f"- deduplicated: {alerts.get('deduplicated')}",
             f"- gate_reason: {alerts.get('gate_reason') or 'n/a'}",
             f"- smtp_ready: {alerts.get('smtp_ready')}",

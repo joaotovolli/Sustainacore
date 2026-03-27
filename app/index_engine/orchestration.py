@@ -5,6 +5,7 @@ import datetime as _dt
 import fcntl
 import json
 import os
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -68,6 +69,7 @@ TERMINAL_SHORT_STATUS = {
     "failed": "ERROR",
     "blocked": "BLOCKED",
 }
+SHORT_TO_TERMINAL_STATUS = {value: key for key, value in TERMINAL_SHORT_STATUS.items()}
 
 
 class StagePolicy(TypedDict):
@@ -184,6 +186,30 @@ def _json_loads(raw: str | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"value": value}
 
 
+def _git_head() -> str | None:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    value = proc.stdout.strip()
+    return value or None
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def _append_warning(state: PipelineGraphState, warning: str) -> None:
     warnings = list(state.get("warnings") or [])
     if warning not in warnings:
@@ -257,6 +283,42 @@ def _fetch_scalar(sql: str, binds: dict[str, Any] | None = None) -> Any:
         cur.execute(sql, binds or {})
         row = cur.fetchone()
         return row[0] if row else None
+
+
+def _fetch_recent_terminal_history(limit: int = 5) -> list[str]:
+    sql = (
+        "SELECT status FROM ("
+        "  SELECT status "
+        "  FROM SC_IDX_JOB_RUNS "
+        "  WHERE job_name = :job_name "
+        "    AND status IS NOT NULL "
+        "  ORDER BY started_at DESC"
+        ") WHERE ROWNUM <= :limit"
+    )
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, {"job_name": PIPELINE_NAME, "limit": max(1, limit)})
+            rows = cur.fetchall() or []
+    except Exception:
+        return []
+
+    history: list[str] = []
+    for row in rows:
+        raw = str(row[0] or "").strip().upper()
+        mapped = SHORT_TO_TERMINAL_STATUS.get(raw)
+        if mapped:
+            history.append(mapped)
+    return history
+
+
+def _leading_status_count(history: list[str], status: str) -> int:
+    count = 0
+    for item in history:
+        if item != status:
+            break
+        count += 1
+    return count
 
 
 def _query_calc_counts(start_date: _dt.date, end_date: _dt.date) -> dict[str, int | None]:
@@ -545,6 +607,7 @@ class SCIdxPipelineRuntime:
             max_attempts=refresh_attempts,
             backoff_base_sec=refresh_backoff,
             allow_cached_on_403=True,
+            allow_cached_on_timeout=True,
         )
         if not updated and update_error:
             warnings.append(f"trading_days_cached:{update_error}")
@@ -560,18 +623,37 @@ class SCIdxPipelineRuntime:
             }
 
         calendar_max = trading_days[-1]
+        expected_target_date, expected_target_source, fallback_trading_days, synthetic_days = (
+            run_daily.derive_expected_target_date(
+                provider_latest=provider_latest,
+                today_utc=today_utc,
+                trading_days=trading_days,
+                allow_weekday_fallback=not updated,
+            )
+        )
+        if synthetic_days:
+            trading_days = fallback_trading_days
+            calendar_max = trading_days[-1]
+            candidate_end = run_daily.compute_eligible_end_date(
+                provider_latest=provider_latest,
+                today_utc=today_utc,
+                trading_days=trading_days,
+            )
+            warnings.append(
+                "trading_days_weekday_fallback:"
+                f"start={synthetic_days[0].isoformat()} end={synthetic_days[-1].isoformat()} count={len(synthetic_days)}"
+            )
         if calendar_max and provider_latest and calendar_max < provider_latest:
             if not updated:
                 warnings.append(
                     "trading_days_behind_provider:"
                     f"calendar_max={calendar_max.isoformat()} provider_latest={provider_latest.isoformat()}"
                 )
-                provider_latest = calendar_max
-                candidate_end = run_daily.compute_eligible_end_date(
-                    provider_latest=provider_latest,
-                    today_utc=today_utc,
-                    trading_days=trading_days,
-                )
+                if expected_target_source == "provider_guard_estimate" and expected_target_date is not None:
+                    warnings.append(
+                        "expected_target_estimated:"
+                        f"expected_target_date={expected_target_date.isoformat()}"
+                    )
             else:
                 return {
                     "status": "FAILED",
@@ -609,6 +691,13 @@ class SCIdxPipelineRuntime:
                     "remaining_daily": remaining_daily,
                 },
                 "context": {
+                    "calendar_max_date": calendar_max,
+                    "provider_latest_date": provider_latest,
+                    "candidate_end_date": candidate_end,
+                    "expected_target_date": expected_target_date,
+                    "expected_target_source": expected_target_source,
+                    "trading_days": trading_days,
+                    "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
                     "calls_used_today": calls_used_today,
                     "daily_limit": daily_limit,
                     "daily_buffer": daily_buffer,
@@ -628,6 +717,18 @@ class SCIdxPipelineRuntime:
                 "terminal_status": "clean_skip",
                 "error_token": "up_to_date",
                 "counts": {"calendar_max_date": calendar_max.isoformat()},
+                "context": {
+                    "calendar_max_date": calendar_max,
+                    "provider_latest_date": provider_latest,
+                    "candidate_end_date": candidate_end,
+                    "expected_target_date": expected_target_date,
+                    "expected_target_source": expected_target_source,
+                    "trading_days": trading_days,
+                    "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
+                    "max_canon_before": max_canon_date,
+                    "max_level_before": max_level_date,
+                    "max_portfolio_before": max_portfolio_date,
+                },
             }
 
         status = "DEGRADED" if warnings else "OK"
@@ -641,7 +742,10 @@ class SCIdxPipelineRuntime:
             "calendar_max_date": calendar_max,
             "provider_latest_date": provider_latest,
             "candidate_end_date": candidate_end,
+            "expected_target_date": expected_target_date,
+            "expected_target_source": expected_target_source,
             "trading_days": trading_days,
+            "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
             "next_missing_canon_date": next_missing_canon,
             "next_missing_level_date": next_missing_level,
             "ingest_start_date": next_missing_canon or candidate_end,
@@ -720,6 +824,10 @@ class SCIdxPipelineRuntime:
                 "terminal_status": "clean_skip",
                 "error_token": "provider_not_ready",
                 "counts": {"tried_dates": [day.isoformat() for day in tried]},
+                "context": {
+                    "expected_target_date": None,
+                    "expected_target_source": "provider_not_ready",
+                },
                 "remediation": "Wait for the market-data provider to publish the latest EOD bars, then rerun.",
             }
 
@@ -729,7 +837,11 @@ class SCIdxPipelineRuntime:
             "status": status,
             "detail": detail,
             "counts": {"tried_dates": [day.isoformat() for day in tried]},
-            "context": {"ready_end_date": ready_end},
+            "context": {
+                "ready_end_date": ready_end,
+                "expected_target_date": ready_end,
+                "expected_target_source": "readiness_probe",
+            },
             "warnings": [detail] if status == "DEGRADED" else [],
         }
 
@@ -1677,22 +1789,53 @@ def _refresh_pipeline_report(state: PipelineGraphState, runtime: PipelineRuntime
 def _decide_alerts(state: PipelineGraphState, runtime: PipelineRuntime) -> PipelineGraphState:
     next_state: PipelineGraphState = dict(state)
     summary = dict(next_state.get("report") or {})
+    if not summary:
+        next_state = _refresh_pipeline_report(next_state, runtime)
+        summary = dict(next_state.get("report") or {})
     terminal_status = _derive_terminal_status(next_state)
+    freshness_health = (
+        ((summary.get("freshness") or {}).get("health") or {})
+        if isinstance((summary.get("freshness") or {}).get("health"), dict)
+        else {}
+    )
+    degraded_repeat_threshold = max(2, _env_int("SC_IDX_ALERT_DEGRADED_REPEAT_THRESHOLD", 2))
+    recent_terminal_history = [terminal_status] + _fetch_recent_terminal_history(limit=max(5, degraded_repeat_threshold + 2))
+    degraded_streak = _leading_status_count(recent_terminal_history, "success_with_degradation")
+    clean_skip_streak = _leading_status_count(recent_terminal_history, "clean_skip")
+    _merge_context(next_state, {"recent_terminal_history": recent_terminal_history})
+    summary["recent_terminal_history"] = recent_terminal_history
     subject = None
     alert_name = None
     should_send = False
+    trigger_reason = None
     if terminal_status in {"failed", "blocked"}:
         alert_name = f"sc_idx_pipeline_{terminal_status}"
         subject = f"SC_IDX pipeline {terminal_status.upper()} on VM1 (run_id={next_state['run_id']})"
         should_send = True
+        trigger_reason = terminal_status
+    elif freshness_health.get("verdict") == "stale":
+        alert_name = "sc_idx_pipeline_stale"
+        subject = f"SC_IDX pipeline STALE on VM1 (run_id={next_state['run_id']})"
+        should_send = True
+        trigger_reason = str(freshness_health.get("reason") or "stale_freshness")
+    elif terminal_status == "success_with_degradation" and degraded_streak >= degraded_repeat_threshold:
+        alert_name = "sc_idx_pipeline_repeated_degraded"
+        subject = (
+            "SC_IDX pipeline REPEATED DEGRADED on VM1 "
+            f"(run_id={next_state['run_id']} streak={degraded_streak})"
+        )
+        should_send = True
+        trigger_reason = f"repeated_degraded:{degraded_streak}"
     elif next_state.get("status_reason") == "daily_budget_stop" and os.getenv("SC_IDX_EMAIL_ON_BUDGET_STOP") == "1":
         alert_name = "sc_idx_budget_stop"
         subject = f"SC_IDX pipeline DAILY_BUDGET_STOP on VM1 (run_id={next_state['run_id']})"
         should_send = True
+        trigger_reason = "daily_budget_stop"
     elif terminal_status == "success_with_degradation" and os.getenv("SC_IDX_EMAIL_ON_DEGRADED") == "1":
         alert_name = "sc_idx_pipeline_degraded"
         subject = f"SC_IDX pipeline DEGRADED on VM1 (run_id={next_state['run_id']})"
         should_send = True
+        trigger_reason = "degraded_opt_in"
 
     alert_payload = {
         "decision": "skipped",
@@ -1702,6 +1845,12 @@ def _decide_alerts(state: PipelineGraphState, runtime: PipelineRuntime) -> Pipel
         "gate": None,
         "delivery": None,
         "trigger": terminal_status,
+        "trigger_reason": trigger_reason,
+        "freshness_verdict": freshness_health.get("verdict"),
+        "stale_signals": list(freshness_health.get("stale_signals") or []),
+        "recent_terminal_history": recent_terminal_history,
+        "degraded_streak": degraded_streak,
+        "clean_skip_streak": clean_skip_streak,
     }
     if next_state.get("smoke"):
         alert_payload["decision"] = "skipped"
@@ -1792,18 +1941,12 @@ def _emit_telemetry(state: PipelineGraphState, runtime: PipelineRuntime) -> Pipe
         "stage_results": next_state.get("stage_results") or {},
         "retry_counts": (report or {}).get("retry_counts"),
         "total_retry_count": (report or {}).get("total_retry_count"),
-        "freshness": {
-            "canon_max_date": (next_state.get("context") or {}).get("max_canon_after_ingest")
-            or (next_state.get("context") or {}).get("max_canon_before"),
-            "levels_max_date": (next_state.get("context") or {}).get("levels_max_after")
-            or (next_state.get("context") or {}).get("max_level_before"),
-            "stats_max_date": (next_state.get("context") or {}).get("stats_max_after"),
-            "portfolio_max_date": (next_state.get("context") or {}).get("portfolio_max_after")
-            or (next_state.get("context") or {}).get("max_portfolio_before"),
-        },
+        "freshness": dict((report or {}).get("freshness") or {}),
         "alignment": (report or {}).get("alignment"),
         "provider_readiness": (report or {}).get("provider_readiness"),
         "artifact_paths": dict((report or {}).get("artifact_paths") or {}),
+        "runtime_identity": dict((report or {}).get("runtime_identity") or {}),
+        "recent_terminal_history": list((report or {}).get("recent_terminal_history") or []),
     }
     telemetry_path = runtime.telemetry_dir / f"sc_idx_pipeline_{next_state['run_id']}.json"
     latest_path = runtime.telemetry_dir / "sc_idx_pipeline_latest.json"
@@ -2006,7 +2149,10 @@ def _initial_state(args: PipelineArgs, run_id: str) -> PipelineGraphState:
         "smoke_scenario": args.smoke_scenario,
         "warnings": [],
         "stage_results": {},
-        "context": {},
+        "context": {
+            "repo_root": str(REPO_ROOT.resolve()),
+            "repo_head": _git_head(),
+        },
         "report": {},
         "alert": {},
         "telemetry": {},

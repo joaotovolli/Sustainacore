@@ -180,14 +180,18 @@ Files written on each run:
 Signals include:
 
 - terminal status
+- overall operator health verdict
 - node timings
 - retry counts
 - provider readiness outcome
 - ingest/imputation/index/statistics counts
 - report generation status
 - email decision and SMTP delivery state
+- expected target date and source
 - freshness dates for canon, levels, and stats
 - portfolio analytics freshness and alignment
+- stale signals and latest complete lag
+- deployed `repo_root` and `repo_head`
 - remediation and artifact paths
 
 Use the pipeline smoke path for no-provider verification:
@@ -199,9 +203,13 @@ python tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --re
 Failure alert semantics for the LangGraph pipeline:
 
 - `failed` and `blocked` attempt email by default
-- `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
+- `stale` attempts email by default, even if the graph technically concluded
+- repeated `success_with_degradation` attempts email by default after
+  `SC_IDX_ALERT_DEGRADED_REPEAT_THRESHOLD` consecutive degraded runs
+- single `success_with_degradation` only attempts email when `SC_IDX_EMAIL_ON_DEGRADED=1`
 - `daily_budget_stop` only attempts email when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
-- `clean_skip` and smoke runs do not send email
+- `clean_skip` only stays quiet when freshness is not stale
+- smoke runs do not send email
 
 Duplicate-suppression rules:
 
@@ -253,6 +261,17 @@ Report sections:
 - data quality and operations
 - alerts and risk signals
 - artifact paths
+
+Operator interpretation notes:
+
+- Treat `overall_health=Stale` as an incident even if `terminal_status` is `clean_skip` or
+  `success_with_degradation`.
+- Compare `expected_target_date` to `latest_complete_date` before deciding whether the pipeline was
+  truly up to date.
+- Use `repo_root` and `repo_head` in the health snapshot and daily report to verify that VM1 is
+  actually running the intended checkout.
+- If trading-day refresh degraded on a timeout or 403, the report will show whether a bounded
+  weekday fallback was used or whether the expected target had to remain an estimate.
 
 Safe verification commands:
 

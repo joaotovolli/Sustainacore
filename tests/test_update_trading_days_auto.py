@@ -86,3 +86,21 @@ def test_auto_extend_falls_back_to_window(monkeypatch):
     assert max_before == _dt.date(2025, 12, 31)
     assert max_after == latest
     assert provider.window is not None
+
+
+def test_update_trading_days_retry_falls_back_on_timeout(monkeypatch):
+    monkeypatch.setattr(
+        update_module,
+        "update_trading_days",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("The read operation timed out")),
+    )
+    monkeypatch.setattr(update_module, "_sleep_backoff", lambda *_args, **_kwargs: None)
+
+    updated, reason = update_module.update_trading_days_with_retry(
+        auto_extend=True,
+        max_attempts=2,
+        backoff_base_sec=0.0,
+    )
+
+    assert updated is False
+    assert reason == "market_data_timeout"

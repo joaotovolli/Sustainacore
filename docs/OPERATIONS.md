@@ -111,15 +111,25 @@
   - telemetry: `tools/audit/output/pipeline_telemetry/`
   - daily operator reports: `tools/audit/output/pipeline_daily/`
   - health snapshot: `tools/audit/output/pipeline_health_latest.txt`
+  - all of the above expose the active `repo_root` / `repo_head` so operators can verify the
+    deployed checkout
 - Compact run status codes in `SC_IDX_JOB_RUNS`:
   - `OK`, `DEGRADED`, `SKIP`, `ERROR`, `BLOCKED`
 - Failure email policy:
   - `failed` and `blocked` attempt email by default
-  - `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
+  - `stale` attempts email by default, even when the graph technically concluded
+  - repeated `success_with_degradation` attempts email by default after
+    `SC_IDX_ALERT_DEGRADED_REPEAT_THRESHOLD` consecutive degraded runs
+  - single `success_with_degradation` only emails when `SC_IDX_EMAIL_ON_DEGRADED=1`
   - `daily_budget_stop` only emails when `SC_IDX_EMAIL_ON_BUDGET_STOP=1`
-  - `clean_skip` and smoke runs do not email
+  - `clean_skip` only stays quiet when freshness is not stale
+  - smoke runs do not email
 - Alert duplicate-suppression state is stored in `SC_IDX_ALERT_STATE`; the gate is only marked after successful SMTP delivery.
 - SMTP env names for SC_IDX alerts: `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`.
+- Freshness guardrails:
+  - `SC_IDX_STALE_ALLOWED_LAG_DAYS` bounds tolerated lag before the operator verdict becomes `Stale`
+  - `SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP` bounds the synthetic weekday fallback used when calendar
+    refresh degrades on a timeout or 403
 - Daily report recipients resolve in this order:
   - `SC_IDX_DAILY_REPORT_RECIPIENTS`
   - `TELEMETRY_REPORT_RECIPIENTS`

@@ -437,6 +437,153 @@ def test_degraded_alert_requires_opt_in(monkeypatch, tmp_path):
     assert final_state["alert"]["decision"] == "skipped"
 
 
+def test_stale_clean_skip_sends_alert(monkeypatch, tmp_path):
+    calls = {"marked": 0, "sent": 0}
+
+    monkeypatch.setattr(
+        "index_engine.orchestration.evaluate_alert_gate",
+        lambda *args, **kwargs: {
+            "should_send": True,
+            "reason": "first_send",
+            "state": {},
+            "detail_hash": "abc",
+        },
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration._fetch_recent_terminal_history",
+        lambda limit=5: ["clean_skip"],
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.mark_alert_sent",
+        lambda *args, **kwargs: calls.__setitem__("marked", calls["marked"] + 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.send_email_result",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "attempted": True,
+            "ready": True,
+            "delivery_state": "sent",
+            "message_id": "<msg-stale@sustainacore.org>",
+            "mail_to_count": 1,
+            "missing_env": [],
+        },
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.smtp_configuration_status",
+        lambda: {"ready": True, "missing_env": [], "delivery_state": "not_attempted"},
+    )
+
+    runtime = SmokePipelineRuntime(smoke_scenario="clean_skip", report_dir=tmp_path, state_store=_FakeStore())
+    state = _state(
+        smoke=False,
+        terminal_status="clean_skip",
+        status_reason="up_to_date",
+        context={
+            "ended_at": "2026-01-08T00:05:00+00:00",
+            "expected_target_date": "2026-01-08",
+            "expected_target_source": "provider_guard_estimate",
+            "max_level_before": "2026-01-07",
+            "stats_max_after": "2026-01-07",
+            "portfolio_max_after": "2026-01-07",
+            "portfolio_position_max_after": "2026-01-07",
+        },
+        stage_results={
+            "determine_target_dates": {
+                "stage": "determine_target_dates",
+                "status": "SKIP",
+                "detail": "up_to_date",
+                "counts": {},
+                "warnings": [],
+                "attempts": 1,
+                "duration_sec": 0.1,
+            }
+        },
+    )
+
+    final_state = _decide_alerts(state, runtime)
+
+    assert calls["marked"] == 1
+    assert final_state["alert"]["alert_name"] == "sc_idx_pipeline_stale"
+    assert final_state["alert"]["decision"] == "sent"
+    assert final_state["alert"]["email_sent"] is True
+    assert final_state["report"]["overall_health"] == "Stale"
+    assert final_state["report"]["alert_decision"]["trigger_reason"] == "latest_complete_lagging_expected"
+
+
+def test_repeated_degraded_sends_alert_without_opt_in(monkeypatch, tmp_path):
+    calls = {"marked": 0}
+
+    monkeypatch.delenv("SC_IDX_EMAIL_ON_DEGRADED", raising=False)
+    monkeypatch.setattr(
+        "index_engine.orchestration.evaluate_alert_gate",
+        lambda *args, **kwargs: {
+            "should_send": True,
+            "reason": "first_send",
+            "state": {},
+            "detail_hash": "abc",
+        },
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration._fetch_recent_terminal_history",
+        lambda limit=5: ["success_with_degradation"],
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.mark_alert_sent",
+        lambda *args, **kwargs: calls.__setitem__("marked", calls["marked"] + 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.send_email_result",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "attempted": True,
+            "ready": True,
+            "delivery_state": "sent",
+            "message_id": "<msg-repeat@sustainacore.org>",
+            "mail_to_count": 1,
+            "missing_env": [],
+        },
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.smtp_configuration_status",
+        lambda: {"ready": True, "missing_env": [], "delivery_state": "not_attempted"},
+    )
+
+    runtime = SmokePipelineRuntime(smoke_scenario="degraded", report_dir=tmp_path, state_store=_FakeStore())
+    state = _state(
+        smoke=False,
+        terminal_status="success_with_degradation",
+        status_reason="imputation_or_replacement",
+        context={
+            "ended_at": "2026-01-07T00:05:00+00:00",
+            "expected_target_date": "2026-01-07",
+            "expected_target_source": "readiness_probe",
+            "levels_max_after": "2026-01-07",
+            "stats_max_after": "2026-01-07",
+            "portfolio_max_after": "2026-01-07",
+            "portfolio_position_max_after": "2026-01-07",
+        },
+        stage_results={
+            "imputation_or_replacement": {
+                "stage": "imputation_or_replacement",
+                "status": "DEGRADED",
+                "detail": "imputation_used",
+                "counts": {"total_imputed": 2},
+                "warnings": ["imputed_rows"],
+                "attempts": 1,
+                "duration_sec": 0.4,
+            }
+        },
+    )
+
+    final_state = _decide_alerts(state, runtime)
+
+    assert calls["marked"] == 1
+    assert final_state["alert"]["alert_name"] == "sc_idx_pipeline_repeated_degraded"
+    assert final_state["alert"]["trigger_reason"] == "repeated_degraded:2"
+    assert final_state["alert"]["decision"] == "sent"
+
+
 def test_clean_skip_alerts_are_not_sent(monkeypatch, tmp_path):
     calls = {"sent": 0}
 
