@@ -1,8 +1,10 @@
 import datetime as dt
+import inspect
 import json
 from dataclasses import dataclass
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = REPO_ROOT / "app"
@@ -13,6 +15,7 @@ for path in (REPO_ROOT, APP_ROOT):
 from index_engine.orchestration import (
     PipelineArgs,
     PipelineGraphState,
+    SCIdxPipelineRuntime,
     SmokePipelineRuntime,
     _decide_alerts,
     build_pipeline_graph,
@@ -233,6 +236,76 @@ def test_cli_honors_skip_ingest_env(monkeypatch):
 
     assert exit_code == 0
     assert captured["args"].skip_ingest is True
+
+
+def test_determine_target_dates_uses_defaults_for_blank_budget_env(monkeypatch, tmp_path):
+    trading_days = [dt.date(2026, 3, 25), dt.date(2026, 3, 26)]
+    provider = SimpleNamespace(fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8})
+    trading_days_module = SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None))
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        TRADING_DAYS_RETRY_ENV="SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS",
+        TRADING_DAYS_RETRY_BASE_ENV="SC_IDX_TRADING_DAYS_RETRY_BASE_SEC",
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: trading_days_module,
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (
+            daily_limit - calls_used_today,
+            max(0, daily_limit - calls_used_today - daily_buffer),
+        ),
+        _resolve_end_date=lambda provider, probe_symbol, today_utc: (
+            dt.date(2026, 3, 26),
+            trading_days,
+            dt.date(2026, 3, 26),
+        ),
+        derive_expected_target_date=lambda provider_latest, today_utc, trading_days, allow_weekday_fallback: (
+            dt.date(2026, 3, 26),
+            "provider_guard",
+            trading_days,
+            [],
+        ),
+        select_next_missing_trading_day=lambda trading_days, max_canon_trade_date=None: dt.date(2026, 3, 26),
+        compute_eligible_end_date=lambda provider_latest, today_utc, trading_days: dt.date(2026, 3, 26),
+    )
+    runtime = SCIdxPipelineRuntime(
+        report_dir=tmp_path,
+        telemetry_dir=tmp_path / "telemetry",
+        state_store=_FakeStore(),
+    )
+
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("index_engine.orchestration.engine_db.fetch_max_canon_trade_date", lambda: dt.date(2026, 3, 25))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_level_date", lambda: dt.date(2026, 3, 25))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 3, 25),
+    )
+    monkeypatch.setenv("SC_IDX_MARKET_DATA_DAILY_LIMIT", "")
+    monkeypatch.setenv("SC_IDX_MARKET_DATA_DAILY_BUFFER", "")
+    monkeypatch.setenv("SC_IDX_MARKET_DATA_CREDIT_BUFFER", "")
+    monkeypatch.setenv("SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS", "")
+    monkeypatch.setenv("SC_IDX_TRADING_DAYS_RETRY_BASE_SEC", "")
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "OK"
+    assert result["context"]["daily_limit"] == 800
+    assert result["context"]["daily_buffer"] == 25
+    assert result["context"]["max_provider_calls"] == 775
+
+
+def test_calc_index_main_accepts_optional_argv():
+    from tools.index_engine import calc_index
+
+    params = inspect.signature(calc_index.main).parameters
+
+    assert list(params) == ["argv"]
+    assert params["argv"].default is None
 
 
 def test_failed_alert_send_failure_does_not_mark_gate(monkeypatch, tmp_path):
