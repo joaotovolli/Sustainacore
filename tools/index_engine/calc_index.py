@@ -313,7 +313,7 @@ def _run_self_heal(
     # run_daily already handles completeness + imputation; nothing else required here
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="TECH100 index calc v1")
     parser.add_argument("--start", help="Start date YYYY-MM-DD")
     parser.add_argument("--end", help="End date YYYY-MM-DD (default: max trading day)")
@@ -346,7 +346,7 @@ def main() -> int:
     parser.add_argument("--max-dates", type=int, default=10)
     parser.add_argument("--max-tickers", type=int, default=10)
     parser.add_argument("--max-samples", type=int, default=25)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     load_default_env()
 

@@ -210,6 +210,14 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _append_warning(state: PipelineGraphState, warning: str) -> None:
     warnings = list(state.get("warnings") or [])
     if warning not in warnings:
@@ -505,8 +513,8 @@ class SCIdxPipelineRuntime:
         return impute_missing_prices
 
     def policy_for_stage(self, stage_name: str) -> StagePolicy:
-        oracle_attempts = max(1, int(os.getenv("SC_IDX_ORACLE_RETRY_ATTEMPTS", "3")))
-        oracle_backoff = max(0.0, float(os.getenv("SC_IDX_ORACLE_RETRY_BASE_SEC", "1")))
+        oracle_attempts = max(1, _env_int("SC_IDX_ORACLE_RETRY_ATTEMPTS", 3))
+        oracle_backoff = max(0.0, _env_float("SC_IDX_ORACLE_RETRY_BASE_SEC", 1.0))
         stage_specific = {
             "preflight_oracle": {"max_attempts": oracle_attempts, "backoff_base_sec": oracle_backoff},
             "determine_target_dates": {"max_attempts": min(3, oracle_attempts), "backoff_base_sec": oracle_backoff},
@@ -581,12 +589,10 @@ class SCIdxPipelineRuntime:
             warnings.append(f"provider_usage_unavailable:{exc}")
 
         calls_used_today = fetch_calls_used_today("MARKET_DATA")
-        daily_limit = int(os.getenv(run_daily.DAILY_LIMIT_ENV, str(run_daily.DEFAULT_DAILY_LIMIT)))
-        daily_buffer = int(
-            os.getenv(
-                run_daily.DAILY_BUFFER_ENV,
-                os.getenv(run_daily.BUFFER_ENV, str(run_daily.DEFAULT_BUFFER)),
-            )
+        daily_limit = _env_int(run_daily.DAILY_LIMIT_ENV, run_daily.DEFAULT_DAILY_LIMIT)
+        daily_buffer = _env_int(
+            run_daily.DAILY_BUFFER_ENV,
+            _env_int(run_daily.BUFFER_ENV, run_daily.DEFAULT_BUFFER),
         )
         remaining_daily, max_provider_calls = run_daily._compute_daily_budget(
             daily_limit=daily_limit,
@@ -600,8 +606,8 @@ class SCIdxPipelineRuntime:
             except Exception:
                 provider_usage_remaining = None
 
-        refresh_attempts = max(1, int(os.getenv(run_daily.TRADING_DAYS_RETRY_ENV, "3")))
-        refresh_backoff = max(0.0, float(os.getenv(run_daily.TRADING_DAYS_RETRY_BASE_ENV, "1")))
+        refresh_attempts = max(1, _env_int(run_daily.TRADING_DAYS_RETRY_ENV, 3))
+        refresh_backoff = max(0.0, _env_float(run_daily.TRADING_DAYS_RETRY_BASE_ENV, 1.0))
         updated, update_error = trading_days_module.update_trading_days_with_retry(
             auto_extend=True,
             max_attempts=refresh_attempts,
@@ -1072,8 +1078,8 @@ class SCIdxPipelineRuntime:
         if target_day is None or end_day is None or end_day < target_day:
             return {"status": "SKIP", "detail": "no_impute_window"}
 
-        replacement_days = int(os.getenv("SC_IDX_IMPUTED_REPLACEMENT_DAYS", "30"))
-        replacement_limit = max(0, int(os.getenv("SC_IDX_IMPUTED_REPLACEMENT_LIMIT", "10")))
+        replacement_days = _env_int("SC_IDX_IMPUTED_REPLACEMENT_DAYS", 30)
+        replacement_limit = max(0, _env_int("SC_IDX_IMPUTED_REPLACEMENT_LIMIT", 10))
         replacement_calls = 0
         replacement_tickers: list[str] = []
         if not state.get("skip_ingest") and replacement_limit > 0 and int(context.get("provider_calls_remaining") or 0) > 0:
@@ -1107,7 +1113,7 @@ class SCIdxPipelineRuntime:
                         int(context.get("provider_calls_remaining") or 0) - replacement_calls,
                     )
 
-        max_runtime_sec = float(os.getenv("SC_IDX_IMPUTE_TIMEOUT_SEC", "300"))
+        max_runtime_sec = _env_float("SC_IDX_IMPUTE_TIMEOUT_SEC", 300.0)
         try:
             summary = impute_module.impute_missing_prices(
                 start_date=target_day,
