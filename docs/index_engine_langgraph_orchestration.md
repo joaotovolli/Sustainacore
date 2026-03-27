@@ -151,7 +151,7 @@ Stale detection:
 - When trading-day refresh degrades on a persistent provider timeout or 403, the planner can use a
   bounded weekday fallback (`SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP`) to avoid masking a one-day stale
   calendar table behind an incorrect `clean_skip`.
-- LangGraph coordinates retries, routing, and reporting; it does not magically fix an undeployed VM1
+- LangGraph coordinates retries, routing, and reporting; it does not magically fix a VM1 checkout
   checkout, a broken provider, or a stale Oracle table unless a stage explicitly detects and surfaces
   that condition.
 
