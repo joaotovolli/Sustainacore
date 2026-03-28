@@ -62,7 +62,7 @@ Because preflight skips gracefully, only real execution failures trigger these a
 
 Manual deploys are also available through **Actions → Deploy after Canary → Run workflow**, optionally providing a `sha` input.
 
-## VM1 git-based deploy (no manual rsync)
+## VM1 git-based deploy (clean scheduler release)
 
 On VM1, `sustainacore-ai.service` runs from `/opt/sustainacore-ai` and the SC_IDX scheduler
 services run from `/home/opc/Sustainacore`. To keep the API and daily TECH100 pipeline on the
@@ -72,8 +72,10 @@ same reviewed revision without manual file syncs:
 ops/scripts/deploy_vm1_git.sh
 ```
 
-The script fast-forwards both checkouts, installs deps if needed, restarts
-`sustainacore-ai.service`, and verifies `/healthz`.
+The script fast-forwards `/opt/sustainacore-ai`, clones a fresh SC_IDX release checkout under
+`/opt/sustainacore-sc-idx-*`, repoints `/home/opc/Sustainacore` to that clean release, installs
+the repo-managed `sc-idx-*` systemd units, restarts `sustainacore-ai.service`, and verifies
+`/healthz`.
 
 After any VM1 deploy that touches the daily pipeline, verify the scheduler checkout and portfolio
 freshness in the service-like environment:

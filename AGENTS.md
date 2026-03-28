@@ -228,6 +228,8 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - LangGraph is the primary orchestration pattern for the SC_IDX / TECH100 operational pipeline on VM1.
 - Primary entrypoint: `python3 tools/index_engine/run_pipeline.py`.
 - Primary systemd scheduler: `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`.
+- The live scheduler path is `/home/opc/Sustainacore`; it should resolve to a versioned release checkout under `/opt/sustainacore-sc-idx-*`.
+- Always prove the active scheduler revision with `readlink -f /home/opc/Sustainacore` and `git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD`.
 - Pipeline state is tracked in `SC_IDX_PIPELINE_STATE`; `python3 tools/index_engine/run_pipeline.py` resumes safe completed nodes by default.
 - Force a full restart with `python3 tools/index_engine/run_pipeline.py --restart`.
 - Use `python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart` for a no-provider smoke run.
@@ -257,6 +259,7 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Imputed replacement guardrails: `SC_IDX_IMPUTED_REPLACEMENT_DAYS` (default 30) and `SC_IDX_IMPUTED_REPLACEMENT_LIMIT` (default 10).
 - Oracle evidence files on failure: `tools/audit/output/oracle_health_*.txt` (no secrets).
 - Systemd SC_IDX units load `/etc/sustainacore/index.env` for non-secret pipeline config (e.g., `MARKET_DATA_API_BASE_URL`).
+- Exit code `2` is a terminal SC_IDX blocked/non-advancing outcome and must not be auto-restarted by systemd.
 - Failure alert email policy:
   - `failed` and `blocked` attempt email by default
   - `stale` attempts email by default, even when the graph technically concluded as `clean_skip` or `success_with_degradation`

@@ -243,6 +243,8 @@ def _overall_health_label(terminal_status: str | None, freshness_health: Dict[st
 def _primary_stage(stage_results: Dict[str, Dict[str, Any]], terminal_status: str, status_reason: str | None) -> str | None:
     if status_reason and status_reason in stage_results:
         return status_reason
+    if terminal_status == "success":
+        return None
     target_statuses = {
         "failed": {"FAILED", "BLOCKED"},
         "blocked": {"BLOCKED"},
