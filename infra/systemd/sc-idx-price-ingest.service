@@ -23,7 +23,9 @@ ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore/index.env /et
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/index.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env
-ExecStart=/usr/bin/flock -n /tmp/sc_idx_pipeline.lock /usr/bin/python3 /home/opc/Sustainacore/tools/index_engine/run_daily.py
+ExecStart=/usr/bin/flock -n /tmp/sc_idx_pipeline.lock /home/opc/Sustainacore/.venv/bin/python /home/opc/Sustainacore/tools/index_engine/run_daily.py
+SuccessExitStatus=2
+RestartPreventExitStatus=2
 Restart=on-failure
 RestartSec=60
 

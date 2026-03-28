@@ -97,6 +97,7 @@ def test_smoke_success_writes_report_and_terminal_state(tmp_path):
     assert state["report"]["ended_at"] is not None
     assert state["telemetry"]["ended_at"] is not None
     assert state["report"]["duration_sec"] is not None
+    assert state["report"]["failed_stage"] is None
     assert Path(report_paths["json_path"]).exists()
     assert Path(report_paths["text_path"]).exists()
 

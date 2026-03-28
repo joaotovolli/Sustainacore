@@ -64,6 +64,7 @@ Do not print env contents in logs or docs.
 - ingest + pipeline use the shared lock `/tmp/sc_idx_pipeline.lock` via `flock -n`
 - primary pipeline runtime limit: `RuntimeMaxSec=3600`
 - ingest runtime limit: `RuntimeMaxSec=7200`
+- terminal blocked/guard exits use code `2` and should not be auto-restarted by systemd
 - restart storm guardrails remain in the units through `StartLimit*`
 - retries inside the graph are bounded and stage-specific
 
@@ -71,6 +72,9 @@ Do not print env contents in logs or docs.
 
 - latest `SC_IDX_JOB_RUNS` row for `job_name='sc_idx_pipeline'` is `OK`, `DEGRADED`, or `SKIP`
 - latest `SC_IDX_PIPELINE_STATE` rows show the node sequence reaching `persist_terminal_status`
+- if a stage detail payload is too large for Oracle, `SC_IDX_PIPELINE_STATE` keeps the compact node
+  summary while the full same-run details remain in
+  `tools/audit/output/pipeline_state_latest.json`
 - `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, and `SC_IDX_STATS_DAILY` max dates align where expected
 - `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` match the latest `SC_IDX_LEVELS` trade date after a successful run
 - latest report exists under `tools/audit/output/pipeline_runs/`
@@ -84,6 +88,8 @@ Do not print env contents in logs or docs.
 systemctl list-timers --all | rg -i "sc-idx"
 systemctl status sc-idx-pipeline.service
 systemctl status sc-telemetry-report.service
+readlink -f /home/opc/Sustainacore
+sudo -n -u opc git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD
 sudo journalctl -u sc-idx-pipeline.service -n 200 --no-pager
 sudo journalctl -u sc-telemetry-report.service -n 200 --no-pager
 sudo -n systemd-run --wait --collect --pipe \
@@ -129,6 +135,10 @@ Service-equivalent run:
 sudo systemctl start sc-idx-pipeline.service
 sudo systemctl start sc-telemetry-report.service
 ```
+
+If repeated `BLOCKED` runs happen with no active SC_IDX process, inspect the effective unit config
+and verify exit code `2` is listed under `SuccessExitStatus` / `RestartPreventExitStatus` before
+rerunning the pipeline.
 
 ## Alert behavior
 

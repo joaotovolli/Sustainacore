@@ -1,5 +1,5 @@
 # Sustainacore Operations Guide
-<!-- cspell:ignore cutover sustainacoredb sysconfig -->
+<!-- cspell:ignore cutover readlink sustainacoredb sysconfig -->
 
 ## Embedding parity
 - `EMBED_MODEL_NAME` is the single source of truth for the embedding model used by the service. The previous `OLLAMA_EMBED_MODEL` is read only for backwards compatibility.
@@ -100,6 +100,10 @@
 - Operator entrypoint: `python3 tools/index_engine/run_pipeline.py`.
 - Primary scheduler: `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`.
 - Daily operator report scheduler: `sc-telemetry-report.timer` -> `sc-telemetry-report.service`.
+- The scheduler-facing repo path is `/home/opc/Sustainacore`; on production VM1 it should resolve to a versioned release checkout under `/opt/sustainacore-sc-idx-*`.
+- Verify the live scheduler revision with:
+  - `readlink -f /home/opc/Sustainacore`
+  - `sudo -n -u opc git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD`
 - The graph is deliberately thin and low-memory:
   - no daemon
   - no Redis/Celery
@@ -115,6 +119,7 @@
     deployed checkout
 - Compact run status codes in `SC_IDX_JOB_RUNS`:
   - `OK`, `DEGRADED`, `SKIP`, `ERROR`, `BLOCKED`
+- SC_IDX systemd units treat exit code `2` as a terminal blocked/non-advancing outcome, not a crash to auto-restart.
 - Failure email policy:
   - `failed` and `blocked` attempt email by default
   - `stale` attempts email by default, even when the graph technically concluded

@@ -285,6 +285,31 @@ def _coerce_date(value: Any) -> _dt.date | None:
     return None
 
 
+def _context_trading_days(
+    context: dict[str, Any],
+    *,
+    default_end: _dt.date | None = None,
+) -> list[_dt.date]:
+    raw_days = context.get("trading_days")
+    if isinstance(raw_days, list):
+        parsed_days = sorted({_coerce_date(day) for day in raw_days if _coerce_date(day) is not None})
+        if parsed_days:
+            return parsed_days
+
+    upper_bound = (
+        _coerce_date(context.get("calendar_max_date"))
+        or _coerce_date(context.get("candidate_end_date"))
+        or _coerce_date(context.get("ready_end_date"))
+        or _coerce_date(context.get("expected_target_date"))
+        or _coerce_date(context.get("calc_end_date"))
+        or _coerce_date(context.get("levels_max_after"))
+        or default_end
+    )
+    if upper_bound is None:
+        return []
+    return engine_db.fetch_trading_days(BASE_DATE, upper_bound)
+
+
 def _fetch_scalar(sql: str, binds: dict[str, Any] | None = None) -> Any:
     with get_connection() as conn:
         cur = conn.cursor()
@@ -792,7 +817,7 @@ class SCIdxPipelineRuntime:
         provider = run_daily._load_provider_module()
         probe_symbol = os.getenv(run_daily.PROBE_SYMBOL_ENV, "SPY")
         candidate_end = _coerce_date(context.get("candidate_end_date"))
-        trading_days = context.get("trading_days") or []
+        trading_days = _context_trading_days(context, default_end=candidate_end)
         if candidate_end is None or not trading_days:
             return {
                 "status": "FAILED",
@@ -972,7 +997,10 @@ class SCIdxPipelineRuntime:
         check_module = self._load_completeness_module()
         ingest_module = self._load_ingest_module()
         context = state.get("context") or {}
-        trading_days = context.get("trading_days") or []
+        trading_days = _context_trading_days(
+            context,
+            default_end=_coerce_date(context.get("candidate_end_date")),
+        )
         if not trading_days:
             return {
                 "status": "FAILED",
@@ -1212,7 +1240,7 @@ class SCIdxPipelineRuntime:
                 "error_token": "calc_canon_lag",
             }
 
-        trading_days = context.get("trading_days") or engine_db.fetch_trading_days(BASE_DATE, max_canon_date)
+        trading_days = _context_trading_days(context, default_end=max_canon_date)
         end_day = max(day for day in trading_days if day <= max_canon_date)
         try:
             code = calc_module.main(
@@ -1277,8 +1305,8 @@ class SCIdxPipelineRuntime:
     def portfolio_analytics(self, state: PipelineGraphState) -> dict[str, Any]:
         build_module = self._load_portfolio_analytics_module()
         context = state.get("context") or {}
-        trading_days = context.get("trading_days") or []
         max_level_date = _coerce_date(context.get("levels_max_after")) or db_index_calc.fetch_max_level_date()
+        trading_days = _context_trading_days(context, default_end=max_level_date)
         if max_level_date is None:
             return {"status": "SKIP", "detail": "no_levels_available"}
 

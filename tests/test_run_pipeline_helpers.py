@@ -7,7 +7,13 @@ for path in (REPO_ROOT, APP_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from index_engine.orchestration import _derive_terminal_status, _is_oracle_transient_error
+import datetime as dt
+
+from index_engine.orchestration import (
+    _context_trading_days,
+    _derive_terminal_status,
+    _is_oracle_transient_error,
+)
 
 
 def test_is_oracle_transient_error_matches_known_tokens():
@@ -47,3 +53,19 @@ def test_derive_terminal_status_prefers_failed_and_blocked():
     assert _derive_terminal_status(blocked_state) == "blocked"
     assert _derive_terminal_status(degraded_state) == "success_with_degradation"
     assert _derive_terminal_status(skip_state) == "clean_skip"
+
+
+def test_context_trading_days_refetches_when_context_is_compacted(monkeypatch):
+    expected_days = [dt.date(2026, 3, 26), dt.date(2026, 3, 27)]
+    monkeypatch.setattr(
+        "index_engine.orchestration.engine_db.fetch_trading_days",
+        lambda start_date, end_date: expected_days,
+    )
+
+    context = {
+        "calendar_max_date": "2026-03-27",
+        "candidate_end_date": "2026-03-27",
+        "trading_days": {"truncated": True, "count": 200},
+    }
+
+    assert _context_trading_days(context) == expected_days
