@@ -1,3 +1,4 @@
+<!-- cspell:ignore VARCHAR -->
 # SC_IDX LangGraph orchestration
 
 ## Why this exists

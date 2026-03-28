@@ -1,4 +1,4 @@
-<!-- cspell:ignore readlink -->
+<!-- cspell:ignore readlink repoints -->
 # SustainaCore Operations Guide
 
 This guide explains the forward canary → deploy automation, the reverse "VM → GitHub" loop, and the guardrails that keep alerts actionable without flooding inboxes.

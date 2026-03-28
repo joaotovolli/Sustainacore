@@ -1,5 +1,5 @@
 # Sustainacore Operations Guide
-<!-- cspell:ignore cutover sustainacoredb sysconfig -->
+<!-- cspell:ignore cutover readlink sustainacoredb sysconfig -->
 
 ## Embedding parity
 - `EMBED_MODEL_NAME` is the single source of truth for the embedding model used by the service. The previous `OLLAMA_EMBED_MODEL` is read only for backwards compatibility.
