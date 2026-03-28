@@ -72,6 +72,9 @@ Do not print env contents in logs or docs.
 
 - latest `SC_IDX_JOB_RUNS` row for `job_name='sc_idx_pipeline'` is `OK`, `DEGRADED`, or `SKIP`
 - latest `SC_IDX_PIPELINE_STATE` rows show the node sequence reaching `persist_terminal_status`
+- if a stage detail payload is too large for Oracle, `SC_IDX_PIPELINE_STATE` keeps the compact node
+  summary while the full same-run details remain in
+  `tools/audit/output/pipeline_state_latest.json`
 - `SC_IDX_TRADING_DAYS`, `SC_IDX_PRICES_CANON`, `SC_IDX_LEVELS`, and `SC_IDX_STATS_DAILY` max dates align where expected
 - `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` match the latest `SC_IDX_LEVELS` trade date after a successful run
 - latest report exists under `tools/audit/output/pipeline_runs/`

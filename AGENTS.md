@@ -231,6 +231,8 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - The live scheduler path is `/home/opc/Sustainacore`; it should resolve to a versioned release checkout under `/opt/sustainacore-sc-idx-*`.
 - Always prove the active scheduler revision with `readlink -f /home/opc/Sustainacore` and `git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD`.
 - Pipeline state is tracked in `SC_IDX_PIPELINE_STATE`; `python3 tools/index_engine/run_pipeline.py` resumes safe completed nodes by default.
+- Oracle stage-state rows are intentionally compact; the full same-run stage payload also lives in
+  `tools/audit/output/pipeline_state_latest.json` and is keyed by `run_id`, not only by day.
 - Force a full restart with `python3 tools/index_engine/run_pipeline.py --restart`.
 - Use `python3 tools/index_engine/run_pipeline.py --smoke --smoke-scenario degraded --restart` for a no-provider smoke run.
 - Terminal outcomes are:

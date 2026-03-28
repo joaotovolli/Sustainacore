@@ -61,7 +61,9 @@ LangGraph is the orchestrator, but the durability layer is repo-native and Oracl
 - `SC_IDX_PIPELINE_STATE`
   - node-level persisted state
   - stage status codes: `OK`, `DEGRADED`, `SKIP`, `FAILED`, `BLOCKED`
-  - JSON details store attempts, counts, warnings, and remediation
+  - Oracle rows keep compact JSON details so node state does not overflow `VARCHAR2(4000)`
+  - the full same-run payload is also written to `tools/audit/output/pipeline_state_latest.json`
+    and is keyed by `run_id`, not just by UTC day
 - `SC_IDX_JOB_RUNS`
   - run-level summary row
   - short terminal codes: `OK`, `DEGRADED`, `SKIP`, `ERROR`, `BLOCKED`
