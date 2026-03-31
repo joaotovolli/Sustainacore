@@ -191,6 +191,39 @@ def test_resume_skips_completed_stage(tmp_path):
     assert final_state["terminal_status"] == "success"
 
 
+def test_blocked_acquire_lock_short_circuits_before_determine(tmp_path):
+    class LockBlockedRuntime(SmokePipelineRuntime):
+        def __init__(self):
+            super().__init__(
+                smoke_scenario="success",
+                report_dir=tmp_path,
+                state_store=_FakeStore(),
+            )
+            self.determine_calls = 0
+
+        def acquire_lock(self, state):
+            return {
+                "status": "BLOCKED",
+                "detail": "lock_busy:/tmp/sc_idx_pipeline.lock",
+                "error": "another sc_idx_pipeline run is active",
+                "error_token": "lock_busy",
+                "remediation": "Wait for the active run to conclude, then rerun the pipeline once.",
+            }
+
+        def determine_target_dates(self, state):
+            self.determine_calls += 1
+            return super().determine_target_dates(state)
+
+    runtime = LockBlockedRuntime()
+    graph = build_pipeline_graph(runtime)
+    final_state = graph.invoke(_state())
+
+    assert runtime.determine_calls == 0
+    assert final_state["terminal_status"] == "blocked"
+    assert final_state["stage_results"]["acquire_lock"]["status"] == "BLOCKED"
+    assert "determine_target_dates" not in final_state["stage_results"]
+
+
 def test_graph_runs_portfolio_stage_before_report(tmp_path):
     class PortfolioRuntime(SmokePipelineRuntime):
         def __init__(self):

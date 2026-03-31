@@ -12,6 +12,7 @@ from db_helper import get_connection
 PIPELINE_STATE_TABLE = "SC_IDX_PIPELINE_STATE"
 DEFAULT_PIPELINE_NAME = "sc_idx_pipeline"
 ORACLE_DETAILS_MAX_CHARS = 3500
+TERMINAL_STAGE_NAMES = {"persist_terminal_status", "release_lock"}
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_STATE_PATH = REPO_ROOT / "tools" / "audit" / "output" / "pipeline_state_latest.json"
@@ -111,6 +112,13 @@ def _compact_details_for_oracle(details: str | None) -> str | None:
     return text[:ORACLE_DETAILS_MAX_CHARS]
 
 
+def _is_terminal_stage_record(stage_name: str | None, status: str | None) -> bool:
+    return (
+        str(stage_name or "") in TERMINAL_STAGE_NAMES
+        and str(status or "").strip().upper() != "STARTED"
+    )
+
+
 @dataclass
 class StageRecord:
     status: str
@@ -204,31 +212,70 @@ class PipelineStateStore:
     def create_run_id(self) -> str:
         return str(uuid.uuid4())
 
-    def fetch_resume_run_id(self, *, run_date: _dt.date | None = None) -> str | None:
-        run_date = run_date or _utc_today()
-        if self._oracle_ok:
-            sql = (
-                "SELECT run_id "
-                "FROM SC_IDX_PIPELINE_STATE "
-                "WHERE pipeline_name = :pipeline_name "
-                "AND started_at >= TRUNC(SYSTIMESTAMP) "
-                "ORDER BY started_at DESC FETCH FIRST 1 ROWS ONLY"
-            )
-            try:
-                with get_connection() as conn:
-                    cur = conn.cursor()
-                    cur.execute(sql, {"pipeline_name": self.pipeline_name})
-                    row = cur.fetchone()
-                    if row and row[0]:
-                        return str(row[0])
-            except Exception:
-                self._oracle_ok = False
+    def _local_resume_run_id(self, *, run_date: _dt.date) -> str | None:
         payload = self._load_local_state()
         if payload.get("pipeline_name") != self.pipeline_name:
             return None
         if payload.get("run_date") != run_date.isoformat():
             return None
+        for stage_name, entry in (payload.get("stages") or {}).items():
+            if _is_terminal_stage_record(str(stage_name), str((entry or {}).get("status") or "")):
+                return None
         return payload.get("run_id")
+
+    def _oracle_resume_run_id(self) -> str | None:
+        sql = (
+            "SELECT run_id, stage_name, stage_status, started_at "
+            "FROM SC_IDX_PIPELINE_STATE "
+            "WHERE pipeline_name = :pipeline_name "
+            "AND started_at >= TRUNC(SYSTIMESTAMP) "
+            "ORDER BY started_at DESC"
+        )
+        try:
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(sql, {"pipeline_name": self.pipeline_name})
+                rows = cur.fetchall() or []
+        except Exception:
+            self._oracle_ok = False
+            return None
+
+        runs: Dict[str, Dict[str, Any]] = {}
+        for run_id, stage_name, stage_status, started_at in rows:
+            if not run_id:
+                continue
+            run_key = str(run_id)
+            info = runs.setdefault(
+                run_key,
+                {
+                    "latest_started_at": started_at,
+                    "has_terminal_stage": False,
+                },
+            )
+            if started_at and (
+                info["latest_started_at"] is None or started_at > info["latest_started_at"]
+            ):
+                info["latest_started_at"] = started_at
+            if _is_terminal_stage_record(str(stage_name), str(stage_status)):
+                info["has_terminal_stage"] = True
+
+        candidates = [
+            (run_id, info["latest_started_at"])
+            for run_id, info in runs.items()
+            if not info["has_terminal_stage"]
+        ]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[1] or _dt.datetime.min, reverse=True)
+        return candidates[0][0]
+
+    def fetch_resume_run_id(self, *, run_date: _dt.date | None = None) -> str | None:
+        run_date = run_date or _utc_today()
+        if self._oracle_ok:
+            resume_run_id = self._oracle_resume_run_id()
+            if resume_run_id:
+                return resume_run_id
+        return self._local_resume_run_id(run_date=run_date)
 
     def fetch_stage_statuses(self, run_id: str) -> Dict[str, StageRecord]:
         stages: Dict[str, StageRecord] = self._load_local_stage_statuses(run_id)

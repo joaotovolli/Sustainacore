@@ -47,6 +47,8 @@ The current graph executes these nodes in order, with conditional terminal branc
 Important routing behavior:
 
 - `preflight_oracle` can end the run as `failed` or `blocked`
+- `acquire_lock` is a hard gate; if the shared lock is busy, the graph must branch directly to
+  `generate_run_report` instead of continuing into target-date planning
 - `determine_target_dates` can end the run as `clean_skip` for `up_to_date` or `daily_budget_stop`
 - `readiness_probe` can end the run as `clean_skip` for `provider_not_ready`
 - `completeness_check` can degrade into `imputation_or_replacement` instead of failing immediately
@@ -65,6 +67,8 @@ LangGraph is the orchestrator, but the durability layer is repo-native and Oracl
   - Oracle rows keep compact JSON details so node state does not overflow `VARCHAR2(4000)`
   - the full same-run payload is also written to `tools/audit/output/pipeline_state_latest.json`
     and is keyed by `run_id`, not just by UTC day
+  - only incomplete runs are resumable; once a run reaches `persist_terminal_status` or
+    `release_lock`, the next invocation must create a new `run_id`
 - `SC_IDX_JOB_RUNS`
   - run-level summary row
   - short terminal codes: `OK`, `DEGRADED`, `SKIP`, `ERROR`, `BLOCKED`

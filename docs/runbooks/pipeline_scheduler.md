@@ -65,6 +65,10 @@ Do not print env contents in logs or docs.
 - primary pipeline runtime limit: `RuntimeMaxSec=3600`
 - ingest runtime limit: `RuntimeMaxSec=7200`
 - terminal blocked/guard exits use code `2` and should not be auto-restarted by systemd
+- a blocked `acquire_lock` outcome is terminal for that invocation; the graph must report and exit
+  before `determine_target_dates`
+- only incomplete runs should resume; once a run reaches `persist_terminal_status` or
+  `release_lock`, the next invocation must create a fresh `run_id`
 - restart storm guardrails remain in the units through `StartLimit*`
 - retries inside the graph are bounded and stage-specific
 
@@ -137,8 +141,11 @@ sudo systemctl start sc-telemetry-report.service
 ```
 
 If repeated `BLOCKED` runs happen with no active SC_IDX process, inspect the effective unit config
-and verify exit code `2` is listed under `SuccessExitStatus` / `RestartPreventExitStatus` before
-rerunning the pipeline.
+and verify both of these before rerunning the pipeline:
+
+- exit code `2` is listed under `SuccessExitStatus` / `RestartPreventExitStatus`
+- the installed graph does not continue past `acquire_lock`, and same-day blocked reruns are not
+  mutating a single terminal `run_id`
 
 ## Alert behavior
 

@@ -110,6 +110,10 @@
   - bounded retries
   - bounded readiness fallbacks
   - repo-native JSON artifacts plus Oracle-backed stage state
+- Only incomplete runs should resume. Once a run reaches `persist_terminal_status` or
+  `release_lock`, the next invocation must start a fresh `run_id`.
+- `acquire_lock` is a hard gate. A blocked lock result must branch directly to reporting and
+  terminal persistence, not continue into target-date planning.
 - Run artifacts:
   - reports: `tools/audit/output/pipeline_runs/`
   - telemetry: `tools/audit/output/pipeline_telemetry/`

@@ -2084,6 +2084,13 @@ def _route_after_preflight(state: PipelineGraphState) -> str:
     return "acquire_lock"
 
 
+def _route_after_acquire_lock(state: PipelineGraphState) -> str:
+    terminal = _derive_terminal_status(state)
+    if terminal in {"failed", "blocked"}:
+        return "generate_run_report"
+    return "determine_target_dates"
+
+
 def _route_after_determine(state: PipelineGraphState) -> str:
     terminal = _derive_terminal_status(state)
     if terminal in {"clean_skip", "failed", "blocked"}:
@@ -2155,7 +2162,7 @@ def build_pipeline_graph(runtime: PipelineRuntime):
 
     graph.add_edge(START, "preflight_oracle")
     graph.add_conditional_edges("preflight_oracle", _route_after_preflight)
-    graph.add_edge("acquire_lock", "determine_target_dates")
+    graph.add_conditional_edges("acquire_lock", _route_after_acquire_lock)
     graph.add_conditional_edges("determine_target_dates", _route_after_determine)
     graph.add_conditional_edges("readiness_probe", _route_after_readiness)
     graph.add_conditional_edges("ingest_prices", _route_after_ingest)
