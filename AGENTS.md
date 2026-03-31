@@ -230,9 +230,14 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Primary systemd scheduler: `sc-idx-pipeline.timer` -> `sc-idx-pipeline.service`.
 - The live scheduler path is `/home/opc/Sustainacore`; it should resolve to a versioned release checkout under `/opt/sustainacore-sc-idx-*`.
 - Always prove the active scheduler revision with `readlink -f /home/opc/Sustainacore` and `git -C "$(readlink -f /home/opc/Sustainacore)" rev-parse --short HEAD`.
+- `sc-idx-pipeline.service` must invoke `run_pipeline.py` directly. Do not wrap that unit in
+  `flock`; the LangGraph runtime owns `/tmp/sc_idx_pipeline.lock` internally, and an outer
+  service-level `flock` will self-block the scheduler path.
 - Pipeline state is tracked in `SC_IDX_PIPELINE_STATE`; `python3 tools/index_engine/run_pipeline.py` resumes safe completed nodes by default.
 - Resume is only for incomplete runs. If a run already reached `persist_terminal_status` or `release_lock`, the next invocation must start a new `run_id` instead of mutating the old terminal row.
 - `acquire_lock` is a terminal gate. If lock acquisition is `BLOCKED`, the graph must branch directly to report/alert/telemetry and must not continue into `determine_target_dates`.
+- Early blocked/failed reports should still surface last-known calendar and table freshness from the
+  Oracle health snapshot whenever preflight succeeded.
 - Oracle stage-state rows are intentionally compact; the full same-run stage payload also lives in
   `tools/audit/output/pipeline_state_latest.json` and is keyed by `run_id`, not only by day.
 - Force a full restart with `python3 tools/index_engine/run_pipeline.py --restart`.

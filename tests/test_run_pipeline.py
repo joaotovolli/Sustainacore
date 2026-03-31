@@ -21,6 +21,7 @@ from index_engine.orchestration import (
     build_pipeline_graph,
     run_pipeline,
 )
+import index_engine.orchestration as orchestration
 import tools.index_engine.run_pipeline as pipeline_cli
 
 
@@ -222,6 +223,51 @@ def test_blocked_acquire_lock_short_circuits_before_determine(tmp_path):
     assert final_state["terminal_status"] == "blocked"
     assert final_state["stage_results"]["acquire_lock"]["status"] == "BLOCKED"
     assert "determine_target_dates" not in final_state["stage_results"]
+
+
+def test_blocked_acquire_lock_uses_health_snapshot_for_freshness(tmp_path, monkeypatch):
+    class LockBlockedRuntime(SmokePipelineRuntime):
+        def __init__(self):
+            super().__init__(
+                smoke_scenario="success",
+                report_dir=tmp_path,
+                state_store=_FakeStore(),
+            )
+
+        def acquire_lock(self, state):
+            return {
+                "status": "BLOCKED",
+                "detail": "lock_busy:/tmp/sc_idx_pipeline.lock",
+                "error": "another sc_idx_pipeline run is active",
+                "error_token": "lock_busy",
+                "remediation": "Wait for the active run to conclude, then rerun the pipeline once.",
+            }
+
+    monkeypatch.setattr(
+        orchestration,
+        "collect_health_snapshot",
+        lambda **_: {
+            "calendar_max_date": "2026-01-08",
+            "canon_max_date": "2026-01-05",
+            "levels_max_date": "2026-01-05",
+            "stats_max_date": "2026-01-05",
+            "portfolio_max_date": "2026-01-05",
+            "portfolio_position_max_date": "2026-01-05",
+            "repo_root": "/repo",
+            "repo_head": "abc1234",
+        },
+    )
+
+    runtime = LockBlockedRuntime()
+    graph = build_pipeline_graph(runtime)
+    final_state = graph.invoke(_state())
+
+    report = final_state["report"]
+    assert report["freshness"]["expected_target_date"] == "2026-01-08"
+    assert report["freshness"]["levels_max_date"] == "2026-01-05"
+    assert report["freshness"]["health"]["verdict"] == "stale"
+    assert report["operational_state"]["lock_contention"] is True
+    assert report["runtime_identity"]["repo_head"] == "abc1234"
 
 
 def test_graph_runs_portfolio_stage_before_report(tmp_path):

@@ -24,6 +24,9 @@ no Celery, no watch loops, and no unbounded retries.
 - Primary VM1 timer/service: `infra/systemd/sc-idx-pipeline.timer` -> `infra/systemd/sc-idx-pipeline.service`
 
 The CLI remains the operator entrypoint. Internally it now builds and executes a LangGraph state graph.
+The pipeline service must invoke that CLI directly. Do not add an outer `flock` to
+`sc-idx-pipeline.service`; the graph acquires `/tmp/sc_idx_pipeline.lock` itself, and a
+service-level `flock` will self-block the timer path.
 
 ## Graph shape
 
@@ -130,6 +133,7 @@ The report includes:
 - SMTP delivery state and message ID when email is attempted
 - stale signals and freshness lag by key table
 - deployed `repo_root` and `repo_head`
+- best-effort last-known freshness even for early blocked/failure exits after Oracle preflight
 - root cause token
 - next remediation step
 

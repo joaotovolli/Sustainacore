@@ -61,7 +61,11 @@ Do not print env contents in logs or docs.
 
 ## Lock and runtime guardrails
 
-- ingest + pipeline use the shared lock `/tmp/sc_idx_pipeline.lock` via `flock -n`
+- the pipeline runtime owns `/tmp/sc_idx_pipeline.lock` internally inside `run_pipeline.py`
+- `sc-idx-pipeline.service` must run the Python entrypoint directly and must not wrap it in
+  `flock`, or the timer path will self-block before LangGraph can progress
+- compatibility ingest/completeness/calc units still use `flock -n /tmp/sc_idx_pipeline.lock`
+  because they are separate entrypoints
 - primary pipeline runtime limit: `RuntimeMaxSec=3600`
 - ingest runtime limit: `RuntimeMaxSec=7200`
 - terminal blocked/guard exits use code `2` and should not be auto-restarted by systemd
@@ -144,6 +148,7 @@ If repeated `BLOCKED` runs happen with no active SC_IDX process, inspect the eff
 and verify both of these before rerunning the pipeline:
 
 - exit code `2` is listed under `SuccessExitStatus` / `RestartPreventExitStatus`
+- `systemctl show sc-idx-pipeline.service -p ExecStart` does not include `/usr/bin/flock`
 - the installed graph does not continue past `acquire_lock`, and same-day blocked reruns are not
   mutating a single terminal `run_id`
 
@@ -178,6 +183,8 @@ and verify both of these before rerunning the pipeline:
 - safe retry: `sudo systemctl restart sc-idx-pipeline.service`
 - if Oracle preflight blocks, fix wallet/env access first, then rerun
 - if the pipeline returns `BLOCKED` because the lock is busy, wait for the active run to conclude
+- if the pipeline returns `BLOCKED` immediately from the timer path and `ExecStart` still includes
+  `flock`, fix the installed unit before rerunning; that is a self-deadlock, not a real concurrent run
 - do not delete `SC_IDX_PIPELINE_STATE` unless following an explicit emergency recovery procedure
 
 ## Update workflow
