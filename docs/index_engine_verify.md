@@ -116,7 +116,12 @@ Expected signals:
 - latest report exists in `tools/audit/output/pipeline_runs/`
 - latest telemetry snapshot exists in `tools/audit/output/pipeline_telemetry/`
 - latest report/health artifacts show the active `repo_root` and `repo_head`
-- `expected_target_date` and `latest_complete_date` do not show an unexpected lag
+- if the run is `BLOCKED` at `acquire_lock`, there should be no newly executed
+  `determine_target_dates` stage for that `run_id`
+- a new invocation after a terminal `BLOCKED` or `FAILED` run should create a new `run_id`; only
+  incomplete runs should resume
+- even an early blocked run should still show last-known `expected_target_date`,
+  `latest_complete_date`, and key table max dates when Oracle preflight succeeded
 - `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` max dates match the latest `SC_IDX_LEVELS` trade date
 
 ### 7. Scheduler checks
@@ -138,6 +143,7 @@ Expected result:
 
 - `sc-idx-pipeline.timer` is present and scheduled
 - `sc-idx-pipeline.service` is the primary VM1 orchestration service
+- `systemctl show sc-idx-pipeline.service -p ExecStart` does not include `/usr/bin/flock`
 - `sc-telemetry-report.timer` is present and scheduled
 - `sc-telemetry-report.service` points to `tools/index_engine/daily_telemetry_report.py --send`
 

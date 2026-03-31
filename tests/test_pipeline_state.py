@@ -22,6 +22,9 @@ class _FakeCursor:
     def fetchall(self):
         return self._rows
 
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
 
 class _FakeConnection:
     def __init__(self, rows):
@@ -120,3 +123,71 @@ def test_fetch_stage_statuses_prefers_local_details_when_oracle_present(monkeypa
     records = store.fetch_stage_statuses("run-local")
 
     assert records["determine_target_dates"].details == '{"detail":"local"}'
+
+
+def test_fetch_resume_run_id_skips_terminal_local_run(monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline_state, "_ensure_state_table", lambda: None)
+    monkeypatch.setattr(pipeline_state, "_utc_today", lambda: dt.date(2026, 3, 31))
+
+    state_path = tmp_path / "pipeline_state_latest.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pipeline_name": "sc_idx_pipeline",
+                "run_date": "2026-03-31",
+                "run_id": "run-terminal",
+                "stages": {
+                    "acquire_lock": {
+                        "status": "BLOCKED",
+                        "started_at": "2026-03-31T00:30:15+00:00",
+                        "ended_at": "2026-03-31T00:30:15+00:00",
+                        "details": '{"detail":"lock_busy"}',
+                    },
+                    "persist_terminal_status": {
+                        "status": "OK",
+                        "started_at": "2026-03-31T00:30:18+00:00",
+                        "ended_at": "2026-03-31T00:30:18+00:00",
+                        "details": '{"detail":"terminal_status=blocked"}',
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = pipeline_state.PipelineStateStore(state_path=state_path)
+    store._oracle_ok = False
+
+    assert store.fetch_resume_run_id(run_date=dt.date(2026, 3, 31)) is None
+
+
+def test_fetch_resume_run_id_ignores_terminal_oracle_run(monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline_state, "_ensure_state_table", lambda: None)
+    monkeypatch.setattr(pipeline_state, "_utc_today", lambda: dt.date(2026, 3, 31))
+
+    oracle_rows = [
+        (
+            "run-terminal",
+            "persist_terminal_status",
+            "OK",
+            dt.datetime(2026, 3, 31, 13, 30, 20, tzinfo=dt.timezone.utc),
+        ),
+        (
+            "run-terminal",
+            "acquire_lock",
+            "BLOCKED",
+            dt.datetime(2026, 3, 31, 13, 30, 19, tzinfo=dt.timezone.utc),
+        ),
+        (
+            "run-incomplete",
+            "determine_target_dates",
+            "OK",
+            dt.datetime(2026, 3, 31, 14, 0, 0, tzinfo=dt.timezone.utc),
+        ),
+    ]
+    monkeypatch.setattr(pipeline_state, "get_connection", lambda: _FakeConnection(oracle_rows))
+
+    store = pipeline_state.PipelineStateStore(state_path=tmp_path / "pipeline_state_latest.json")
+    store._oracle_ok = True
+
+    assert store.fetch_resume_run_id(run_date=dt.date(2026, 3, 31)) == "run-incomplete"

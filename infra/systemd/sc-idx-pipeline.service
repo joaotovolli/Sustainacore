@@ -23,7 +23,10 @@ ExecStartPre=/bin/ls -l /etc/sustainacore/db.env /etc/sustainacore/index.env /et
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/db.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore/index.env
 ExecStartPre=/usr/bin/namei -l /etc/sustainacore-ai/secrets.env
-ExecStart=/usr/bin/flock -n /tmp/sc_idx_pipeline.lock /home/opc/Sustainacore/.venv/bin/python /home/opc/Sustainacore/tools/index_engine/run_pipeline.py
+# run_pipeline.py acquires /tmp/sc_idx_pipeline.lock internally. Wrapping the
+# service in flock self-blocks the scheduler path and prevents the timer run
+# from ever advancing beyond acquire_lock.
+ExecStart=/home/opc/Sustainacore/.venv/bin/python /home/opc/Sustainacore/tools/index_engine/run_pipeline.py
 SuccessExitStatus=2
 RestartPreventExitStatus=2
 Restart=on-failure

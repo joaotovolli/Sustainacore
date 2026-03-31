@@ -1755,6 +1755,62 @@ def _make_stage_node(stage_name: str, runtime: PipelineRuntime):
     return _node
 
 
+def _set_context_default(context: dict[str, Any], key: str, value: Any) -> None:
+    if value in {None, ""}:
+        return
+    existing = context.get(key)
+    if existing in {None, ""}:
+        context[key] = value
+
+
+def _hydrate_report_context_with_health_snapshot(
+    state: PipelineGraphState,
+    context: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    terminal_status = _derive_terminal_status(state)
+    preflight_status = ((state.get("stage_results") or {}).get("preflight_oracle") or {}).get("status")
+    if terminal_status not in {"failed", "blocked", "clean_skip"} or preflight_status != "OK":
+        return context, []
+
+    needs_snapshot = any(
+        context.get(key) in {None, ""}
+        for key in (
+            "calendar_max_date",
+            "max_canon_before",
+            "max_level_before",
+            "max_portfolio_before",
+            "portfolio_position_max_after",
+        )
+    )
+    if not needs_snapshot:
+        return context, []
+
+    try:
+        health = collect_health_snapshot(
+            stage_durations={
+                stage_name: float((result or {}).get("duration_sec") or 0.0)
+                for stage_name, result in (state.get("stage_results") or {}).items()
+                if isinstance(result, dict)
+            },
+            last_error=_report_root_cause(state),
+        )
+    except Exception as exc:
+        return context, [f"report_health_snapshot_failed:{exc}"]
+
+    enriched = dict(context)
+    _set_context_default(enriched, "calendar_max_date", health.get("calendar_max_date"))
+    _set_context_default(enriched, "expected_target_date", health.get("calendar_max_date"))
+    _set_context_default(enriched, "expected_target_source", "calendar_snapshot")
+    _set_context_default(enriched, "max_canon_before", health.get("canon_max_date"))
+    _set_context_default(enriched, "max_level_before", health.get("levels_max_date"))
+    _set_context_default(enriched, "stats_max_after", health.get("stats_max_date"))
+    _set_context_default(enriched, "max_portfolio_before", health.get("portfolio_max_date"))
+    _set_context_default(enriched, "portfolio_position_max_after", health.get("portfolio_position_max_date"))
+    _set_context_default(enriched, "repo_root", health.get("repo_root"))
+    _set_context_default(enriched, "repo_head", health.get("repo_head"))
+    return enriched, []
+
+
 def _generate_run_report(state: PipelineGraphState, runtime: PipelineRuntime) -> PipelineGraphState:
     next_state = _refresh_pipeline_report(dict(state), runtime)
     report_paths = (next_state.get("context") or {}).get("report_paths") or {}
@@ -1779,7 +1835,12 @@ def _refresh_pipeline_report(state: PipelineGraphState, runtime: PipelineRuntime
     next_state: PipelineGraphState = dict(state)
     terminal_status = _derive_terminal_status(next_state)
     next_state["terminal_status"] = terminal_status
-    report_context = dict(next_state.get("context") or {})
+    report_context, snapshot_warnings = _hydrate_report_context_with_health_snapshot(
+        next_state,
+        dict(next_state.get("context") or {}),
+    )
+    for warning in snapshot_warnings:
+        _append_warning(next_state, warning)
     summary = build_pipeline_run_summary(
         run_id=next_state["run_id"],
         terminal_status=terminal_status,
@@ -2084,6 +2145,13 @@ def _route_after_preflight(state: PipelineGraphState) -> str:
     return "acquire_lock"
 
 
+def _route_after_acquire_lock(state: PipelineGraphState) -> str:
+    terminal = _derive_terminal_status(state)
+    if terminal in {"failed", "blocked"}:
+        return "generate_run_report"
+    return "determine_target_dates"
+
+
 def _route_after_determine(state: PipelineGraphState) -> str:
     terminal = _derive_terminal_status(state)
     if terminal in {"clean_skip", "failed", "blocked"}:
@@ -2155,7 +2223,7 @@ def build_pipeline_graph(runtime: PipelineRuntime):
 
     graph.add_edge(START, "preflight_oracle")
     graph.add_conditional_edges("preflight_oracle", _route_after_preflight)
-    graph.add_edge("acquire_lock", "determine_target_dates")
+    graph.add_conditional_edges("acquire_lock", _route_after_acquire_lock)
     graph.add_conditional_edges("determine_target_dates", _route_after_determine)
     graph.add_conditional_edges("readiness_probe", _route_after_readiness)
     graph.add_conditional_edges("ingest_prices", _route_after_ingest)

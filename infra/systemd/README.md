@@ -32,6 +32,8 @@ Units live under `infra/systemd/`:
 - Writes telemetry under `tools/audit/output/pipeline_telemetry/`.
 - Writes health snapshots under `tools/audit/output/pipeline_health_latest.txt`, including
   `repo_root`, `repo_head`, freshness dates, and `last_error`.
+- The pipeline service must not wrap the CLI in `flock`; `run_pipeline.py` owns
+  `/tmp/sc_idx_pipeline.lock` internally and writes blocked/report/telemetry state itself.
 - Treats exit code `2` as a terminal blocked/non-advancing outcome so systemd does not auto-restart into the same lock.
 - Timer schedule: **00:30, 05:30, 09:30, 13:30 UTC** with `Persistent=true`.
 

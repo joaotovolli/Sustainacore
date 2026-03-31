@@ -24,6 +24,9 @@ no Celery, no watch loops, and no unbounded retries.
 - Primary VM1 timer/service: `infra/systemd/sc-idx-pipeline.timer` -> `infra/systemd/sc-idx-pipeline.service`
 
 The CLI remains the operator entrypoint. Internally it now builds and executes a LangGraph state graph.
+The pipeline service must invoke that CLI directly. Do not add an outer `flock` to
+`sc-idx-pipeline.service`; the graph acquires `/tmp/sc_idx_pipeline.lock` itself, and a
+service-level `flock` will self-block the timer path.
 
 ## Graph shape
 
@@ -47,6 +50,8 @@ The current graph executes these nodes in order, with conditional terminal branc
 Important routing behavior:
 
 - `preflight_oracle` can end the run as `failed` or `blocked`
+- `acquire_lock` is a hard gate; if the shared lock is busy, the graph must branch directly to
+  `generate_run_report` instead of continuing into target-date planning
 - `determine_target_dates` can end the run as `clean_skip` for `up_to_date` or `daily_budget_stop`
 - `readiness_probe` can end the run as `clean_skip` for `provider_not_ready`
 - `completeness_check` can degrade into `imputation_or_replacement` instead of failing immediately
@@ -65,6 +70,8 @@ LangGraph is the orchestrator, but the durability layer is repo-native and Oracl
   - Oracle rows keep compact JSON details so node state does not overflow `VARCHAR2(4000)`
   - the full same-run payload is also written to `tools/audit/output/pipeline_state_latest.json`
     and is keyed by `run_id`, not just by UTC day
+  - only incomplete runs are resumable; once a run reaches `persist_terminal_status` or
+    `release_lock`, the next invocation must create a new `run_id`
 - `SC_IDX_JOB_RUNS`
   - run-level summary row
   - short terminal codes: `OK`, `DEGRADED`, `SKIP`, `ERROR`, `BLOCKED`
@@ -126,6 +133,7 @@ The report includes:
 - SMTP delivery state and message ID when email is attempted
 - stale signals and freshness lag by key table
 - deployed `repo_root` and `repo_head`
+- best-effort last-known freshness even for early blocked/failure exits after Oracle preflight
 - root cause token
 - next remediation step
 
