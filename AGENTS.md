@@ -263,6 +263,15 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
   - `SC_IDX_STALE_ALLOWED_LAG_DAYS` (default 0) defines tolerated lag before the run/report becomes `Stale`.
   - `SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP` (default 3 weekdays) bounds the synthetic weekday fallback used when trading-day refresh degrades on a provider timeout or 403.
   - A stale verdict is raised when prices advance but levels do not, levels advance but stats do not, levels advance but portfolio tables do not, or the latest complete downstream date lags the expected target date.
+- Calc-stage completeness is defined by the slowest required calc table, not only by `SC_IDX_LEVELS`.
+  - Treat `SC_IDX_LEVELS`, `SC_IDX_CONTRIBUTION_DAILY`, and `SC_IDX_STATS_DAILY` as one completion unit.
+  - If levels advance but contribution/stats do not, the next run must re-enter calc instead of reporting `up_to_date`.
+- Portfolio-stage completeness is defined by the slowest required portfolio table, not only by `SC_IDX_PORTFOLIO_ANALYTICS_DAILY`.
+  - Treat `SC_IDX_PORTFOLIO_ANALYTICS_DAILY`, `SC_IDX_PORTFOLIO_POSITION_DAILY`, and `SC_IDX_PORTFOLIO_OPT_INPUTS` as one completion unit.
+  - If analytics advance but positions/optimizer inputs do not, the next run must re-enter portfolio refresh instead of skipping.
+- Success/clean-skip reports must still show last-known downstream freshness when a stage is skipped.
+  - `stats_max_date` should fall back to the pre-run Oracle max if calc was skipped.
+  - `portfolio_position_max_date` should fall back to the pre-run Oracle max if portfolio refresh was skipped.
 - Oracle retry knobs: `SC_IDX_ORACLE_RETRY_ATTEMPTS` (default 5) and `SC_IDX_ORACLE_RETRY_BASE_SEC` (default 1).
 - Impute guardrails: `SC_IDX_IMPUTE_LOOKBACK_DAYS` (default 30) and `SC_IDX_IMPUTE_TIMEOUT_SEC` (default 300).
 - Imputed replacement guardrails: `SC_IDX_IMPUTED_REPLACEMENT_DAYS` (default 30) and `SC_IDX_IMPUTED_REPLACEMENT_LIMIT` (default 10).

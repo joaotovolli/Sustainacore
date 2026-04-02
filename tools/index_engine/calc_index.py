@@ -68,16 +68,16 @@ def _select_calc_window(
     trading_days: List[_dt.date],
     start_date: _dt.date,
     end_date: _dt.date,
-    max_level_date: _dt.date | None,
+    max_complete_date: _dt.date | None,
     rebuild: bool,
 ) -> tuple[_dt.date, List[_dt.date], str | None]:
     if not trading_days:
         return start_date, trading_days, "no_trading_days"
-    if rebuild or max_level_date is None:
+    if rebuild or max_complete_date is None:
         return start_date, trading_days, None
-    if end_date <= max_level_date:
+    if end_date <= max_complete_date:
         return start_date, [], "up_to_date"
-    next_day = _next_trading_day(trading_days, max_level_date)
+    next_day = _next_trading_day(trading_days, max_complete_date)
     if next_day is None:
         return start_date, [], "missing_next_trading_day"
     if next_day > start_date:
@@ -394,12 +394,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     trading_days = db.fetch_trading_days(start_date, end_date)
-    max_level_date = db.fetch_max_level_date()
+    max_complete_date = db.fetch_calc_completion_max_date()
     start_date, trading_days, window_status = _select_calc_window(
         trading_days=trading_days,
         start_date=start_date,
         end_date=end_date,
-        max_level_date=max_level_date,
+        max_complete_date=max_complete_date,
         rebuild=args.rebuild,
     )
     if window_status == "up_to_date":

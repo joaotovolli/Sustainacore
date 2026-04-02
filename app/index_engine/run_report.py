@@ -352,9 +352,10 @@ def build_pipeline_run_summary(
     freshness = {
         "canon_max_date": context.get("max_canon_after_ingest") or context.get("max_canon_before"),
         "levels_max_date": context.get("levels_max_after") or context.get("max_level_before"),
-        "stats_max_date": context.get("stats_max_after"),
+        "stats_max_date": context.get("stats_max_after") or context.get("max_stats_before"),
         "portfolio_analytics_max_date": context.get("portfolio_max_after") or context.get("max_portfolio_before"),
-        "portfolio_position_max_date": context.get("portfolio_position_max_after"),
+        "portfolio_position_max_date": context.get("portfolio_position_max_after")
+        or context.get("max_portfolio_position_before"),
     }
     expected_target_date = (
         context.get("expected_target_date")

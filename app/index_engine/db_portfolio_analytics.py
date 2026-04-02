@@ -30,6 +30,11 @@ def _coerce_date(value: object) -> _dt.date | None:
     return None
 
 
+def _completion_floor(*dates: _dt.date | None) -> _dt.date | None:
+    present = [day for day in dates if day is not None]
+    return min(present) if present else None
+
+
 def _is_missing_object_error(exc: Exception) -> bool:
     text = str(exc)
     if "ORA-00942" in text or "ORA-04043" in text:
@@ -223,6 +228,18 @@ def fetch_portfolio_position_max_date() -> _dt.date | None:
     return _fetch_max_trade_date("SC_IDX_PORTFOLIO_POSITION_DAILY")
 
 
+def fetch_portfolio_opt_inputs_max_date() -> _dt.date | None:
+    return _fetch_max_trade_date("SC_IDX_PORTFOLIO_OPT_INPUTS")
+
+
+def fetch_portfolio_completion_max_date() -> _dt.date | None:
+    return _completion_floor(
+        fetch_portfolio_analytics_max_date(),
+        fetch_portfolio_position_max_date(),
+        fetch_portfolio_opt_inputs_max_date(),
+    )
+
+
 def _fetch_max_trade_date(table_name: str) -> _dt.date | None:
     sql = f"SELECT MAX(trade_date) FROM {table_name}"
     with get_connection() as conn:
@@ -335,6 +352,8 @@ __all__ = [
     "fetch_official_position_rows",
     "fetch_portfolio_analytics_max_date",
     "fetch_portfolio_position_max_date",
+    "fetch_portfolio_opt_inputs_max_date",
+    "fetch_portfolio_completion_max_date",
     "fetch_price_rows",
     "fetch_trade_date_bounds",
     "persist_outputs",

@@ -190,6 +190,8 @@ Signals include:
 - expected target date and source
 - freshness dates for canon, levels, and stats
 - portfolio analytics freshness and alignment
+- skipped calc/portfolio stages still report the last-known stats and portfolio-position dates so
+  partial downstream lag cannot hide behind a nominal `success`
 - stale signals and latest complete lag
 - deployed `repo_root` and `repo_head`
 - remediation and artifact paths

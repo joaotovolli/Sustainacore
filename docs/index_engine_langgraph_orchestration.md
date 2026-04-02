@@ -55,8 +55,13 @@ Important routing behavior:
 - `determine_target_dates` can end the run as `clean_skip` for `up_to_date` or `daily_budget_stop`
 - `readiness_probe` can end the run as `clean_skip` for `provider_not_ready`
 - `completeness_check` can degrade into `imputation_or_replacement` instead of failing immediately
+- calc completeness is keyed off the slowest calc-owned table (`SC_IDX_LEVELS`,
+  `SC_IDX_CONTRIBUTION_DAILY`, `SC_IDX_STATS_DAILY`), not just levels
 - `imputation_or_replacement` rechecks completeness before `calc_index`
 - `portfolio_analytics` refreshes additive TECH100 portfolio tables after index/statistics advance
+- portfolio completeness is keyed off the slowest portfolio-owned table
+  (`SC_IDX_PORTFOLIO_ANALYTICS_DAILY`, `SC_IDX_PORTFOLIO_POSITION_DAILY`,
+  `SC_IDX_PORTFOLIO_OPT_INPUTS`), not just analytics
 - `generate_run_report`, `decide_alerts`, `emit_telemetry`, `persist_terminal_status`, and `release_lock`
   still run after failures so the run concludes cleanly
 
@@ -134,6 +139,8 @@ The report includes:
 - stale signals and freshness lag by key table
 - deployed `repo_root` and `repo_head`
 - best-effort last-known freshness even for early blocked/failure exits after Oracle preflight
+- skipped calc/portfolio stages still carry pre-run stats/position freshness so a partial downstream lag
+  cannot be misreported as `Healthy`
 - root cause token
 - next remediation step
 
