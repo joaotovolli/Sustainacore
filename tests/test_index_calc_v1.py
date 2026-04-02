@@ -2,6 +2,8 @@ import datetime as dt
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = REPO_ROOT / "app"
 if str(APP_ROOT) not in sys.path:
@@ -87,3 +89,30 @@ def test_stats_top5_and_herfindahl() -> None:
     day2 = stats[trading_days[1]]
     assert round(day2["top5_weight"], 6) == 1.0
     assert round(day2["herfindahl"], 6) == round(0.5365853659**2 + 0.4634146341**2, 6)
+
+
+def test_rebalance_day_contributions_can_use_rebalance_weights() -> None:
+    trading_days = [dt.date(2026, 3, 31), dt.date(2026, 4, 1)]
+    prices_by_date = {
+        trading_days[0]: {"AAA": 100.0, "BBB": 100.0},
+        trading_days[1]: {"AAA": 100.0, "BBB": 200.0},
+    }
+    weights_by_date = {
+        trading_days[0]: {"AAA": 0.9, "BBB": 0.1},
+        trading_days[1]: {"AAA": 0.5, "BBB": 0.5},
+    }
+
+    default_contrib = compute_contributions(
+        trading_days=trading_days,
+        weights_by_date=weights_by_date,
+        prices_by_date=prices_by_date,
+    )
+    rebalance_contrib = compute_contributions(
+        trading_days=trading_days,
+        weights_by_date=weights_by_date,
+        prices_by_date=prices_by_date,
+        weights_prev_by_date={trading_days[1]: {"AAA": 0.5, "BBB": 0.5}},
+    )
+
+    assert sum(default_contrib[trading_days[1]].values()) == pytest.approx(0.1)
+    assert sum(rebalance_contrib[trading_days[1]].values()) == pytest.approx(0.5)

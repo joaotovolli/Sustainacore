@@ -161,6 +161,25 @@ def _collect_missing(
     return missing
 
 
+def _weights_from_shares_and_prices(
+    *,
+    shares: Dict[str, float],
+    prices: Dict[str, float],
+) -> Dict[str, float]:
+    market_values = {
+        ticker: shares[ticker] * prices[ticker]
+        for ticker in shares
+        if ticker in prices and prices[ticker] > 0
+    }
+    total_market_value = sum(market_values.values())
+    if total_market_value <= 0:
+        return {}
+    return {
+        ticker: market_value / total_market_value
+        for ticker, market_value in market_values.items()
+    }
+
+
 def _attempt_missing_backfill(
     *,
     trade_date: _dt.date,
@@ -505,6 +524,7 @@ def main(argv: list[str] | None = None) -> int:
     prices_by_date: Dict[_dt.date, Dict[str, float]] = {}
     prices_quality_by_date: Dict[_dt.date, Dict[str, str]] = {}
     weights_by_date: Dict[_dt.date, Dict[str, float]] = {}
+    contrib_weights_prev_by_trade: Dict[_dt.date, Dict[str, float]] = {}
     levels: Dict[_dt.date, float] = {}
     returns_1d: Dict[_dt.date, float] = {}
     missing_by_date: Dict[_dt.date, list[str]] = {}
@@ -614,6 +634,12 @@ def main(argv: list[str] | None = None) -> int:
                 level_prev=prev_level,
                 divisor_prev=prev_divisor,
             )
+            rebalance_weights_prev = _weights_from_shares_and_prices(
+                shares=shares,
+                prices=price_map_prev,
+            )
+            if rebalance_weights_prev:
+                contrib_weights_prev_by_trade[trade_date] = rebalance_weights_prev
             current_reb = trade_date
             prev_port_date = port_date
             holdings_by_reb[trade_date] = shares
@@ -753,12 +779,14 @@ def main(argv: list[str] | None = None) -> int:
         trading_days=ordered_levels,
         weights_by_date=weights_by_date,
         prices_by_date=prices_by_date,
+        weights_prev_by_date=contrib_weights_prev_by_trade,
     )
     contrib_rows = []
     for trade_date, rows in contributions.items():
         prev_date = _prev_trading_day(ordered_levels, trade_date)
+        weight_prev_map = contrib_weights_prev_by_trade.get(trade_date) or weights_by_date.get(prev_date, {})
         for ticker, contribution in rows.items():
-            weight_prev = weights_by_date.get(prev_date, {}).get(ticker)
+            weight_prev = weight_prev_map.get(ticker)
             ret_1d = None
             if prev_date and ticker in prices_by_date.get(prev_date, {}) and ticker in prices_by_date.get(trade_date, {}):
                 p0 = prices_by_date[prev_date][ticker]

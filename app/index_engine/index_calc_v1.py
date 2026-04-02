@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import math
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List, Mapping, Sequence
 
 
 def build_rebalance_schedule(
@@ -135,14 +135,16 @@ def compute_contributions(
     trading_days: Sequence[_dt.date],
     weights_by_date: Dict[_dt.date, Dict[str, float]],
     prices_by_date: Dict[_dt.date, Dict[str, float]],
+    weights_prev_by_date: Mapping[_dt.date, Mapping[str, float]] | None = None,
 ) -> Dict[_dt.date, Dict[str, float]]:
     """Compute per-ticker contribution based on prev-day weights and returns."""
     contributions: Dict[_dt.date, Dict[str, float]] = {}
     ordered = sorted(trading_days)
+    weights_prev_by_date = weights_prev_by_date or {}
     for idx in range(1, len(ordered)):
         prev_date = ordered[idx - 1]
         trade_date = ordered[idx]
-        weights_prev = weights_by_date.get(prev_date, {})
+        weights_prev = weights_prev_by_date.get(trade_date) or weights_by_date.get(prev_date, {})
         prices_prev = prices_by_date.get(prev_date, {})
         prices_now = prices_by_date.get(trade_date, {})
         daily: Dict[str, float] = {}
