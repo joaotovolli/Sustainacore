@@ -180,6 +180,23 @@ def _weights_from_shares_and_prices(
     }
 
 
+def _prime_rebalance_prev_snapshot(
+    *,
+    prev_date: _dt.date,
+    shares: Dict[str, float],
+    price_map_prev: Dict[str, float],
+    quality_map_prev: Dict[str, str],
+    prices_by_date: Dict[_dt.date, Dict[str, float]],
+    prices_quality_by_date: Dict[_dt.date, Dict[str, str]],
+) -> Dict[str, float]:
+    prices_by_date.setdefault(prev_date, {}).update(price_map_prev)
+    prices_quality_by_date.setdefault(prev_date, {}).update(quality_map_prev)
+    return _weights_from_shares_and_prices(
+        shares=shares,
+        prices=price_map_prev,
+    )
+
+
 def _attempt_missing_backfill(
     *,
     trade_date: _dt.date,
@@ -634,9 +651,17 @@ def main(argv: list[str] | None = None) -> int:
                 level_prev=prev_level,
                 divisor_prev=prev_divisor,
             )
-            rebalance_weights_prev = _weights_from_shares_and_prices(
+            rebalance_weights_prev = _prime_rebalance_prev_snapshot(
+                prev_date=prev_date,
                 shares=shares,
-                prices=price_map_prev,
+                price_map_prev=price_map_prev,
+                quality_map_prev={
+                    ticker: str(info.get("quality") or "").upper()
+                    for ticker, info in prices_prev.items()
+                    if info.get("price") is not None
+                },
+                prices_by_date=prices_by_date,
+                prices_quality_by_date=prices_quality_by_date,
             )
             if rebalance_weights_prev:
                 contrib_weights_prev_by_trade[trade_date] = rebalance_weights_prev

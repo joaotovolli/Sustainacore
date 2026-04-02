@@ -36,3 +36,26 @@ def test_seed_prior_state_prefers_constituent_shares(monkeypatch):
     assert holdings_by_reb[prev_trade] == shares_prev
     assert pytest.approx(divisors_by_reb[prev_trade], rel=1e-9) == 250.0 / prev_level
     assert levels[prev_trade] == prev_level
+
+
+def test_prime_rebalance_prev_snapshot_backfills_new_basket_prices():
+    prev_date = dt.date(2026, 3, 31)
+    prices_by_date = {prev_date: {"OLD": 90.0}}
+    prices_quality_by_date = {prev_date: {"OLD": "REAL"}}
+
+    weights = calc_index._prime_rebalance_prev_snapshot(
+        prev_date=prev_date,
+        shares={"AAA": 1.0, "BBB": 1.0},
+        price_map_prev={"AAA": 100.0, "BBB": 200.0},
+        quality_map_prev={"AAA": "REAL", "BBB": "REAL"},
+        prices_by_date=prices_by_date,
+        prices_quality_by_date=prices_quality_by_date,
+    )
+
+    assert prices_by_date[prev_date]["OLD"] == 90.0
+    assert prices_by_date[prev_date]["AAA"] == 100.0
+    assert prices_by_date[prev_date]["BBB"] == 200.0
+    assert prices_quality_by_date[prev_date]["AAA"] == "REAL"
+    assert prices_quality_by_date[prev_date]["BBB"] == "REAL"
+    assert weights["AAA"] == pytest.approx(1.0 / 3.0)
+    assert weights["BBB"] == pytest.approx(2.0 / 3.0)
