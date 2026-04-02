@@ -361,8 +361,23 @@ def test_determine_target_dates_uses_defaults_for_blank_budget_env(monkeypatch, 
     monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr("index_engine.orchestration.engine_db.fetch_max_canon_trade_date", lambda: dt.date(2026, 3, 25))
     monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_level_date", lambda: dt.date(2026, 3, 25))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_contribution_date", lambda: dt.date(2026, 3, 25))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_stats_date", lambda: dt.date(2026, 3, 25))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_calc_completion_max_date", lambda: dt.date(2026, 3, 25))
     monkeypatch.setattr(
         "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 3, 25),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 3, 25),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 3, 25),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
         lambda: dt.date(2026, 3, 25),
     )
     monkeypatch.setenv("SC_IDX_MARKET_DATA_DAILY_LIMIT", "")
@@ -377,6 +392,124 @@ def test_determine_target_dates_uses_defaults_for_blank_budget_env(monkeypatch, 
     assert result["context"]["daily_limit"] == 800
     assert result["context"]["daily_buffer"] == 25
     assert result["context"]["max_provider_calls"] == 775
+
+
+def test_determine_target_dates_keeps_calc_and_portfolio_work_when_downstream_tables_lag(monkeypatch, tmp_path):
+    trading_days = [dt.date(2026, 3, 31), dt.date(2026, 4, 1)]
+    provider = SimpleNamespace(fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8})
+    trading_days_module = SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None))
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        TRADING_DAYS_RETRY_ENV="SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS",
+        TRADING_DAYS_RETRY_BASE_ENV="SC_IDX_TRADING_DAYS_RETRY_BASE_SEC",
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: trading_days_module,
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (
+            daily_limit - calls_used_today,
+            max(0, daily_limit - calls_used_today - daily_buffer),
+        ),
+        _resolve_end_date=lambda provider, probe_symbol, today_utc: (
+            dt.date(2026, 4, 1),
+            trading_days,
+            dt.date(2026, 4, 1),
+        ),
+        derive_expected_target_date=lambda provider_latest, today_utc, trading_days, allow_weekday_fallback: (
+            dt.date(2026, 4, 1),
+            "calendar",
+            trading_days,
+            [],
+        ),
+        select_next_missing_trading_day=lambda trading_days, max_canon_trade_date=None: None,
+        compute_eligible_end_date=lambda provider_latest, today_utc, trading_days: dt.date(2026, 4, 1),
+    )
+    runtime = SCIdxPipelineRuntime(
+        report_dir=tmp_path,
+        telemetry_dir=tmp_path / "telemetry",
+        state_store=_FakeStore(),
+    )
+
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("index_engine.orchestration.engine_db.fetch_max_canon_trade_date", lambda: dt.date(2026, 4, 1))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_level_date", lambda: dt.date(2026, 4, 1))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_contribution_date", lambda: dt.date(2026, 4, 1))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_stats_date", lambda: dt.date(2026, 3, 31))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_calc_completion_max_date", lambda: dt.date(2026, 3, 31))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 4, 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 3, 31),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 4, 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
+        lambda: dt.date(2026, 3, 31),
+    )
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "OK"
+    assert result["context"]["next_missing_calc_date"] == dt.date(2026, 4, 1)
+    assert result["context"]["next_missing_portfolio_date"] == dt.date(2026, 4, 1)
+    assert result["context"]["max_stats_before"] == dt.date(2026, 3, 31)
+    assert result["context"]["max_portfolio_position_before"] == dt.date(2026, 3, 31)
+
+
+def test_portfolio_analytics_reruns_when_positions_lag(monkeypatch, tmp_path):
+    captured = {}
+    runtime = SCIdxPipelineRuntime(
+        report_dir=tmp_path,
+        telemetry_dir=tmp_path / "telemetry",
+        state_store=_FakeStore(),
+    )
+
+    def _fake_main(argv):
+        captured["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(runtime, "_load_portfolio_analytics_module", lambda: SimpleNamespace(main=_fake_main))
+    monkeypatch.setattr("index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date", lambda: dt.date(2026, 4, 1))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 4, 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 4, 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration._query_portfolio_counts",
+        lambda start_date, end_date: {"portfolio_analytics_rows": 6, "portfolio_position_rows": 18},
+    )
+
+    state = _state(
+        smoke=False,
+        context={
+            "trading_days": ["2026-03-31", "2026-04-01"],
+            "levels_max_after": dt.date(2026, 4, 1),
+            "max_portfolio_before": dt.date(2026, 4, 1),
+            "max_portfolio_position_before": dt.date(2026, 3, 31),
+            "max_portfolio_opt_inputs_before": dt.date(2026, 4, 1),
+            "max_portfolio_complete_before": dt.date(2026, 3, 31),
+        },
+    )
+
+    result = runtime.portfolio_analytics(state)
+
+    assert result["status"] == "OK"
+    assert captured["argv"][captured["argv"].index("--start") + 1] == "2026-04-01"
+    assert result["context"]["portfolio_position_max_after"] == dt.date(2026, 4, 1)
 
 
 def test_calc_index_main_accepts_optional_argv():

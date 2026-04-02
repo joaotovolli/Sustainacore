@@ -18,6 +18,34 @@ def _disable_parallel_dml(conn) -> None:
         return
 
 
+def _coerce_date(value: object) -> _dt.date | None:
+    if value is None:
+        return None
+    if isinstance(value, _dt.datetime):
+        return value.date()
+    if isinstance(value, _dt.date):
+        return value
+    return None
+
+
+def _fetch_max_trade_date(table_name: str, *, index_code: str | None = None) -> _dt.date | None:
+    sql = f"SELECT MAX(trade_date) FROM {table_name}"
+    binds: dict[str, object] = {}
+    if index_code is not None:
+        sql += " WHERE index_code = :index_code"
+        binds["index_code"] = index_code
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        row = cur.fetchone()
+        return _coerce_date(row[0] if row else None)
+
+
+def _completion_floor(*dates: _dt.date | None) -> _dt.date | None:
+    present = [day for day in dates if day is not None]
+    return min(present) if present else None
+
+
 def diagnose_missing_canon_sql(
     start: _dt.date,
     end: _dt.date,
@@ -280,21 +308,23 @@ def fetch_existing_levels(start: _dt.date, end: _dt.date) -> dict[_dt.date, floa
 
 
 def fetch_max_level_date() -> _dt.date | None:
-    sql = (
-        "SELECT MAX(trade_date) "
-        "FROM SC_IDX_LEVELS "
-        "WHERE index_code = :index_code"
+    return _fetch_max_trade_date("SC_IDX_LEVELS", index_code=INDEX_CODE)
+
+
+def fetch_max_contribution_date() -> _dt.date | None:
+    return _fetch_max_trade_date("SC_IDX_CONTRIBUTION_DAILY")
+
+
+def fetch_max_stats_date() -> _dt.date | None:
+    return _fetch_max_trade_date("SC_IDX_STATS_DAILY")
+
+
+def fetch_calc_completion_max_date() -> _dt.date | None:
+    return _completion_floor(
+        fetch_max_level_date(),
+        fetch_max_contribution_date(),
+        fetch_max_stats_date(),
     )
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, {"index_code": INDEX_CODE})
-        row = cur.fetchone()
-        value = row[0] if row else None
-        if value is None:
-            return None
-        if isinstance(value, _dt.datetime):
-            return value.date()
-        return value
 
 
 def fetch_constituent_weights(trade_date: _dt.date) -> dict[str, float]:
@@ -706,6 +736,9 @@ __all__ = [
     "fetch_latest_price_before",
     "fetch_existing_levels",
     "fetch_max_level_date",
+    "fetch_max_contribution_date",
+    "fetch_max_stats_date",
+    "fetch_calc_completion_max_date",
     "fetch_constituent_weights",
     "fetch_last_level_before",
     "fetch_divisor_for_date",

@@ -68,16 +68,16 @@ def _select_calc_window(
     trading_days: List[_dt.date],
     start_date: _dt.date,
     end_date: _dt.date,
-    max_level_date: _dt.date | None,
+    max_complete_date: _dt.date | None,
     rebuild: bool,
 ) -> tuple[_dt.date, List[_dt.date], str | None]:
     if not trading_days:
         return start_date, trading_days, "no_trading_days"
-    if rebuild or max_level_date is None:
+    if rebuild or max_complete_date is None:
         return start_date, trading_days, None
-    if end_date <= max_level_date:
+    if end_date <= max_complete_date:
         return start_date, [], "up_to_date"
-    next_day = _next_trading_day(trading_days, max_level_date)
+    next_day = _next_trading_day(trading_days, max_complete_date)
     if next_day is None:
         return start_date, [], "missing_next_trading_day"
     if next_day > start_date:
@@ -159,6 +159,42 @@ def _collect_missing(
         if price is None:
             missing.append(ticker)
     return missing
+
+
+def _weights_from_shares_and_prices(
+    *,
+    shares: Dict[str, float],
+    prices: Dict[str, float],
+) -> Dict[str, float]:
+    market_values = {
+        ticker: shares[ticker] * prices[ticker]
+        for ticker in shares
+        if ticker in prices and prices[ticker] > 0
+    }
+    total_market_value = sum(market_values.values())
+    if total_market_value <= 0:
+        return {}
+    return {
+        ticker: market_value / total_market_value
+        for ticker, market_value in market_values.items()
+    }
+
+
+def _prime_rebalance_prev_snapshot(
+    *,
+    prev_date: _dt.date,
+    shares: Dict[str, float],
+    price_map_prev: Dict[str, float],
+    quality_map_prev: Dict[str, str],
+    prices_by_date: Dict[_dt.date, Dict[str, float]],
+    prices_quality_by_date: Dict[_dt.date, Dict[str, str]],
+) -> Dict[str, float]:
+    prices_by_date.setdefault(prev_date, {}).update(price_map_prev)
+    prices_quality_by_date.setdefault(prev_date, {}).update(quality_map_prev)
+    return _weights_from_shares_and_prices(
+        shares=shares,
+        prices=price_map_prev,
+    )
 
 
 def _attempt_missing_backfill(
@@ -394,12 +430,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     trading_days = db.fetch_trading_days(start_date, end_date)
-    max_level_date = db.fetch_max_level_date()
+    max_complete_date = db.fetch_calc_completion_max_date()
     start_date, trading_days, window_status = _select_calc_window(
         trading_days=trading_days,
         start_date=start_date,
         end_date=end_date,
-        max_level_date=max_level_date,
+        max_complete_date=max_complete_date,
         rebuild=args.rebuild,
     )
     if window_status == "up_to_date":
@@ -505,6 +541,7 @@ def main(argv: list[str] | None = None) -> int:
     prices_by_date: Dict[_dt.date, Dict[str, float]] = {}
     prices_quality_by_date: Dict[_dt.date, Dict[str, str]] = {}
     weights_by_date: Dict[_dt.date, Dict[str, float]] = {}
+    contrib_weights_prev_by_trade: Dict[_dt.date, Dict[str, float]] = {}
     levels: Dict[_dt.date, float] = {}
     returns_1d: Dict[_dt.date, float] = {}
     missing_by_date: Dict[_dt.date, list[str]] = {}
@@ -614,6 +651,20 @@ def main(argv: list[str] | None = None) -> int:
                 level_prev=prev_level,
                 divisor_prev=prev_divisor,
             )
+            rebalance_weights_prev = _prime_rebalance_prev_snapshot(
+                prev_date=prev_date,
+                shares=shares,
+                price_map_prev=price_map_prev,
+                quality_map_prev={
+                    ticker: str(info.get("quality") or "").upper()
+                    for ticker, info in prices_prev.items()
+                    if info.get("price") is not None
+                },
+                prices_by_date=prices_by_date,
+                prices_quality_by_date=prices_quality_by_date,
+            )
+            if rebalance_weights_prev:
+                contrib_weights_prev_by_trade[trade_date] = rebalance_weights_prev
             current_reb = trade_date
             prev_port_date = port_date
             holdings_by_reb[trade_date] = shares
@@ -753,12 +804,14 @@ def main(argv: list[str] | None = None) -> int:
         trading_days=ordered_levels,
         weights_by_date=weights_by_date,
         prices_by_date=prices_by_date,
+        weights_prev_by_date=contrib_weights_prev_by_trade,
     )
     contrib_rows = []
     for trade_date, rows in contributions.items():
         prev_date = _prev_trading_day(ordered_levels, trade_date)
+        weight_prev_map = contrib_weights_prev_by_trade.get(trade_date) or weights_by_date.get(prev_date, {})
         for ticker, contribution in rows.items():
-            weight_prev = weights_by_date.get(prev_date, {}).get(ticker)
+            weight_prev = weight_prev_map.get(ticker)
             ret_1d = None
             if prev_date and ticker in prices_by_date.get(prev_date, {}) and ticker in prices_by_date.get(trade_date, {}):
                 p0 = prices_by_date[prev_date][ticker]

@@ -122,6 +122,9 @@ Expected signals:
   incomplete runs should resume
 - even an early blocked run should still show last-known `expected_target_date`,
   `latest_complete_date`, and key table max dates when Oracle preflight succeeded
+- a run is not truly fresh until `SC_IDX_LEVELS`, `SC_IDX_STATS_DAILY`,
+  `SC_IDX_PORTFOLIO_ANALYTICS_DAILY`, and `SC_IDX_PORTFOLIO_POSITION_DAILY`
+  all reach the same expected target date
 - `SC_IDX_PORTFOLIO_ANALYTICS_DAILY` and `SC_IDX_PORTFOLIO_POSITION_DAILY` max dates match the latest `SC_IDX_LEVELS` trade date
 
 ### 7. Scheduler checks

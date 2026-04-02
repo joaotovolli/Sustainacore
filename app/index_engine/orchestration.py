@@ -700,9 +700,16 @@ class SCIdxPipelineRuntime:
 
         max_canon_date = engine_db.fetch_max_canon_trade_date()
         max_level_date = db_index_calc.fetch_max_level_date()
+        max_contribution_date = db_index_calc.fetch_max_contribution_date()
+        max_stats_date = db_index_calc.fetch_max_stats_date()
+        max_calc_complete_date = db_index_calc.fetch_calc_completion_max_date()
         max_portfolio_date = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
+        max_portfolio_position_date = db_portfolio_analytics.fetch_portfolio_position_max_date()
+        max_portfolio_opt_inputs_date = db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date()
+        max_portfolio_complete_date = db_portfolio_analytics.fetch_portfolio_completion_max_date()
         next_missing_canon = run_daily.select_next_missing_trading_day(trading_days, max_canon_trade_date=max_canon_date)
-        next_missing_level = _select_next_missing_trading_day(trading_days, max_level_date)
+        next_missing_calc = _select_next_missing_trading_day(trading_days, max_calc_complete_date)
+        next_missing_portfolio = _select_next_missing_trading_day(trading_days, max_portfolio_complete_date)
         ingest_required = (
             not state.get("skip_ingest")
             and candidate_end is not None
@@ -741,7 +748,7 @@ class SCIdxPipelineRuntime:
                 "remediation": "Wait for the UTC budget window to reset or raise the SC_IDX daily call limit.",
             }
 
-        if candidate_end is None and not ingest_required and next_missing_level is None:
+        if candidate_end is None and not ingest_required and next_missing_calc is None and next_missing_portfolio is None:
             return {
                 "status": "SKIP",
                 "detail": "up_to_date",
@@ -758,7 +765,13 @@ class SCIdxPipelineRuntime:
                     "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
                     "max_canon_before": max_canon_date,
                     "max_level_before": max_level_date,
+                    "max_contribution_before": max_contribution_date,
+                    "max_stats_before": max_stats_date,
+                    "max_calc_complete_before": max_calc_complete_date,
                     "max_portfolio_before": max_portfolio_date,
+                    "max_portfolio_position_before": max_portfolio_position_date,
+                    "max_portfolio_opt_inputs_before": max_portfolio_opt_inputs_date,
+                    "max_portfolio_complete_before": max_portfolio_complete_date,
                 },
             }
 
@@ -766,7 +779,8 @@ class SCIdxPipelineRuntime:
         detail = (
             f"candidate_end={candidate_end.isoformat() if candidate_end else None} "
             f"next_missing_canon={next_missing_canon.isoformat() if next_missing_canon else None} "
-            f"next_missing_level={next_missing_level.isoformat() if next_missing_level else None}"
+            f"next_missing_calc={next_missing_calc.isoformat() if next_missing_calc else None} "
+            f"next_missing_portfolio={next_missing_portfolio.isoformat() if next_missing_portfolio else None}"
         )
         context = {
             "today_utc": today_utc,
@@ -778,7 +792,8 @@ class SCIdxPipelineRuntime:
             "trading_days": trading_days,
             "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
             "next_missing_canon_date": next_missing_canon,
-            "next_missing_level_date": next_missing_level,
+            "next_missing_calc_date": next_missing_calc,
+            "next_missing_portfolio_date": next_missing_portfolio,
             "ingest_start_date": next_missing_canon or candidate_end,
             "ingest_required": ingest_required,
             "max_provider_calls": max_provider_calls,
@@ -792,7 +807,13 @@ class SCIdxPipelineRuntime:
             "provider_usage_remaining": provider_usage_remaining,
             "max_canon_before": max_canon_date,
             "max_level_before": max_level_date,
+            "max_contribution_before": max_contribution_date,
+            "max_stats_before": max_stats_date,
+            "max_calc_complete_before": max_calc_complete_date,
             "max_portfolio_before": max_portfolio_date,
+            "max_portfolio_position_before": max_portfolio_position_date,
+            "max_portfolio_opt_inputs_before": max_portfolio_opt_inputs_date,
+            "max_portfolio_complete_before": max_portfolio_complete_date,
         }
         return {
             "status": status,
@@ -1008,8 +1029,11 @@ class SCIdxPipelineRuntime:
                 "error": "trading_days missing from state",
                 "error_token": "no_trading_days",
             }
-        max_level_date = db_index_calc.fetch_max_level_date()
-        target_day = _select_next_missing_trading_day(trading_days, max_level_date)
+        max_calc_complete_date = (
+            _coerce_date(context.get("max_calc_complete_before"))
+            or db_index_calc.fetch_calc_completion_max_date()
+        )
+        target_day = _select_next_missing_trading_day(trading_days, max_calc_complete_date)
         if target_day is None:
             return {"status": "SKIP", "detail": "no_missing_trading_day"}
 
@@ -1273,6 +1297,7 @@ class SCIdxPipelineRuntime:
             }
 
         max_level_after = db_index_calc.fetch_max_level_date()
+        max_contribution_after = db_index_calc.fetch_max_contribution_date()
         max_stats_after = _fetch_current_max_stats_date()
         if max_level_after is None or max_level_after < end_day:
             return {
@@ -1280,6 +1305,16 @@ class SCIdxPipelineRuntime:
                 "detail": "levels_not_advanced",
                 "error": f"target_day={target_day.isoformat()} end_day={end_day.isoformat()} max_level={max_level_after}",
                 "error_token": "levels_not_advanced",
+            }
+        if max_contribution_after is None or max_contribution_after < end_day:
+            return {
+                "status": "FAILED",
+                "detail": "contributions_not_advanced",
+                "error": (
+                    f"target_day={target_day.isoformat()} end_day={end_day.isoformat()} "
+                    f"max_contribution={max_contribution_after}"
+                ),
+                "error_token": "contributions_not_advanced",
             }
         if max_stats_after is None or max_stats_after < end_day:
             return {
@@ -1298,6 +1333,7 @@ class SCIdxPipelineRuntime:
                 "calc_start_date": target_day,
                 "calc_end_date": end_day,
                 "levels_max_after": max_level_after,
+                "contribution_max_after": max_contribution_after,
                 "stats_max_after": max_stats_after,
             },
         }
@@ -1314,14 +1350,30 @@ class SCIdxPipelineRuntime:
             _coerce_date(context.get("max_portfolio_before"))
             or db_portfolio_analytics.fetch_portfolio_analytics_max_date()
         )
-        if portfolio_max_before is not None and portfolio_max_before >= max_level_date:
+        portfolio_position_before = (
+            _coerce_date(context.get("max_portfolio_position_before"))
+            or db_portfolio_analytics.fetch_portfolio_position_max_date()
+        )
+        portfolio_opt_inputs_before = (
+            _coerce_date(context.get("max_portfolio_opt_inputs_before"))
+            or db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date()
+        )
+        portfolio_complete_before = (
+            _coerce_date(context.get("max_portfolio_complete_before"))
+            or db_portfolio_analytics.fetch_portfolio_completion_max_date()
+        )
+        if portfolio_complete_before is not None and portfolio_complete_before >= max_level_date:
             return {
                 "status": "SKIP",
-                "detail": f"portfolio_up_to_date={portfolio_max_before.isoformat()}",
-                "context": {"portfolio_max_after": portfolio_max_before},
+                "detail": f"portfolio_up_to_date={portfolio_complete_before.isoformat()}",
+                "context": {
+                    "portfolio_max_after": portfolio_max_before,
+                    "portfolio_position_max_after": portfolio_position_before,
+                    "portfolio_opt_inputs_max_after": portfolio_opt_inputs_before,
+                },
             }
 
-        start_day = _select_next_missing_trading_day(trading_days, portfolio_max_before) if trading_days else None
+        start_day = _select_next_missing_trading_day(trading_days, portfolio_complete_before) if trading_days else None
         if start_day is None:
             start_day = max(BASE_DATE, max_level_date)
 
@@ -1357,6 +1409,7 @@ class SCIdxPipelineRuntime:
 
         portfolio_max_after = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
         portfolio_position_max_after = db_portfolio_analytics.fetch_portfolio_position_max_date()
+        portfolio_opt_inputs_max_after = db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date()
         if portfolio_max_after is None or portfolio_max_after < max_level_date:
             return {
                 "status": "FAILED",
@@ -1367,6 +1420,28 @@ class SCIdxPipelineRuntime:
                 ),
                 "error_token": "portfolio_not_advanced",
                 "remediation": "Re-run the portfolio refresh for the missing window and verify the additive tables advanced.",
+            }
+        if portfolio_position_max_after is None or portfolio_position_max_after < max_level_date:
+            return {
+                "status": "FAILED",
+                "detail": "portfolio_positions_not_advanced",
+                "error": (
+                    f"start_day={start_day.isoformat()} max_level={max_level_date.isoformat()} "
+                    f"max_portfolio_positions={portfolio_position_max_after}"
+                ),
+                "error_token": "portfolio_positions_not_advanced",
+                "remediation": "Re-run the portfolio refresh for the missing window and verify the position table advanced.",
+            }
+        if portfolio_opt_inputs_max_after is None or portfolio_opt_inputs_max_after < max_level_date:
+            return {
+                "status": "FAILED",
+                "detail": "portfolio_opt_inputs_not_advanced",
+                "error": (
+                    f"start_day={start_day.isoformat()} max_level={max_level_date.isoformat()} "
+                    f"max_portfolio_opt_inputs={portfolio_opt_inputs_max_after}"
+                ),
+                "error_token": "portfolio_opt_inputs_not_advanced",
+                "remediation": "Re-run the portfolio refresh for the missing window and verify the optimizer inputs advanced.",
             }
 
         counts = _query_portfolio_counts(start_day, max_level_date)
@@ -1379,6 +1454,7 @@ class SCIdxPipelineRuntime:
                 "portfolio_end_date": max_level_date,
                 "portfolio_max_after": portfolio_max_after,
                 "portfolio_position_max_after": portfolio_position_max_after,
+                "portfolio_opt_inputs_max_after": portfolio_opt_inputs_max_after,
             },
         }
 
@@ -1778,7 +1854,9 @@ def _hydrate_report_context_with_health_snapshot(
             "calendar_max_date",
             "max_canon_before",
             "max_level_before",
+            "max_stats_before",
             "max_portfolio_before",
+            "max_portfolio_position_before",
             "portfolio_position_max_after",
         )
     )
@@ -1803,8 +1881,10 @@ def _hydrate_report_context_with_health_snapshot(
     _set_context_default(enriched, "expected_target_source", "calendar_snapshot")
     _set_context_default(enriched, "max_canon_before", health.get("canon_max_date"))
     _set_context_default(enriched, "max_level_before", health.get("levels_max_date"))
+    _set_context_default(enriched, "max_stats_before", health.get("stats_max_date"))
     _set_context_default(enriched, "stats_max_after", health.get("stats_max_date"))
     _set_context_default(enriched, "max_portfolio_before", health.get("portfolio_max_date"))
+    _set_context_default(enriched, "max_portfolio_position_before", health.get("portfolio_position_max_date"))
     _set_context_default(enriched, "portfolio_position_max_after", health.get("portfolio_position_max_date"))
     _set_context_default(enriched, "repo_root", health.get("repo_root"))
     _set_context_default(enriched, "repo_head", health.get("repo_head"))
