@@ -1410,6 +1410,9 @@ class SCIdxPipelineRuntime:
         portfolio_max_after = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
         portfolio_position_max_after = db_portfolio_analytics.fetch_portfolio_position_max_date()
         portfolio_opt_inputs_max_after = db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date()
+        portfolio_opt_inputs_required_date = db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date(
+            max_level_date
+        )
         if portfolio_max_after is None or portfolio_max_after < max_level_date:
             return {
                 "status": "FAILED",
@@ -1432,16 +1435,23 @@ class SCIdxPipelineRuntime:
                 "error_token": "portfolio_positions_not_advanced",
                 "remediation": "Re-run the portfolio refresh for the missing window and verify the position table advanced.",
             }
-        if portfolio_opt_inputs_max_after is None or portfolio_opt_inputs_max_after < max_level_date:
+        if portfolio_opt_inputs_required_date is not None and (
+            portfolio_opt_inputs_max_after is None
+            or portfolio_opt_inputs_max_after < portfolio_opt_inputs_required_date
+        ):
             return {
                 "status": "FAILED",
                 "detail": "portfolio_opt_inputs_not_advanced",
                 "error": (
                     f"start_day={start_day.isoformat()} max_level={max_level_date.isoformat()} "
+                    f"required_opt_inputs_date={portfolio_opt_inputs_required_date.isoformat()} "
                     f"max_portfolio_opt_inputs={portfolio_opt_inputs_max_after}"
                 ),
                 "error_token": "portfolio_opt_inputs_not_advanced",
-                "remediation": "Re-run the portfolio refresh for the missing window and verify the optimizer inputs advanced.",
+                "remediation": (
+                    "Re-run the portfolio refresh for the missing rebalance window and verify the optimizer inputs "
+                    "advanced through the latest required rebalance date."
+                ),
             }
 
         counts = _query_portfolio_counts(start_day, max_level_date)
@@ -1455,6 +1465,7 @@ class SCIdxPipelineRuntime:
                 "portfolio_max_after": portfolio_max_after,
                 "portfolio_position_max_after": portfolio_position_max_after,
                 "portfolio_opt_inputs_max_after": portfolio_opt_inputs_max_after,
+                "portfolio_opt_inputs_required_date": portfolio_opt_inputs_required_date,
             },
         }
 

@@ -232,12 +232,45 @@ def fetch_portfolio_opt_inputs_max_date() -> _dt.date | None:
     return _fetch_max_trade_date("SC_IDX_PORTFOLIO_OPT_INPUTS")
 
 
-def fetch_portfolio_completion_max_date() -> _dt.date | None:
-    return _completion_floor(
-        fetch_portfolio_analytics_max_date(),
-        fetch_portfolio_position_max_date(),
-        fetch_portfolio_opt_inputs_max_date(),
+def fetch_latest_required_portfolio_opt_inputs_date(
+    end_date: _dt.date | None = None,
+) -> _dt.date | None:
+    sql = (
+        "SELECT MAX(rebalance_date) "
+        "FROM SC_IDX_CONSTITUENT_DAILY "
+        "WHERE rebalance_date IS NOT NULL "
     )
+    params: dict[str, object] = {}
+    if end_date is not None:
+        sql += "AND trade_date <= :end_date"
+        params["end_date"] = end_date
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(sql, params)
+        except Exception as exc:
+            if _is_missing_object_error(exc):
+                return None
+            raise
+        row = cur.fetchone()
+        return _coerce_date(row[0]) if row else None
+
+
+def fetch_portfolio_completion_max_date() -> _dt.date | None:
+    analytics_max = fetch_portfolio_analytics_max_date()
+    position_max = fetch_portfolio_position_max_date()
+    daily_floor = _completion_floor(analytics_max, position_max)
+    if daily_floor is None:
+        return None
+
+    required_opt_inputs_date = fetch_latest_required_portfolio_opt_inputs_date(daily_floor)
+    if required_opt_inputs_date is None:
+        return daily_floor
+
+    opt_inputs_max = fetch_portfolio_opt_inputs_max_date()
+    if opt_inputs_max is not None and opt_inputs_max >= required_opt_inputs_date:
+        return daily_floor
+    return opt_inputs_max
 
 
 def _fetch_max_trade_date(table_name: str) -> _dt.date | None:
@@ -353,6 +386,7 @@ __all__ = [
     "fetch_portfolio_analytics_max_date",
     "fetch_portfolio_position_max_date",
     "fetch_portfolio_opt_inputs_max_date",
+    "fetch_latest_required_portfolio_opt_inputs_date",
     "fetch_portfolio_completion_max_date",
     "fetch_price_rows",
     "fetch_trade_date_bounds",

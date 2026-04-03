@@ -489,6 +489,10 @@ def test_portfolio_analytics_reruns_when_positions_lag(monkeypatch, tmp_path):
         lambda: dt.date(2026, 4, 1),
     )
     monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date",
+        lambda end_date: dt.date(2026, 4, 1),
+    )
+    monkeypatch.setattr(
         "index_engine.orchestration._query_portfolio_counts",
         lambda start_date, end_date: {"portfolio_analytics_rows": 6, "portfolio_position_rows": 18},
     )
@@ -510,6 +514,104 @@ def test_portfolio_analytics_reruns_when_positions_lag(monkeypatch, tmp_path):
     assert result["status"] == "OK"
     assert captured["argv"][captured["argv"].index("--start") + 1] == "2026-04-01"
     assert result["context"]["portfolio_position_max_after"] == dt.date(2026, 4, 1)
+
+
+def test_portfolio_analytics_accepts_rebalance_scoped_optimizer_inputs(monkeypatch, tmp_path):
+    captured = {}
+    runtime = SCIdxPipelineRuntime(
+        report_dir=tmp_path,
+        telemetry_dir=tmp_path / "telemetry",
+        state_store=_FakeStore(),
+    )
+
+    def _fake_main(argv):
+        captured["argv"] = argv
+        return 0
+
+    monkeypatch.setattr(runtime, "_load_portfolio_analytics_module", lambda: SimpleNamespace(main=_fake_main))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 4, 2),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 4, 2),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 4, 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date",
+        lambda end_date: dt.date(2026, 4, 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration._query_portfolio_counts",
+        lambda start_date, end_date: {"portfolio_analytics_rows": 6, "portfolio_position_rows": 18},
+    )
+
+    state = _state(
+        smoke=False,
+        context={
+            "trading_days": ["2026-04-01", "2026-04-02"],
+            "levels_max_after": dt.date(2026, 4, 2),
+            "max_portfolio_before": dt.date(2026, 4, 1),
+            "max_portfolio_position_before": dt.date(2026, 4, 1),
+            "max_portfolio_opt_inputs_before": dt.date(2026, 4, 1),
+            "max_portfolio_complete_before": dt.date(2026, 4, 1),
+        },
+    )
+
+    result = runtime.portfolio_analytics(state)
+
+    assert result["status"] == "OK"
+    assert captured["argv"][captured["argv"].index("--start") + 1] == "2026-04-02"
+    assert result["context"]["portfolio_opt_inputs_max_after"] == dt.date(2026, 4, 1)
+    assert result["context"]["portfolio_opt_inputs_required_date"] == dt.date(2026, 4, 1)
+
+
+def test_portfolio_analytics_fails_when_latest_rebalance_inputs_missing(monkeypatch, tmp_path):
+    runtime = SCIdxPipelineRuntime(
+        report_dir=tmp_path,
+        telemetry_dir=tmp_path / "telemetry",
+        state_store=_FakeStore(),
+    )
+
+    monkeypatch.setattr(runtime, "_load_portfolio_analytics_module", lambda: SimpleNamespace(main=lambda argv: 0))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 4, 2),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 4, 2),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 4, 1),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date",
+        lambda end_date: dt.date(2026, 4, 2),
+    )
+
+    state = _state(
+        smoke=False,
+        context={
+            "trading_days": ["2026-04-01", "2026-04-02"],
+            "levels_max_after": dt.date(2026, 4, 2),
+            "max_portfolio_before": dt.date(2026, 4, 1),
+            "max_portfolio_position_before": dt.date(2026, 4, 1),
+            "max_portfolio_opt_inputs_before": dt.date(2026, 4, 1),
+            "max_portfolio_complete_before": dt.date(2026, 4, 1),
+        },
+    )
+
+    result = runtime.portfolio_analytics(state)
+
+    assert result["status"] == "FAILED"
+    assert result["detail"] == "portfolio_opt_inputs_not_advanced"
+    assert "required_opt_inputs_date=2026-04-02" in result["error"]
 
 
 def test_calc_index_main_accepts_optional_argv():
