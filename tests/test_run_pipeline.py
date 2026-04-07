@@ -468,6 +468,12 @@ def test_determine_target_dates_keeps_calc_and_portfolio_work_when_downstream_ta
 
 def test_portfolio_analytics_reruns_when_positions_lag(monkeypatch, tmp_path):
     captured = {}
+    current = {
+        "analytics": dt.date(2026, 4, 1),
+        "positions": dt.date(2026, 3, 31),
+        "opt_inputs": dt.date(2026, 4, 1),
+        "complete": dt.date(2026, 3, 31),
+    }
     runtime = SCIdxPipelineRuntime(
         report_dir=tmp_path,
         telemetry_dir=tmp_path / "telemetry",
@@ -476,17 +482,26 @@ def test_portfolio_analytics_reruns_when_positions_lag(monkeypatch, tmp_path):
 
     def _fake_main(argv):
         captured["argv"] = argv
+        current["positions"] = dt.date(2026, 4, 1)
+        current["complete"] = dt.date(2026, 4, 1)
         return 0
 
     monkeypatch.setattr(runtime, "_load_portfolio_analytics_module", lambda: SimpleNamespace(main=_fake_main))
-    monkeypatch.setattr("index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date", lambda: dt.date(2026, 4, 1))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: current["analytics"],
+    )
     monkeypatch.setattr(
         "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
-        lambda: dt.date(2026, 4, 1),
+        lambda: current["positions"],
     )
     monkeypatch.setattr(
         "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
-        lambda: dt.date(2026, 4, 1),
+        lambda: current["opt_inputs"],
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
+        lambda: current["complete"],
     )
     monkeypatch.setattr(
         "index_engine.orchestration.db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date",
@@ -518,6 +533,12 @@ def test_portfolio_analytics_reruns_when_positions_lag(monkeypatch, tmp_path):
 
 def test_portfolio_analytics_accepts_rebalance_scoped_optimizer_inputs(monkeypatch, tmp_path):
     captured = {}
+    current = {
+        "analytics": dt.date(2026, 4, 1),
+        "positions": dt.date(2026, 4, 1),
+        "opt_inputs": dt.date(2026, 4, 1),
+        "complete": dt.date(2026, 4, 1),
+    }
     runtime = SCIdxPipelineRuntime(
         report_dir=tmp_path,
         telemetry_dir=tmp_path / "telemetry",
@@ -526,20 +547,27 @@ def test_portfolio_analytics_accepts_rebalance_scoped_optimizer_inputs(monkeypat
 
     def _fake_main(argv):
         captured["argv"] = argv
+        current["analytics"] = dt.date(2026, 4, 2)
+        current["positions"] = dt.date(2026, 4, 2)
+        current["complete"] = dt.date(2026, 4, 2)
         return 0
 
     monkeypatch.setattr(runtime, "_load_portfolio_analytics_module", lambda: SimpleNamespace(main=_fake_main))
     monkeypatch.setattr(
         "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
-        lambda: dt.date(2026, 4, 2),
+        lambda: current["analytics"],
     )
     monkeypatch.setattr(
         "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
-        lambda: dt.date(2026, 4, 2),
+        lambda: current["positions"],
     )
     monkeypatch.setattr(
         "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
-        lambda: dt.date(2026, 4, 1),
+        lambda: current["opt_inputs"],
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
+        lambda: current["complete"],
     )
     monkeypatch.setattr(
         "index_engine.orchestration.db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date",
@@ -612,6 +640,71 @@ def test_portfolio_analytics_fails_when_latest_rebalance_inputs_missing(monkeypa
     assert result["status"] == "FAILED"
     assert result["detail"] == "portfolio_opt_inputs_not_advanced"
     assert "required_opt_inputs_date=2026-04-02" in result["error"]
+
+
+def test_portfolio_analytics_reloads_completion_before_choosing_start_day(monkeypatch, tmp_path):
+    captured = {}
+    current = {
+        "analytics": dt.date(2026, 4, 6),
+        "positions": dt.date(2026, 4, 6),
+        "opt_inputs": dt.date(2026, 4, 1),
+        "complete": dt.date(2026, 4, 1),
+    }
+    runtime = SCIdxPipelineRuntime(
+        report_dir=tmp_path,
+        telemetry_dir=tmp_path / "telemetry",
+        state_store=_FakeStore(),
+    )
+
+    def _fake_main(argv):
+        captured["argv"] = argv
+        current["opt_inputs"] = dt.date(2026, 4, 2)
+        current["complete"] = dt.date(2026, 4, 6)
+        return 0
+
+    monkeypatch.setattr(runtime, "_load_portfolio_analytics_module", lambda: SimpleNamespace(main=_fake_main))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: current["analytics"],
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: current["positions"],
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: current["opt_inputs"],
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
+        lambda: current["complete"],
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date",
+        lambda end_date: dt.date(2026, 4, 2),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration._query_portfolio_counts",
+        lambda start_date, end_date: {"portfolio_analytics_rows": 12, "portfolio_position_rows": 300},
+    )
+
+    state = _state(
+        smoke=False,
+        context={
+            "trading_days": ["2026-04-02", "2026-04-06"],
+            "levels_max_after": dt.date(2026, 4, 6),
+            "max_portfolio_before": dt.date(2026, 4, 2),
+            "max_portfolio_position_before": dt.date(2026, 4, 2),
+            "max_portfolio_opt_inputs_before": dt.date(2026, 4, 1),
+            "max_portfolio_complete_before": dt.date(2026, 4, 2),
+        },
+    )
+
+    result = runtime.portfolio_analytics(state)
+
+    assert result["status"] == "OK"
+    assert captured["argv"][captured["argv"].index("--start") + 1] == "2026-04-02"
+    assert result["context"]["portfolio_complete_before"] == dt.date(2026, 4, 1)
 
 
 def test_calc_index_main_accepts_optional_argv():
@@ -1003,3 +1096,35 @@ def test_clean_skip_alerts_are_not_sent(monkeypatch, tmp_path):
 
     assert calls["sent"] == 0
     assert final_state["alert"]["decision"] == "skipped"
+
+
+def test_refresh_pipeline_report_preseeds_telemetry_path(tmp_path):
+    runtime = SmokePipelineRuntime(smoke_scenario="failed", report_dir=tmp_path, state_store=_FakeStore())
+    state = _state(
+        smoke=False,
+        terminal_status="failed",
+        status_reason="portfolio_analytics",
+        context={
+            "ended_at": "2026-01-07T00:05:00+00:00",
+            "expected_target_date": "2026-01-07",
+            "levels_max_after": "2026-01-07",
+            "stats_max_after": "2026-01-07",
+            "portfolio_max_after": "2026-01-05",
+            "portfolio_position_max_after": "2026-01-07",
+        },
+        stage_results={
+            "portfolio_analytics": {
+                "stage": "portfolio_analytics",
+                "status": "FAILED",
+                "detail": "portfolio_opt_inputs_not_advanced",
+                "counts": {},
+                "warnings": [],
+                "attempts": 1,
+                "duration_sec": 1.2,
+            }
+        },
+    )
+
+    refreshed = orchestration._refresh_pipeline_report(state, runtime)
+
+    assert refreshed["report"]["artifact_paths"]["telemetry_path"].endswith("sc_idx_pipeline_run-test.json")

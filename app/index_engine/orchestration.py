@@ -1346,21 +1346,15 @@ class SCIdxPipelineRuntime:
         if max_level_date is None:
             return {"status": "SKIP", "detail": "no_levels_available"}
 
-        portfolio_max_before = (
-            _coerce_date(context.get("max_portfolio_before"))
-            or db_portfolio_analytics.fetch_portfolio_analytics_max_date()
-        )
-        portfolio_position_before = (
-            _coerce_date(context.get("max_portfolio_position_before"))
-            or db_portfolio_analytics.fetch_portfolio_position_max_date()
-        )
-        portfolio_opt_inputs_before = (
-            _coerce_date(context.get("max_portfolio_opt_inputs_before"))
-            or db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date()
-        )
-        portfolio_complete_before = (
-            _coerce_date(context.get("max_portfolio_complete_before"))
-            or db_portfolio_analytics.fetch_portfolio_completion_max_date()
+        # Refresh these directly from Oracle at stage time. determine_target_dates
+        # runs before calc_index, so context-cached "before" values can miss a
+        # rebalance date that calc_index exposes later in the same run.
+        portfolio_max_before = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
+        portfolio_position_before = db_portfolio_analytics.fetch_portfolio_position_max_date()
+        portfolio_opt_inputs_before = db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date()
+        portfolio_complete_before = db_portfolio_analytics.fetch_portfolio_completion_max_date()
+        portfolio_opt_inputs_required_date = db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date(
+            max_level_date
         )
         if portfolio_complete_before is not None and portfolio_complete_before >= max_level_date:
             return {
@@ -1376,6 +1370,11 @@ class SCIdxPipelineRuntime:
         start_day = _select_next_missing_trading_day(trading_days, portfolio_complete_before) if trading_days else None
         if start_day is None:
             start_day = max(BASE_DATE, max_level_date)
+        if portfolio_opt_inputs_required_date is not None and (
+            portfolio_opt_inputs_before is None
+            or portfolio_opt_inputs_before < portfolio_opt_inputs_required_date
+        ):
+            start_day = min(start_day, portfolio_opt_inputs_required_date)
 
         try:
             code = build_module.main(
@@ -1410,9 +1409,6 @@ class SCIdxPipelineRuntime:
         portfolio_max_after = db_portfolio_analytics.fetch_portfolio_analytics_max_date()
         portfolio_position_max_after = db_portfolio_analytics.fetch_portfolio_position_max_date()
         portfolio_opt_inputs_max_after = db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date()
-        portfolio_opt_inputs_required_date = db_portfolio_analytics.fetch_latest_required_portfolio_opt_inputs_date(
-            max_level_date
-        )
         if portfolio_max_after is None or portfolio_max_after < max_level_date:
             return {
                 "status": "FAILED",
@@ -1462,6 +1458,7 @@ class SCIdxPipelineRuntime:
             "context": {
                 "portfolio_start_date": start_day,
                 "portfolio_end_date": max_level_date,
+                "portfolio_complete_before": portfolio_complete_before,
                 "portfolio_max_after": portfolio_max_after,
                 "portfolio_position_max_after": portfolio_position_max_after,
                 "portfolio_opt_inputs_max_after": portfolio_opt_inputs_max_after,
@@ -1929,6 +1926,10 @@ def _refresh_pipeline_report(state: PipelineGraphState, runtime: PipelineRuntime
     report_context, snapshot_warnings = _hydrate_report_context_with_health_snapshot(
         next_state,
         dict(next_state.get("context") or {}),
+    )
+    report_context.setdefault(
+        "telemetry_path",
+        str(runtime.telemetry_dir / f"sc_idx_pipeline_{next_state['run_id']}.json"),
     )
     for warning in snapshot_warnings:
         _append_warning(next_state, warning)
