@@ -2,6 +2,7 @@
 set -euo pipefail
 
 EXPECTED_GH_USER="joaotovolli"
+EXPECTED_GH_ID="225354763"
 EXPECTED_GIT_NAME="Joao Tovolli"
 EXPECTED_GIT_EMAIL="225354763+joaotovolli@users.noreply.github.com"
 
@@ -10,6 +11,7 @@ if env | cut -d= -f1 | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN)$'; then
 fi
 
 ACTUAL_GH_USER="$(gh api user -q .login 2>/dev/null || true)"
+ACTUAL_GH_ID="$(gh api user -q .id 2>/dev/null || true)"
 
 if [ "${ACTUAL_GH_USER}" != "${EXPECTED_GH_USER}" ]; then
   echo "BLOCKED: GitHub CLI is authenticated as '${ACTUAL_GH_USER}', expected '${EXPECTED_GH_USER}'."
@@ -17,31 +19,24 @@ if [ "${ACTUAL_GH_USER}" != "${EXPECTED_GH_USER}" ]; then
   exit 2
 fi
 
-GITHUB_ID="$(gh api user -q .id)"
-GITHUB_LOGIN="$(gh api user -q .login)"
-GITHUB_NOREPLY_EMAIL="${GITHUB_ID}+${GITHUB_LOGIN}@users.noreply.github.com"
-
-if [ "${GITHUB_NOREPLY_EMAIL}" != "${EXPECTED_GIT_EMAIL}" ]; then
-  echo "BLOCKED: GitHub noreply email is '${GITHUB_NOREPLY_EMAIL}', expected '${EXPECTED_GIT_EMAIL}'."
+if [ "${ACTUAL_GH_ID}" != "${EXPECTED_GH_ID}" ]; then
+  echo "BLOCKED: GitHub CLI account id is '${ACTUAL_GH_ID}', expected '${EXPECTED_GH_ID}'."
   exit 2
 fi
 
-git config user.name "${EXPECTED_GIT_NAME}"
-git config user.email "${EXPECTED_GIT_EMAIL}"
-
+# This verifier intentionally does not write Git config: Codex workspace-write
+# sandboxes may expose .git/config as read-only.
 ACTUAL_GIT_NAME="$(git config --get user.name || true)"
 ACTUAL_GIT_EMAIL="$(git config --get user.email || true)"
 
-echo "GitHub authenticated user: ${GITHUB_LOGIN}"
+if [ "${ACTUAL_GIT_NAME}" != "${EXPECTED_GIT_NAME}" ] || [ "${ACTUAL_GIT_EMAIL}" != "${EXPECTED_GIT_EMAIL}" ]; then
+  echo "Run from normal WSL shell:"
+  echo "git config user.name \"Joao Tovolli\""
+  echo "git config user.email \"225354763+joaotovolli@users.noreply.github.com\""
+  exit 2
+fi
+
+echo "GitHub authenticated user: ${ACTUAL_GH_USER}"
+echo "GitHub account id: ${ACTUAL_GH_ID}"
 echo "Git author name: ${ACTUAL_GIT_NAME}"
 echo "Git author email: ${ACTUAL_GIT_EMAIL}"
-
-if [ "${ACTUAL_GIT_NAME}" != "${EXPECTED_GIT_NAME}" ]; then
-  echo "BLOCKED: git user.name is not ${EXPECTED_GIT_NAME}."
-  exit 2
-fi
-
-if [ "${ACTUAL_GIT_EMAIL}" != "${EXPECTED_GIT_EMAIL}" ]; then
-  echo "BLOCKED: git user.email is not ${EXPECTED_GIT_EMAIL}."
-  exit 2
-fi

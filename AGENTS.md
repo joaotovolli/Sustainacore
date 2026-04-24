@@ -260,7 +260,7 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 ## GitHub Identity and Contribution Attribution
 - The only allowed GitHub login for write actions is `joaotovolli`.
 - Codex CLI must never create commits, branches, pushes, Pull Requests, Pull Request updates, GitHub comments, or other GitHub write actions using any external Codex, bot, generic, or non-`joaotovolli` GitHub account.
-- Before `git checkout -b`, `git switch -c`, `git commit`, `git push`, `gh pr create`, `gh pr edit`, `gh pr comment`, or any other Git/GitHub write action, Codex must run `bash scripts/verify_github_identity.sh`.
+- Before `git checkout -b`, `git switch -c`, `git commit`, `git push`, `gh pr create`, `gh pr edit`, `gh pr comment`, or any other Git/GitHub write action, Codex must run the read-only identity verifier: `bash scripts/verify_github_identity.sh`.
 - If `gh api user -q .login` does not return `joaotovolli`, Codex may make local file edits only and must stop before Git/GitHub write actions.
 - Git author must be `Joao Tovolli`.
 - Git email must be `225354763+joaotovolli@users.noreply.github.com`.

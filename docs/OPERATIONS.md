@@ -2,7 +2,7 @@
 
 ## GitHub identity and contribution attribution
 - Follow the mandatory identity gate in [AGENTS.md](../AGENTS.md#github-identity-and-contribution-attribution) before any Git or GitHub write action.
-- The only allowed GitHub login for write actions is `joaotovolli`; Codex CLI must stop before commits, branches, pushes, Pull Requests, PR updates, or GitHub comments if `bash scripts/verify_github_identity.sh` does not pass.
+- The only allowed GitHub login for write actions is `joaotovolli`; Codex CLI must stop before commits, branches, pushes, Pull Requests, PR updates, or GitHub comments if the read-only identity verifier `bash scripts/verify_github_identity.sh` does not pass.
 - Git author identity must be `Joao Tovolli <225354763+joaotovolli@users.noreply.github.com>`, and PRs must be opened with `gh` authenticated as `joaotovolli`.
 - Do not add Codex co-author, generated-by, authored-by, bot, or generic attribution trailers, and never print tokens, credentials, or GitHub CLI host configuration while verifying identity.
 
