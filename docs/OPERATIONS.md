@@ -1,5 +1,11 @@
 # Sustainacore Operations Guide
 
+## GitHub identity and contribution attribution
+- Follow the mandatory identity gate in [AGENTS.md](../AGENTS.md#github-identity-and-contribution-attribution) before any Git or GitHub write action.
+- The only allowed GitHub login for write actions is `joaotovolli`; Codex CLI must stop before commits, branches, pushes, Pull Requests, PR updates, or GitHub comments if `bash scripts/verify_github_identity.sh` does not pass.
+- Git author identity must be `Joao Tovolli <225354763+joaotovolli@users.noreply.github.com>`, and PRs must be opened with `gh` authenticated as `joaotovolli`.
+- Do not add Codex co-author, generated-by, authored-by, bot, or generic attribution trailers, and never print tokens, credentials, or GitHub CLI host configuration while verifying identity.
+
 ## Embedding parity
 - `EMBED_MODEL_NAME` is the single source of truth for the embedding model used by the service. The previous `OLLAMA_EMBED_MODEL` is read only for backwards compatibility.
 - At worker start a parity probe reads the Oracle vector column metadata. Dimension or model mismatches log a warning by default.
