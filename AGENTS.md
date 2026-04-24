@@ -300,6 +300,19 @@ dmesg -T | egrep -i "oom|out of memory|killed process" | tail -n 60
 - Migration tool: `tools/db_migrations/migrate_fi_to_fisv.py` (dry-run default, `--apply` to write).
 - Rollback via backup tables `SC_BAK_FI_FISV_*` created per apply run.
 
+## GitHub Identity and Contribution Attribution
+- The only allowed GitHub login for write actions is `joaotovolli`.
+- Codex CLI must never create commits, branches, pushes, Pull Requests, Pull Request updates, GitHub comments, or other GitHub write actions using any external Codex, bot, generic, or non-`joaotovolli` GitHub account.
+- Before `git checkout -b`, `git switch -c`, `git commit`, `git push`, `gh pr create`, `gh pr edit`, `gh pr comment`, or any other Git/GitHub write action, Codex must run `bash scripts/verify_github_identity.sh`.
+- If `gh api user -q .login` does not return `joaotovolli`, Codex may make local file edits only and must stop before Git/GitHub write actions.
+- Git author must be `Joao Tovolli`.
+- Git email must be `225354763+joaotovolli@users.noreply.github.com`.
+- Every Pull Request must be opened with `gh` authenticated as `joaotovolli`.
+- Never add `Co-authored-by` trailers for Codex.
+- Never add `Generated-by Codex`, `Authored-by Codex`, or similar generated-by/authored-by trailers.
+- The final report for PR work must include authenticated GitHub user, local git author, latest commit author, latest commit committer, and Pull Request author when a PR is created.
+- Do not print GitHub tokens, credentials, or GitHub CLI host configuration while verifying identity.
+
 ## GitHub Hygiene: Commits & PRs
 - Commit messages: imperative subject, <= 72 chars, no trailing period.
 - Prefer logical commits for distinct changes; avoid noisy commits like "WIP", "fix", "temp".
