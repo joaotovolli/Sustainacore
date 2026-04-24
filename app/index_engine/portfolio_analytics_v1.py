@@ -225,6 +225,33 @@ def normalize_weights(raw_weights: Mapping[str, float]) -> dict[str, float]:
     return {ticker: weight / total for ticker, weight in cleaned.items() if weight > 0}
 
 
+def _investable_weights(
+    target_weights: Mapping[str, float],
+    anchor_prices: Mapping[str, float],
+) -> dict[str, float]:
+    return normalize_weights(
+        {
+            ticker: weight
+            for ticker, weight in target_weights.items()
+            if _safe_float(anchor_prices.get(ticker)) not in (None, 0)
+        }
+    )
+
+
+def _valuation_price(
+    ticker: str,
+    prices_now: Mapping[str, float],
+    prev_prices: Mapping[str, float],
+) -> float | None:
+    current_price = _safe_float(prices_now.get(ticker))
+    if current_price not in (None, 0):
+        return current_price
+    previous_price = _safe_float(prev_prices.get(ticker))
+    if previous_price not in (None, 0):
+        return previous_price
+    return None
+
+
 def compute_factor_history(
     trade_days: Sequence[_dt.date],
     price_by_date: Mapping[_dt.date, Mapping[str, float]],
@@ -588,18 +615,24 @@ def build_model_path(
             anchor_date = prev_trade or trade_date
             anchor_level = levels_by_date.get(prev_trade, benchmark_levels.get(anchor_date, benchmark_levels[trade_days[0]]))
             anchor_prices = price_by_date.get(anchor_date, {})
+            investable_weights = _investable_weights(target_weights, anchor_prices)
+            if not investable_weights:
+                if current_shares:
+                    current_rebalance = trade_date
+                else:
+                    prev_trade = trade_date
+                continue
             current_shares = {
                 ticker: anchor_level * weight / anchor_prices[ticker]
-                for ticker, weight in target_weights.items()
-                if anchor_prices.get(ticker) not in (None, 0)
+                for ticker, weight in investable_weights.items()
             }
             current_rebalance = trade_date
 
         prices_now = price_by_date.get(trade_date, {})
         market_values = {
-            ticker: shares * prices_now[ticker]
+            ticker: shares * valuation_price
             for ticker, shares in current_shares.items()
-            if prices_now.get(ticker) not in (None, 0)
+            if (valuation_price := _valuation_price(ticker, prices_now, prev_prices)) is not None
         }
         total_market_value = sum(market_values.values())
         if total_market_value <= 0:
