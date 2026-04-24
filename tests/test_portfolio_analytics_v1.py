@@ -8,6 +8,7 @@ from app.index_engine.portfolio_analytics_v1 import (
     OfficialDailyRow,
     OfficialPositionRow,
     PriceRow,
+    build_model_path,
     build_model_target_weights,
     build_portfolio_outputs,
     compute_factor_history,
@@ -39,6 +40,28 @@ def test_build_model_target_weights_supports_equal_and_governance_tilt():
     assert tilted["AAA"] > benchmark["AAA"]
     assert tilted["BBB"] < benchmark["BBB"]
     assert pytest.approx(sum(tilted.values())) == 1.0
+
+
+def test_official_and_equal_weight_match_when_benchmark_is_equal_weighted():
+    benchmark = {"AAA": 0.25, "BBB": 0.25, "CCC": 0.25, "DDD": 0.25}
+    signals = {ticker: 1.0 for ticker in benchmark}
+
+    official = build_model_target_weights(
+        model_code="TECH100",
+        benchmark_weights=benchmark,
+        governance_scores=signals,
+        momentum_scores=signals,
+        low_vol_scores=signals,
+    )
+    equal = build_model_target_weights(
+        model_code="TECH100_EQ",
+        benchmark_weights=benchmark,
+        governance_scores=signals,
+        momentum_scores=signals,
+        low_vol_scores=signals,
+    )
+
+    assert official == pytest.approx(equal)
 
 
 def test_compute_factor_history_uses_trailing_windows():
@@ -190,3 +213,140 @@ def test_build_portfolio_outputs_generates_rows_for_all_models():
         if row["model_code"] == "TECH100_EQ" and row["trade_date"] == trade_days[0]
     ]
     assert {row["ticker"]: row["model_weight"] for row in eq_rows} == {"AAA": 0.5, "BBB": 0.5}
+
+
+def test_model_path_chain_links_rebalance_without_level_cliff():
+    trade_days = [
+        dt.date(2026, 3, 30),
+        dt.date(2026, 3, 31),
+        dt.date(2026, 4, 1),
+        dt.date(2026, 4, 2),
+    ]
+    benchmark_weights_by_date = {
+        trade_days[0]: {"AAA": 0.5, "BBB": 0.5},
+        trade_days[1]: {"AAA": 0.5, "BBB": 0.5},
+        trade_days[2]: {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5},
+        trade_days[3]: {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5},
+    }
+    price_by_date = {
+        trade_days[0]: {"AAA": 100.0, "BBB": 100.0, "CCC": 50.0},
+        trade_days[1]: {"AAA": 101.0, "BBB": 99.0, "CCC": 50.0},
+        trade_days[2]: {"AAA": 102.0, "BBB": 100.0, "CCC": 50.0},
+        trade_days[3]: {"AAA": 103.0, "BBB": 101.0, "CCC": 51.0},
+    }
+
+    levels, weights, *_ = build_model_path(
+        model_code="TECH100_EQ",
+        trade_days=trade_days,
+        rebalance_days=[trade_days[0], trade_days[2]],
+        benchmark_weights_by_date=benchmark_weights_by_date,
+        benchmark_levels={day: 1000.0 for day in trade_days},
+        active_port_by_trade={day: day for day in trade_days},
+        metadata_by_port_date={},
+        factor_history={day: {} for day in trade_days},
+        price_by_date=price_by_date,
+    )
+
+    expected_rebalance_return = ((102.0 / 101.0) + (100.0 / 99.0) + (50.0 / 50.0)) / 3.0 - 1.0
+    assert levels[trade_days[2]] == pytest.approx(levels[trade_days[1]] * (1.0 + expected_rebalance_return))
+    assert sum(weights[trade_days[2]].values()) == pytest.approx(1.0)
+
+
+def test_model_path_renormalizes_missing_anchor_prices_at_rebalance():
+    trade_days = [
+        dt.date(2026, 3, 31),
+        dt.date(2026, 4, 1),
+        dt.date(2026, 4, 2),
+    ]
+    benchmark_weights_by_date = {
+        trade_days[0]: {"AAA": 0.5, "BBB": 0.5},
+        trade_days[1]: {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5},
+        trade_days[2]: {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5},
+    }
+    price_by_date = {
+        trade_days[0]: {"AAA": 100.0, "BBB": 100.0},
+        trade_days[1]: {"AAA": 101.0, "BBB": 99.0, "CCC": 50.0},
+        trade_days[2]: {"AAA": 102.0, "BBB": 100.0, "CCC": 51.0},
+    }
+
+    levels, weights, *_ = build_model_path(
+        model_code="TECH100_EQ",
+        trade_days=trade_days,
+        rebalance_days=[trade_days[0], trade_days[1]],
+        benchmark_weights_by_date=benchmark_weights_by_date,
+        benchmark_levels={day: 1000.0 for day in trade_days},
+        active_port_by_trade={day: day for day in trade_days},
+        metadata_by_port_date={},
+        factor_history={day: {} for day in trade_days},
+        price_by_date=price_by_date,
+    )
+
+    assert levels[trade_days[1]] == pytest.approx(1000.0)
+    assert sum(weights[trade_days[1]].values()) == pytest.approx(1.0)
+    assert "CCC" not in weights[trade_days[1]]
+
+
+def test_model_path_carries_existing_holding_when_current_price_is_missing():
+    trade_days = [
+        dt.date(2026, 3, 31),
+        dt.date(2026, 4, 1),
+    ]
+    benchmark_weights_by_date = {
+        trade_days[0]: {"AAA": 0.5, "BBB": 0.5},
+        trade_days[1]: {"AAA": 0.5, "BBB": 0.5},
+    }
+    price_by_date = {
+        trade_days[0]: {"AAA": 100.0, "BBB": 100.0},
+        trade_days[1]: {"AAA": 102.0},
+    }
+
+    levels, weights, *_ = build_model_path(
+        model_code="TECH100_EQ",
+        trade_days=trade_days,
+        rebalance_days=[trade_days[0]],
+        benchmark_weights_by_date=benchmark_weights_by_date,
+        benchmark_levels={day: 1000.0 for day in trade_days},
+        active_port_by_trade={day: day for day in trade_days},
+        metadata_by_port_date={},
+        factor_history={day: {} for day in trade_days},
+        price_by_date=price_by_date,
+    )
+
+    assert levels[trade_days[1]] == pytest.approx(1010.0)
+    assert sum(weights[trade_days[1]].values()) == pytest.approx(1.0)
+
+
+def test_jan_1_non_trading_day_uses_previous_trade_for_rebalance_anchor():
+    trade_days = [
+        dt.date(2025, 12, 31),
+        dt.date(2026, 1, 2),
+        dt.date(2026, 1, 5),
+        dt.date(2026, 1, 6),
+    ]
+    benchmark_weights_by_date = {
+        trade_days[0]: {"AAA": 0.5, "BBB": 0.5},
+        trade_days[1]: {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5},
+        trade_days[2]: {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5},
+        trade_days[3]: {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5},
+    }
+    price_by_date = {
+        trade_days[0]: {"AAA": 100.0, "BBB": 100.0, "CCC": 50.0},
+        trade_days[1]: {"AAA": 101.0, "BBB": 99.0, "CCC": 50.0},
+        trade_days[2]: {"AAA": 102.0, "BBB": 100.0, "CCC": 51.0},
+        trade_days[3]: {"AAA": 103.0, "BBB": 101.0, "CCC": 52.0},
+    }
+
+    levels, *_ = build_model_path(
+        model_code="TECH100_EQ",
+        trade_days=trade_days,
+        rebalance_days=[trade_days[0], trade_days[1]],
+        benchmark_weights_by_date=benchmark_weights_by_date,
+        benchmark_levels={day: 1000.0 for day in trade_days},
+        active_port_by_trade={day: day for day in trade_days},
+        metadata_by_port_date={},
+        factor_history={day: {} for day in trade_days},
+        price_by_date=price_by_date,
+    )
+
+    assert dt.date(2026, 1, 1) not in trade_days
+    assert levels[trade_days[1]] == pytest.approx(1000.0)
