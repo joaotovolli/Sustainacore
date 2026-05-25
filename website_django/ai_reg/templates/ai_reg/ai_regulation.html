@@ -14,7 +14,7 @@
     <div class="section__header section__header--split ai-reg__page-header">
       <div>
         <span class="pill pill--soft">Global AI Regulation</span>
-        <h1>Regulatory coverage by jurisdiction</h1>
+        <h1>Global AI Regulation coverage by jurisdiction</h1>
         <p class="muted ai-reg__lede">Snapshots of AI regulation status, evidence coverage, and milestones across the world.</p>
       </div>
       <div class="ai-reg__page-brief">
@@ -22,6 +22,42 @@
         <p>Compare global coverage density, open a jurisdiction brief, and move directly into sourced instruments and milestones.</p>
       </div>
     </div>
+
+    <section class="card card--lined" aria-labelledby="ai-reg-fallback-heading">
+      <h2 class="h4" id="ai-reg-fallback-heading">Latest Global AI Regulation snapshot</h2>
+      {% if latest_as_of and fallback_rows %}
+        <p class="muted">
+          Server-rendered summary for <strong data-ai-reg-fallback-date>{{ latest_as_of }}</strong>.
+          The interactive atlas below uses the same snapshot selector when JavaScript is available.
+        </p>
+        <div class="table-wrapper table-wrap sc-table-wrap">
+          <table class="table table--wide sc-table" aria-label="Global AI Regulation crawlable summary">
+            <thead>
+              <tr>
+                <th class="text-left">Jurisdiction</th>
+                <th class="text-right">Instruments</th>
+                <th class="text-right">Primary verified</th>
+                <th class="text-right">Upcoming milestones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in fallback_rows %}
+              <tr>
+                <td class="text-left">{{ row.name|default:row.iso2 }}</td>
+                <td class="text-right">{% firstof row.instruments_count row.instrument_count "0" %}</td>
+                <td class="text-right">{{ row.primary_verified_count|default:"0" }}</td>
+                <td class="text-right">{{ row.milestones_upcoming_count|default:"0" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% elif latest_as_of and fallback_error %}
+        <p class="muted">A snapshot date is available for <strong>{{ latest_as_of }}</strong>, but the server-rendered regulation summary is temporarily unavailable. The page avoids showing partial jurisdiction counts.</p>
+      {% else %}
+        <p class="muted">Global AI Regulation data is temporarily unavailable. The page avoids inventing jurisdiction counts and will populate when the dataset is reachable.</p>
+      {% endif %}
+    </section>
 
     <div
       class="card ai-reg__card ai-reg__card--page"

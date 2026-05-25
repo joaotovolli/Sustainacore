@@ -7,10 +7,24 @@ from ai_reg.data import AiRegDataError
 
 class AiRegViewsTests(TestCase):
     def test_ai_regulation_page_loads(self):
-        with mock.patch("ai_reg.views.ai_reg_data.fetch_as_of_dates", return_value=["2025-01-15"]):
+        heatmap = [
+            {
+                "iso2": "US",
+                "name": "United States",
+                "instruments_count": 2,
+                "primary_verified_count": 1,
+                "milestones_upcoming_count": 3,
+            }
+        ]
+        with (
+            mock.patch("ai_reg.views.ai_reg_data.fetch_as_of_dates", return_value=["2025-01-15"]),
+            mock.patch("ai_reg.views.ai_reg_data.fetch_heatmap", return_value=heatmap),
+        ):
             response = self.client.get("/ai-regulation/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Global AI Regulation")
+        self.assertContains(response, "Latest Global AI Regulation snapshot")
+        self.assertContains(response, "United States")
 
     def test_as_of_dates_endpoint(self):
         with mock.patch("ai_reg.views.ai_reg_data.fetch_as_of_dates", return_value=["2025-01-15"]):
@@ -23,6 +37,17 @@ class AiRegViewsTests(TestCase):
             response = self.client.get("/ai-regulation/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Global AI Regulation")
+        self.assertContains(response, "avoids inventing jurisdiction counts")
+
+    def test_ai_regulation_page_degrades_when_heatmap_is_unavailable(self):
+        with (
+            mock.patch("ai_reg.views.ai_reg_data.fetch_as_of_dates", return_value=["2025-01-15"]),
+            mock.patch("ai_reg.views.ai_reg_data.fetch_heatmap", side_effect=AiRegDataError("offline")),
+        ):
+            response = self.client.get("/ai-regulation/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "2025-01-15")
+        self.assertContains(response, "server-rendered regulation summary is temporarily unavailable")
 
     def test_as_of_dates_endpoint_returns_503_when_data_is_unavailable(self):
         with mock.patch("ai_reg.views.ai_reg_data.fetch_as_of_dates", side_effect=AiRegDataError("offline")):

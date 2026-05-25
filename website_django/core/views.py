@@ -1554,6 +1554,7 @@ def tech100_export(request):
     response["Content-Disposition"] = "attachment; filename=tech100.csv"
 
     headers = [
+        "PORT_DATE",
         "RANK_INDEX",
         "WEIGHT",
         "COMPANY_NAME",
@@ -1578,6 +1579,7 @@ def tech100_export(request):
 
         writer.writerow(
             [
+                _port_date_to_string(company.get("port_date") or company.get("port_date_str")),
                 company.get("rank_index") or "",
                 _format_port_weight(weight_value),
                 company.get("company_name") or "",

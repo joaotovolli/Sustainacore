@@ -61,7 +61,7 @@
                     <nav class="nav nav--primary" aria-label="Primary">
                         <div class="nav__item nav__item--dropdown">
                             <div class="nav__dropdown-trigger {% if request.path|slice:':8' == '/tech100' %}is-active{% endif %}">
-                                <a href="/tech100/index/" class="nav__link nav__link--dropdown-link">Tech100 AI Index</a>
+                                <a href="/tech100/index/" class="nav__link nav__link--dropdown-link">Tech100 AI Ethics &amp; Governance Index</a>
                                 <button class="nav__dropdown-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="tech100-submenu" data-nav-dropdown>
                                     <span class="nav__chevron" aria-hidden="true">▾</span>
                                     <span class="sr-only">Toggle Tech100 menu</span>
@@ -147,7 +147,7 @@
         <small>Preview environment — do not share publicly.</small>
     </div>
     {% endif %}
-    <div class="consent-banner" data-consent-banner hidden>
+    <div class="consent-banner" data-consent-banner data-nosnippet aria-hidden="true" hidden>
         <div class="shell consent-banner__inner">
             <p>Explore Tech100 AI Ethics &amp; Governance Index performance, constituents, attribution, and scores. Manage your analytics preferences below.</p>
             <div class="consent-banner__actions">
@@ -175,7 +175,7 @@
         {% csrf_token %}
     </form>
 
-    <div id="download-auth-modal" class="modal modal--download" data-download-modal aria-hidden="true" hidden>
+    <div id="download-auth-modal" class="modal modal--download" data-download-modal data-nosnippet aria-hidden="true" hidden>
         <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="download-modal-title">
             <div class="modal__header">
                 <div>
@@ -225,7 +225,7 @@
         </div>
     </div>
 
-    <div id="consent-modal" class="modal modal--consent" data-consent-modal aria-hidden="true" hidden>
+    <div id="consent-modal" class="modal modal--consent" data-consent-modal data-nosnippet aria-hidden="true" hidden>
         <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="consent-modal-title">
             <div class="modal__header">
                 <div>
@@ -309,7 +309,7 @@
                 <a href="{% url 'press_index' %}" class="footer__link">Press</a>
             </div>
             <div class="footer__column">
-                <h4>Tech100 AI Ethics &amp; Gov Index</h4>
+                <h4>Tech100 AI Ethics &amp; Governance Index</h4>
                 <a href="/tech100/index/" class="footer__link">Tech100 AI Ethics &amp; Governance Index</a>
                 <a href="/tech100/performance/" class="footer__link">Performance</a>
                 <a href="/tech100/portfolio/" class="footer__link">Portfolio analytics</a>
@@ -333,9 +333,9 @@
         </div>
     </footer>
 
-    <a class="chat-fab" href="{% url 'ask2:ask2_page' %}" aria-label="Open Ask2 AI Assistant">
+    <a class="chat-fab" href="{% url 'ask2:ask2_page' %}" aria-label="Open Ask2" data-nosnippet>
         <span class="chat-fab__icon" aria-hidden="true">💬</span>
-        <span class="chat-fab__label">Ask2 AI</span>
+        <span class="chat-fab__label">Ask2</span>
     </a>
 
     {% block extra_scripts %}{% endblock %}

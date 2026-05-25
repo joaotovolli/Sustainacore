@@ -6,7 +6,7 @@
   if (!ticker) return;
 
   const METRICS = [
-    { key: "composite", label: "Composite AI Gov & Ethics" },
+    { key: "composite", label: "Composite AI Governance & Ethics" },
     { key: "transparency", label: "Transparency" },
     { key: "ethical_principles", label: "Ethical Principles" },
     { key: "governance_structure", label: "Governance Structure" },
