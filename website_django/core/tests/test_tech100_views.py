@@ -11,6 +11,9 @@ from core.auth import COOKIE_NAME
 
 
 class Tech100ViewTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
     @mock.patch("core.views.fetch_news_list")
     @mock.patch("core.views.fetch_tech100")
     def test_home_renders_company_links(self, fetch_tech100, fetch_news_list):
@@ -101,6 +104,10 @@ class Tech100ViewTests(SimpleTestCase):
         section = content[related_idx:end_idx]
         matches = re.findall(r"/tech100/company/[A-Z0-9]+/", section)
         self.assertEqual(len(matches), 5)
+        self.assertIn("Alpha Inc Tech100 summary", content)
+        self.assertIn("Why this score?", content)
+        self.assertIn("/tech100/methodology/", content)
+        self.assertIn("/corrections/", content)
 
     @mock.patch("core.views.fetch_tech100")
     def test_tech100_view_renders_table_headers_and_details(self, fetch_mock):
@@ -135,7 +142,7 @@ class Tech100ViewTests(SimpleTestCase):
             "Governance Structure",
             "Regulatory Alignment",
             "Stakeholder Engagement",
-            "Composite AI Governance & Ethics Score",
+            "Composite AI Governance &amp; Ethics Score",
             "Details",
         ]:
             self.assertIn(header, content)

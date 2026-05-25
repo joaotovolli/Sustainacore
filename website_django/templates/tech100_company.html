@@ -87,7 +87,7 @@
             <span data-company-name>{{ company_name }}</span>
             <span class="muted">({{ ticker }})</span>
           </h1>
-          <p class="muted">Dynamic company report with Tech100 AI Ethics &amp; Governance Index benchmarks.</p>
+          <p class="muted">Company report with Tech100 AI Ethics &amp; Governance Index benchmarks, latest score context, and public methodology links.</p>
           {% if summary_line %}
           <p class="tech100-company__summary-text">{{ summary_line }}</p>
           {% endif %}
@@ -103,6 +103,23 @@
           {% endif %}
         </div>
       </div>
+
+      <section class="card card--lined" aria-labelledby="company-crawl-summary-heading">
+        <h2 class="h4" id="company-crawl-summary-heading">{{ company_name }} Tech100 summary</h2>
+        <p class="muted">
+          {% if latest_date %}Latest data is as of <strong data-company-summary-date>{{ latest_date }}</strong>.{% else %}Latest data date is unavailable.{% endif %}
+          {% if latest_rank %} {{ company_name }} ranks <strong>{{ latest_rank }}</strong> in the Tech100 AI Ethics &amp; Governance Index.{% endif %}
+          The current composite AI Governance &amp; Ethics Score is
+          <strong>{{ latest_scores_display.composite|default:"not available" }}</strong>.
+          {% if sector %} Sector context: <strong>{{ sector }}</strong>.{% endif %}
+        </p>
+        <p class="muted">
+          Why this score? The composite score summarizes transparency, ethical principles,
+          governance structure, regulatory alignment, and stakeholder engagement signals.
+          Review the <a class="text-link" href="/tech100/methodology/">methodology</a> or
+          <a class="text-link" href="/corrections/">report a correction</a>.
+        </p>
+      </section>
 
       <div class="card tech100-company__selectors-card">
         <div class="tech100-company__selectors-grid">
@@ -143,7 +160,7 @@
         </div>
         <div class="tech100-company__dashboard-grid">
           <div class="tech100-company__chart-card tech100-company__chart-card--wide" data-chart-metric="composite">
-            <div class="tech100-company__chart-header">Composite AI Gov &amp; Ethics</div>
+            <div class="tech100-company__chart-header">Composite AI Governance &amp; Ethics</div>
             <div class="tech100-company__chart">
               <canvas id="company-chart-composite" role="img" aria-label="Composite score chart"></canvas>
               <p class="tech100-company__chart-error" data-chart-error="composite" hidden></p>
@@ -253,7 +270,7 @@
           </li>
           {% endfor %}
         </ul>
-        <a class="text-link" href="/tech100/company/">Browse all TECH100 companies →</a>
+        <a class="text-link" href="/tech100/company/">Browse all Tech100 companies →</a>
       </div>
       {% endif %}
     </div>

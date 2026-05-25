@@ -41,6 +41,10 @@ class Tech100IndexViewTests(SimpleTestCase):
         response = self.client.get(reverse("tech100_index"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Performance &amp; Risk")
+        self.assertContains(response, "Data freshness and trust")
+        self.assertContains(response, "data-tech100-freshness-date")
+        self.assertContains(response, "latest Tech100 AI Ethics &amp; Governance Index date")
+        self.assertNotContains(response, "2025-03-04")
 
     @mock.patch.dict(os.environ, {"TECH100_UI_DATA_MODE": "fixture"})
     def test_overview_fixture_mode_has_data_markers(self):

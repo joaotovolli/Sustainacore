@@ -245,3 +245,37 @@ class SeoFoundationsTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn('name="robots"', content)
         self.assertIn("noindex", content)
+
+    @mock.patch("core.views.ai_reg_data.fetch_as_of_dates", return_value=[])
+    @mock.patch("core.views.fetch_news_list", return_value={"items": [], "meta": {}, "error": None})
+    @mock.patch("core.views.fetch_tech100", return_value={"items": [], "error": None, "meta": {}})
+    @mock.patch("core.views.get_latest_trade_date", return_value=None)
+    def test_home_snippet_content_precedes_hidden_ui(
+        self, get_latest_trade_date, fetch_tech100, fetch_news_list, fetch_as_of_dates
+    ):
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("SustainaCore makes AI governance easier to verify.", content)
+        self.assertLess(
+            content.index("SustainaCore makes AI governance easier to verify."),
+            content.index("Manage your privacy preferences"),
+        )
+        self.assertIn('data-download-modal data-nosnippet', content)
+        self.assertIn('data-consent-modal data-nosnippet', content)
+        self.assertIn('data-consent-banner data-nosnippet', content)
+
+    @mock.patch("core.views.ai_reg_data.fetch_as_of_dates", return_value=[])
+    @mock.patch("core.views.fetch_news_list", return_value={"items": [], "meta": {}, "error": None})
+    @mock.patch("core.views.fetch_tech100", return_value={"items": [], "error": None, "meta": {}})
+    @mock.patch("core.views.get_latest_trade_date", return_value=None)
+    def test_home_title_and_description_explain_first_visit_journey(
+        self, get_latest_trade_date, fetch_tech100, fetch_news_list, fetch_as_of_dates
+    ):
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("<title>SustainaCore | AI governance data, regulation, and Ask2</title>", content)
+        self.assertIn("compare AI companies, track Global AI Regulation, ask Ask2", content)

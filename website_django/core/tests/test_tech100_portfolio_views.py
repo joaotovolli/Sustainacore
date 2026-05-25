@@ -17,7 +17,7 @@ class Tech100PortfolioViewTests(SimpleTestCase):
     def test_portfolio_view_renders_fixture_mode(self, _index_latest_mock):
         response = self.client.get(reverse("tech100_portfolio"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "TECH100 Portfolio Analytics")
+        self.assertContains(response, "Tech100 Portfolio Analytics")
         self.assertContains(response, "data-tech100-portfolio-has-data")
         self.assertContains(response, "Daily model tape")
         self.assertContains(response, "Analytics workspace")

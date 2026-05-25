@@ -37,9 +37,21 @@ def ai_regulation_page(request):
     except ai_reg_data.AiRegDataError:
         _log_ai_reg_data_issue("ai_regulation_page_oracle_fallback")
         as_of_dates = []
+    latest_as_of = as_of_dates[0] if as_of_dates else None
+    fallback_rows = []
+    fallback_error = False
+    parsed_latest = _parse_as_of(latest_as_of)
+    if parsed_latest:
+        try:
+            fallback_rows = ai_reg_data.fetch_heatmap(parsed_latest)[:8]
+        except ai_reg_data.AiRegDataError:
+            fallback_error = True
+            _log_ai_reg_data_issue("ai_regulation_page_heatmap_fallback")
     context = {
         "as_of_dates": as_of_dates,
-        "latest_as_of": as_of_dates[0] if as_of_dates else None,
+        "latest_as_of": latest_as_of,
+        "fallback_rows": fallback_rows,
+        "fallback_error": fallback_error,
     }
     return render(request, "ai_reg/ai_regulation.html", context)
 

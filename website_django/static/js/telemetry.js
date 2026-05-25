@@ -63,11 +63,13 @@
   const showBanner = () => {
     if (!banner) return;
     banner.hidden = false;
+    banner.setAttribute("aria-hidden", "false");
     setBodyBannerState(true);
   };
 
   const hideBanner = () => {
     if (!banner) return;
+    banner.setAttribute("aria-hidden", "true");
     banner.hidden = true;
     setBodyBannerState(false);
   };

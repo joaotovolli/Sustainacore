@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}Tech100 Portfolio Analytics | SustainaCore{% endblock %}
-{% block meta_description %}Compare official TECH100 against supported governance, momentum, low-volatility, and hybrid model portfolios with real portfolio analytics from SustainaCore.{% endblock %}
+{% block meta_description %}Compare the official Tech100 AI Ethics & Governance Index against supported governance, momentum, low-volatility, and hybrid model portfolios with real portfolio analytics from SustainaCore.{% endblock %}
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
@@ -15,8 +15,8 @@
       <div class="section__header sc-page-header tech100-portfolio__header">
         <div class="tech100-portfolio__header-copy">
           <span class="pill pill--soft">Tech100 Portfolio Analytics</span>
-          <h1>TECH100 Portfolio Analytics</h1>
-          <p class="muted">A portfolio research workspace built only on the model families and analytics the merged TECH100 backend contract actually supports.</p>
+          <h1>Tech100 Portfolio Analytics</h1>
+          <p class="muted">A portfolio research workspace built only on the model families and analytics the merged Tech100 backend contract actually supports.</p>
           {% if latest_trade_date %}
             <p class="tech100-portfolio__effective-date" id="portfolio-effective-date">
               As of <span data-date-format="as-of" data-date-value="{{ latest_trade_date }}">{{ latest_trade_date }}</span>
@@ -42,7 +42,7 @@
 
       {% if data_error %}
         <div class="alert alert--warning" data-tech100-empty-state="1">
-          TECH100 portfolio analytics are temporarily unavailable. The page is hiding portfolio sections instead of rendering partial claims.
+          Tech100 portfolio analytics are temporarily unavailable. The page is hiding portfolio sections instead of rendering partial claims.
         </div>
       {% elif data_empty %}
         <div class="card sc-card tech100-portfolio__empty" data-tech100-portfolio-empty="1">
@@ -265,7 +265,7 @@
                 </details>
               </div>
               <div class="tech100-portfolio__chart-stage">
-                <canvas id="tech100-portfolio-level-chart" role="img" aria-label="TECH100 portfolio comparison chart"></canvas>
+                <canvas id="tech100-portfolio-level-chart" role="img" aria-label="Tech100 portfolio comparison chart"></canvas>
               </div>
               <div class="tech100-portfolio__legend" id="tech100-portfolio-legend"></div>
             </div>

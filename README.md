@@ -1,11 +1,31 @@
-# Sustainacore
+# SustainaCore
 
 ![CI](https://img.shields.io/badge/status-production_ready-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Contributions](https://img.shields.io/badge/contributions-welcome-brightgreen)
 
 ## Executive Summary
-Sustainacore delivers ESG knowledge retrieval and orchestration services that unify retrieval augmented generation, workflow automation, and governance tooling. This mono-repo tracks the production FastAPI surface, the Django public site served from VM2 (Nginx → Gunicorn), APEX integrations used for secondary/admin flows, database artifacts, and supporting infrastructure that keep the platform reliable for enterprise deployments.
+SustainaCore is a public AI governance research site at <https://sustainacore.org> that helps visitors compare company governance signals, track Global AI Regulation, ask grounded questions with Ask2, and verify methodology and corrections routes.
+
+This mono-repo contains the public Django website served from VM2, the VM1 API/RAG backend that powers Ask2 and data endpoints, operational tooling, tests, and documentation. The public site is intentionally transparent: methodology, sitemap coverage, corrections, and GitHub source context are visible so outsiders can inspect how the product is built and where the data comes from.
+
+### Key public modules
+- **Tech100 AI Ethics & Governance Index:** Company rankings, index performance, constituents, attribution, and methodology for AI governance and ethics signals.
+- **Global AI Regulation:** Jurisdiction-level AI regulation snapshots with instruments, milestones, and evidence coverage when the dataset is available.
+- **Ask2:** A public assistant that answers questions using the SustainaCore backend contract and returns user-facing answers with sources.
+- **News & Insights:** Curated updates around AI governance, transparency, regulation, and accountability.
+
+### Architecture summary
+- **VM2 website:** Django, templates, static assets, sitemap/robots endpoints, and public page rendering under `website_django/`.
+- **VM1 backend:** Retrieval/API services, Ask2 orchestration, Oracle-backed data access, and operational pipelines.
+- **Verification layer:** Django tests, pytest suites, GitHub Actions, sitemap/robots checks, preview deployment, and UI screenshot comparison workflows.
+
+### How to explore
+1. Open the live site: <https://sustainacore.org>.
+2. Start with the [Tech100 AI Ethics & Governance Index](https://sustainacore.org/tech100/index/) to compare companies.
+3. Review [Global AI Regulation](https://sustainacore.org/ai-regulation/) for jurisdiction coverage.
+4. Ask a question in [Ask2](https://sustainacore.org/ask2/).
+5. Verify the [Tech100 methodology](https://sustainacore.org/tech100/methodology/) and use [Corrections & Complaints](https://sustainacore.org/corrections/) for issues.
 
 ## Quick Start
 1. Clone the repository and create a Python virtual environment: `python3 -m venv .venv && source .venv/bin/activate`.
@@ -43,7 +63,7 @@ Sustainacore delivers ESG knowledge retrieval and orchestration services that un
 - Oracle APEX remains available for administrative/legacy workflows only; it is not the primary front-end.
 
 ## VM2 Django Website & Deployment
-- **What VM2 is:** VM2 runs the public Django website for Sustainacore, served by Gunicorn + Nginx. The repository is checked out on VM2 at `/opt/code/Sustainacore`, and the Django project lives in `website_django/`.
+- **What VM2 is:** VM2 runs the public Django website for SustainaCore, served by Gunicorn + Nginx. The repository is checked out on VM2 at `/opt/code/Sustainacore`, and the Django project lives in `website_django/`.
 - **Environment variables and secrets:** Gunicorn loads production settings from `/etc/sustainacore.env` via `EnvironmentFile`. A repo-local `.env.vm2` (present only on VM2 and never committed) is sourced by `deploy_vm2_website.sh` so that values such as `DJANGO_SECRET_KEY=***`, `BACKEND_API_BASE`, and `BACKEND_API_TOKEN` are available while running `manage.py` commands.
 - **Deployment flow:** The "Deploy VM2 Django Website" GitHub Action SSHs to VM2 and runs `bash ./deploy_vm2_website.sh`, making that script the single entry point. Manual deploys follow the same path:
   ```bash
@@ -90,7 +110,7 @@ The helper writes `/etc/systemd/system/sustainacore-ai.service.d/15-persona.conf
 - **Infrastructure tooling** for VM deployment, CI/CD hygiene, and data refresh workflows.
 
 ### Chat routing upgrades
-- `/ask2` now calls the smart router first when `ASK2_ENABLE_SMALLTALK=true`, returning a consistent "Hello! I can help with Sustainacore, TECH100, and ESG questions." greeting without invoking Gemini.
+- `/ask2` now calls the smart router first when `ASK2_ENABLE_SMALLTALK=true`, returning a consistent "Hello! I can help with SustainaCore, Tech100, and ESG questions." greeting without invoking Gemini.
 - Normal Q&A responses reformat sources via the router formatter, dedupe duplicate citations, and honor `ASK2_MAX_SOURCES` plus `ASK2_SOURCE_LABEL_MODE=concise` for compact labels.
 - The Gemini composer validates responses that arrive wrapped in fenced ```json code-blocks and reuses the parsed `answer`/`sources` whenever present.
 - A similarity guard enforces `SIMILARITY_FLOOR`: if the top retrieval score falls below the floor, the API responds with a clarifier instead of ungrounded sources and sets `meta.routing="low_conf"`.

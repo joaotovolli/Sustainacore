@@ -103,7 +103,7 @@
       labels: data.map((point) => point.date),
       datasets: [
         {
-          label: "Tech100 AI Ethics & Gov Index",
+          label: "Tech100 AI Ethics & Governance Index",
           data: data.map((point) => point.level),
           borderColor: "#1c2b4a",
           borderWidth: 2,
@@ -208,7 +208,7 @@
         labels: levelsData.map((point) => point.date),
         datasets: [
           {
-            label: "Tech100 AI Ethics & Gov Index",
+            label: "Tech100 AI Ethics & Governance Index",
             data: levelsData.map((point) => point.level),
             borderColor: "#1c2b4a",
             borderWidth: 2,
@@ -305,7 +305,7 @@
 
     const levelChart = buildLineChart(
       levelCanvas,
-      "Tech100 AI Ethics & Gov Index",
+      "Tech100 AI Ethics & Governance Index",
       levels.map((point) => ({ date: point.date, value: point.level })),
       "#1c2b4a"
     );

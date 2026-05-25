@@ -35,9 +35,11 @@
       </p>
       <div class="meta-grid">
         {% if latest_date %}
-        <div class="meta-grid__item">Last updated: <strong>{{ latest_date }}</strong></div>
+        <div class="meta-grid__item">Last updated: <strong data-tech100-company-root-date>{{ latest_date }}</strong></div>
         {% endif %}
         <div class="meta-grid__item">Companies: <strong>{{ company_count }}</strong></div>
+        <div class="meta-grid__item"><a class="text-link" href="/tech100/methodology/">Methodology</a></div>
+        <div class="meta-grid__item"><a class="text-link" href="/corrections/">Corrections</a></div>
       </div>
     </header>
 

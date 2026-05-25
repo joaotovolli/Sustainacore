@@ -10,7 +10,7 @@
   <div class="shell">
     <div class="section__header">
       <div>
-        <span class="pill pill--soft">Tech100 AI Ethics &amp; Gov Index</span>
+        <span class="pill pill--soft">Tech100 AI Ethics &amp; Governance Index</span>
         <h1>Governance scores</h1>
         <p class="muted">Tech100 AI Ethics &amp; Governance Index ranking and filters.</p>
         <p class="disclaimer-banner">
@@ -32,7 +32,7 @@
     <div class="card">
       <div class="card__header card__header--split">
         <div>
-          <h2 class="h4">Tech100 AI Ethics &amp; Gov Index – Constituents</h2>
+          <h2 class="h4">Tech100 AI Ethics &amp; Governance Index - Constituents</h2>
           <p class="muted" id="constituents-summary">
             {% if is_preview %}
               Showing {{ preview_limit }} of {{ total_count }} companies (preview). Verify your email to unlock the full list.
@@ -298,7 +298,7 @@
           </table>
       </div>
       {% if is_preview %}
-      <div class="constituents-locked" data-constituents-locked data-open-download-modal data-intent="unlock_table"
+      <div class="constituents-locked" data-constituents-locked data-nosnippet data-open-download-modal data-intent="unlock_table"
            data-next-url="{{ request.get_full_path }}"
            data-port-date="{{ filters.port_date }}"
            data-page="/tech100/scores/"
@@ -356,6 +356,7 @@
   <div
     class="modal"
     id="tech100-modal"
+    data-nosnippet
     role="dialog"
     aria-modal="true"
     aria-labelledby="tech100-modal-title"
