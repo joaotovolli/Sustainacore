@@ -321,6 +321,7 @@ h3 {
     gap: 1rem;
     padding: 1.2rem 0;
     position: relative;
+    min-width: 0;
 }
 
 .topbar__nav {
@@ -336,6 +337,8 @@ h3 {
     display: flex;
     align-items: center;
     gap: 0.7rem;
+    flex: 0 1 220px;
+    min-width: 0;
 }
 
 .brand-mark {
@@ -395,17 +398,24 @@ h3 {
 .brand__text {
     display: flex;
     flex-direction: column;
+    min-width: 0;
 }
 
 .brand__name {
     font-weight: 700;
     font-size: 1rem;
     color: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .brand__tagline {
     font-size: 0.9rem;
     color: #dce4ff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .topbar__center {
@@ -419,6 +429,7 @@ h3 {
     display: flex;
     align-items: center;
     flex: 0 0 auto;
+    min-width: max-content;
 }
 
 .brand--footer .brand__name {
@@ -431,7 +442,7 @@ h3 {
 
 .nav {
     display: flex;
-    gap: 0.7rem;
+    gap: clamp(0.35rem, 0.8vw, 0.7rem);
     justify-content: flex-end;
 }
 
@@ -451,7 +462,7 @@ h3 {
 
 .nav__link {
     color: inherit;
-    padding: 0.55rem 0.85rem;
+    padding: 0.55rem clamp(0.55rem, 0.85vw, 0.85rem);
     border-radius: 999px;
     transition: background 0.2s ease, color 0.2s ease;
     font-weight: 700;
@@ -4470,7 +4481,7 @@ textarea:focus {
     }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1120px) {
     .brand__tagline {
         display: none;
     }
