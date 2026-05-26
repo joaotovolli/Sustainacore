@@ -61,7 +61,12 @@
                     <nav class="nav nav--primary" aria-label="Primary">
                         <div class="nav__item nav__item--dropdown">
                             <div class="nav__dropdown-trigger {% if request.path|slice:':8' == '/tech100' %}is-active{% endif %}">
-                                <a href="/tech100/index/" class="nav__link nav__link--dropdown-link">Tech100 AI Ethics &amp; Governance Index</a>
+                                <a
+                                    href="/tech100/index/"
+                                    class="nav__link nav__link--dropdown-link"
+                                    aria-label="Tech100 AI Ethics &amp; Governance Index"
+                                    title="Tech100 AI Ethics &amp; Governance Index"
+                                >Tech100 AI Index</a>
                                 <button class="nav__dropdown-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="tech100-submenu" data-nav-dropdown>
                                     <span class="nav__chevron" aria-hidden="true">▾</span>
                                     <span class="sr-only">Toggle Tech100 menu</span>
