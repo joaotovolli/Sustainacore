@@ -452,6 +452,32 @@ def _eligible_probe_window(
     return eligible[-lookback_days:]
 
 
+def _provider_readiness_status(provider: Any, probe_symbol: str, day: _dt.date) -> Literal["OK", "NO_DATA"]:
+    has_eod_for_date = getattr(provider, "has_eod_for_date", None)
+    if callable(has_eod_for_date):
+        try:
+            return "OK" if has_eod_for_date(probe_symbol, day) else "NO_DATA"
+        except Exception as exc:
+            text = str(exc).lower()
+            if (
+                "no data" in text
+                or "not ready" in text
+                or "404" in text
+                or "market_data_http_error:400" in text
+            ):
+                return "NO_DATA"
+            raise
+
+    try:
+        rows = provider.fetch_single_day_bar(probe_symbol, day)
+    except Exception as exc:
+        text = str(exc).lower()
+        if "no data" in text or "not ready" in text or "404" in text or "market_data_http_error:400" in text:
+            return "NO_DATA"
+        raise
+    return "OK" if rows else "NO_DATA"
+
+
 def _report_root_cause(state: PipelineGraphState) -> str | None:
     if state.get("root_cause"):
         return state["root_cause"]
@@ -645,13 +671,17 @@ class SCIdxPipelineRuntime:
 
         refresh_attempts = max(1, _env_int(run_daily.TRADING_DAYS_RETRY_ENV, 3))
         refresh_backoff = max(0.0, _env_float(run_daily.TRADING_DAYS_RETRY_BASE_ENV, 1.0))
-        updated, update_error = trading_days_module.update_trading_days_with_retry(
-            auto_extend=True,
-            max_attempts=refresh_attempts,
-            backoff_base_sec=refresh_backoff,
-            allow_cached_on_403=True,
-            allow_cached_on_timeout=True,
-        )
+        try:
+            updated, update_error = trading_days_module.update_trading_days_with_retry(
+                auto_extend=True,
+                max_attempts=refresh_attempts,
+                backoff_base_sec=refresh_backoff,
+                allow_cached_on_403=True,
+                allow_cached_on_timeout=True,
+            )
+        except Exception as exc:
+            updated = False
+            update_error = str(exc)
         if not updated and update_error:
             warnings.append(f"trading_days_cached:{update_error}")
 
@@ -800,14 +830,7 @@ class SCIdxPipelineRuntime:
             )
 
             def _probe(day: _dt.date) -> str:
-                try:
-                    rows = provider.fetch_single_day_bar(probe_symbol_for_ready, day)
-                except Exception as exc:
-                    text = str(exc).lower()
-                    if "no data" in text or "not ready" in text or "404" in text:
-                        return "NO_DATA"
-                    raise
-                return "OK" if rows else "NO_DATA"
+                return _provider_readiness_status(provider, probe_symbol_for_ready, day)
 
             try:
                 ready_end, tried_ready_dates = run_daily._probe_with_fallback(
@@ -822,6 +845,7 @@ class SCIdxPipelineRuntime:
                     "error": str(exc),
                     "error_token": "provider_probe_failed",
                     "retryable": True,
+                    "warnings": warnings,
                     "context": {
                         "today_utc": today_utc,
                         "calendar_max_date": calendar_max,
@@ -857,6 +881,7 @@ class SCIdxPipelineRuntime:
                     "terminal_status": "clean_skip",
                     "error_token": "provider_not_ready",
                     "counts": {"tried_dates": [day.isoformat() for day in tried_ready_dates]},
+                    "warnings": warnings,
                     "context": {
                         "today_utc": today_utc,
                         "calendar_max_date": calendar_max,
@@ -981,14 +1006,7 @@ class SCIdxPipelineRuntime:
             }
 
         def _probe(day: _dt.date) -> str:
-            try:
-                rows = provider.fetch_single_day_bar(probe_symbol, day)
-            except Exception as exc:
-                text = str(exc).lower()
-                if "no data" in text or "not ready" in text or "404" in text:
-                    return "NO_DATA"
-                raise
-            return "OK" if rows else "NO_DATA"
+            return _provider_readiness_status(provider, probe_symbol, day)
 
         try:
             ready_end, tried = run_daily._probe_with_fallback(candidate_end, trading_days, probe_fn=_probe)

@@ -42,3 +42,36 @@ def test_build_pipeline_run_summary_marks_success_stale_when_stats_before_lag():
     assert summary["freshness"]["stats_max_date"] == "2026-03-31"
     assert summary["freshness"]["health"]["verdict"] == "stale"
     assert "stats_behind_levels" in summary["freshness"]["health"]["stale_signals"]
+
+
+def test_build_pipeline_run_summary_does_not_set_failed_stage_for_clean_skip():
+    summary = build_pipeline_run_summary(
+        run_id="run-skip",
+        terminal_status="clean_skip",
+        started_at="2026-05-29T18:56:49+00:00",
+        stage_results={
+            "determine_target_dates": {"status": "SKIP", "counts": {}, "attempts": 1},
+            "generate_run_report": {"status": "OK", "counts": {}, "attempts": 1},
+        },
+        context={
+            "ended_at": "2026-05-29T18:58:51+00:00",
+            "expected_target_date": "2026-05-28",
+            "expected_target_source": "provider_not_ready",
+            "max_canon_before": "2026-05-27",
+            "max_level_before": "2026-05-27",
+            "max_stats_before": "2026-05-27",
+            "max_portfolio_before": "2026-05-27",
+            "max_portfolio_position_before": "2026-05-27",
+            "provider_ready": False,
+            "repo_root": "/repo",
+            "repo_head": "abc1234",
+        },
+        warnings=[],
+        status_reason="provider_not_ready",
+        root_cause=None,
+        remediation="Wait for the market data provider to publish the latest EOD bars, then rerun.",
+    )
+
+    assert summary["overall_health"] == "Skipped"
+    assert summary["failed_stage"] is None
+    assert summary["freshness"]["health"]["verdict"] == "provider_not_ready"

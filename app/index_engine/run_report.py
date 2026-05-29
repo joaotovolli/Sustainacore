@@ -411,6 +411,7 @@ def build_pipeline_run_summary(
     duration_sec = _duration_seconds(started_at, ended_at)
     stage_outcomes = _stage_outcomes(stage_results)
     primary_stage = _primary_stage(stage_results, terminal_status, status_reason)
+    failed_stage = primary_stage if terminal_status in {"failed", "blocked"} else None
     alert_decision = context.get("alert_payload")
     runtime_identity = {
         "repo_root": context.get("repo_root"),
@@ -427,7 +428,7 @@ def build_pipeline_run_summary(
         "ended_at": _iso(ended_at),
         "duration_sec": duration_sec,
         "status_reason": status_reason,
-        "failed_stage": primary_stage,
+        "failed_stage": failed_stage,
         "root_cause": root_cause,
         "remediation": remediation,
         "warnings": warnings,
