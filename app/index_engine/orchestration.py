@@ -440,6 +440,44 @@ def _select_next_missing_trading_day(
     return None
 
 
+def _eligible_probe_window(
+    trading_days: list[_dt.date],
+    candidate_end: _dt.date,
+    *,
+    lookback_days: int,
+) -> list[_dt.date]:
+    eligible = [day for day in trading_days if day <= candidate_end]
+    if lookback_days <= 0:
+        return eligible
+    return eligible[-lookback_days:]
+
+
+def _provider_readiness_status(provider: Any, probe_symbol: str, day: _dt.date) -> Literal["OK", "NO_DATA"]:
+    has_eod_for_date = getattr(provider, "has_eod_for_date", None)
+    if callable(has_eod_for_date):
+        try:
+            return "OK" if has_eod_for_date(probe_symbol, day) else "NO_DATA"
+        except Exception as exc:
+            text = str(exc).lower()
+            if (
+                "no data" in text
+                or "not ready" in text
+                or "404" in text
+                or "market_data_http_error:400" in text
+            ):
+                return "NO_DATA"
+            raise
+
+    try:
+        rows = provider.fetch_single_day_bar(probe_symbol, day)
+    except Exception as exc:
+        text = str(exc).lower()
+        if "no data" in text or "not ready" in text or "404" in text or "market_data_http_error:400" in text:
+            return "NO_DATA"
+        raise
+    return "OK" if rows else "NO_DATA"
+
+
 def _report_root_cause(state: PipelineGraphState) -> str | None:
     if state.get("root_cause"):
         return state["root_cause"]
@@ -633,13 +671,17 @@ class SCIdxPipelineRuntime:
 
         refresh_attempts = max(1, _env_int(run_daily.TRADING_DAYS_RETRY_ENV, 3))
         refresh_backoff = max(0.0, _env_float(run_daily.TRADING_DAYS_RETRY_BASE_ENV, 1.0))
-        updated, update_error = trading_days_module.update_trading_days_with_retry(
-            auto_extend=True,
-            max_attempts=refresh_attempts,
-            backoff_base_sec=refresh_backoff,
-            allow_cached_on_403=True,
-            allow_cached_on_timeout=True,
-        )
+        try:
+            updated, update_error = trading_days_module.update_trading_days_with_retry(
+                auto_extend=True,
+                max_attempts=refresh_attempts,
+                backoff_base_sec=refresh_backoff,
+                allow_cached_on_403=True,
+                allow_cached_on_timeout=True,
+            )
+        except Exception as exc:
+            updated = False
+            update_error = str(exc)
         if not updated and update_error:
             warnings.append(f"trading_days_cached:{update_error}")
 
@@ -710,12 +752,6 @@ class SCIdxPipelineRuntime:
         next_missing_canon = run_daily.select_next_missing_trading_day(trading_days, max_canon_trade_date=max_canon_date)
         next_missing_calc = _select_next_missing_trading_day(trading_days, max_calc_complete_date)
         next_missing_portfolio = _select_next_missing_trading_day(trading_days, max_portfolio_complete_date)
-        ingest_required = (
-            not state.get("skip_ingest")
-            and candidate_end is not None
-            and next_missing_canon is not None
-            and next_missing_canon <= candidate_end
-        )
         if max_provider_calls <= 0:
             return {
                 "status": "SKIP",
@@ -748,7 +784,7 @@ class SCIdxPipelineRuntime:
                 "remediation": "Wait for the UTC budget window to reset or raise the SC_IDX daily call limit.",
             }
 
-        if candidate_end is None and not ingest_required and next_missing_calc is None and next_missing_portfolio is None:
+        if candidate_end is None and next_missing_calc is None and next_missing_portfolio is None:
             return {
                 "status": "SKIP",
                 "detail": "up_to_date",
@@ -775,9 +811,125 @@ class SCIdxPipelineRuntime:
                 },
             }
 
+        ready_end = candidate_end
+        provider_ready = None
+        tried_ready_dates: list[_dt.date] = []
+        if candidate_end is not None and next_missing_canon is not None and next_missing_canon <= candidate_end:
+            probe_symbol_for_ready = os.getenv(run_daily.PROBE_SYMBOL_ENV, "SPY")
+            lookback_days = max(
+                1,
+                _env_int(
+                    getattr(run_daily, "PROVIDER_READY_LOOKBACK_DAYS_ENV", "SC_IDX_PROVIDER_READY_LOOKBACK_DAYS"),
+                    getattr(run_daily, "DEFAULT_PROVIDER_READY_LOOKBACK_DAYS", 5),
+                ),
+            )
+            probe_days = _eligible_probe_window(
+                trading_days,
+                candidate_end,
+                lookback_days=lookback_days,
+            )
+
+            def _probe(day: _dt.date) -> str:
+                return _provider_readiness_status(provider, probe_symbol_for_ready, day)
+
+            try:
+                ready_end, tried_ready_dates = run_daily._probe_with_fallback(
+                    candidate_end,
+                    probe_days,
+                    probe_fn=_probe,
+                )
+            except Exception as exc:
+                return {
+                    "status": "FAILED",
+                    "detail": "provider_probe_failed",
+                    "error": str(exc),
+                    "error_token": "provider_probe_failed",
+                    "retryable": True,
+                    "warnings": warnings,
+                    "context": {
+                        "today_utc": today_utc,
+                        "calendar_max_date": calendar_max,
+                        "provider_latest_date": provider_latest,
+                        "candidate_end_date": candidate_end,
+                        "expected_target_date": expected_target_date,
+                        "expected_target_source": expected_target_source,
+                        "provider_ready": False,
+                        "provider_ready_tried_dates": tried_ready_dates,
+                        "trading_days": trading_days,
+                        "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
+                        "max_canon_before": max_canon_date,
+                        "max_level_before": max_level_date,
+                        "max_contribution_before": max_contribution_date,
+                        "max_stats_before": max_stats_date,
+                        "max_calc_complete_before": max_calc_complete_date,
+                        "max_portfolio_before": max_portfolio_date,
+                        "max_portfolio_position_before": max_portfolio_position_date,
+                        "max_portfolio_opt_inputs_before": max_portfolio_opt_inputs_date,
+                        "max_portfolio_complete_before": max_portfolio_complete_date,
+                    },
+                    "remediation": (
+                        "Retry after the price provider stabilizes or run "
+                        "`python3 tools/index_engine/debug_provider_availability.py --debug`."
+                    ),
+                }
+
+            provider_ready = ready_end is not None and ready_end >= candidate_end
+            if ready_end is None or next_missing_canon > ready_end:
+                return {
+                    "status": "SKIP",
+                    "detail": "provider_not_ready",
+                    "terminal_status": "clean_skip",
+                    "error_token": "provider_not_ready",
+                    "counts": {"tried_dates": [day.isoformat() for day in tried_ready_dates]},
+                    "warnings": warnings,
+                    "context": {
+                        "today_utc": today_utc,
+                        "calendar_max_date": calendar_max,
+                        "provider_latest_date": provider_latest,
+                        "candidate_end_date": candidate_end,
+                        "ready_end_date": ready_end,
+                        "expected_target_date": expected_target_date,
+                        "expected_target_source": "provider_not_ready",
+                        "provider_ready": False,
+                        "provider_ready_tried_dates": tried_ready_dates,
+                        "trading_days": trading_days,
+                        "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
+                        "next_missing_canon_date": next_missing_canon,
+                        "next_missing_calc_date": next_missing_calc,
+                        "next_missing_portfolio_date": next_missing_portfolio,
+                        "ingest_required": False,
+                        "max_canon_before": max_canon_date,
+                        "max_level_before": max_level_date,
+                        "max_contribution_before": max_contribution_date,
+                        "max_stats_before": max_stats_date,
+                        "max_calc_complete_before": max_calc_complete_date,
+                        "max_portfolio_before": max_portfolio_date,
+                        "max_portfolio_position_before": max_portfolio_position_date,
+                        "max_portfolio_opt_inputs_before": max_portfolio_opt_inputs_date,
+                        "max_portfolio_complete_before": max_portfolio_complete_date,
+                    },
+                    "remediation": "Wait for the market data provider to publish the latest EOD bars, then rerun.",
+                }
+
+            expected_target_date = ready_end
+            expected_target_source = "readiness_probe"
+            if ready_end < candidate_end:
+                warnings.append(
+                    f"ready_end={ready_end.isoformat()} candidate_end={candidate_end.isoformat()}"
+                )
+
+        effective_end = ready_end or candidate_end
+        ingest_required = (
+            not state.get("skip_ingest")
+            and effective_end is not None
+            and next_missing_canon is not None
+            and next_missing_canon <= effective_end
+        )
+
         status = "DEGRADED" if warnings else "OK"
         detail = (
             f"candidate_end={candidate_end.isoformat() if candidate_end else None} "
+            f"ready_end={effective_end.isoformat() if effective_end else None} "
             f"next_missing_canon={next_missing_canon.isoformat() if next_missing_canon else None} "
             f"next_missing_calc={next_missing_calc.isoformat() if next_missing_calc else None} "
             f"next_missing_portfolio={next_missing_portfolio.isoformat() if next_missing_portfolio else None}"
@@ -787,8 +939,11 @@ class SCIdxPipelineRuntime:
             "calendar_max_date": calendar_max,
             "provider_latest_date": provider_latest,
             "candidate_end_date": candidate_end,
+            "ready_end_date": effective_end,
             "expected_target_date": expected_target_date,
             "expected_target_source": expected_target_source,
+            "provider_ready": provider_ready,
+            "provider_ready_tried_dates": tried_ready_dates,
             "trading_days": trading_days,
             "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
             "next_missing_canon_date": next_missing_canon,
@@ -821,6 +976,7 @@ class SCIdxPipelineRuntime:
             "warnings": warnings,
             "counts": {
                 "candidate_end_date": candidate_end,
+                "ready_end_date": effective_end,
                 "max_provider_calls": max_provider_calls,
                 "remaining_daily": remaining_daily,
             },
@@ -833,6 +989,8 @@ class SCIdxPipelineRuntime:
         context = state.get("context") or {}
         if not context.get("ingest_required"):
             return {"status": "SKIP", "detail": "ingest_not_required"}
+        if context.get("provider_ready_tried_dates"):
+            return {"status": "OK", "detail": "provider_ready_already_checked"}
 
         run_daily = self._load_run_daily_module()
         provider = run_daily._load_provider_module()
@@ -848,14 +1006,7 @@ class SCIdxPipelineRuntime:
             }
 
         def _probe(day: _dt.date) -> str:
-            try:
-                rows = provider.fetch_single_day_bar(probe_symbol, day)
-            except Exception as exc:
-                text = str(exc).lower()
-                if "no data" in text or "not ready" in text or "404" in text:
-                    return "NO_DATA"
-                raise
-            return "OK" if rows else "NO_DATA"
+            return _provider_readiness_status(provider, probe_symbol, day)
 
         try:
             ready_end, tried = run_daily._probe_with_fallback(candidate_end, trading_days, probe_fn=_probe)
@@ -1767,12 +1918,16 @@ def _stage_executor(
         try:
             raw_result = handler(next_state) or {}
         except Exception as exc:
+            remediation = None
+            if stage_name == "determine_target_dates":
+                remediation = "Inspect target-date calendar/provider readiness inputs, then rerun the pipeline."
             raw_result = {
                 "status": "FAILED",
                 "detail": f"{stage_name}_exception",
                 "error": str(exc),
                 "error_token": stage_name,
                 "retryable": _is_oracle_transient_error(exc),
+                "remediation": remediation,
             }
 
         status = _normalize_stage_status(raw_result.get("status"))

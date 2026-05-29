@@ -165,6 +165,9 @@ def _freshness_health(
     *,
     expected_target_date: Any = None,
     allowed_lag_days: int | None = None,
+    terminal_status: str | None = None,
+    status_reason: str | None = None,
+    root_cause: str | None = None,
 ) -> dict[str, Any]:
     dates = {
         "canon": _parse_date(freshness.get("canon_max_date")),
@@ -210,7 +213,13 @@ def _freshness_health(
         if signal not in deduped_signals:
             deduped_signals.append(signal)
 
-    if deduped_signals:
+    if root_cause == "determine_target_dates" or status_reason == "determine_target_dates":
+        verdict = "failed"
+        reason = "target_date_determination_failed"
+    elif status_reason == "provider_not_ready":
+        verdict = "provider_not_ready"
+        reason = "latest_expected_date_not_provider_ready"
+    elif deduped_signals:
         verdict = "stale"
         reason = deduped_signals[0]
     elif any(value is not None for value in dates.values()):
@@ -230,6 +239,22 @@ def _freshness_health(
         "lag_days_latest_complete": latest_complete_lag,
         "stale_signals": deduped_signals,
     }
+
+
+def _recommended_next_action(summary: Dict[str, Any]) -> str:
+    remediation = summary.get("remediation")
+    if remediation:
+        return str(remediation)
+    terminal_status = summary.get("terminal_status")
+    if terminal_status in {"failed", "blocked"}:
+        failed_stage = summary.get("failed_stage") or summary.get("root_cause") or "pipeline"
+        return f"Operator action required: inspect failed stage {failed_stage}."
+    operational = summary.get("operational_state") or {}
+    if operational.get("freshness_verdict") == "provider_not_ready":
+        return "Wait for market data provider readiness, then rerun the pipeline."
+    if operational.get("freshness_verdict") == "stale":
+        return "Rerun the pipeline for the latest provider-ready trading date."
+    return "No operator action required."
 
 
 def _overall_health_label(terminal_status: str | None, freshness_health: Dict[str, Any] | None = None) -> str:
@@ -363,7 +388,13 @@ def build_pipeline_run_summary(
         or context.get("candidate_end_date")
         or context.get("calendar_max_date")
     )
-    freshness_health = _freshness_health(freshness, expected_target_date=expected_target_date)
+    freshness_health = _freshness_health(
+        freshness,
+        expected_target_date=expected_target_date,
+        terminal_status=terminal_status,
+        status_reason=status_reason,
+        root_cause=root_cause,
+    )
     freshness.update(
         {
             "expected_target_date": freshness_health.get("expected_target_date"),
@@ -380,6 +411,7 @@ def build_pipeline_run_summary(
     duration_sec = _duration_seconds(started_at, ended_at)
     stage_outcomes = _stage_outcomes(stage_results)
     primary_stage = _primary_stage(stage_results, terminal_status, status_reason)
+    failed_stage = primary_stage if terminal_status in {"failed", "blocked"} else None
     alert_decision = context.get("alert_payload")
     runtime_identity = {
         "repo_root": context.get("repo_root"),
@@ -396,7 +428,7 @@ def build_pipeline_run_summary(
         "ended_at": _iso(ended_at),
         "duration_sec": duration_sec,
         "status_reason": status_reason,
-        "failed_stage": primary_stage,
+        "failed_stage": failed_stage,
         "root_cause": root_cause,
         "remediation": remediation,
         "warnings": warnings,
@@ -405,7 +437,6 @@ def build_pipeline_run_summary(
             context.get("levels_max_after")
             or context.get("max_level_before")
             or context.get("max_canon_after_ingest")
-            or context.get("candidate_end_date")
             or context.get("max_canon_before")
         ),
         "latest_successful_trade_date": context.get("levels_max_after") or context.get("max_level_before"),
@@ -435,7 +466,11 @@ def build_pipeline_run_summary(
             "max_provider_calls": context.get("max_provider_calls"),
         },
         "operational_state": {
-            "provider_ready": bool(context.get("ready_end_date")),
+            "provider_ready": (
+                bool(context.get("provider_ready"))
+                if context.get("provider_ready") is not None
+                else bool(context.get("ready_end_date"))
+            ),
             "ingest_ran": stage_statuses.get("ingest_prices") not in {None, "SKIP"},
             "completeness_status": stage_statuses.get("completeness_check"),
             "imputation_used": bool(counts.get("total_imputed") or counts.get("canon_imputed")),
@@ -579,7 +614,7 @@ def format_pipeline_terminal_report(summary: Dict[str, Any]) -> str:
         lines.append("- none")
 
     lines.append("")
-    lines.append(f"Recommended next action: {summary.get('remediation') or 'No operator action required.'}")
+    lines.append(f"Recommended next action: {_recommended_next_action(summary)}")
     return "\n".join(lines)
 
 
