@@ -4,6 +4,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from tools.index_engine import ingest_prices
 from tools.index_engine.ingest_prices import compute_canonical_rows, _build_raw_rows_from_provider
 
 
@@ -39,3 +40,62 @@ def test_build_raw_rows_skips_null_close():
     raw_rows = _build_raw_rows_from_provider(rows)
     assert len(raw_rows) == 1
     assert raw_rows[0]["ticker"] == "BBB"
+
+
+def test_backfill_extends_short_cached_calendar_to_ready_end(monkeypatch):
+    calls = []
+    raw_written = []
+    canon_written = []
+
+    monkeypatch.setattr(
+        ingest_prices,
+        "fetch_trading_days",
+        lambda start, end: [_dt.date(2026, 5, 28)],
+    )
+    monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["AAPL"])
+    monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+
+    def fake_fetch_provider_rows(ticker, start_date, end_date):
+        calls.append((ticker, start_date, end_date))
+        return [
+            {"ticker": ticker, "trade_date": "2026-05-28", "close": 101.0, "adj_close": 101.0},
+            {"ticker": ticker, "trade_date": "2026-05-29", "close": 102.0, "adj_close": 102.0},
+        ]
+
+    def fake_upsert_raw(rows):
+        raw_written.extend(rows)
+        return len(rows)
+
+    def fake_upsert_canon(rows):
+        canon_written.extend(rows)
+        return len(rows)
+
+    monkeypatch.setattr(ingest_prices, "_fetch_provider_rows", fake_fetch_provider_rows)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_raw", fake_upsert_raw)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_canon", fake_upsert_canon)
+
+    args = type(
+        "Args",
+        (),
+        {
+            "start": "2026-05-28",
+            "end": "2026-05-29",
+            "tickers": None,
+            "debug": False,
+            "max_provider_calls": None,
+        },
+    )()
+
+    code, summary = ingest_prices._run_backfill(args)
+
+    assert code == 0
+    assert calls == [("AAPL", _dt.date(2026, 5, 28), _dt.date(2026, 5, 29))]
+    assert {row["trade_date"] for row in raw_written} == {
+        _dt.date(2026, 5, 28),
+        _dt.date(2026, 5, 29),
+    }
+    assert {row["trade_date"] for row in canon_written} == {
+        _dt.date(2026, 5, 28),
+        _dt.date(2026, 5, 29),
+    }
+    assert summary["max_ok_trade_date"] == _dt.date(2026, 5, 29)

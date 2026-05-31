@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import http.client  # preload stdlib http to avoid local http shadowing
+import os
 import pathlib
 import sys
 from collections import defaultdict
@@ -17,6 +18,7 @@ for path in (REPO_ROOT, APP_PATH):
 
 from tools.oracle.env_bootstrap import load_env_files
 
+from index_engine.data_quality import generate_weekdays
 from index_engine.db import (
     fetch_constituent_tickers,
     fetch_distinct_tech100_tickers,
@@ -32,6 +34,8 @@ from providers.market_data_provider import fetch_eod_prices, fetch_single_day_ba
 
 PROVIDER = "MARKET_DATA"
 TICKER_ALIASES = {"FI": "FISV"}
+TRADING_DAY_FALLBACK_MAX_GAP_ENV = "SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP"
+DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP = 3
 
 
 def _normalize_ticker(value: str) -> str:
@@ -54,6 +58,43 @@ def _parse_dates(args: argparse.Namespace) -> list[_dt.date]:
         days = (end - start).days + 1
         return [start + _dt.timedelta(days=i) for i in range(days)]
     raise ValueError("Provide --date or both --start and --end")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _extend_short_trading_calendar(
+    trading_days: list[_dt.date],
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+) -> tuple[list[_dt.date], list[_dt.date]]:
+    """Extend a short cached calendar to the requested ready end date.
+
+    The pipeline reaches this helper only after provider readiness has selected
+    the target date. Extending the working calendar lets ingest fetch real bars
+    for a recently missing trading-day row without writing imputed prices.
+    """
+
+    if not trading_days:
+        return trading_days, []
+    ordered = sorted(set(trading_days))
+    last_known = ordered[-1]
+    if last_known >= end_date:
+        return ordered, []
+
+    max_gap = max(0, _env_int(TRADING_DAY_FALLBACK_MAX_GAP_ENV, DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP))
+    synthetic_days = generate_weekdays(max(last_known + _dt.timedelta(days=1), start_date), end_date)
+    if not synthetic_days or len(synthetic_days) > max_gap:
+        return ordered, []
+    return sorted(set(ordered + synthetic_days)), synthetic_days
 
 
 def _split_tickers(raw: Optional[str]) -> list[str]:
@@ -349,6 +390,19 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
     if not trading_days:
         print("No trading days found for requested range")
         return 1, {}
+    trading_days, synthetic_days = _extend_short_trading_calendar(
+        trading_days,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if synthetic_days:
+        print(
+            "backfill_calendar_fallback: start={start} end={end} count={count}".format(
+                start=synthetic_days[0].isoformat(),
+                end=synthetic_days[-1].isoformat(),
+                count=len(synthetic_days),
+            )
+        )
     last_trading_day = trading_days[-1]
 
     max_provider_calls = args.max_provider_calls
@@ -572,6 +626,19 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
     if not trading_days:
         print("No trading days found for requested range")
         return 1, {}
+    trading_days, synthetic_days = _extend_short_trading_calendar(
+        trading_days,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if synthetic_days:
+        print(
+            "backfill_missing_calendar_fallback: start={start} end={end} count={count}".format(
+                start=synthetic_days[0].isoformat(),
+                end=synthetic_days[-1].isoformat(),
+                count=len(synthetic_days),
+            )
+        )
 
     tickers = _split_tickers(args.tickers)
     impacted_by_date: dict[_dt.date, list[str]] = {}
