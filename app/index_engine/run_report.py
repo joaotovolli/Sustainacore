@@ -213,7 +213,11 @@ def _freshness_health(
         if signal not in deduped_signals:
             deduped_signals.append(signal)
 
-    if root_cause == "determine_target_dates" or status_reason == "determine_target_dates":
+    target_date_failed = (
+        terminal_status in {"failed", "blocked"}
+        and (root_cause == "determine_target_dates" or status_reason == "determine_target_dates")
+    )
+    if target_date_failed:
         verdict = "failed"
         reason = "target_date_determination_failed"
     elif status_reason == "provider_not_ready":
