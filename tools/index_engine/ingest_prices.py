@@ -83,14 +83,18 @@ def _extend_short_trading_calendar(
     for a recently missing trading-day row without writing imputed prices.
     """
 
+    max_gap = max(0, _env_int(TRADING_DAY_FALLBACK_MAX_GAP_ENV, DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP))
     if not trading_days:
-        return trading_days, []
+        synthetic_days = generate_weekdays(start_date, end_date)
+        if not synthetic_days or len(synthetic_days) > max_gap:
+            return trading_days, []
+        return synthetic_days, synthetic_days
+
     ordered = sorted(set(trading_days))
     last_known = ordered[-1]
     if last_known >= end_date:
         return ordered, []
 
-    max_gap = max(0, _env_int(TRADING_DAY_FALLBACK_MAX_GAP_ENV, DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP))
     synthetic_days = generate_weekdays(max(last_known + _dt.timedelta(days=1), start_date), end_date)
     if not synthetic_days or len(synthetic_days) > max_gap:
         return ordered, []
@@ -387,14 +391,14 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
         return 1, {}
 
     trading_days = fetch_trading_days(start_date, end_date)
-    if not trading_days:
-        print("No trading days found for requested range")
-        return 1, {}
     trading_days, synthetic_days = _extend_short_trading_calendar(
         trading_days,
         start_date=start_date,
         end_date=end_date,
     )
+    if not trading_days:
+        print("No trading days found for requested range")
+        return 1, {}
     if synthetic_days:
         print(
             "backfill_calendar_fallback: start={start} end={end} count={count}".format(
@@ -623,14 +627,14 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
         return 1, {}
 
     trading_days = fetch_trading_days(start_date, end_date)
-    if not trading_days:
-        print("No trading days found for requested range")
-        return 1, {}
     trading_days, synthetic_days = _extend_short_trading_calendar(
         trading_days,
         start_date=start_date,
         end_date=end_date,
     )
+    if not trading_days:
+        print("No trading days found for requested range")
+        return 1, {}
     if synthetic_days:
         print(
             "backfill_missing_calendar_fallback: start={start} end={end} count={count}".format(

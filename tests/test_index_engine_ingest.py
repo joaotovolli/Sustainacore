@@ -99,3 +99,41 @@ def test_backfill_extends_short_cached_calendar_to_ready_end(monkeypatch):
         _dt.date(2026, 5, 29),
     }
     assert summary["max_ok_trade_date"] == _dt.date(2026, 5, 29)
+
+
+def test_backfill_uses_bounded_weekday_when_cached_calendar_missing_target(monkeypatch):
+    calls = []
+    raw_written = []
+    canon_written = []
+
+    monkeypatch.setattr(ingest_prices, "fetch_trading_days", lambda start, end: [])
+    monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["MSFT"])
+    monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+
+    def fake_fetch_provider_rows(ticker, start_date, end_date):
+        calls.append((ticker, start_date, end_date))
+        return [{"ticker": ticker, "trade_date": "2026-05-29", "close": 203.0, "adj_close": 203.0}]
+
+    monkeypatch.setattr(ingest_prices, "_fetch_provider_rows", fake_fetch_provider_rows)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_raw", lambda rows: raw_written.extend(rows) or len(rows))
+    monkeypatch.setattr(ingest_prices, "upsert_prices_canon", lambda rows: canon_written.extend(rows) or len(rows))
+
+    args = type(
+        "Args",
+        (),
+        {
+            "start": "2026-05-29",
+            "end": "2026-05-29",
+            "tickers": None,
+            "debug": False,
+            "max_provider_calls": None,
+        },
+    )()
+
+    code, summary = ingest_prices._run_backfill(args)
+
+    assert code == 0
+    assert calls == [("MSFT", _dt.date(2026, 5, 29), _dt.date(2026, 5, 29))]
+    assert [row["trade_date"] for row in raw_written] == [_dt.date(2026, 5, 29)]
+    assert [row["trade_date"] for row in canon_written] == [_dt.date(2026, 5, 29)]
+    assert summary["max_ok_trade_date"] == _dt.date(2026, 5, 29)
