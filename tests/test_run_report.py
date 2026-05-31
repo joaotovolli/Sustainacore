@@ -75,3 +75,37 @@ def test_build_pipeline_run_summary_does_not_set_failed_stage_for_clean_skip():
     assert summary["overall_health"] == "Skipped"
     assert summary["failed_stage"] is None
     assert summary["freshness"]["health"]["verdict"] == "provider_not_ready"
+
+
+def test_degraded_target_date_warning_keeps_aligned_data_fresh():
+    summary = build_pipeline_run_summary(
+        run_id="run-degraded-fresh",
+        terminal_status="success_with_degradation",
+        started_at="2026-05-31T13:14:59+00:00",
+        stage_results={
+            "determine_target_dates": {"status": "DEGRADED", "counts": {}, "attempts": 1},
+            "calc_index": {"status": "OK", "counts": {}, "attempts": 1},
+            "portfolio_analytics": {"status": "OK", "counts": {}, "attempts": 1},
+            "generate_run_report": {"status": "OK", "counts": {}, "attempts": 1},
+        },
+        context={
+            "ended_at": "2026-05-31T13:15:22+00:00",
+            "expected_target_date": "2026-05-29",
+            "expected_target_source": "weekday_fallback",
+            "max_canon_after_ingest": "2026-05-29",
+            "levels_max_after": "2026-05-29",
+            "stats_max_after": "2026-05-29",
+            "portfolio_max_after": "2026-05-29",
+            "portfolio_position_max_after": "2026-05-29",
+            "repo_root": "/repo",
+            "repo_head": "abc1234",
+        },
+        warnings=["trading_days_weekday_fallback:start=2026-05-29 end=2026-05-29 count=1"],
+        status_reason="determine_target_dates",
+        root_cause=None,
+        remediation=None,
+    )
+
+    assert summary["terminal_status"] == "success_with_degradation"
+    assert summary["freshness"]["health"]["verdict"] == "fresh"
+    assert summary["freshness"]["health"]["reason"] == "aligned_with_expected"

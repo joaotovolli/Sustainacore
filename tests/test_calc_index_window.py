@@ -66,3 +66,27 @@ def test_select_calc_window_reprocesses_when_stats_lag_levels():
     assert status is None
     assert new_start == dt.date(2026, 4, 1)
     assert filtered == [dt.date(2026, 4, 1)]
+
+
+def test_extend_short_trading_calendar_adds_recent_missing_target():
+    trading_days = [dt.date(2026, 5, 28)]
+
+    extended, synthetic = calc_index._extend_short_trading_calendar(
+        trading_days,
+        start_date=dt.date(2026, 5, 28),
+        end_date=dt.date(2026, 5, 29),
+    )
+
+    assert synthetic == [dt.date(2026, 5, 29)]
+    assert extended == [dt.date(2026, 5, 28), dt.date(2026, 5, 29)]
+
+
+def test_extend_short_trading_calendar_handles_single_missing_target():
+    extended, synthetic = calc_index._extend_short_trading_calendar(
+        [],
+        start_date=dt.date(2026, 5, 29),
+        end_date=dt.date(2026, 5, 29),
+    )
+
+    assert synthetic == [dt.date(2026, 5, 29)]
+    assert extended == [dt.date(2026, 5, 29)]

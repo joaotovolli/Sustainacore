@@ -475,7 +475,7 @@ def test_determine_target_dates_clean_skips_when_provider_not_ready(monkeypatch,
     assert result["context"]["ingest_required"] is False
 
 
-def test_determine_target_dates_maps_readiness_http_400_to_clean_skip(monkeypatch, tmp_path):
+def test_determine_target_dates_uses_window_probe_when_exact_readiness_http_400(monkeypatch, tmp_path):
     trading_days = [dt.date(2026, 5, 26), dt.date(2026, 5, 27), dt.date(2026, 5, 28)]
 
     def _raise_no_bar(_symbol, _day):
@@ -484,7 +484,7 @@ def test_determine_target_dates_maps_readiness_http_400_to_clean_skip(monkeypatc
     provider = SimpleNamespace(
         fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
         has_eod_for_date=_raise_no_bar,
-        fetch_single_day_bar=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("fallback not expected")),
+        fetch_single_day_bar=lambda _symbol, day: [{"trade_date": day.isoformat(), "close": "1"}],
     )
     trading_days_module = SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None))
     fake_run_daily = SimpleNamespace(
@@ -544,11 +544,88 @@ def test_determine_target_dates_maps_readiness_http_400_to_clean_skip(monkeypatc
 
     result = runtime.determine_target_dates(_state(smoke=False))
 
-    assert result["status"] == "SKIP"
-    assert result["terminal_status"] == "clean_skip"
-    assert result["error_token"] == "provider_not_ready"
-    assert result["context"]["provider_ready"] is False
-    assert result["context"]["provider_ready_tried_dates"] == trading_days[::-1]
+    assert result["status"] == "OK"
+    assert result["context"]["provider_ready"] is True
+    assert result["context"]["ready_end_date"] == dt.date(2026, 5, 28)
+    assert result["context"]["ingest_required"] is True
+
+
+def test_determine_target_dates_uses_alternate_probe_symbol_when_primary_missing(monkeypatch, tmp_path):
+    trading_days = [dt.date(2026, 5, 28), dt.date(2026, 5, 29)]
+
+    def _fetch(symbol, day):
+        if symbol == "AAPL" and day == dt.date(2026, 5, 29):
+            return [{"trade_date": day.isoformat(), "close": "1"}]
+        return []
+
+    provider = SimpleNamespace(
+        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_single_day_bar=_fetch,
+        has_eod_for_date=lambda _symbol, _day: False,
+    )
+    trading_days_module = SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None))
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        TRADING_DAYS_RETRY_ENV="SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS",
+        TRADING_DAYS_RETRY_BASE_ENV="SC_IDX_TRADING_DAYS_RETRY_BASE_SEC",
+        PROVIDER_READY_LOOKBACK_DAYS_ENV="SC_IDX_PROVIDER_READY_LOOKBACK_DAYS",
+        DEFAULT_PROVIDER_READY_LOOKBACK_DAYS=5,
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: trading_days_module,
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (800, 775),
+        _resolve_end_date=lambda provider, probe_symbol, today_utc: (
+            dt.date(2026, 5, 29),
+            trading_days,
+            dt.date(2026, 5, 29),
+        ),
+        derive_expected_target_date=lambda provider_latest, today_utc, trading_days, allow_weekday_fallback: (
+            dt.date(2026, 5, 29),
+            "calendar",
+            trading_days,
+            [],
+        ),
+        select_next_missing_trading_day=lambda trading_days, max_canon_trade_date=None: dt.date(2026, 5, 28),
+        _probe_with_fallback=run_daily._probe_with_fallback,
+        compute_eligible_end_date=lambda provider_latest, today_utc, trading_days: dt.date(2026, 5, 29),
+    )
+    runtime = SCIdxPipelineRuntime(report_dir=tmp_path, telemetry_dir=tmp_path / "telemetry", state_store=_FakeStore())
+
+    monkeypatch.setenv("SC_IDX_READINESS_PROBE_SYMBOLS", "SPY,AAPL")
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("index_engine.orchestration.engine_db.fetch_max_canon_trade_date", lambda: dt.date(2026, 5, 27))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_level_date", lambda: dt.date(2026, 5, 27))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_contribution_date", lambda: dt.date(2026, 5, 27))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_stats_date", lambda: dt.date(2026, 5, 27))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_calc_completion_max_date", lambda: dt.date(2026, 5, 27))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 5, 27),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 5, 27),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 5, 27),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
+        lambda: dt.date(2026, 5, 27),
+    )
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "OK"
+    assert result["context"]["ready_end_date"] == dt.date(2026, 5, 29)
+    assert result["context"]["ingest_start_date"] == dt.date(2026, 5, 28)
+    assert result["context"]["ingest_required"] is True
 
 
 def test_determine_target_dates_uses_cached_calendar_when_refresh_raises(monkeypatch, tmp_path):
@@ -623,6 +700,78 @@ def test_determine_target_dates_uses_cached_calendar_when_refresh_raises(monkeyp
     assert result["terminal_status"] == "clean_skip"
     assert result["context"]["ready_end_date"] == dt.date(2026, 5, 27)
     assert any("trading_days_cached:market_data_http_error:400" == warning for warning in result["warnings"])
+
+
+def test_determine_target_dates_suppresses_calendar_warning_when_up_to_date(monkeypatch, tmp_path):
+    trading_days = [dt.date(2026, 5, 28), dt.date(2026, 5, 29)]
+    provider = SimpleNamespace(
+        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+    )
+
+    def _raise_refresh(**_kwargs):
+        raise RuntimeError("market_data_http_error:400")
+
+    trading_days_module = SimpleNamespace(update_trading_days_with_retry=_raise_refresh)
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        TRADING_DAYS_RETRY_ENV="SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS",
+        TRADING_DAYS_RETRY_BASE_ENV="SC_IDX_TRADING_DAYS_RETRY_BASE_SEC",
+        PROVIDER_READY_LOOKBACK_DAYS_ENV="SC_IDX_PROVIDER_READY_LOOKBACK_DAYS",
+        DEFAULT_PROVIDER_READY_LOOKBACK_DAYS=5,
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: trading_days_module,
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (800, 775),
+        _resolve_end_date=lambda provider, probe_symbol, today_utc: (
+            dt.date(2026, 5, 29),
+            trading_days,
+            dt.date(2026, 5, 29),
+        ),
+        derive_expected_target_date=lambda provider_latest, today_utc, trading_days, allow_weekday_fallback: (
+            dt.date(2026, 5, 29),
+            "calendar",
+            trading_days,
+            [],
+        ),
+        select_next_missing_trading_day=lambda trading_days, max_canon_trade_date=None: None,
+        _probe_with_fallback=run_daily._probe_with_fallback,
+        compute_eligible_end_date=lambda provider_latest, today_utc, trading_days: dt.date(2026, 5, 29),
+    )
+    runtime = SCIdxPipelineRuntime(report_dir=tmp_path, telemetry_dir=tmp_path / "telemetry", state_store=_FakeStore())
+
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("index_engine.orchestration.engine_db.fetch_max_canon_trade_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_level_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_contribution_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_stats_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_calc_completion_max_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 5, 29),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 5, 29),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 5, 28),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
+        lambda: dt.date(2026, 5, 29),
+    )
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "OK"
+    assert result["warnings"] == []
+    assert result["counts"]["calendar_warnings"] == ["trading_days_cached:market_data_http_error:400"]
 
 
 def test_target_date_failure_report_requires_operator_action(tmp_path):
@@ -785,6 +934,47 @@ def test_portfolio_analytics_reruns_when_positions_lag(monkeypatch, tmp_path):
     assert result["status"] == "OK"
     assert captured["argv"][captured["argv"].index("--start") + 1] == "2026-04-01"
     assert result["context"]["portfolio_position_max_after"] == dt.date(2026, 4, 1)
+
+
+def test_imputation_skips_when_real_prices_are_complete(monkeypatch, tmp_path):
+    runtime = SCIdxPipelineRuntime(
+        report_dir=tmp_path,
+        telemetry_dir=tmp_path / "telemetry",
+        state_store=_FakeStore(),
+    )
+
+    def _unexpected_impute(**_kwargs):
+        raise AssertionError("imputer should not run when real prices are complete")
+
+    monkeypatch.setenv("SC_IDX_IMPUTED_REPLACEMENT_LIMIT", "0")
+    monkeypatch.setattr(
+        runtime,
+        "_load_impute_module",
+        lambda: SimpleNamespace(
+            select_replacement_tickers=lambda *_args, **_kwargs: [],
+            impute_missing_prices=_unexpected_impute,
+        ),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.engine_db.fetch_missing_real_for_trade_date",
+        lambda trade_date: [],
+    )
+
+    state = _state(
+        smoke=False,
+        context={
+            "calc_target_day": dt.date(2026, 5, 29),
+            "calc_end_date": dt.date(2026, 5, 29),
+            "trading_days": ["2026-05-29"],
+            "provider_calls_remaining": 0,
+        },
+    )
+
+    result = runtime.imputation_or_replacement(state)
+
+    assert result["status"] == "SKIP"
+    assert result["detail"] == "no_imputation_required:2026-05-29..2026-05-29"
+    assert result["counts"]["missing_real_count"] == 0
 
 
 def test_portfolio_analytics_accepts_rebalance_scoped_optimizer_inputs(monkeypatch, tmp_path):
