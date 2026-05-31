@@ -1358,6 +1358,36 @@ class SCIdxPipelineRuntime:
                         int(context.get("provider_calls_remaining") or 0) - replacement_calls,
                     )
 
+        trading_days = _context_trading_days(context, default_end=end_day)
+        window_days = [day for day in trading_days if target_day <= day <= end_day]
+        if not window_days and target_day == end_day:
+            window_days = [target_day]
+        missing_real_by_day = {
+            day: engine_db.fetch_missing_real_for_trade_date(day)
+            for day in window_days
+        }
+        missing_real_count = sum(len(tickers) for tickers in missing_real_by_day.values())
+        if missing_real_count == 0 and not replacement_tickers:
+            summary = {
+                "total_imputed": 0,
+                "canon_imputed": 0,
+                "missing_without_prior": 0,
+                "missing_without_prior_rows": [],
+                "per_date": [],
+                "top_tickers": [],
+            }
+            return {
+                "status": "SKIP",
+                "detail": f"no_imputation_required:{target_day.isoformat()}..{end_day.isoformat()}",
+                "counts": {
+                    **summary,
+                    "missing_real_count": 0,
+                    "replacement_calls_used": replacement_calls,
+                    "replacement_tickers": replacement_tickers,
+                },
+                "context": {"imputation_summary": summary},
+            }
+
         max_runtime_sec = _env_float("SC_IDX_IMPUTE_TIMEOUT_SEC", 300.0)
         try:
             summary = impute_module.impute_missing_prices(

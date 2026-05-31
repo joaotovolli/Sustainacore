@@ -864,6 +864,47 @@ def test_portfolio_analytics_reruns_when_positions_lag(monkeypatch, tmp_path):
     assert result["context"]["portfolio_position_max_after"] == dt.date(2026, 4, 1)
 
 
+def test_imputation_skips_when_real_prices_are_complete(monkeypatch, tmp_path):
+    runtime = SCIdxPipelineRuntime(
+        report_dir=tmp_path,
+        telemetry_dir=tmp_path / "telemetry",
+        state_store=_FakeStore(),
+    )
+
+    def _unexpected_impute(**_kwargs):
+        raise AssertionError("imputer should not run when real prices are complete")
+
+    monkeypatch.setenv("SC_IDX_IMPUTED_REPLACEMENT_LIMIT", "0")
+    monkeypatch.setattr(
+        runtime,
+        "_load_impute_module",
+        lambda: SimpleNamespace(
+            select_replacement_tickers=lambda *_args, **_kwargs: [],
+            impute_missing_prices=_unexpected_impute,
+        ),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.engine_db.fetch_missing_real_for_trade_date",
+        lambda trade_date: [],
+    )
+
+    state = _state(
+        smoke=False,
+        context={
+            "calc_target_day": dt.date(2026, 5, 29),
+            "calc_end_date": dt.date(2026, 5, 29),
+            "trading_days": ["2026-05-29"],
+            "provider_calls_remaining": 0,
+        },
+    )
+
+    result = runtime.imputation_or_replacement(state)
+
+    assert result["status"] == "SKIP"
+    assert result["detail"] == "no_imputation_required:2026-05-29..2026-05-29"
+    assert result["counts"]["missing_real_count"] == 0
+
+
 def test_portfolio_analytics_accepts_rebalance_scoped_optimizer_inputs(monkeypatch, tmp_path):
     captured = {}
     current = {
