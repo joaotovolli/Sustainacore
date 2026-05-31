@@ -452,30 +452,70 @@ def _eligible_probe_window(
     return eligible[-lookback_days:]
 
 
-def _provider_readiness_status(provider: Any, probe_symbol: str, day: _dt.date) -> Literal["OK", "NO_DATA"]:
+READINESS_PROBE_SYMBOLS_ENV = "SC_IDX_READINESS_PROBE_SYMBOLS"
+
+
+def _provider_no_data_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "no data" in text or "not ready" in text or "404" in text or "market_data_http_error:400" in text
+
+
+def _readiness_probe_symbols(default_symbol: str) -> list[str]:
+    raw_symbols = os.getenv(READINESS_PROBE_SYMBOLS_ENV) or default_symbol
+    symbols = [symbol.strip().upper() for symbol in raw_symbols.split(",") if symbol.strip()]
+    tickers = [symbol.strip().upper() for symbol in (os.getenv("SC_IDX_TICKERS") or "").split(",") if symbol.strip()]
+    ordered: list[str] = []
+    for symbol in symbols + tickers[:3]:
+        if symbol and symbol not in ordered:
+            ordered.append(symbol)
+    return ordered or [default_symbol]
+
+
+def _provider_symbol_readiness_status(provider: Any, probe_symbol: str, day: _dt.date) -> Literal["OK", "NO_DATA"]:
+    fetch_single_day_bar = getattr(provider, "fetch_single_day_bar", None)
+    if callable(fetch_single_day_bar):
+        try:
+            rows = fetch_single_day_bar(probe_symbol, day)
+        except Exception as exc:
+            if _provider_no_data_error(exc):
+                rows = []
+            else:
+                raise
+        if rows:
+            return "OK"
+
     has_eod_for_date = getattr(provider, "has_eod_for_date", None)
     if callable(has_eod_for_date):
         try:
             return "OK" if has_eod_for_date(probe_symbol, day) else "NO_DATA"
         except Exception as exc:
-            text = str(exc).lower()
-            if (
-                "no data" in text
-                or "not ready" in text
-                or "404" in text
-                or "market_data_http_error:400" in text
-            ):
+            if _provider_no_data_error(exc):
                 return "NO_DATA"
             raise
 
-    try:
-        rows = provider.fetch_single_day_bar(probe_symbol, day)
-    except Exception as exc:
-        text = str(exc).lower()
-        if "no data" in text or "not ready" in text or "404" in text or "market_data_http_error:400" in text:
-            return "NO_DATA"
-        raise
-    return "OK" if rows else "NO_DATA"
+    return "NO_DATA"
+
+
+def _provider_readiness_status(
+    provider: Any,
+    probe_symbols: str | list[str],
+    day: _dt.date,
+) -> Literal["OK", "NO_DATA"]:
+    symbols = [probe_symbols] if isinstance(probe_symbols, str) else list(probe_symbols)
+    errors: list[Exception] = []
+    for symbol in symbols:
+        try:
+            status = _provider_symbol_readiness_status(provider, symbol, day)
+        except Exception as exc:
+            errors.append(exc)
+            continue
+        if status == "OK":
+            return "OK"
+    if errors and not symbols:
+        raise errors[-1]
+    if errors and len(errors) == len(symbols):
+        raise errors[-1]
+    return "NO_DATA"
 
 
 def _report_root_cause(state: PipelineGraphState) -> str | None:
@@ -816,6 +856,7 @@ class SCIdxPipelineRuntime:
         tried_ready_dates: list[_dt.date] = []
         if candidate_end is not None and next_missing_canon is not None and next_missing_canon <= candidate_end:
             probe_symbol_for_ready = os.getenv(run_daily.PROBE_SYMBOL_ENV, "SPY")
+            probe_symbols_for_ready = _readiness_probe_symbols(probe_symbol_for_ready)
             lookback_days = max(
                 1,
                 _env_int(
@@ -830,7 +871,7 @@ class SCIdxPipelineRuntime:
             )
 
             def _probe(day: _dt.date) -> str:
-                return _provider_readiness_status(provider, probe_symbol_for_ready, day)
+                return _provider_readiness_status(provider, probe_symbols_for_ready, day)
 
             try:
                 ready_end, tried_ready_dates = run_daily._probe_with_fallback(
@@ -995,6 +1036,7 @@ class SCIdxPipelineRuntime:
         run_daily = self._load_run_daily_module()
         provider = run_daily._load_provider_module()
         probe_symbol = os.getenv(run_daily.PROBE_SYMBOL_ENV, "SPY")
+        probe_symbols = _readiness_probe_symbols(probe_symbol)
         candidate_end = _coerce_date(context.get("candidate_end_date"))
         trading_days = _context_trading_days(context, default_end=candidate_end)
         if candidate_end is None or not trading_days:
@@ -1006,7 +1048,7 @@ class SCIdxPipelineRuntime:
             }
 
         def _probe(day: _dt.date) -> str:
-            return _provider_readiness_status(provider, probe_symbol, day)
+            return _provider_readiness_status(provider, probe_symbols, day)
 
         try:
             ready_end, tried = run_daily._probe_with_fallback(candidate_end, trading_days, probe_fn=_probe)
