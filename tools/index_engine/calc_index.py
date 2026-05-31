@@ -14,6 +14,7 @@ for path in (REPO_ROOT, APP_ROOT):
         sys.path.insert(0, str(path))
 
 from tools.index_engine.env_loader import load_default_env
+from index_engine.data_quality import generate_weekdays
 from index_engine.alert_state import should_send_alert_once_per_day
 from index_engine.alerts import send_email
 from index_engine.index_calc_v1 import (
@@ -31,6 +32,8 @@ from index_engine import db as engine_db
 BASE_DATE = _dt.date(2025, 1, 2)
 BASE_LEVEL = 1000.0
 UNIVERSE_DEF = "top25_port_weight_gt0_latest_port_date_le_trade_date"
+TRADING_DAY_FALLBACK_MAX_GAP_ENV = "SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP"
+DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP = 3
 
 
 def _parse_date(value: str) -> _dt.date:
@@ -38,6 +41,41 @@ def _parse_date(value: str) -> _dt.date:
     if text == "today":
         return _dt.date.today()
     return _dt.date.fromisoformat(text)
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _extend_short_trading_calendar(
+    trading_days: List[_dt.date],
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+) -> tuple[List[_dt.date], List[_dt.date]]:
+    if not trading_days:
+        max_gap = max(0, _env_int(TRADING_DAY_FALLBACK_MAX_GAP_ENV, DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP))
+        synthetic_days = generate_weekdays(start_date, end_date)
+        if not synthetic_days or len(synthetic_days) > max_gap:
+            return trading_days, []
+        return synthetic_days, synthetic_days
+
+    ordered = sorted(set(trading_days))
+    last_known = ordered[-1]
+    if last_known >= end_date:
+        return ordered, []
+
+    max_gap = max(0, _env_int(TRADING_DAY_FALLBACK_MAX_GAP_ENV, DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP))
+    synthetic_days = generate_weekdays(max(last_known + _dt.timedelta(days=1), start_date), end_date)
+    if not synthetic_days or len(synthetic_days) > max_gap:
+        return ordered, []
+    return sorted(set(ordered + synthetic_days)), synthetic_days
 
 
 def _next_trading_day(trading_days: List[_dt.date], date: _dt.date) -> _dt.date | None:
@@ -430,6 +468,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     trading_days = db.fetch_trading_days(start_date, end_date)
+    trading_days, synthetic_days = _extend_short_trading_calendar(
+        trading_days,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if synthetic_days:
+        print(
+            "index_calc_calendar_fallback: start={start} end={end} count={count}".format(
+                start=synthetic_days[0].isoformat(),
+                end=synthetic_days[-1].isoformat(),
+                count=len(synthetic_days),
+            )
+        )
     max_complete_date = db.fetch_calc_completion_max_date()
     start_date, trading_days, window_status = _select_calc_window(
         trading_days=trading_days,
