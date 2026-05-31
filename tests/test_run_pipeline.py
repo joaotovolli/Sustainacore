@@ -702,6 +702,78 @@ def test_determine_target_dates_uses_cached_calendar_when_refresh_raises(monkeyp
     assert any("trading_days_cached:market_data_http_error:400" == warning for warning in result["warnings"])
 
 
+def test_determine_target_dates_suppresses_calendar_warning_when_up_to_date(monkeypatch, tmp_path):
+    trading_days = [dt.date(2026, 5, 28), dt.date(2026, 5, 29)]
+    provider = SimpleNamespace(
+        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+    )
+
+    def _raise_refresh(**_kwargs):
+        raise RuntimeError("market_data_http_error:400")
+
+    trading_days_module = SimpleNamespace(update_trading_days_with_retry=_raise_refresh)
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        TRADING_DAYS_RETRY_ENV="SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS",
+        TRADING_DAYS_RETRY_BASE_ENV="SC_IDX_TRADING_DAYS_RETRY_BASE_SEC",
+        PROVIDER_READY_LOOKBACK_DAYS_ENV="SC_IDX_PROVIDER_READY_LOOKBACK_DAYS",
+        DEFAULT_PROVIDER_READY_LOOKBACK_DAYS=5,
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: trading_days_module,
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (800, 775),
+        _resolve_end_date=lambda provider, probe_symbol, today_utc: (
+            dt.date(2026, 5, 29),
+            trading_days,
+            dt.date(2026, 5, 29),
+        ),
+        derive_expected_target_date=lambda provider_latest, today_utc, trading_days, allow_weekday_fallback: (
+            dt.date(2026, 5, 29),
+            "calendar",
+            trading_days,
+            [],
+        ),
+        select_next_missing_trading_day=lambda trading_days, max_canon_trade_date=None: None,
+        _probe_with_fallback=run_daily._probe_with_fallback,
+        compute_eligible_end_date=lambda provider_latest, today_utc, trading_days: dt.date(2026, 5, 29),
+    )
+    runtime = SCIdxPipelineRuntime(report_dir=tmp_path, telemetry_dir=tmp_path / "telemetry", state_store=_FakeStore())
+
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("index_engine.orchestration.engine_db.fetch_max_canon_trade_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_level_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_contribution_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_stats_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_calc_completion_max_date", lambda: dt.date(2026, 5, 29))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 5, 29),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 5, 29),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 5, 28),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
+        lambda: dt.date(2026, 5, 29),
+    )
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "OK"
+    assert result["warnings"] == []
+    assert result["counts"]["calendar_warnings"] == ["trading_days_cached:market_data_http_error:400"]
+
+
 def test_target_date_failure_report_requires_operator_action(tmp_path):
     class BrokenTargetRuntime(SmokePipelineRuntime):
         def __init__(self):

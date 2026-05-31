@@ -967,7 +967,14 @@ class SCIdxPipelineRuntime:
             and next_missing_canon <= effective_end
         )
 
-        status = "DEGRADED" if warnings else "OK"
+        terminal_warnings = list(warnings)
+        if (
+            not ingest_required
+            and next_missing_calc is None
+            and next_missing_portfolio is None
+        ):
+            terminal_warnings = []
+        status = "DEGRADED" if terminal_warnings else "OK"
         detail = (
             f"candidate_end={candidate_end.isoformat() if candidate_end else None} "
             f"ready_end={effective_end.isoformat() if effective_end else None} "
@@ -1014,12 +1021,13 @@ class SCIdxPipelineRuntime:
         return {
             "status": status,
             "detail": detail,
-            "warnings": warnings,
+            "warnings": terminal_warnings,
             "counts": {
                 "candidate_end_date": candidate_end,
                 "ready_end_date": effective_end,
                 "max_provider_calls": max_provider_calls,
                 "remaining_daily": remaining_daily,
+                "calendar_warnings": warnings,
             },
             "context": context,
         }
