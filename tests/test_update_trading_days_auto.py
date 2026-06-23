@@ -88,6 +88,50 @@ def test_auto_extend_falls_back_to_window(monkeypatch):
     assert provider.window is not None
 
 
+def test_auto_extend_falls_back_to_window_on_date_bounded_http_400(monkeypatch):
+    latest = _dt.date(2026, 6, 22)
+
+    class _ProviderDateRangeRejected:
+        def __init__(self):
+            self.window = None
+
+        def fetch_latest_eod_date(self, ticker):
+            return latest
+
+        def fetch_time_series(self, ticker, start, end):
+            raise RuntimeError("market_data_http_error:400")
+
+        def fetch_daily_window_desc(self, ticker, window):
+            self.window = window
+            return [
+                {"datetime": "2026-06-18"},
+                {"datetime": "2026-06-22"},
+            ]
+
+    provider = _ProviderDateRangeRejected()
+    calls = {"count": 0}
+
+    def fake_fetch_latest_trading_day():
+        calls["count"] += 1
+        return _dt.date(2026, 6, 18) if calls["count"] == 1 else latest
+
+    monkeypatch.setattr(update_module, "_load_provider_module", lambda: provider)
+    monkeypatch.setattr(update_module, "fetch_latest_trading_day", fake_fetch_latest_trading_day)
+    monkeypatch.setattr(update_module, "upsert_trading_days", lambda dates, source: len(dates))
+    monkeypatch.setattr(update_module, "_fetch_total_count", lambda: 10)
+
+    inserted, total, latest_eod, max_before, max_after = update_module.update_trading_days(
+        None, auto_extend=True
+    )
+
+    assert inserted == 1
+    assert total == 10
+    assert latest_eod == latest
+    assert max_before == _dt.date(2026, 6, 18)
+    assert max_after == latest
+    assert provider.window is not None
+
+
 def test_update_trading_days_retry_falls_back_on_timeout(monkeypatch):
     monkeypatch.setattr(
         update_module,

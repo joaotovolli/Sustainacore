@@ -518,6 +518,21 @@ def _provider_readiness_status(
     return "NO_DATA"
 
 
+def _provider_verified_synthetic_days(
+    provider: Any,
+    probe_symbols: str | list[str],
+    synthetic_days: list[_dt.date],
+) -> tuple[list[_dt.date], list[_dt.date]]:
+    verified: list[_dt.date] = []
+    skipped: list[_dt.date] = []
+    for day in synthetic_days:
+        if _provider_readiness_status(provider, probe_symbols, day) == "OK":
+            verified.append(day)
+        else:
+            skipped.append(day)
+    return verified, skipped
+
+
 def _report_root_cause(state: PipelineGraphState) -> str | None:
     if state.get("root_cause"):
         return state["root_cause"]
@@ -745,17 +760,40 @@ class SCIdxPipelineRuntime:
             )
         )
         if synthetic_days:
+            fallback_probe_symbol = os.getenv(run_daily.PROBE_SYMBOL_ENV, "SPY")
+            fallback_probe_symbols = _readiness_probe_symbols(fallback_probe_symbol)[:1]
+            verified_synthetic_days, skipped_synthetic_days = _provider_verified_synthetic_days(
+                provider,
+                fallback_probe_symbols,
+                synthetic_days,
+            )
+            if skipped_synthetic_days:
+                warnings.append(
+                    "trading_days_weekday_fallback_skipped_no_bar:"
+                    f"start={skipped_synthetic_days[0].isoformat()} "
+                    f"end={skipped_synthetic_days[-1].isoformat()} "
+                    f"count={len(skipped_synthetic_days)}"
+                )
+            synthetic_days = verified_synthetic_days
             trading_days = fallback_trading_days
+            if synthetic_days:
+                cached_days = [day for day in trading_days if day not in set(skipped_synthetic_days)]
+                trading_days = sorted(set(cached_days + synthetic_days))
+            else:
+                trading_days = sorted(day for day in trading_days if day not in set(skipped_synthetic_days))
             calendar_max = trading_days[-1]
             candidate_end = run_daily.compute_eligible_end_date(
                 provider_latest=provider_latest,
                 today_utc=today_utc,
                 trading_days=trading_days,
             )
-            warnings.append(
-                "trading_days_weekday_fallback:"
-                f"start={synthetic_days[0].isoformat()} end={synthetic_days[-1].isoformat()} count={len(synthetic_days)}"
-            )
+            expected_target_date = candidate_end
+            expected_target_source = "weekday_fallback" if synthetic_days else "calendar"
+            if synthetic_days:
+                warnings.append(
+                    "trading_days_weekday_fallback:"
+                    f"start={synthetic_days[0].isoformat()} end={synthetic_days[-1].isoformat()} count={len(synthetic_days)}"
+                )
         if calendar_max and provider_latest and calendar_max < provider_latest:
             if not updated:
                 warnings.append(
