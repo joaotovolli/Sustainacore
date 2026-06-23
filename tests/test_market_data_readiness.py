@@ -1,4 +1,7 @@
 import datetime as dt
+import io
+import urllib.error
+import urllib.request
 
 import app.providers.market_data_provider as market_data_provider
 from tools.index_engine.run_daily import _probe_with_fallback
@@ -53,3 +56,32 @@ def test_fetch_eod_prices_single_day_uses_desc(monkeypatch):
     assert called_desc["count"] == 1
     assert len(result) == 1
     assert result[0]["trade_date"] == "2025-01-02"
+
+
+def test_provider_http_429_fails_without_sleep_retry(monkeypatch):
+    calls = {"urlopen": 0, "sleep": 0}
+
+    def fake_urlopen(*_args, **_kwargs):
+        calls["urlopen"] += 1
+        raise urllib.error.HTTPError(
+            url="https://example.invalid",
+            code=429,
+            msg="rate limited",
+            hdrs={},
+            fp=io.BytesIO(b"{}"),
+        )
+
+    monkeypatch.setattr(market_data_provider, "_urlopen", fake_urlopen)
+    monkeypatch.setattr(market_data_provider, "_acquire_token_blocking", lambda: None)
+    monkeypatch.setattr(market_data_provider, "_sleep_until_window_reset", lambda: calls.__setitem__("sleep", calls["sleep"] + 1))
+    monkeypatch.setattr(market_data_provider, "_sleep_backoff", lambda *_args, **_kwargs: calls.__setitem__("sleep", calls["sleep"] + 1))
+
+    request = urllib.request.Request("https://example.invalid")
+    try:
+        market_data_provider._throttled_json_request(request, max_retries=3)
+    except RuntimeError as exc:
+        assert str(exc) == "market_data_http_error:429"
+    else:
+        raise AssertionError("expected provider 429 error")
+
+    assert calls == {"urlopen": 1, "sleep": 0}
