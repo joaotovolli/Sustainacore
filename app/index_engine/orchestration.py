@@ -455,9 +455,76 @@ def _eligible_probe_window(
 READINESS_PROBE_SYMBOLS_ENV = "SC_IDX_READINESS_PROBE_SYMBOLS"
 
 
+def _provider_rate_limit_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return (
+        "market_data_http_error:429" in text
+        or "rate_limited" in text
+        or "rate limit" in text
+        or "credit" in text
+        or "quota" in text
+    )
+
+
 def _provider_no_data_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return "no data" in text or "not ready" in text or "404" in text or "market_data_http_error:400" in text
+
+
+def _estimate_ingest_provider_calls(
+    trading_days: list[_dt.date],
+    start_date: _dt.date | None,
+    end_date: _dt.date | None,
+) -> int:
+    if start_date is None or end_date is None or start_date > end_date:
+        return 0
+    impacted: set[str] = set()
+    for day in trading_days:
+        if start_date <= day <= end_date:
+            impacted.update(engine_db.fetch_impacted_tickers_for_trade_date(day))
+    if impacted:
+        return len(impacted)
+    return len(engine_db.fetch_distinct_tech100_tickers())
+
+
+def _provider_budget_block_result(
+    *,
+    reason: str,
+    usage_current: Any,
+    usage_limit: Any,
+    usage_remaining: Any,
+    safety_buffer: int,
+    max_provider_calls: int,
+    daily_limit: int,
+    daily_buffer: int,
+    remaining_daily: int,
+    required_provider_calls: int | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    counts = {
+        "provider_usage_current": usage_current,
+        "provider_usage_limit": usage_limit,
+        "provider_usage_remaining": usage_remaining,
+        "provider_credit_safety_buffer": safety_buffer,
+        "max_provider_calls": max_provider_calls,
+        "daily_limit": daily_limit,
+        "daily_buffer": daily_buffer,
+        "remaining_daily": remaining_daily,
+    }
+    if required_provider_calls is not None:
+        counts["required_provider_calls"] = required_provider_calls
+    result_context = dict(context or {})
+    result_context.update(counts)
+    return {
+        "status": "BLOCKED",
+        "detail": reason,
+        "error": reason,
+        "error_token": reason,
+        "counts": counts,
+        "context": result_context,
+        "remediation": "Wait for provider quota reset or increase provider quota, then rerun once.",
+        "retryable": False,
+    }
 
 
 def _readiness_probe_symbols(default_symbol: str) -> list[str]:
@@ -507,6 +574,8 @@ def _provider_readiness_status(
         try:
             status = _provider_symbol_readiness_status(provider, symbol, day)
         except Exception as exc:
+            if _provider_rate_limit_error(exc):
+                raise
             errors.append(exc)
             continue
         if status == "OK":
@@ -698,13 +767,32 @@ class SCIdxPipelineRuntime:
         probe_symbol = os.getenv(run_daily.PROBE_SYMBOL_ENV, "AAPL")
         usage_current = None
         usage_limit = None
+        provider_usage_remaining = None
         warnings: list[str] = []
         try:
             usage = provider.fetch_api_usage()
             usage_current = usage.get("current_usage")
             usage_limit = usage.get("plan_limit")
         except Exception as exc:
-            warnings.append(f"provider_usage_unavailable:{exc}")
+            reason = "provider_rate_limited" if _provider_rate_limit_error(exc) else "provider_usage_unavailable"
+            return _provider_budget_block_result(
+                reason=reason,
+                usage_current=None,
+                usage_limit=None,
+                usage_remaining=None,
+                safety_buffer=_env_int(
+                    getattr(run_daily, "PROVIDER_CREDIT_SAFETY_BUFFER_ENV", "SC_IDX_PROVIDER_CREDIT_SAFETY_BUFFER"),
+                    getattr(run_daily, "DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER", 0),
+                ),
+                max_provider_calls=0,
+                daily_limit=_env_int(run_daily.DAILY_LIMIT_ENV, run_daily.DEFAULT_DAILY_LIMIT),
+                daily_buffer=_env_int(
+                    run_daily.DAILY_BUFFER_ENV,
+                    _env_int(run_daily.BUFFER_ENV, run_daily.DEFAULT_BUFFER),
+                ),
+                remaining_daily=0,
+                context={"provider_usage_error": str(exc)},
+            )
 
         calls_used_today = fetch_calls_used_today("MARKET_DATA")
         daily_limit = _env_int(run_daily.DAILY_LIMIT_ENV, run_daily.DEFAULT_DAILY_LIMIT)
@@ -717,12 +805,52 @@ class SCIdxPipelineRuntime:
             daily_buffer=daily_buffer,
             calls_used_today=calls_used_today,
         )
-        provider_usage_remaining = None
-        if usage_limit is not None and usage_current is not None:
-            try:
+        safety_buffer = _env_int(
+            getattr(run_daily, "PROVIDER_CREDIT_SAFETY_BUFFER_ENV", "SC_IDX_PROVIDER_CREDIT_SAFETY_BUFFER"),
+            getattr(run_daily, "DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER", 0),
+        )
+        per_run_limit = _env_int(
+            getattr(run_daily, "MAX_PROVIDER_CALLS_PER_RUN_ENV", "SC_IDX_MAX_PROVIDER_CALLS_PER_RUN"),
+            getattr(run_daily, "DEFAULT_MAX_PROVIDER_CALLS_PER_RUN", 50),
+        )
+        budget_fn = getattr(run_daily, "provider_usage_budget", None)
+        if callable(budget_fn):
+            provider_usage_remaining, max_provider_calls, budget_stop_reason = budget_fn(
+                current_usage=usage_current,
+                plan_limit=usage_limit,
+                safety_buffer=safety_buffer,
+                per_run_limit=per_run_limit,
+                daily_budget=max_provider_calls,
+            )
+        else:
+            if usage_current is None or usage_limit is None:
+                provider_usage_remaining, max_provider_calls, budget_stop_reason = (
+                    None,
+                    0,
+                    "provider_usage_unavailable",
+                )
+            else:
                 provider_usage_remaining = int(usage_limit) - int(usage_current)
-            except Exception:
-                provider_usage_remaining = None
+                safe_remaining = provider_usage_remaining - max(0, safety_buffer)
+                if provider_usage_remaining <= 0:
+                    max_provider_calls, budget_stop_reason = 0, "quota_exhausted"
+                elif safe_remaining <= 0:
+                    max_provider_calls, budget_stop_reason = 0, "quota_safety_buffer"
+                else:
+                    max_provider_calls = max(0, min(safe_remaining, per_run_limit, max_provider_calls))
+                    budget_stop_reason = None
+        if budget_stop_reason:
+            return _provider_budget_block_result(
+                reason=budget_stop_reason,
+                usage_current=usage_current,
+                usage_limit=usage_limit,
+                usage_remaining=provider_usage_remaining,
+                safety_buffer=safety_buffer,
+                max_provider_calls=max_provider_calls,
+                daily_limit=daily_limit,
+                daily_buffer=daily_buffer,
+                remaining_daily=remaining_daily,
+            )
 
         refresh_attempts = max(1, _env_int(run_daily.TRADING_DAYS_RETRY_ENV, 3))
         refresh_backoff = max(0.0, _env_float(run_daily.TRADING_DAYS_RETRY_BASE_ENV, 1.0))
@@ -830,19 +958,53 @@ class SCIdxPipelineRuntime:
         next_missing_canon = run_daily.select_next_missing_trading_day(trading_days, max_canon_trade_date=max_canon_date)
         next_missing_calc = _select_next_missing_trading_day(trading_days, max_calc_complete_date)
         next_missing_portfolio = _select_next_missing_trading_day(trading_days, max_portfolio_complete_date)
+        required_provider_calls = 0
+        if candidate_end is not None and next_missing_canon is not None and next_missing_canon <= candidate_end:
+            required_provider_calls = _estimate_ingest_provider_calls(
+                trading_days,
+                next_missing_canon,
+                candidate_end,
+            )
+            if required_provider_calls > max_provider_calls:
+                return _provider_budget_block_result(
+                    reason="quota_exhausted",
+                    usage_current=usage_current,
+                    usage_limit=usage_limit,
+                    usage_remaining=provider_usage_remaining,
+                    safety_buffer=safety_buffer,
+                    max_provider_calls=max_provider_calls,
+                    daily_limit=daily_limit,
+                    daily_buffer=daily_buffer,
+                    remaining_daily=remaining_daily,
+                    required_provider_calls=required_provider_calls,
+                    context={
+                        "today_utc": today_utc,
+                        "calendar_max_date": calendar_max,
+                        "provider_latest_date": provider_latest,
+                        "candidate_end_date": candidate_end,
+                        "expected_target_date": expected_target_date,
+                        "expected_target_source": expected_target_source,
+                        "trading_days": trading_days,
+                        "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
+                        "next_missing_canon_date": next_missing_canon,
+                        "next_missing_calc_date": next_missing_calc,
+                        "next_missing_portfolio_date": next_missing_portfolio,
+                        "ingest_required": False,
+                    },
+                )
         if max_provider_calls <= 0:
-            return {
-                "status": "SKIP",
-                "detail": "daily_budget_stop",
-                "terminal_status": "clean_skip",
-                "error_token": "daily_budget_stop",
-                "counts": {
-                    "calls_used_today": calls_used_today,
-                    "daily_limit": daily_limit,
-                    "daily_buffer": daily_buffer,
-                    "remaining_daily": remaining_daily,
-                },
-                "context": {
+            return _provider_budget_block_result(
+                reason="quota_exhausted",
+                usage_current=usage_current,
+                usage_limit=usage_limit,
+                usage_remaining=provider_usage_remaining,
+                safety_buffer=safety_buffer,
+                max_provider_calls=0,
+                daily_limit=daily_limit,
+                daily_buffer=daily_buffer,
+                remaining_daily=remaining_daily,
+                required_provider_calls=required_provider_calls,
+                context={
                     "calendar_max_date": calendar_max,
                     "provider_latest_date": provider_latest,
                     "candidate_end_date": candidate_end,
@@ -850,17 +1012,8 @@ class SCIdxPipelineRuntime:
                     "expected_target_source": expected_target_source,
                     "trading_days": trading_days,
                     "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
-                    "calls_used_today": calls_used_today,
-                    "daily_limit": daily_limit,
-                    "daily_buffer": daily_buffer,
-                    "remaining_daily": remaining_daily,
-                    "max_provider_calls": 0,
-                    "provider_usage_current": usage_current,
-                    "provider_usage_limit": usage_limit,
-                    "provider_usage_remaining": provider_usage_remaining,
                 },
-                "remediation": "Wait for the UTC budget window to reset or raise the SC_IDX daily call limit.",
-            }
+            )
 
         if candidate_end is None and next_missing_calc is None and next_missing_portfolio is None:
             return {
@@ -1039,9 +1192,11 @@ class SCIdxPipelineRuntime:
             "ingest_required": ingest_required,
             "max_provider_calls": max_provider_calls,
             "provider_calls_remaining": max_provider_calls,
+            "required_provider_calls": required_provider_calls,
             "calls_used_today": calls_used_today,
             "daily_limit": daily_limit,
             "daily_buffer": daily_buffer,
+            "provider_credit_safety_buffer": safety_buffer,
             "remaining_daily": remaining_daily,
             "provider_usage_current": usage_current,
             "provider_usage_limit": usage_limit,
@@ -1193,6 +1348,21 @@ class SCIdxPipelineRuntime:
             and max_ok_trade_date is not None
             and max_ok_trade_date < end_date
         )
+        if summary.get("provider_rate_limited"):
+            return {
+                "status": "BLOCKED",
+                "detail": "provider_rate_limited",
+                "error": "provider_rate_limited",
+                "error_token": "provider_rate_limited",
+                "retryable": False,
+                "counts": summary,
+                "context": {
+                    "provider_calls_remaining": provider_calls_remaining,
+                    "max_canon_after_ingest": max_canon_after,
+                    "latest_ingest_end_date": end_date,
+                },
+                "remediation": "Wait for provider quota reset or increase provider quota, then rerun once.",
+            }
         if exit_code != 0:
             return {
                 "status": "FAILED",

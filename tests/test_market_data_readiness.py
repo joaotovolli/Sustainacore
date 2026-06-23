@@ -85,3 +85,36 @@ def test_provider_http_429_fails_without_sleep_retry(monkeypatch):
         raise AssertionError("expected provider 429 error")
 
     assert calls == {"urlopen": 1, "sleep": 0}
+
+
+def test_provider_payload_rate_limit_fails_without_sleep_retry(monkeypatch):
+    calls = {"urlopen": 0, "sleep": 0}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"status":"error","message":"credit limit reached"}'
+
+    def fake_urlopen(*_args, **_kwargs):
+        calls["urlopen"] += 1
+        return _Response()
+
+    monkeypatch.setattr(market_data_provider, "_urlopen", fake_urlopen)
+    monkeypatch.setattr(market_data_provider, "_acquire_token_blocking", lambda: None)
+    monkeypatch.setattr(market_data_provider, "_sleep_until_window_reset", lambda: calls.__setitem__("sleep", calls["sleep"] + 1))
+    monkeypatch.setattr(market_data_provider, "_sleep_backoff", lambda *_args, **_kwargs: calls.__setitem__("sleep", calls["sleep"] + 1))
+
+    request = urllib.request.Request("https://example.invalid")
+    try:
+        market_data_provider._throttled_json_request(request, max_retries=3)
+    except RuntimeError as exc:
+        assert str(exc) == "market_data_rate_limited"
+    else:
+        raise AssertionError("expected provider rate-limit error")
+
+    assert calls == {"urlopen": 1, "sleep": 0}

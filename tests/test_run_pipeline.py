@@ -6,6 +6,8 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = REPO_ROOT / "app"
 for path in (REPO_ROOT, APP_ROOT):
@@ -24,6 +26,20 @@ from index_engine.orchestration import (
 import index_engine.orchestration as orchestration
 import tools.index_engine.run_pipeline as pipeline_cli
 from tools.index_engine import run_daily
+
+
+@pytest.fixture(autouse=True)
+def _stub_provider_call_estimate(monkeypatch):
+    monkeypatch.setattr(
+        orchestration.engine_db,
+        "fetch_impacted_tickers_for_trade_date",
+        lambda _trade_date: ["AAPL"],
+    )
+    monkeypatch.setattr(
+        orchestration.engine_db,
+        "fetch_distinct_tech100_tickers",
+        lambda: ["AAPL"],
+    )
 
 
 @dataclass
@@ -398,7 +414,76 @@ def test_determine_target_dates_uses_defaults_for_blank_budget_env(monkeypatch, 
     assert result["status"] == "OK"
     assert result["context"]["daily_limit"] == 800
     assert result["context"]["daily_buffer"] == 25
-    assert result["context"]["max_provider_calls"] == 775
+    assert result["context"]["max_provider_calls"] == 7
+
+
+def test_determine_target_dates_blocks_when_provider_quota_exhausted(monkeypatch, tmp_path):
+    calls = {"resolve": 0}
+    provider = SimpleNamespace(fetch_api_usage=lambda: {"current_usage": 993, "plan_limit": 800})
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        PROVIDER_CREDIT_SAFETY_BUFFER_ENV="SC_IDX_PROVIDER_CREDIT_SAFETY_BUFFER",
+        DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER=100,
+        MAX_PROVIDER_CALLS_PER_RUN_ENV="SC_IDX_MAX_PROVIDER_CALLS_PER_RUN",
+        DEFAULT_MAX_PROVIDER_CALLS_PER_RUN=50,
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None)),
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (800, 775),
+        provider_usage_budget=run_daily.provider_usage_budget,
+    )
+
+    def _resolve(*_args, **_kwargs):
+        calls["resolve"] += 1
+        raise AssertionError("target resolution should not run after quota stop")
+
+    fake_run_daily._resolve_end_date = _resolve
+    runtime = SCIdxPipelineRuntime(report_dir=tmp_path, telemetry_dir=tmp_path / "telemetry", state_store=_FakeStore())
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "BLOCKED"
+    assert result["error_token"] == "quota_exhausted"
+    assert result["counts"]["provider_usage_current"] == 993
+    assert result["counts"]["provider_usage_limit"] == 800
+    assert calls["resolve"] == 0
+
+
+def test_determine_target_dates_blocks_when_remaining_below_safety_buffer(monkeypatch, tmp_path):
+    provider = SimpleNamespace(fetch_api_usage=lambda: {"current_usage": 725, "plan_limit": 800})
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        PROVIDER_CREDIT_SAFETY_BUFFER_ENV="SC_IDX_PROVIDER_CREDIT_SAFETY_BUFFER",
+        DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER=100,
+        MAX_PROVIDER_CALLS_PER_RUN_ENV="SC_IDX_MAX_PROVIDER_CALLS_PER_RUN",
+        DEFAULT_MAX_PROVIDER_CALLS_PER_RUN=50,
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None)),
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (800, 775),
+        provider_usage_budget=run_daily.provider_usage_budget,
+        _resolve_end_date=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("no provider calls")),
+    )
+    runtime = SCIdxPipelineRuntime(report_dir=tmp_path, telemetry_dir=tmp_path / "telemetry", state_store=_FakeStore())
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "BLOCKED"
+    assert result["error_token"] == "quota_safety_buffer"
+    assert result["counts"]["provider_usage_remaining"] == 75
+    assert result["counts"]["provider_credit_safety_buffer"] == 100
 
 
 def test_determine_target_dates_clean_skips_when_provider_not_ready(monkeypatch, tmp_path):

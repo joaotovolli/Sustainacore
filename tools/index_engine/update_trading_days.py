@@ -38,6 +38,11 @@ def _is_market_data_400(exc: Exception) -> bool:
     return "market_data_http_error:400" in str(exc)
 
 
+def _is_market_data_rate_limited(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "market_data_http_error:429" in text or "market_data_rate_limited" in text
+
+
 def _is_market_data_timeout(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(
@@ -188,6 +193,8 @@ def update_trading_days_with_retry(
             update_trading_days(auto_extend=auto_extend)
             return True, None
         except Exception as exc:
+            if _is_market_data_rate_limited(exc):
+                raise
             if _is_market_data_403(exc) or _is_market_data_timeout(exc):
                 error_token = "market_data_http_error:403" if _is_market_data_403(exc) else "market_data_timeout"
                 print(

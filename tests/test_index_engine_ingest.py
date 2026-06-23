@@ -182,3 +182,38 @@ def test_backfill_skips_synthetic_holiday_before_ready_day(monkeypatch):
     assert [row["trade_date"] for row in raw_written] == [_dt.date(2026, 6, 22)]
     assert [row["trade_date"] for row in canon_written] == [_dt.date(2026, 6, 22)]
     assert summary["max_ok_trade_date"] == _dt.date(2026, 6, 22)
+
+
+def test_backfill_stops_on_provider_rate_limit_without_more_tickers(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(ingest_prices, "fetch_trading_days", lambda start, end: [_dt.date(2026, 6, 22)])
+    monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["AAPL", "MSFT"])
+    monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_raw", lambda rows: (_ for _ in ()).throw(AssertionError("no missing rows on 429")))
+    monkeypatch.setattr(ingest_prices, "upsert_prices_canon", lambda rows: (_ for _ in ()).throw(AssertionError("no canon rows on 429")))
+
+    def fake_fetch_provider_rows(ticker, start_date, end_date):
+        calls.append((ticker, start_date, end_date))
+        raise RuntimeError("market_data_http_error:429")
+
+    monkeypatch.setattr(ingest_prices, "_fetch_provider_rows", fake_fetch_provider_rows)
+
+    args = type(
+        "Args",
+        (),
+        {
+            "start": "2026-06-22",
+            "end": "2026-06-22",
+            "tickers": None,
+            "debug": False,
+            "max_provider_calls": 10,
+        },
+    )()
+
+    code, summary = ingest_prices._run_backfill(args)
+
+    assert code == 2
+    assert summary["provider_rate_limited"] is True
+    assert summary["provider_calls_used"] == 1
+    assert calls == [("AAPL", _dt.date(2026, 6, 22), _dt.date(2026, 6, 22))]
