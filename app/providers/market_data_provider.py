@@ -315,11 +315,10 @@ def _throttled_json_request(
             except urllib.error.HTTPError as exc:  # pragma: no cover - network specific
                 body = exc.read()
                 _log_http_error(request, exc, body)
+                if exc.code == 429:
+                    raise error_cls("market_data_http_error:429") from exc
                 if attempt < max_retries and exc.code in (429, 500, 502, 503, 504):
-                    if exc.code == 429:
-                        _sleep_until_window_reset()
-                    else:
-                        _sleep_backoff(attempt)
+                    _sleep_backoff(attempt)
                     continue
                 raise error_cls(f"market_data_http_error:{exc.code}") from exc
             except urllib.error.URLError as exc:  # pragma: no cover - network specific

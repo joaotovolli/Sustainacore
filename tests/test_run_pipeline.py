@@ -628,6 +628,85 @@ def test_determine_target_dates_uses_alternate_probe_symbol_when_primary_missing
     assert result["context"]["ingest_required"] is True
 
 
+def test_determine_target_dates_skips_holiday_synthetic_day(monkeypatch, tmp_path):
+    trading_days = [dt.date(2026, 6, 18)]
+
+    def _fetch(_symbol, day):
+        if day == dt.date(2026, 6, 22):
+            return [{"trade_date": day.isoformat(), "close": "1"}]
+        return []
+
+    provider = SimpleNamespace(
+        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_single_day_bar=_fetch,
+    )
+    trading_days_module = SimpleNamespace(
+        update_trading_days_with_retry=lambda **kwargs: (False, "market_data_http_error:400")
+    )
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        TRADING_DAYS_RETRY_ENV="SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS",
+        TRADING_DAYS_RETRY_BASE_ENV="SC_IDX_TRADING_DAYS_RETRY_BASE_SEC",
+        PROVIDER_READY_LOOKBACK_DAYS_ENV="SC_IDX_PROVIDER_READY_LOOKBACK_DAYS",
+        DEFAULT_PROVIDER_READY_LOOKBACK_DAYS=5,
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: trading_days_module,
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (800, 775),
+        _resolve_end_date=lambda provider, probe_symbol, today_utc: (
+            dt.date(2026, 6, 22),
+            trading_days,
+            dt.date(2026, 6, 18),
+        ),
+        derive_expected_target_date=run_daily.derive_expected_target_date,
+        select_next_missing_trading_day=run_daily.select_next_missing_trading_day,
+        _probe_with_fallback=run_daily._probe_with_fallback,
+        compute_eligible_end_date=run_daily.compute_eligible_end_date,
+    )
+    runtime = SCIdxPipelineRuntime(report_dir=tmp_path, telemetry_dir=tmp_path / "telemetry", state_store=_FakeStore())
+
+    monkeypatch.setenv("SC_IDX_READINESS_PROBE_SYMBOLS", "SPY")
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("index_engine.orchestration.engine_db.fetch_max_canon_trade_date", lambda: dt.date(2026, 6, 18))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_level_date", lambda: dt.date(2026, 6, 18))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_contribution_date", lambda: dt.date(2026, 6, 18))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_max_stats_date", lambda: dt.date(2026, 6, 18))
+    monkeypatch.setattr("index_engine.orchestration.db_index_calc.fetch_calc_completion_max_date", lambda: dt.date(2026, 6, 18))
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_analytics_max_date",
+        lambda: dt.date(2026, 6, 18),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_position_max_date",
+        lambda: dt.date(2026, 6, 18),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_opt_inputs_max_date",
+        lambda: dt.date(2026, 6, 18),
+    )
+    monkeypatch.setattr(
+        "index_engine.orchestration.db_portfolio_analytics.fetch_portfolio_completion_max_date",
+        lambda: dt.date(2026, 6, 18),
+    )
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "DEGRADED"
+    assert result["context"]["ready_end_date"] == dt.date(2026, 6, 22)
+    assert result["context"]["next_missing_canon_date"] == dt.date(2026, 6, 22)
+    assert result["context"]["next_missing_calc_date"] == dt.date(2026, 6, 22)
+    assert result["context"]["next_missing_portfolio_date"] == dt.date(2026, 6, 22)
+    assert result["context"]["ingest_start_date"] == dt.date(2026, 6, 22)
+    assert result["context"]["synthetic_trading_days"] == ["2026-06-22"]
+    assert any("trading_days_weekday_fallback_skipped_no_bar" in item for item in result["warnings"])
+    assert result["context"]["ingest_required"] is True
+
+
 def test_determine_target_dates_uses_cached_calendar_when_refresh_raises(monkeypatch, tmp_path):
     trading_days = [dt.date(2026, 5, 27), dt.date(2026, 5, 28)]
     provider = SimpleNamespace(

@@ -52,6 +52,7 @@ def test_backfill_extends_short_cached_calendar_to_ready_end(monkeypatch):
         "fetch_trading_days",
         lambda start, end: [_dt.date(2026, 5, 28)],
     )
+    monkeypatch.setattr(ingest_prices, "_provider_has_calendar_bar", lambda day: True)
     monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["AAPL"])
     monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
 
@@ -107,6 +108,7 @@ def test_backfill_uses_bounded_weekday_when_cached_calendar_missing_target(monke
     canon_written = []
 
     monkeypatch.setattr(ingest_prices, "fetch_trading_days", lambda start, end: [])
+    monkeypatch.setattr(ingest_prices, "_provider_has_calendar_bar", lambda day: True)
     monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["MSFT"])
     monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
 
@@ -137,3 +139,46 @@ def test_backfill_uses_bounded_weekday_when_cached_calendar_missing_target(monke
     assert [row["trade_date"] for row in raw_written] == [_dt.date(2026, 5, 29)]
     assert [row["trade_date"] for row in canon_written] == [_dt.date(2026, 5, 29)]
     assert summary["max_ok_trade_date"] == _dt.date(2026, 5, 29)
+
+
+def test_backfill_skips_synthetic_holiday_before_ready_day(monkeypatch):
+    calls = []
+    raw_written = []
+    canon_written = []
+
+    monkeypatch.setattr(ingest_prices, "fetch_trading_days", lambda start, end: [])
+    monkeypatch.setattr(
+        ingest_prices,
+        "_provider_has_calendar_bar",
+        lambda day: day == _dt.date(2026, 6, 22),
+    )
+    monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["NVDA"])
+    monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+
+    def fake_fetch_provider_rows(ticker, start_date, end_date):
+        calls.append((ticker, start_date, end_date))
+        return [{"ticker": ticker, "trade_date": "2026-06-22", "close": 300.0, "adj_close": 300.0}]
+
+    monkeypatch.setattr(ingest_prices, "_fetch_provider_rows", fake_fetch_provider_rows)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_raw", lambda rows: raw_written.extend(rows) or len(rows))
+    monkeypatch.setattr(ingest_prices, "upsert_prices_canon", lambda rows: canon_written.extend(rows) or len(rows))
+
+    args = type(
+        "Args",
+        (),
+        {
+            "start": "2026-06-19",
+            "end": "2026-06-22",
+            "tickers": None,
+            "debug": False,
+            "max_provider_calls": None,
+        },
+    )()
+
+    code, summary = ingest_prices._run_backfill(args)
+
+    assert code == 0
+    assert calls == [("NVDA", _dt.date(2026, 6, 22), _dt.date(2026, 6, 22))]
+    assert [row["trade_date"] for row in raw_written] == [_dt.date(2026, 6, 22)]
+    assert [row["trade_date"] for row in canon_written] == [_dt.date(2026, 6, 22)]
+    assert summary["max_ok_trade_date"] == _dt.date(2026, 6, 22)

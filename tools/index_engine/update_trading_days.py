@@ -34,6 +34,10 @@ def _is_market_data_403(exc: Exception) -> bool:
     return "market_data_http_error:403" in str(exc)
 
 
+def _is_market_data_400(exc: Exception) -> bool:
+    return "market_data_http_error:400" in str(exc)
+
+
 def _is_market_data_timeout(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(
@@ -86,6 +90,23 @@ def _fetch_total_count() -> int:
     return 0
 
 
+def _fetch_calendar_values(provider, start: _dt.date, latest: _dt.date) -> list[dict]:
+    """Fetch calendar source rows, falling back when date-bounded requests are rejected."""
+
+    if hasattr(provider, "fetch_time_series"):
+        try:
+            return provider.fetch_time_series("SPY", start, latest)
+        except Exception as exc:
+            if not _is_market_data_400(exc) or not hasattr(provider, "fetch_daily_window_desc"):
+                raise
+
+    if hasattr(provider, "fetch_daily_window_desc"):
+        window = max(DEFAULT_WINDOW, (latest - start).days + 5)
+        window = min(window, MAX_WINDOW)
+        return provider.fetch_daily_window_desc("SPY", window=window)
+    return []
+
+
 def update_trading_days(
     start_date: _dt.date | None = None,
     *,
@@ -119,13 +140,7 @@ def update_trading_days(
         total = max_before or latest
         return inserted, 0, latest, max_before, total
 
-    values = []
-    if hasattr(provider, "fetch_time_series"):
-        values = provider.fetch_time_series("SPY", start, latest)
-    else:
-        window = max(DEFAULT_WINDOW, (latest - start).days + 5)
-        window = min(window, MAX_WINDOW)
-        values = provider.fetch_daily_window_desc("SPY", window=window)
+    values = _fetch_calendar_values(provider, start, latest)
     dates = sorted(
         {
             trade_date

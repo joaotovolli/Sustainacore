@@ -70,6 +70,27 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _provider_has_calendar_bar(day: _dt.date, probe_symbol: str = "SPY") -> bool:
+    try:
+        return bool(fetch_single_day_bar(probe_symbol, day))
+    except Exception as exc:
+        text = str(exc).lower()
+        if "no data" in text or "not ready" in text or "404" in text or "market_data_http_error:400" in text:
+            return False
+        raise
+
+
+def _filter_synthetic_trading_days(synthetic_days: list[_dt.date]) -> tuple[list[_dt.date], list[_dt.date]]:
+    verified: list[_dt.date] = []
+    skipped: list[_dt.date] = []
+    for day in synthetic_days:
+        if _provider_has_calendar_bar(day):
+            verified.append(day)
+        else:
+            skipped.append(day)
+    return verified, skipped
+
+
 def _extend_short_trading_calendar(
     trading_days: list[_dt.date],
     *,
@@ -88,7 +109,13 @@ def _extend_short_trading_calendar(
         synthetic_days = generate_weekdays(start_date, end_date)
         if not synthetic_days or len(synthetic_days) > max_gap:
             return trading_days, []
-        return synthetic_days, synthetic_days
+        verified_days, skipped_days = _filter_synthetic_trading_days(synthetic_days)
+        if skipped_days:
+            print(
+                "backfill_calendar_fallback_skipped_no_bar: "
+                f"start={skipped_days[0].isoformat()} end={skipped_days[-1].isoformat()} count={len(skipped_days)}"
+            )
+        return verified_days, verified_days
 
     ordered = sorted(set(trading_days))
     last_known = ordered[-1]
@@ -98,7 +125,13 @@ def _extend_short_trading_calendar(
     synthetic_days = generate_weekdays(max(last_known + _dt.timedelta(days=1), start_date), end_date)
     if not synthetic_days or len(synthetic_days) > max_gap:
         return ordered, []
-    return sorted(set(ordered + synthetic_days)), synthetic_days
+    verified_days, skipped_days = _filter_synthetic_trading_days(synthetic_days)
+    if skipped_days:
+        print(
+            "backfill_calendar_fallback_skipped_no_bar: "
+            f"start={skipped_days[0].isoformat()} end={skipped_days[-1].isoformat()} count={len(skipped_days)}"
+        )
+    return sorted(set(ordered + verified_days)), verified_days
 
 
 def _split_tickers(raw: Optional[str]) -> list[str]:
