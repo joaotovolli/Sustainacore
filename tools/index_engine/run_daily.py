@@ -36,6 +36,10 @@ TRADING_DAYS_RETRY_BASE_ENV = "SC_IDX_TRADING_DAYS_RETRY_BASE_SEC"
 TRADING_DAY_FALLBACK_MAX_GAP_ENV = "SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP"
 PROVIDER_READY_LOOKBACK_DAYS_ENV = "SC_IDX_PROVIDER_READY_LOOKBACK_DAYS"
 DEFAULT_PROVIDER_READY_LOOKBACK_DAYS = 5
+PROVIDER_CREDIT_SAFETY_BUFFER_ENV = "SC_IDX_PROVIDER_CREDIT_SAFETY_BUFFER"
+DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER = 100
+MAX_PROVIDER_CALLS_PER_RUN_ENV = "SC_IDX_MAX_PROVIDER_CALLS_PER_RUN"
+DEFAULT_MAX_PROVIDER_CALLS_PER_RUN = 50
 
 
 def _load_provider_module():
@@ -132,6 +136,29 @@ def _compute_daily_budget(daily_limit: int, daily_buffer: int, calls_used_today:
     remaining_daily = max(0, daily_limit - calls_used_today)
     max_provider_calls = max(0, remaining_daily - daily_buffer)
     return remaining_daily, max_provider_calls
+
+
+def provider_usage_budget(
+    *,
+    current_usage: int | None,
+    plan_limit: int | None,
+    safety_buffer: int,
+    per_run_limit: int,
+    daily_budget: int,
+) -> tuple[int | None, int, str | None]:
+    """Return remaining provider credits, run call budget, and a stop reason."""
+
+    if current_usage is None or plan_limit is None:
+        return None, 0, "provider_usage_unavailable"
+
+    remaining = int(plan_limit) - int(current_usage)
+    safe_remaining = remaining - max(0, safety_buffer)
+    if remaining <= 0:
+        return remaining, 0, "quota_exhausted"
+    if safe_remaining <= 0:
+        return remaining, 0, "quota_safety_buffer"
+
+    return remaining, max(0, min(safe_remaining, per_run_limit, daily_budget)), None
 
 
 def _eligible_guard_date(provider_latest: _dt.date, today_utc: _dt.date) -> _dt.date:
@@ -428,12 +455,21 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         current_usage = None
         plan_limit = None
-        print(f"warning: unable to fetch provider usage (per-minute probe only): {exc}", file=sys.stderr)
+        print(f"provider_budget_stop: provider_usage_unavailable:{exc}", file=sys.stderr)
 
     calls_used_today = fetch_calls_used_today("MARKET_DATA")
     daily_limit = _env_int(DAILY_LIMIT_ENV, DEFAULT_DAILY_LIMIT)
     daily_buffer = _env_int(DAILY_BUFFER_ENV, _env_int(BUFFER_ENV, DEFAULT_BUFFER))
     remaining_daily, max_provider_calls = _compute_daily_budget(daily_limit, daily_buffer, calls_used_today)
+    safety_buffer = _env_int(PROVIDER_CREDIT_SAFETY_BUFFER_ENV, DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER)
+    per_run_limit = _env_int(MAX_PROVIDER_CALLS_PER_RUN_ENV, DEFAULT_MAX_PROVIDER_CALLS_PER_RUN)
+    usage_remaining, max_provider_calls, budget_stop_reason = provider_usage_budget(
+        current_usage=current_usage,
+        plan_limit=plan_limit,
+        safety_buffer=safety_buffer,
+        per_run_limit=per_run_limit,
+        daily_budget=max_provider_calls,
+    )
 
     summary = {
         "run_id": run_id,
@@ -453,7 +489,7 @@ def main(argv: list[str] | None = None) -> int:
         "oracle_user": oracle_user,
         "usage_current": current_usage,
         "usage_limit": plan_limit,
-        "usage_remaining": None,
+        "usage_remaining": usage_remaining,
     }
 
     if force_fail:
@@ -492,6 +528,54 @@ def main(argv: list[str] | None = None) -> int:
         )
         _maybe_send_alert("ERROR", summary, run_id, email_on_budget_stop)
         return 1
+
+    if budget_stop_reason:
+        start_run(
+            "sc_idx_price_ingest",
+            end_date=today_utc,
+            provider="MARKET_DATA",
+            max_provider_calls=0,
+            meta={
+                "run_id": run_id,
+                "start_date": DEFAULT_START,
+                "oracle_user": oracle_user,
+                "usage_current": current_usage,
+                "usage_limit": plan_limit,
+                "usage_remaining": usage_remaining,
+                "credit_buffer": safety_buffer,
+            },
+        )
+        summary["status"] = "DAILY_BUDGET_STOP"
+        summary["error_msg"] = budget_stop_reason
+        print(
+            "provider_budget_stop: reason={reason} usage_current={current} "
+            "usage_limit={limit} usage_remaining={remaining} safety_buffer={buffer} "
+            "max_provider_calls=0".format(
+                reason=budget_stop_reason,
+                current=current_usage,
+                limit=plan_limit,
+                remaining=usage_remaining,
+                buffer=safety_buffer,
+            )
+        )
+        finish_run(
+            run_id,
+            status="DAILY_BUDGET_STOP",
+            provider_calls_used=0,
+            raw_upserts=0,
+            canon_upserts=0,
+            raw_ok=0,
+            raw_missing=0,
+            raw_error=0,
+            max_provider_calls=0,
+            usage_current=current_usage,
+            usage_limit=plan_limit,
+            usage_remaining=usage_remaining,
+            oracle_user=oracle_user,
+            error=budget_stop_reason,
+        )
+        _maybe_send_alert("DAILY_BUDGET_STOP", summary, run_id, email_on_budget_stop)
+        return 0
 
     trading_days_refresh_failed = False
     trading_days_warning = None
@@ -616,12 +700,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"latest_eod_date_spy={end_date.isoformat()}")
         return 0
 
-    usage_remaining = None
-    if plan_limit is not None and current_usage is not None:
-        try:
-            usage_remaining = int(plan_limit) - int(current_usage)
-        except Exception:
-            usage_remaining = None
     summary["usage_remaining"] = usage_remaining
     summary["end_date"] = end_date
     summary["start_date"] = start_date
@@ -638,19 +716,20 @@ def main(argv: list[str] | None = None) -> int:
             "usage_current": current_usage,
             "usage_limit": plan_limit,
             "usage_remaining": usage_remaining,
-            "credit_buffer": daily_buffer,
+            "credit_buffer": safety_buffer,
         },
     )
 
     print(
         "index_engine_daily: end={end} calls_used_today={used} remaining_daily={remaining_daily} "
-        "daily_limit={daily_limit} daily_buffer={daily_buffer} max_provider_calls={max_calls} "
+        "daily_limit={daily_limit} daily_buffer={daily_buffer} safety_buffer={safety_buffer} max_provider_calls={max_calls} "
         "minute_limit={minute_limit} minute_used={minute_used}".format(
             end=end_date.isoformat(),
             used=calls_used_today,
             remaining_daily=remaining_daily,
             daily_limit=daily_limit,
             daily_buffer=daily_buffer,
+            safety_buffer=safety_buffer,
             max_calls=max_provider_calls,
             minute_limit=plan_limit,
             minute_used=current_usage,
@@ -711,6 +790,8 @@ def main(argv: list[str] | None = None) -> int:
     status = "OK" if exit_code == 0 else "ERROR"
     summary["status"] = status
     summary["error_msg"] = error_msg
+    if summary.get("provider_rate_limited"):
+        summary["error_msg"] = "provider_rate_limited"
 
     max_ok_trade_date = summary.get("max_ok_trade_date")
     if status == "OK":

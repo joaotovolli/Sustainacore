@@ -60,6 +60,17 @@ def _parse_dates(args: argparse.Namespace) -> list[_dt.date]:
     raise ValueError("Provide --date or both --start and --end")
 
 
+def _provider_rate_limit_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return (
+        "market_data_http_error:429" in text
+        or "market_data_rate_limited" in text
+        or "rate limit" in text
+        or "quota" in text
+        or "credit" in text
+    )
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None:
@@ -508,6 +519,24 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
         try:
             provider_rows = _fetch_provider_rows(ticker, ticker_start, last_trading_day)
         except Exception as exc:
+            if _provider_rate_limit_error(exc):
+                print(
+                    "provider_rate_limited: provider_calls_used={calls} ticker={ticker} error={exc}".format(
+                        calls=provider_calls_used,
+                        ticker=ticker,
+                        exc=exc,
+                    )
+                )
+                return 2, {
+                    "provider_calls_used": provider_calls_used,
+                    "raw_upserts": total_raw,
+                    "canon_upserts": total_canon,
+                    "raw_ok": total_status["OK"],
+                    "raw_missing": total_status["MISSING"],
+                    "raw_error": total_status["ERROR"],
+                    "max_ok_trade_date": max_ok_trade_date,
+                    "provider_rate_limited": True,
+                }
             provider_error = str(exc)
             print(
                 "Provider fetch failed for {ticker} range={start}..{end}: {exc}".format(
@@ -748,6 +777,24 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
             try:
                 provider_rows = _fetch_provider_rows(ticker, start, end)
             except Exception as exc:
+                if _provider_rate_limit_error(exc):
+                    print(
+                        "provider_rate_limited: provider_calls_used={calls} ticker={ticker} error={exc}".format(
+                            calls=provider_calls_used,
+                            ticker=ticker,
+                            exc=exc,
+                        )
+                    )
+                    return 2, {
+                        "provider_calls_used": provider_calls_used,
+                        "raw_upserts": total_raw,
+                        "canon_upserts": total_canon,
+                        "raw_ok": total_status["OK"],
+                        "raw_missing": total_status["MISSING"],
+                        "raw_error": total_status["ERROR"],
+                        "max_ok_trade_date": max_ok_trade_date,
+                        "provider_rate_limited": True,
+                    }
                 print(
                     "Provider fetch failed for {ticker} range={start}..{end}: {exc}".format(
                         ticker=ticker,

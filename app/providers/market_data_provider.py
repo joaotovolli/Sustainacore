@@ -335,9 +335,8 @@ def _throttled_json_request(
                 continue
             raise error_cls("market_data_invalid_json") from exc
 
-        if _should_retry_rate_limit(payload) and attempt < max_retries:
-            _sleep_until_window_reset()
-            continue
+        if _should_retry_rate_limit(payload):
+            raise error_cls("market_data_rate_limited")
 
         return payload
 
