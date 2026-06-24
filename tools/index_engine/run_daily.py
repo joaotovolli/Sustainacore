@@ -869,6 +869,8 @@ def main(argv: list[str] | None = None) -> int:
         tickers=tickers_env,
         debug=args.debug,
         max_provider_calls=max_provider_calls,
+        provider_minute_limit=minute_limit,
+        provider_calls_per_minute=None,
     )
 
     exit_code = 0

@@ -55,6 +55,7 @@ def test_backfill_extends_short_cached_calendar_to_ready_end(monkeypatch):
     monkeypatch.setattr(ingest_prices, "_provider_has_calendar_bar", lambda day: True)
     monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["AAPL"])
     monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+    monkeypatch.setattr(ingest_prices, "_fetch_existing_ok", lambda **kwargs: set())
 
     def fake_fetch_provider_rows(ticker, start_date, end_date):
         calls.append((ticker, start_date, end_date))
@@ -84,6 +85,7 @@ def test_backfill_extends_short_cached_calendar_to_ready_end(monkeypatch):
             "tickers": None,
             "debug": False,
             "max_provider_calls": None,
+            "provider_calls_per_minute": 100000,
         },
     )()
 
@@ -111,6 +113,7 @@ def test_backfill_uses_bounded_weekday_when_cached_calendar_missing_target(monke
     monkeypatch.setattr(ingest_prices, "_provider_has_calendar_bar", lambda day: True)
     monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["MSFT"])
     monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+    monkeypatch.setattr(ingest_prices, "_fetch_existing_ok", lambda **kwargs: set())
 
     def fake_fetch_provider_rows(ticker, start_date, end_date):
         calls.append((ticker, start_date, end_date))
@@ -129,6 +132,7 @@ def test_backfill_uses_bounded_weekday_when_cached_calendar_missing_target(monke
             "tickers": None,
             "debug": False,
             "max_provider_calls": None,
+            "provider_calls_per_minute": 100000,
         },
     )()
 
@@ -154,6 +158,7 @@ def test_backfill_skips_synthetic_holiday_before_ready_day(monkeypatch):
     )
     monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["NVDA"])
     monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+    monkeypatch.setattr(ingest_prices, "_fetch_existing_ok", lambda **kwargs: set())
 
     def fake_fetch_provider_rows(ticker, start_date, end_date):
         calls.append((ticker, start_date, end_date))
@@ -172,6 +177,7 @@ def test_backfill_skips_synthetic_holiday_before_ready_day(monkeypatch):
             "tickers": None,
             "debug": False,
             "max_provider_calls": None,
+            "provider_calls_per_minute": 100000,
         },
     )()
 
@@ -190,6 +196,7 @@ def test_backfill_stops_on_provider_rate_limit_without_more_tickers(monkeypatch)
     monkeypatch.setattr(ingest_prices, "fetch_trading_days", lambda start, end: [_dt.date(2026, 6, 22)])
     monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["AAPL", "MSFT"])
     monkeypatch.setattr(ingest_prices, "fetch_max_ok_trade_date", lambda ticker, provider: None)
+    monkeypatch.setattr(ingest_prices, "_fetch_existing_ok", lambda **kwargs: set())
     monkeypatch.setattr(ingest_prices, "upsert_prices_raw", lambda rows: (_ for _ in ()).throw(AssertionError("no missing rows on 429")))
     monkeypatch.setattr(ingest_prices, "upsert_prices_canon", lambda rows: (_ for _ in ()).throw(AssertionError("no canon rows on 429")))
 
@@ -208,6 +215,8 @@ def test_backfill_stops_on_provider_rate_limit_without_more_tickers(monkeypatch)
             "tickers": None,
             "debug": False,
             "max_provider_calls": 10,
+            "provider_minute_limit": 8,
+            "provider_calls_per_minute": None,
         },
     )()
 
@@ -216,4 +225,136 @@ def test_backfill_stops_on_provider_rate_limit_without_more_tickers(monkeypatch)
     assert code == 2
     assert summary["provider_rate_limited"] is True
     assert summary["provider_calls_used"] == 1
+    assert summary["effective_calls_per_minute"] == 4
     assert calls == [("AAPL", _dt.date(2026, 6, 22), _dt.date(2026, 6, 22))]
+
+
+def test_backfill_paces_calls_under_minute_limit(monkeypatch):
+    calls = []
+    sleeps = []
+    clock = {"now": 0.0}
+
+    monkeypatch.setattr(ingest_prices, "fetch_trading_days", lambda start, end: [_dt.date(2026, 6, 22)])
+    monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["AAPL", "MSFT"])
+    monkeypatch.setattr(ingest_prices, "_fetch_existing_ok", lambda **kwargs: set())
+    monkeypatch.setattr(ingest_prices.time, "monotonic", lambda: clock["now"])
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(ingest_prices.time, "sleep", fake_sleep)
+
+    def fake_fetch_provider_rows(ticker, start_date, end_date):
+        calls.append((ticker, start_date, end_date))
+        return [{"ticker": ticker, "trade_date": "2026-06-22", "close": 100.0, "adj_close": 100.0}]
+
+    monkeypatch.setattr(ingest_prices, "_fetch_provider_rows", fake_fetch_provider_rows)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_raw", lambda rows: len(rows))
+    monkeypatch.setattr(ingest_prices, "upsert_prices_canon", lambda rows: len(rows))
+
+    args = type(
+        "Args",
+        (),
+        {
+            "start": "2026-06-22",
+            "end": "2026-06-22",
+            "tickers": None,
+            "debug": False,
+            "max_provider_calls": None,
+            "provider_minute_limit": 8,
+            "provider_calls_per_minute": None,
+        },
+    )()
+
+    code, summary = ingest_prices._run_backfill(args)
+
+    assert code == 0
+    assert summary["effective_calls_per_minute"] == 4
+    assert len(calls) == 2
+    assert sleeps == [15.0]
+
+
+def test_backfill_skips_existing_canonical_rows(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(ingest_prices, "fetch_trading_days", lambda start, end: [_dt.date(2026, 6, 22)])
+    monkeypatch.setattr(ingest_prices, "fetch_impacted_tickers_for_trade_date", lambda day: ["AAPL", "MSFT"])
+    monkeypatch.setattr(
+        ingest_prices,
+        "_fetch_existing_ok",
+        lambda **kwargs: {("AAPL", _dt.date(2026, 6, 22))},
+    )
+
+    def fake_fetch_provider_rows(ticker, start_date, end_date):
+        calls.append((ticker, start_date, end_date))
+        return [{"ticker": ticker, "trade_date": "2026-06-22", "close": 250.0, "adj_close": 250.0}]
+
+    monkeypatch.setattr(ingest_prices, "_fetch_provider_rows", fake_fetch_provider_rows)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_raw", lambda rows: len(rows))
+    monkeypatch.setattr(ingest_prices, "upsert_prices_canon", lambda rows: len(rows))
+
+    args = type(
+        "Args",
+        (),
+        {
+            "start": "2026-06-22",
+            "end": "2026-06-22",
+            "tickers": None,
+            "debug": False,
+            "max_provider_calls": None,
+            "provider_minute_limit": 8,
+            "provider_calls_per_minute": None,
+        },
+    )()
+
+    code, summary = ingest_prices._run_backfill(args)
+
+    assert code == 0
+    assert calls == [("MSFT", _dt.date(2026, 6, 22), _dt.date(2026, 6, 22))]
+    assert summary["provider_calls_used"] == 1
+
+
+def test_backfill_missing_uses_pacing_and_reports_rate(monkeypatch):
+    calls = []
+    sleeps = []
+    clock = {"now": 0.0}
+
+    monkeypatch.setattr(ingest_prices, "fetch_trading_days", lambda start, end: [_dt.date(2026, 6, 22)])
+    monkeypatch.setattr(ingest_prices, "_fetch_existing_ok", lambda **kwargs: set())
+    monkeypatch.setattr(ingest_prices.time, "monotonic", lambda: clock["now"])
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(ingest_prices.time, "sleep", fake_sleep)
+
+    def fake_fetch_provider_rows(ticker, start_date, end_date):
+        calls.append((ticker, start_date, end_date))
+        return [{"ticker": ticker, "trade_date": "2026-06-22", "close": 300.0, "adj_close": 300.0}]
+
+    monkeypatch.setattr(ingest_prices, "_fetch_provider_rows", fake_fetch_provider_rows)
+    monkeypatch.setattr(ingest_prices, "upsert_prices_raw", lambda rows: len(rows))
+    monkeypatch.setattr(ingest_prices, "upsert_prices_canon", lambda rows: len(rows))
+
+    args = type(
+        "Args",
+        (),
+        {
+            "start": "2026-06-22",
+            "end": "2026-06-22",
+            "tickers": "AAPL,MSFT",
+            "debug": False,
+            "max_provider_calls": None,
+            "provider_minute_limit": 8,
+            "provider_calls_per_minute": None,
+        },
+    )()
+
+    code, summary = ingest_prices._run_backfill_missing(args)
+
+    assert code == 0
+    assert summary["effective_calls_per_minute"] == 4
+    assert len(calls) == 2
+    assert sleeps == [15.0]
