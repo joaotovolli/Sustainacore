@@ -25,6 +25,7 @@ from tools.index_engine.oracle_preflight import (
 
 DEFAULT_START = _dt.date(2025, 1, 2)
 DEFAULT_BUFFER = 25
+DEFAULT_DAILY_BUFFER = DEFAULT_BUFFER
 DEFAULT_DAILY_LIMIT = 800
 BUFFER_ENV = "SC_IDX_MARKET_DATA_CREDIT_BUFFER"
 DAILY_LIMIT_ENV = "SC_IDX_MARKET_DATA_DAILY_LIMIT"
@@ -138,20 +139,89 @@ def _compute_daily_budget(daily_limit: int, daily_buffer: int, calls_used_today:
     return remaining_daily, max_provider_calls
 
 
+def _coerce_int(value: object) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_provider_usage(
+    usage: dict | None,
+    *,
+    configured_daily_limit: int,
+) -> dict[str, int | None]:
+    """Separate daily credit capacity from minute rate capacity."""
+
+    usage = dict(usage or {})
+    daily_used = _coerce_int(
+        usage.get("daily_current_usage")
+        if usage.get("daily_current_usage") is not None
+        else usage.get("daily_used")
+    )
+    daily_limit = _coerce_int(
+        usage.get("daily_plan_limit")
+        if usage.get("daily_plan_limit") is not None
+        else usage.get("daily_limit")
+    )
+    minute_used = _coerce_int(
+        usage.get("minute_current_usage")
+        if usage.get("minute_current_usage") is not None
+        else usage.get("minute_used")
+    )
+    minute_limit = _coerce_int(
+        usage.get("minute_plan_limit")
+        if usage.get("minute_plan_limit") is not None
+        else usage.get("minute_limit")
+    )
+
+    legacy_used = _coerce_int(usage.get("current_usage"))
+    legacy_limit = _coerce_int(usage.get("plan_limit"))
+    if daily_used is None and daily_limit is None and legacy_used is not None and legacy_limit is not None:
+        # The provider usage endpoint may expose minute rate capacity as the
+        # legacy current/plan pair. Treat small limits as minute limits only.
+        if legacy_limit >= max(100, configured_daily_limit // 2):
+            daily_used = legacy_used
+            daily_limit = legacy_limit
+        else:
+            minute_used = minute_used if minute_used is not None else legacy_used
+            minute_limit = minute_limit if minute_limit is not None else legacy_limit
+
+    daily_remaining = daily_limit - daily_used if daily_used is not None and daily_limit is not None else None
+    minute_remaining = minute_limit - minute_used if minute_used is not None and minute_limit is not None else None
+
+    return {
+        "daily_used": daily_used,
+        "daily_limit": daily_limit,
+        "daily_remaining": daily_remaining,
+        "minute_used": minute_used,
+        "minute_limit": minute_limit,
+        "minute_remaining": minute_remaining,
+    }
+
+
 def provider_usage_budget(
     *,
-    current_usage: int | None,
-    plan_limit: int | None,
     safety_buffer: int,
     per_run_limit: int,
     daily_budget: int,
+    daily_used: int | None = None,
+    daily_limit: int | None = None,
+    current_usage: int | None = None,
+    plan_limit: int | None = None,
 ) -> tuple[int | None, int, str | None]:
     """Return remaining provider credits, run call budget, and a stop reason."""
 
-    if current_usage is None or plan_limit is None:
+    if daily_used is None:
+        daily_used = current_usage
+    if daily_limit is None:
+        daily_limit = plan_limit
+    if daily_used is None or daily_limit is None:
         return None, 0, "provider_usage_unavailable"
 
-    remaining = int(plan_limit) - int(current_usage)
+    remaining = int(daily_limit) - int(daily_used)
     safe_remaining = remaining - max(0, safety_buffer)
     if remaining <= 0:
         return remaining, 0, "quota_exhausted"
@@ -448,13 +518,11 @@ def main(argv: list[str] | None = None) -> int:
     ingest_module = _load_ingest_module()
     trading_days_module = _load_trading_days_module()
 
+    usage = {}
     try:
         usage = provider.fetch_api_usage()
-        current_usage = usage.get("current_usage")
-        plan_limit = usage.get("plan_limit")
     except Exception as exc:
-        current_usage = None
-        plan_limit = None
+        usage = {}
         print(f"provider_budget_stop: provider_usage_unavailable:{exc}", file=sys.stderr)
 
     calls_used_today = fetch_calls_used_today("MARKET_DATA")
@@ -463,9 +531,15 @@ def main(argv: list[str] | None = None) -> int:
     remaining_daily, max_provider_calls = _compute_daily_budget(daily_limit, daily_buffer, calls_used_today)
     safety_buffer = _env_int(PROVIDER_CREDIT_SAFETY_BUFFER_ENV, DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER)
     per_run_limit = _env_int(MAX_PROVIDER_CALLS_PER_RUN_ENV, DEFAULT_MAX_PROVIDER_CALLS_PER_RUN)
+    usage_fields = normalize_provider_usage(usage, configured_daily_limit=daily_limit)
+    current_usage = usage_fields["daily_used"]
+    plan_limit = usage_fields["daily_limit"]
+    minute_used = usage_fields["minute_used"]
+    minute_limit = usage_fields["minute_limit"]
+    minute_remaining = usage_fields["minute_remaining"]
     usage_remaining, max_provider_calls, budget_stop_reason = provider_usage_budget(
-        current_usage=current_usage,
-        plan_limit=plan_limit,
+        daily_used=current_usage,
+        daily_limit=plan_limit,
         safety_buffer=safety_buffer,
         per_run_limit=per_run_limit,
         daily_budget=max_provider_calls,
@@ -490,6 +564,12 @@ def main(argv: list[str] | None = None) -> int:
         "usage_current": current_usage,
         "usage_limit": plan_limit,
         "usage_remaining": usage_remaining,
+        "daily_used": current_usage,
+        "daily_limit": plan_limit,
+        "daily_remaining": usage_remaining,
+        "minute_used": minute_used,
+        "minute_limit": minute_limit,
+        "minute_remaining": minute_remaining,
     }
 
     if force_fail:
@@ -543,19 +623,28 @@ def main(argv: list[str] | None = None) -> int:
                 "usage_limit": plan_limit,
                 "usage_remaining": usage_remaining,
                 "credit_buffer": safety_buffer,
+                "daily_used": current_usage,
+                "daily_limit": plan_limit,
+                "daily_remaining": usage_remaining,
+                "daily_safety_buffer": safety_buffer,
+                "minute_used": minute_used,
+                "minute_limit": minute_limit,
+                "minute_remaining": minute_remaining,
             },
         )
         summary["status"] = "DAILY_BUDGET_STOP"
         summary["error_msg"] = budget_stop_reason
         print(
-            "provider_budget_stop: reason={reason} usage_current={current} "
-            "usage_limit={limit} usage_remaining={remaining} safety_buffer={buffer} "
-            "max_provider_calls=0".format(
+            "provider_budget_stop: reason={reason} daily_used={current} "
+            "daily_limit={limit} daily_remaining={remaining} daily_safety_buffer={buffer} "
+            "minute_used={minute_used} minute_limit={minute_limit} max_provider_calls=0".format(
                 reason=budget_stop_reason,
                 current=current_usage,
                 limit=plan_limit,
                 remaining=usage_remaining,
                 buffer=safety_buffer,
+                minute_used=minute_used,
+                minute_limit=minute_limit,
             )
         )
         finish_run(
@@ -717,22 +806,31 @@ def main(argv: list[str] | None = None) -> int:
             "usage_limit": plan_limit,
             "usage_remaining": usage_remaining,
             "credit_buffer": safety_buffer,
+            "daily_used": current_usage,
+            "daily_limit": plan_limit,
+            "daily_remaining": usage_remaining,
+            "daily_safety_buffer": safety_buffer,
+            "minute_used": minute_used,
+            "minute_limit": minute_limit,
+            "minute_remaining": minute_remaining,
         },
     )
 
     print(
         "index_engine_daily: end={end} calls_used_today={used} remaining_daily={remaining_daily} "
-        "daily_limit={daily_limit} daily_buffer={daily_buffer} safety_buffer={safety_buffer} max_provider_calls={max_calls} "
+        "daily_used={daily_used} daily_limit={daily_limit} daily_buffer={daily_buffer} "
+        "daily_safety_buffer={safety_buffer} max_provider_calls={max_calls} "
         "minute_limit={minute_limit} minute_used={minute_used}".format(
             end=end_date.isoformat(),
             used=calls_used_today,
             remaining_daily=remaining_daily,
+            daily_used=current_usage,
             daily_limit=daily_limit,
             daily_buffer=daily_buffer,
             safety_buffer=safety_buffer,
             max_calls=max_provider_calls,
-            minute_limit=plan_limit,
-            minute_used=current_usage,
+            minute_limit=minute_limit,
+            minute_used=minute_used,
         )
     )
 

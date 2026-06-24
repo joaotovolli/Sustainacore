@@ -338,7 +338,7 @@ def test_cli_honors_skip_ingest_env(monkeypatch):
 def test_determine_target_dates_uses_defaults_for_blank_budget_env(monkeypatch, tmp_path):
     trading_days = [dt.date(2026, 3, 25), dt.date(2026, 3, 26)]
     provider = SimpleNamespace(
-        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_api_usage=lambda: {"daily_current_usage": 1, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8},
         fetch_single_day_bar=lambda _symbol, day: [{"trade_date": day.isoformat(), "close": "1"}],
     )
     trading_days_module = SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None))
@@ -414,12 +414,14 @@ def test_determine_target_dates_uses_defaults_for_blank_budget_env(monkeypatch, 
     assert result["status"] == "OK"
     assert result["context"]["daily_limit"] == 800
     assert result["context"]["daily_buffer"] == 25
-    assert result["context"]["max_provider_calls"] == 7
+    assert result["context"]["max_provider_calls"] == 50
+    assert result["context"]["provider_usage_remaining"] == 799
+    assert result["context"]["provider_minute_limit"] == 8
 
 
 def test_determine_target_dates_blocks_when_provider_quota_exhausted(monkeypatch, tmp_path):
     calls = {"resolve": 0}
-    provider = SimpleNamespace(fetch_api_usage=lambda: {"current_usage": 993, "plan_limit": 800})
+    provider = SimpleNamespace(fetch_api_usage=lambda: {"daily_current_usage": 993, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8})
     fake_run_daily = SimpleNamespace(
         PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
         DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
@@ -456,7 +458,7 @@ def test_determine_target_dates_blocks_when_provider_quota_exhausted(monkeypatch
 
 
 def test_determine_target_dates_blocks_when_remaining_below_safety_buffer(monkeypatch, tmp_path):
-    provider = SimpleNamespace(fetch_api_usage=lambda: {"current_usage": 725, "plan_limit": 800})
+    provider = SimpleNamespace(fetch_api_usage=lambda: {"daily_current_usage": 725, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8})
     fake_run_daily = SimpleNamespace(
         PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
         DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
@@ -486,10 +488,44 @@ def test_determine_target_dates_blocks_when_remaining_below_safety_buffer(monkey
     assert result["counts"]["provider_credit_safety_buffer"] == 100
 
 
+def test_determine_target_dates_blocks_when_only_minute_usage_available(monkeypatch, tmp_path):
+    provider = SimpleNamespace(fetch_api_usage=lambda: {"minute_current_usage": 1, "minute_plan_limit": 8})
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        PROVIDER_CREDIT_SAFETY_BUFFER_ENV="SC_IDX_PROVIDER_CREDIT_SAFETY_BUFFER",
+        DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER=100,
+        MAX_PROVIDER_CALLS_PER_RUN_ENV="SC_IDX_MAX_PROVIDER_CALLS_PER_RUN",
+        DEFAULT_MAX_PROVIDER_CALLS_PER_RUN=50,
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None)),
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (800, 775),
+        provider_usage_budget=run_daily.provider_usage_budget,
+        normalize_provider_usage=run_daily.normalize_provider_usage,
+        _resolve_end_date=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("no provider calls")),
+    )
+    runtime = SCIdxPipelineRuntime(report_dir=tmp_path, telemetry_dir=tmp_path / "telemetry", state_store=_FakeStore())
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "BLOCKED"
+    assert result["error_token"] == "provider_usage_unavailable"
+    assert result["counts"]["provider_minute_used"] == 1
+    assert result["counts"]["provider_minute_limit"] == 8
+    assert result["counts"]["provider_credit_safety_buffer"] == 100
+    assert result["counts"]["provider_daily_limit"] is None
+
+
 def test_determine_target_dates_clean_skips_when_provider_not_ready(monkeypatch, tmp_path):
     trading_days = [dt.date(2026, 5, 26), dt.date(2026, 5, 27), dt.date(2026, 5, 28)]
     provider = SimpleNamespace(
-        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_api_usage=lambda: {"daily_current_usage": 1, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8},
         fetch_single_day_bar=lambda _symbol, day: (
             [{"trade_date": day.isoformat(), "close": "1"}] if day == dt.date(2026, 5, 27) else []
         ),
@@ -567,7 +603,7 @@ def test_determine_target_dates_uses_window_probe_when_exact_readiness_http_400(
         raise RuntimeError("market_data_http_error:400")
 
     provider = SimpleNamespace(
-        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_api_usage=lambda: {"daily_current_usage": 1, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8},
         has_eod_for_date=_raise_no_bar,
         fetch_single_day_bar=lambda _symbol, day: [{"trade_date": day.isoformat(), "close": "1"}],
     )
@@ -644,7 +680,7 @@ def test_determine_target_dates_uses_alternate_probe_symbol_when_primary_missing
         return []
 
     provider = SimpleNamespace(
-        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_api_usage=lambda: {"daily_current_usage": 1, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8},
         fetch_single_day_bar=_fetch,
         has_eod_for_date=lambda _symbol, _day: False,
     )
@@ -722,7 +758,7 @@ def test_determine_target_dates_skips_holiday_synthetic_day(monkeypatch, tmp_pat
         return []
 
     provider = SimpleNamespace(
-        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_api_usage=lambda: {"daily_current_usage": 1, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8},
         fetch_single_day_bar=_fetch,
     )
     trading_days_module = SimpleNamespace(
@@ -795,7 +831,7 @@ def test_determine_target_dates_skips_holiday_synthetic_day(monkeypatch, tmp_pat
 def test_determine_target_dates_uses_cached_calendar_when_refresh_raises(monkeypatch, tmp_path):
     trading_days = [dt.date(2026, 5, 27), dt.date(2026, 5, 28)]
     provider = SimpleNamespace(
-        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_api_usage=lambda: {"daily_current_usage": 1, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8},
         has_eod_for_date=lambda _symbol, day: day == dt.date(2026, 5, 27),
     )
 
@@ -869,7 +905,7 @@ def test_determine_target_dates_uses_cached_calendar_when_refresh_raises(monkeyp
 def test_determine_target_dates_suppresses_calendar_warning_when_up_to_date(monkeypatch, tmp_path):
     trading_days = [dt.date(2026, 5, 28), dt.date(2026, 5, 29)]
     provider = SimpleNamespace(
-        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_api_usage=lambda: {"daily_current_usage": 1, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8},
     )
 
     def _raise_refresh(**_kwargs):
@@ -961,7 +997,7 @@ def test_target_date_failure_report_requires_operator_action(tmp_path):
 def test_determine_target_dates_keeps_calc_and_portfolio_work_when_downstream_tables_lag(monkeypatch, tmp_path):
     trading_days = [dt.date(2026, 3, 31), dt.date(2026, 4, 1)]
     provider = SimpleNamespace(
-        fetch_api_usage=lambda: {"current_usage": 1, "plan_limit": 8},
+        fetch_api_usage=lambda: {"daily_current_usage": 1, "daily_plan_limit": 800, "minute_current_usage": 1, "minute_plan_limit": 8},
         fetch_single_day_bar=lambda _symbol, day: [{"trade_date": day.isoformat(), "close": "1"}],
     )
     trading_days_module = SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None))

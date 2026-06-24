@@ -490,24 +490,42 @@ def _estimate_ingest_provider_calls(
 def _provider_budget_block_result(
     *,
     reason: str,
-    usage_current: Any,
-    usage_limit: Any,
-    usage_remaining: Any,
+    usage_current: Any = None,
+    usage_limit: Any = None,
+    usage_remaining: Any = None,
+    daily_used: Any = None,
+    daily_limit: Any = None,
+    daily_remaining: Any = None,
+    minute_used: Any = None,
+    minute_limit: Any = None,
+    minute_remaining: Any = None,
     safety_buffer: int,
     max_provider_calls: int,
-    daily_limit: int,
+    configured_daily_limit: int,
     daily_buffer: int,
     remaining_daily: int,
     required_provider_calls: int | None = None,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if daily_used is None:
+        daily_used = usage_current
+    if daily_limit is None:
+        daily_limit = usage_limit
+    if daily_remaining is None:
+        daily_remaining = usage_remaining
     counts = {
-        "provider_usage_current": usage_current,
-        "provider_usage_limit": usage_limit,
-        "provider_usage_remaining": usage_remaining,
+        "provider_usage_current": daily_used,
+        "provider_usage_limit": daily_limit,
+        "provider_usage_remaining": daily_remaining,
+        "provider_daily_used": daily_used,
+        "provider_daily_limit": daily_limit,
+        "provider_daily_remaining": daily_remaining,
         "provider_credit_safety_buffer": safety_buffer,
+        "provider_minute_used": minute_used,
+        "provider_minute_limit": minute_limit,
+        "provider_minute_remaining": minute_remaining,
         "max_provider_calls": max_provider_calls,
-        "daily_limit": daily_limit,
+        "daily_limit": configured_daily_limit,
         "daily_buffer": daily_buffer,
         "remaining_daily": remaining_daily,
     }
@@ -768,24 +786,22 @@ class SCIdxPipelineRuntime:
         usage_current = None
         usage_limit = None
         provider_usage_remaining = None
+        minute_used = None
+        minute_limit = None
+        minute_remaining = None
         warnings: list[str] = []
         try:
             usage = provider.fetch_api_usage()
-            usage_current = usage.get("current_usage")
-            usage_limit = usage.get("plan_limit")
         except Exception as exc:
             reason = "provider_rate_limited" if _provider_rate_limit_error(exc) else "provider_usage_unavailable"
             return _provider_budget_block_result(
                 reason=reason,
-                usage_current=None,
-                usage_limit=None,
-                usage_remaining=None,
                 safety_buffer=_env_int(
                     getattr(run_daily, "PROVIDER_CREDIT_SAFETY_BUFFER_ENV", "SC_IDX_PROVIDER_CREDIT_SAFETY_BUFFER"),
                     getattr(run_daily, "DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER", 0),
                 ),
                 max_provider_calls=0,
-                daily_limit=_env_int(run_daily.DAILY_LIMIT_ENV, run_daily.DEFAULT_DAILY_LIMIT),
+                configured_daily_limit=_env_int(run_daily.DAILY_LIMIT_ENV, run_daily.DEFAULT_DAILY_LIMIT),
                 daily_buffer=_env_int(
                     run_daily.DAILY_BUFFER_ENV,
                     _env_int(run_daily.BUFFER_ENV, run_daily.DEFAULT_BUFFER),
@@ -793,6 +809,23 @@ class SCIdxPipelineRuntime:
                 remaining_daily=0,
                 context={"provider_usage_error": str(exc)},
             )
+        usage_fields = (
+            run_daily.normalize_provider_usage(usage, configured_daily_limit=_env_int(run_daily.DAILY_LIMIT_ENV, run_daily.DEFAULT_DAILY_LIMIT))
+            if hasattr(run_daily, "normalize_provider_usage")
+            else {
+                "daily_used": usage.get("daily_current_usage") or usage.get("daily_used"),
+                "daily_limit": usage.get("daily_plan_limit") or usage.get("daily_limit"),
+                "daily_remaining": None,
+                "minute_used": usage.get("minute_current_usage") or usage.get("minute_used"),
+                "minute_limit": usage.get("minute_plan_limit") or usage.get("minute_limit"),
+                "minute_remaining": None,
+            }
+        )
+        usage_current = usage_fields.get("daily_used")
+        usage_limit = usage_fields.get("daily_limit")
+        minute_used = usage_fields.get("minute_used")
+        minute_limit = usage_fields.get("minute_limit")
+        minute_remaining = usage_fields.get("minute_remaining")
 
         calls_used_today = fetch_calls_used_today("MARKET_DATA")
         daily_limit = _env_int(run_daily.DAILY_LIMIT_ENV, run_daily.DEFAULT_DAILY_LIMIT)
@@ -816,8 +849,8 @@ class SCIdxPipelineRuntime:
         budget_fn = getattr(run_daily, "provider_usage_budget", None)
         if callable(budget_fn):
             provider_usage_remaining, max_provider_calls, budget_stop_reason = budget_fn(
-                current_usage=usage_current,
-                plan_limit=usage_limit,
+                daily_used=usage_current,
+                daily_limit=usage_limit,
                 safety_buffer=safety_buffer,
                 per_run_limit=per_run_limit,
                 daily_budget=max_provider_calls,
@@ -842,12 +875,15 @@ class SCIdxPipelineRuntime:
         if budget_stop_reason:
             return _provider_budget_block_result(
                 reason=budget_stop_reason,
-                usage_current=usage_current,
-                usage_limit=usage_limit,
-                usage_remaining=provider_usage_remaining,
+                daily_used=usage_current,
+                daily_limit=usage_limit,
+                daily_remaining=provider_usage_remaining,
+                minute_used=minute_used,
+                minute_limit=minute_limit,
+                minute_remaining=minute_remaining,
                 safety_buffer=safety_buffer,
                 max_provider_calls=max_provider_calls,
-                daily_limit=daily_limit,
+                configured_daily_limit=daily_limit,
                 daily_buffer=daily_buffer,
                 remaining_daily=remaining_daily,
             )
@@ -968,12 +1004,15 @@ class SCIdxPipelineRuntime:
             if required_provider_calls > max_provider_calls:
                 return _provider_budget_block_result(
                     reason="quota_exhausted",
-                    usage_current=usage_current,
-                    usage_limit=usage_limit,
-                    usage_remaining=provider_usage_remaining,
+                    daily_used=usage_current,
+                    daily_limit=usage_limit,
+                    daily_remaining=provider_usage_remaining,
+                    minute_used=minute_used,
+                    minute_limit=minute_limit,
+                    minute_remaining=minute_remaining,
                     safety_buffer=safety_buffer,
                     max_provider_calls=max_provider_calls,
-                    daily_limit=daily_limit,
+                    configured_daily_limit=daily_limit,
                     daily_buffer=daily_buffer,
                     remaining_daily=remaining_daily,
                     required_provider_calls=required_provider_calls,
@@ -995,12 +1034,15 @@ class SCIdxPipelineRuntime:
         if max_provider_calls <= 0:
             return _provider_budget_block_result(
                 reason="quota_exhausted",
-                usage_current=usage_current,
-                usage_limit=usage_limit,
-                usage_remaining=provider_usage_remaining,
+                daily_used=usage_current,
+                daily_limit=usage_limit,
+                daily_remaining=provider_usage_remaining,
+                minute_used=minute_used,
+                minute_limit=minute_limit,
+                minute_remaining=minute_remaining,
                 safety_buffer=safety_buffer,
                 max_provider_calls=0,
-                daily_limit=daily_limit,
+                configured_daily_limit=daily_limit,
                 daily_buffer=daily_buffer,
                 remaining_daily=remaining_daily,
                 required_provider_calls=required_provider_calls,
@@ -1201,6 +1243,13 @@ class SCIdxPipelineRuntime:
             "provider_usage_current": usage_current,
             "provider_usage_limit": usage_limit,
             "provider_usage_remaining": provider_usage_remaining,
+            "provider_daily_used": usage_current,
+            "provider_daily_limit": usage_limit,
+            "provider_daily_remaining": provider_usage_remaining,
+            "provider_daily_safety_buffer": safety_buffer,
+            "provider_minute_used": minute_used,
+            "provider_minute_limit": minute_limit,
+            "provider_minute_remaining": minute_remaining,
             "max_canon_before": max_canon_date,
             "max_level_before": max_level_date,
             "max_contribution_before": max_contribution_date,
