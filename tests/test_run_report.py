@@ -109,3 +109,44 @@ def test_degraded_target_date_warning_keeps_aligned_data_fresh():
     assert summary["terminal_status"] == "success_with_degradation"
     assert summary["freshness"]["health"]["verdict"] == "fresh"
     assert summary["freshness"]["health"]["reason"] == "aligned_with_expected"
+
+
+def test_build_pipeline_run_summary_separates_daily_and_minute_provider_capacity():
+    summary = build_pipeline_run_summary(
+        run_id="run-provider-budget",
+        terminal_status="blocked",
+        started_at="2026-06-24T06:29:16+00:00",
+        stage_results={
+            "determine_target_dates": {
+                "status": "BLOCKED",
+                "counts": {},
+                "attempts": 1,
+                "error_token": "provider_usage_unavailable",
+            },
+            "generate_run_report": {"status": "OK", "counts": {}, "attempts": 1},
+        },
+        context={
+            "ended_at": "2026-06-24T06:29:19+00:00",
+            "provider_daily_used": 2,
+            "provider_daily_limit": 800,
+            "provider_daily_remaining": 798,
+            "provider_daily_safety_buffer": 100,
+            "provider_minute_used": 1,
+            "provider_minute_limit": 8,
+            "provider_minute_remaining": 7,
+            "repo_root": "/repo",
+            "repo_head": "abc1234",
+        },
+        warnings=[],
+        status_reason="provider_usage_unavailable",
+        root_cause="provider_usage_unavailable",
+        remediation="Wait for provider quota reset or increase provider quota, then rerun once.",
+    )
+
+    readiness = summary["provider_readiness"]
+    assert readiness["daily_credit_used"] == 2
+    assert readiness["daily_credit_limit"] == 800
+    assert readiness["daily_credit_remaining"] == 798
+    assert readiness["daily_credit_safety_buffer"] == 100
+    assert readiness["minute_used"] == 1
+    assert readiness["minute_limit"] == 8

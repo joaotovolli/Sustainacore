@@ -79,6 +79,14 @@ def _coerce_int(value: Any) -> Optional[int]:
         return None
 
 
+def _first_int(payload: Dict[str, Any], *keys: str) -> Optional[int]:
+    for key in keys:
+        value = _coerce_int(payload.get(key))
+        if value is not None:
+            return value
+    return None
+
+
 def _coerce_date(raw: Any) -> Optional[_dt.date]:
     if raw is None:
         return None
@@ -420,10 +428,54 @@ def fetch_api_usage(api_key: Optional[str] = None) -> Dict[str, Any]:
         message = payload.get("message") or "unknown error"
         raise MarketDataProviderError(f"Market data api_usage error: {message}")
 
+    daily_current_usage = _first_int(
+        payload,
+        "daily_current_usage",
+        "daily_usage",
+        "daily_used",
+        "credits_used",
+        "credit_usage",
+        "api_credits_used",
+        "current_usage_day",
+    )
+    daily_plan_limit = _first_int(
+        payload,
+        "daily_plan_limit",
+        "daily_limit",
+        "daily_credits_limit",
+        "credits_limit",
+        "credit_limit",
+        "api_credits_limit",
+        "plan_daily_limit",
+    )
+    minute_current_usage = _first_int(
+        payload,
+        "minute_current_usage",
+        "minute_usage",
+        "minute_used",
+        "rate_current_usage",
+        "current_usage_minute",
+        "current_usage",
+    )
+    minute_plan_limit = _first_int(
+        payload,
+        "minute_plan_limit",
+        "minute_limit",
+        "rate_limit",
+        "limit_per_minute",
+        "plan_minute_limit",
+        "plan_limit",
+        "api_limit",
+    )
+
     return {
         "timestamp": payload.get("timestamp") or payload.get("datetime"),
-        "current_usage": _coerce_int(payload.get("current_usage")),
-        "plan_limit": _coerce_int(payload.get("plan_limit") or payload.get("api_limit")),
+        "current_usage": daily_current_usage,
+        "plan_limit": daily_plan_limit,
+        "daily_current_usage": daily_current_usage,
+        "daily_plan_limit": daily_plan_limit,
+        "minute_current_usage": minute_current_usage,
+        "minute_plan_limit": minute_plan_limit,
         "plan_category": payload.get("plan_category") or payload.get("plan") or payload.get("plan_id"),
     }
 

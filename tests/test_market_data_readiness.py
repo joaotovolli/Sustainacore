@@ -58,6 +58,47 @@ def test_fetch_eod_prices_single_day_uses_desc(monkeypatch):
     assert result[0]["trade_date"] == "2025-01-02"
 
 
+def test_fetch_api_usage_separates_daily_credits_from_minute_capacity(monkeypatch):
+    monkeypatch.setattr(market_data_provider, "_get_api_key", lambda explicit=None: "demo")
+    monkeypatch.setattr(
+        market_data_provider,
+        "_request_json",
+        lambda *_args, **_kwargs: {
+            "daily_current_usage": 2,
+            "daily_plan_limit": 800,
+            "current_usage": 1,
+            "plan_limit": 8,
+        },
+    )
+
+    usage = market_data_provider.fetch_api_usage()
+
+    assert usage["current_usage"] == 2
+    assert usage["plan_limit"] == 800
+    assert usage["daily_current_usage"] == 2
+    assert usage["daily_plan_limit"] == 800
+    assert usage["minute_current_usage"] == 1
+    assert usage["minute_plan_limit"] == 8
+
+
+def test_fetch_api_usage_does_not_map_minute_limit_to_daily_credits(monkeypatch):
+    monkeypatch.setattr(market_data_provider, "_get_api_key", lambda explicit=None: "demo")
+    monkeypatch.setattr(
+        market_data_provider,
+        "_request_json",
+        lambda *_args, **_kwargs: {"current_usage": 1, "plan_limit": 8},
+    )
+
+    usage = market_data_provider.fetch_api_usage()
+
+    assert usage["current_usage"] is None
+    assert usage["plan_limit"] is None
+    assert usage["daily_current_usage"] is None
+    assert usage["daily_plan_limit"] is None
+    assert usage["minute_current_usage"] == 1
+    assert usage["minute_plan_limit"] == 8
+
+
 def test_provider_http_429_fails_without_sleep_retry(monkeypatch):
     calls = {"urlopen": 0, "sleep": 0}
 
