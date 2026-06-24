@@ -904,7 +904,26 @@ class SCIdxPipelineRuntime:
         if not updated and update_error:
             warnings.append(f"trading_days_cached:{update_error}")
 
-        provider_latest, trading_days, candidate_end = run_daily._resolve_end_date(provider, probe_symbol, today_utc)
+        try:
+            provider_latest, trading_days, candidate_end = run_daily._resolve_end_date(provider, probe_symbol, today_utc)
+        except Exception as exc:
+            if _provider_rate_limit_error(exc):
+                return _provider_budget_block_result(
+                    reason="provider_rate_limited",
+                    daily_used=usage_current,
+                    daily_limit=usage_limit,
+                    daily_remaining=provider_usage_remaining,
+                    minute_used=minute_used,
+                    minute_limit=minute_limit,
+                    minute_remaining=minute_remaining,
+                    safety_buffer=safety_buffer,
+                    max_provider_calls=0,
+                    configured_daily_limit=daily_limit,
+                    daily_buffer=daily_buffer,
+                    remaining_daily=remaining_daily,
+                    context={"provider_resolution_error": str(exc)},
+                )
+            raise
         if not trading_days:
             return {
                 "status": "BLOCKED",
@@ -926,11 +945,37 @@ class SCIdxPipelineRuntime:
         if synthetic_days:
             fallback_probe_symbol = os.getenv(run_daily.PROBE_SYMBOL_ENV, "SPY")
             fallback_probe_symbols = _readiness_probe_symbols(fallback_probe_symbol)[:1]
-            verified_synthetic_days, skipped_synthetic_days = _provider_verified_synthetic_days(
-                provider,
-                fallback_probe_symbols,
-                synthetic_days,
-            )
+            try:
+                verified_synthetic_days, skipped_synthetic_days = _provider_verified_synthetic_days(
+                    provider,
+                    fallback_probe_symbols,
+                    synthetic_days,
+                )
+            except Exception as exc:
+                if _provider_rate_limit_error(exc):
+                    return _provider_budget_block_result(
+                        reason="provider_rate_limited",
+                        daily_used=usage_current,
+                        daily_limit=usage_limit,
+                        daily_remaining=provider_usage_remaining,
+                        minute_used=minute_used,
+                        minute_limit=minute_limit,
+                        minute_remaining=minute_remaining,
+                        safety_buffer=safety_buffer,
+                        max_provider_calls=0,
+                        configured_daily_limit=daily_limit,
+                        daily_buffer=daily_buffer,
+                        remaining_daily=remaining_daily,
+                        context={
+                            "calendar_max_date": calendar_max,
+                            "provider_latest_date": provider_latest,
+                            "candidate_end_date": candidate_end,
+                            "expected_target_date": expected_target_date,
+                            "expected_target_source": expected_target_source,
+                            "provider_resolution_error": str(exc),
+                        },
+                    )
+                raise
             if skipped_synthetic_days:
                 warnings.append(
                     "trading_days_weekday_fallback_skipped_no_bar:"
@@ -1113,6 +1158,34 @@ class SCIdxPipelineRuntime:
                     probe_fn=_probe,
                 )
             except Exception as exc:
+                if _provider_rate_limit_error(exc):
+                    return _provider_budget_block_result(
+                        reason="provider_rate_limited",
+                        daily_used=usage_current,
+                        daily_limit=usage_limit,
+                        daily_remaining=provider_usage_remaining,
+                        minute_used=minute_used,
+                        minute_limit=minute_limit,
+                        minute_remaining=minute_remaining,
+                        safety_buffer=safety_buffer,
+                        max_provider_calls=0,
+                        configured_daily_limit=daily_limit,
+                        daily_buffer=daily_buffer,
+                        remaining_daily=remaining_daily,
+                        context={
+                            "today_utc": today_utc,
+                            "calendar_max_date": calendar_max,
+                            "provider_latest_date": provider_latest,
+                            "candidate_end_date": candidate_end,
+                            "expected_target_date": expected_target_date,
+                            "expected_target_source": expected_target_source,
+                            "provider_ready": False,
+                            "provider_ready_tried_dates": tried_ready_dates,
+                            "trading_days": trading_days,
+                            "synthetic_trading_days": [day.isoformat() for day in synthetic_days],
+                            "provider_resolution_error": str(exc),
+                        },
+                    )
                 return {
                     "status": "FAILED",
                     "detail": "provider_probe_failed",

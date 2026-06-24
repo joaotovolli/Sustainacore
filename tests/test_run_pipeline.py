@@ -522,6 +522,41 @@ def test_determine_target_dates_blocks_when_only_minute_usage_available(monkeypa
     assert result["counts"]["provider_daily_limit"] is None
 
 
+def test_determine_target_dates_blocks_rate_limit_during_provider_resolution(monkeypatch, tmp_path):
+    provider = SimpleNamespace(fetch_api_usage=lambda: {"daily_current_usage": 2, "daily_plan_limit": 800})
+    fake_run_daily = SimpleNamespace(
+        PROBE_SYMBOL_ENV="SC_IDX_PROBE_SYMBOL",
+        DAILY_LIMIT_ENV="SC_IDX_MARKET_DATA_DAILY_LIMIT",
+        DAILY_BUFFER_ENV="SC_IDX_MARKET_DATA_DAILY_BUFFER",
+        BUFFER_ENV="SC_IDX_MARKET_DATA_CREDIT_BUFFER",
+        DEFAULT_DAILY_LIMIT=800,
+        DEFAULT_BUFFER=25,
+        PROVIDER_CREDIT_SAFETY_BUFFER_ENV="SC_IDX_PROVIDER_CREDIT_SAFETY_BUFFER",
+        DEFAULT_PROVIDER_CREDIT_SAFETY_BUFFER=100,
+        MAX_PROVIDER_CALLS_PER_RUN_ENV="SC_IDX_MAX_PROVIDER_CALLS_PER_RUN",
+        DEFAULT_MAX_PROVIDER_CALLS_PER_RUN=50,
+        TRADING_DAYS_RETRY_ENV="SC_IDX_TRADING_DAYS_RETRY_ATTEMPTS",
+        TRADING_DAYS_RETRY_BASE_ENV="SC_IDX_TRADING_DAYS_RETRY_BASE_SEC",
+        _load_provider_module=lambda: provider,
+        _load_trading_days_module=lambda: SimpleNamespace(update_trading_days_with_retry=lambda **kwargs: (True, None)),
+        _compute_daily_budget=lambda daily_limit, daily_buffer, calls_used_today: (800, 775),
+        provider_usage_budget=run_daily.provider_usage_budget,
+        normalize_provider_usage=run_daily.normalize_provider_usage,
+        _resolve_end_date=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("market_data_http_error:429")),
+    )
+    runtime = SCIdxPipelineRuntime(report_dir=tmp_path, telemetry_dir=tmp_path / "telemetry", state_store=_FakeStore())
+    monkeypatch.setattr(runtime, "_load_run_daily_module", lambda: fake_run_daily)
+    monkeypatch.setattr("index_engine.orchestration.fetch_calls_used_today", lambda *_args, **_kwargs: 0)
+
+    result = runtime.determine_target_dates(_state(smoke=False))
+
+    assert result["status"] == "BLOCKED"
+    assert result["error_token"] == "provider_rate_limited"
+    assert result["retryable"] is False
+    assert result["counts"]["provider_daily_remaining"] == 798
+    assert result["counts"]["max_provider_calls"] == 0
+
+
 def test_determine_target_dates_clean_skips_when_provider_not_ready(monkeypatch, tmp_path):
     trading_days = [dt.date(2026, 5, 26), dt.date(2026, 5, 27), dt.date(2026, 5, 28)]
     provider = SimpleNamespace(
