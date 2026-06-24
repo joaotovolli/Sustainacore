@@ -7,6 +7,7 @@ import http.client  # preload stdlib http to avoid local http shadowing
 import os
 import pathlib
 import sys
+import time
 from collections import defaultdict
 from typing import Iterable, List, Optional
 
@@ -36,6 +37,10 @@ PROVIDER = "MARKET_DATA"
 TICKER_ALIASES = {"FI": "FISV"}
 TRADING_DAY_FALLBACK_MAX_GAP_ENV = "SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP"
 DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP = 3
+PROVIDER_CALLS_PER_MINUTE_ENV = "SC_IDX_PROVIDER_CALLS_PER_MINUTE"
+PROVIDER_MINUTE_SAFETY_BUFFER_ENV = "SC_IDX_PROVIDER_MINUTE_SAFETY_BUFFER"
+DEFAULT_PROVIDER_CALLS_PER_MINUTE = 6
+DEFAULT_PROVIDER_MINUTE_SAFETY_BUFFER = 4
 
 
 def _normalize_ticker(value: str) -> str:
@@ -81,6 +86,49 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+class ProviderCallPacer:
+    def __init__(self, calls_per_minute: int | None):
+        if calls_per_minute is None or calls_per_minute <= 0:
+            self.interval_sec = 0.0
+        else:
+            self.interval_sec = 60.0 / float(calls_per_minute)
+        self._last_call_at: float | None = None
+
+    def wait(self) -> None:
+        if self.interval_sec <= 0:
+            self._last_call_at = time.monotonic()
+            return
+        now = time.monotonic()
+        if self._last_call_at is not None:
+            elapsed = now - self._last_call_at
+            sleep_for = self.interval_sec - elapsed
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+                now = time.monotonic()
+        self._last_call_at = now
+
+
+def _arg_int(args: argparse.Namespace, name: str) -> int | None:
+    value = getattr(args, name, None)
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _effective_calls_per_minute(args: argparse.Namespace) -> int:
+    configured = _arg_int(args, "provider_calls_per_minute")
+    if configured is None:
+        configured = _env_int(PROVIDER_CALLS_PER_MINUTE_ENV, DEFAULT_PROVIDER_CALLS_PER_MINUTE)
+    minute_limit = _arg_int(args, "provider_minute_limit")
+    minute_buffer = max(0, _env_int(PROVIDER_MINUTE_SAFETY_BUFFER_ENV, DEFAULT_PROVIDER_MINUTE_SAFETY_BUFFER))
+    if minute_limit is not None and minute_limit > 0:
+        configured = min(configured, max(1, minute_limit - minute_buffer))
+    return max(1, configured)
+
+
 def _provider_has_calendar_bar(day: _dt.date, probe_symbol: str = "SPY") -> bool:
     try:
         return bool(fetch_single_day_bar(probe_symbol, day))
@@ -91,10 +139,16 @@ def _provider_has_calendar_bar(day: _dt.date, probe_symbol: str = "SPY") -> bool
         raise
 
 
-def _filter_synthetic_trading_days(synthetic_days: list[_dt.date]) -> tuple[list[_dt.date], list[_dt.date]]:
+def _filter_synthetic_trading_days(
+    synthetic_days: list[_dt.date],
+    *,
+    pacer: ProviderCallPacer | None = None,
+) -> tuple[list[_dt.date], list[_dt.date]]:
     verified: list[_dt.date] = []
     skipped: list[_dt.date] = []
     for day in synthetic_days:
+        if pacer is not None:
+            pacer.wait()
         if _provider_has_calendar_bar(day):
             verified.append(day)
         else:
@@ -107,6 +161,7 @@ def _extend_short_trading_calendar(
     *,
     start_date: _dt.date,
     end_date: _dt.date,
+    pacer: ProviderCallPacer | None = None,
 ) -> tuple[list[_dt.date], list[_dt.date]]:
     """Extend a short cached calendar to the requested ready end date.
 
@@ -120,7 +175,7 @@ def _extend_short_trading_calendar(
         synthetic_days = generate_weekdays(start_date, end_date)
         if not synthetic_days or len(synthetic_days) > max_gap:
             return trading_days, []
-        verified_days, skipped_days = _filter_synthetic_trading_days(synthetic_days)
+        verified_days, skipped_days = _filter_synthetic_trading_days(synthetic_days, pacer=pacer)
         if skipped_days:
             print(
                 "backfill_calendar_fallback_skipped_no_bar: "
@@ -136,7 +191,7 @@ def _extend_short_trading_calendar(
     synthetic_days = generate_weekdays(max(last_known + _dt.timedelta(days=1), start_date), end_date)
     if not synthetic_days or len(synthetic_days) > max_gap:
         return ordered, []
-    verified_days, skipped_days = _filter_synthetic_trading_days(synthetic_days)
+    verified_days, skipped_days = _filter_synthetic_trading_days(synthetic_days, pacer=pacer)
     if skipped_days:
         print(
             "backfill_calendar_fallback_skipped_no_bar: "
@@ -434,11 +489,14 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
         print("Invalid date range: end must be on or after start")
         return 1, {}
 
+    effective_calls_per_minute = _effective_calls_per_minute(args)
+    pacer = ProviderCallPacer(effective_calls_per_minute)
     trading_days = fetch_trading_days(start_date, end_date)
     trading_days, synthetic_days = _extend_short_trading_calendar(
         trading_days,
         start_date=start_date,
         end_date=end_date,
+        pacer=pacer,
     )
     if not trading_days:
         print("No trading days found for requested range")
@@ -484,6 +542,13 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
             tickers=len(tickers),
         )
     )
+    print(f"provider_pacing: effective_calls_per_minute={effective_calls_per_minute}")
+
+    existing_ok = _fetch_existing_ok(
+        start_date=start_date,
+        end_date=last_trading_day,
+        tickers=tickers,
+    )
 
     total_raw = 0
     total_canon = 0
@@ -491,43 +556,24 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
     provider_error: str | None = None
     max_ok_trade_date: _dt.date | None = None
 
-    for ticker in tickers:
-        if max_provider_calls is not None and provider_calls_used >= max_provider_calls:
-            print(
-                f"budget_stop: provider_calls_used={provider_calls_used} "
-                f"max_provider_calls={max_provider_calls}"
-            )
-            break
+    missing_by_ticker: dict[str, set[_dt.date]] = {}
+    for day in trading_days:
+        impacted = fetch_impacted_tickers_for_trade_date(day) if not args.tickers else tickers
+        for ticker in impacted:
+            ticker = _normalize_ticker(ticker)
+            if ticker in tickers and (ticker, day) not in existing_ok:
+                missing_by_ticker.setdefault(ticker, set()).add(day)
 
-        provider_error = None
-        try:
-            max_ok = fetch_max_ok_trade_date(ticker, PROVIDER)
-        except Exception as exc:
-            print(f"Failed to probe max date for {ticker}: {exc}")
+    for ticker, missing_dates in missing_by_ticker.items():
+        if not missing_dates:
             continue
-
-        ticker_start = start_date
-        if max_ok:
-            if max_ok >= last_trading_day:
-                continue
-            ticker_start = max(max_ok + _dt.timedelta(days=1), start_date)
-        ticker_start = _next_trading_day(trading_days, ticker_start) or ticker_start
-        if ticker_start > last_trading_day:
-            continue
-
-        provider_calls_used += 1
-        try:
-            provider_rows = _fetch_provider_rows(ticker, ticker_start, last_trading_day)
-        except Exception as exc:
-            if _provider_rate_limit_error(exc):
+        for ticker_start, ticker_end in _ranges_from_missing(trading_days, missing_dates):
+            if max_provider_calls is not None and provider_calls_used >= max_provider_calls:
                 print(
-                    "provider_rate_limited: provider_calls_used={calls} ticker={ticker} error={exc}".format(
-                        calls=provider_calls_used,
-                        ticker=ticker,
-                        exc=exc,
-                    )
+                    f"budget_stop: provider_calls_used={provider_calls_used} "
+                    f"max_provider_calls={max_provider_calls}"
                 )
-                return 2, {
+                return 0, {
                     "provider_calls_used": provider_calls_used,
                     "raw_upserts": total_raw,
                     "canon_upserts": total_canon,
@@ -535,83 +581,112 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
                     "raw_missing": total_status["MISSING"],
                     "raw_error": total_status["ERROR"],
                     "max_ok_trade_date": max_ok_trade_date,
-                    "provider_rate_limited": True,
+                    "effective_calls_per_minute": effective_calls_per_minute,
                 }
-            provider_error = str(exc)
-            print(
-                "Provider fetch failed for {ticker} range={start}..{end}: {exc}".format(
-                    ticker=ticker,
-                    start=ticker_start.isoformat(),
-                    end=last_trading_day.isoformat(),
-                    exc=exc,
+
+            provider_error = None
+            provider_calls_used += 1
+            pacer.wait()
+            try:
+                provider_rows = _fetch_provider_rows(ticker, ticker_start, ticker_end)
+            except Exception as exc:
+                if _provider_rate_limit_error(exc):
+                    print(
+                        "provider_rate_limited: provider_calls_used={calls} ticker={ticker} "
+                        "effective_calls_per_minute={rate} error={exc}".format(
+                            calls=provider_calls_used,
+                            ticker=ticker,
+                            rate=effective_calls_per_minute,
+                            exc=exc,
+                        )
+                    )
+                    return 2, {
+                        "provider_calls_used": provider_calls_used,
+                        "raw_upserts": total_raw,
+                        "canon_upserts": total_canon,
+                        "raw_ok": total_status["OK"],
+                        "raw_missing": total_status["MISSING"],
+                        "raw_error": total_status["ERROR"],
+                        "max_ok_trade_date": max_ok_trade_date,
+                        "provider_rate_limited": True,
+                        "effective_calls_per_minute": effective_calls_per_minute,
+                    }
+                provider_error = str(exc)
+                print(
+                    "Provider fetch failed for {ticker} range={start}..{end}: {exc}".format(
+                        ticker=ticker,
+                        start=ticker_start.isoformat(),
+                        end=ticker_end.isoformat(),
+                        exc=exc,
+                    )
                 )
-            )
-            missing_rows = _build_missing_rows(
-                ticker=ticker,
-                trading_days=trading_days,
-                start_date=ticker_start,
-                end_date=last_trading_day,
-                reason="provider_error",
-            )
-            if missing_rows:
-                total_raw += upsert_prices_raw(missing_rows)
-                total_status["MISSING"] += len(missing_rows)
-            continue
-
-        if not provider_rows:
-            print(
-                "Provider returned empty payload for {ticker} range={start}..{end}".format(
+                missing_rows = _build_missing_rows(
                     ticker=ticker,
-                    start=ticker_start.isoformat(),
-                    end=last_trading_day.isoformat(),
+                    trading_days=trading_days,
+                    start_date=ticker_start,
+                    end_date=ticker_end,
+                    reason="provider_error",
                 )
-            )
-            missing_rows = _build_missing_rows(
-                ticker=ticker,
-                trading_days=trading_days,
-                start_date=ticker_start,
-                end_date=last_trading_day,
-                reason="empty_payload",
-            )
-            if missing_rows:
-                total_raw += upsert_prices_raw(missing_rows)
-                total_status["MISSING"] += len(missing_rows)
-            continue
+                if missing_rows:
+                    total_raw += upsert_prices_raw(missing_rows)
+                    total_status["MISSING"] += len(missing_rows)
+                continue
 
-        raw_rows = _build_raw_rows_from_provider(provider_rows)
-        if raw_rows:
-            total_raw += upsert_prices_raw(raw_rows)
-        for row in raw_rows:
-            status = row.get("status")
-            if status in total_status:
-                total_status[status] += 1
-            if status == "OK" and row.get("trade_date"):
-                date_value = row.get("trade_date")
-                if max_ok_trade_date is None or date_value > max_ok_trade_date:
-                    max_ok_trade_date = date_value
-        canon_rows = compute_canonical_rows(raw_rows)
-        if canon_rows:
-            total_canon += upsert_prices_canon(canon_rows)
+            if not provider_rows:
+                print(
+                    "Provider returned empty payload for {ticker} range={start}..{end}".format(
+                        ticker=ticker,
+                        start=ticker_start.isoformat(),
+                        end=ticker_end.isoformat(),
+                    )
+                )
+                missing_rows = _build_missing_rows(
+                    ticker=ticker,
+                    trading_days=trading_days,
+                    start_date=ticker_start,
+                    end_date=ticker_end,
+                    reason="empty_payload",
+                )
+                if missing_rows:
+                    total_raw += upsert_prices_raw(missing_rows)
+                    total_status["MISSING"] += len(missing_rows)
+                continue
 
-        if args.debug:
-            _print_debug(
-                dates=[ticker_start, end_date],
-                tickers_by_date=None,
-                all_tickers=[ticker],
-                provider_called=True,
-                provider_rows=provider_rows,
-                raw_rows=raw_rows,
-                canon_rows=canon_rows,
-                provider_error=provider_error,
-                oracle_user=oracle_user,
-                oracle_user_error=oracle_user_error,
-                backfill=True,
-                provider_calls_used=provider_calls_used,
-            )
+            raw_rows = _build_raw_rows_from_provider(provider_rows)
+            if raw_rows:
+                total_raw += upsert_prices_raw(raw_rows)
+            for row in raw_rows:
+                status = row.get("status")
+                if status in total_status:
+                    total_status[status] += 1
+                if status == "OK" and row.get("trade_date"):
+                    date_value = row.get("trade_date")
+                    if max_ok_trade_date is None or date_value > max_ok_trade_date:
+                        max_ok_trade_date = date_value
+            canon_rows = compute_canonical_rows(raw_rows)
+            if canon_rows:
+                total_canon += upsert_prices_canon(canon_rows)
+
+            if args.debug:
+                _print_debug(
+                    dates=[ticker_start, ticker_end],
+                    tickers_by_date=None,
+                    all_tickers=[ticker],
+                    provider_called=True,
+                    provider_rows=provider_rows,
+                    raw_rows=raw_rows,
+                    canon_rows=canon_rows,
+                    provider_error=provider_error,
+                    oracle_user=oracle_user,
+                    oracle_user_error=oracle_user_error,
+                    backfill=True,
+                    provider_calls_used=provider_calls_used,
+                )
 
     print(
-        "backfill_summary: raw_upserts={raw} canon_upserts={canon} provider_calls_used={calls}".format(
-            raw=total_raw, canon=total_canon, calls=provider_calls_used
+        "backfill_summary: raw_upserts={raw} canon_upserts={canon} provider_calls_used={calls} "
+        "effective_calls_per_minute={rate}".format(
+            raw=total_raw, canon=total_canon, calls=provider_calls_used, rate=effective_calls_per_minute
         )
     )
     summary = {
@@ -622,6 +697,7 @@ def _run_backfill(args: argparse.Namespace) -> tuple[int, dict]:
         "raw_missing": total_status["MISSING"],
         "raw_error": total_status["ERROR"],
         "max_ok_trade_date": max_ok_trade_date,
+        "effective_calls_per_minute": effective_calls_per_minute,
     }
     return 0, summary
 
@@ -656,9 +732,10 @@ def _fetch_existing_ok(
     placeholders = ",".join(f":t{i}" for i in range(len(tickers)))
     sql = (
         "SELECT ticker, trade_date "
-        "FROM sc_idx_prices_raw "
-        f"WHERE provider = '{PROVIDER}' AND status = 'OK' "
-        "AND trade_date BETWEEN :start_date AND :end_date "
+        "FROM sc_idx_prices_canon "
+        "WHERE trade_date BETWEEN :start_date AND :end_date "
+        "AND NVL(canon_adj_close_px, canon_close_px) IS NOT NULL "
+        "AND NVL(quality, 'OK') <> 'IMPUTED' "
         f"AND ticker IN ({placeholders})"
     )
     binds = {"start_date": start_date, "end_date": end_date}
@@ -688,11 +765,14 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
         print("Invalid date range: end must be on or after start")
         return 1, {}
 
+    effective_calls_per_minute = _effective_calls_per_minute(args)
+    pacer = ProviderCallPacer(effective_calls_per_minute)
     trading_days = fetch_trading_days(start_date, end_date)
     trading_days, synthetic_days = _extend_short_trading_calendar(
         trading_days,
         start_date=start_date,
         end_date=end_date,
+        pacer=pacer,
     )
     if not trading_days:
         print("No trading days found for requested range")
@@ -733,6 +813,7 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
             tickers=len(tickers),
         )
     )
+    print(f"provider_pacing: effective_calls_per_minute={effective_calls_per_minute}")
 
     existing_ok = _fetch_existing_ok(
         start_date=start_date,
@@ -771,17 +852,21 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
                     "raw_missing": total_status["MISSING"],
                     "raw_error": total_status["ERROR"],
                     "max_ok_trade_date": max_ok_trade_date,
+                    "effective_calls_per_minute": effective_calls_per_minute,
                 }
 
             provider_calls_used += 1
+            pacer.wait()
             try:
                 provider_rows = _fetch_provider_rows(ticker, start, end)
             except Exception as exc:
                 if _provider_rate_limit_error(exc):
                     print(
-                        "provider_rate_limited: provider_calls_used={calls} ticker={ticker} error={exc}".format(
+                        "provider_rate_limited: provider_calls_used={calls} ticker={ticker} "
+                        "effective_calls_per_minute={rate} error={exc}".format(
                             calls=provider_calls_used,
                             ticker=ticker,
+                            rate=effective_calls_per_minute,
                             exc=exc,
                         )
                     )
@@ -794,6 +879,7 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
                         "raw_error": total_status["ERROR"],
                         "max_ok_trade_date": max_ok_trade_date,
                         "provider_rate_limited": True,
+                        "effective_calls_per_minute": effective_calls_per_minute,
                     }
                 print(
                     "Provider fetch failed for {ticker} range={start}..{end}: {exc}".format(
@@ -851,8 +937,9 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
                 total_canon += upsert_prices_canon(canon_rows)
 
     print(
-        "backfill_missing_summary: raw_upserts={raw} canon_upserts={canon} provider_calls_used={calls}".format(
-            raw=total_raw, canon=total_canon, calls=provider_calls_used
+        "backfill_missing_summary: raw_upserts={raw} canon_upserts={canon} provider_calls_used={calls} "
+        "effective_calls_per_minute={rate}".format(
+            raw=total_raw, canon=total_canon, calls=provider_calls_used, rate=effective_calls_per_minute
         )
     )
     summary = {
@@ -863,6 +950,7 @@ def _run_backfill_missing(args: argparse.Namespace) -> tuple[int, dict]:
         "raw_missing": total_status["MISSING"],
         "raw_error": total_status["ERROR"],
         "max_ok_trade_date": max_ok_trade_date,
+        "effective_calls_per_minute": effective_calls_per_minute,
     }
     return 0, summary
 

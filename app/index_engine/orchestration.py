@@ -1443,6 +1443,8 @@ class SCIdxPipelineRuntime:
             tickers=tickers_env,
             debug=False,
             max_provider_calls=max_provider_calls,
+            provider_minute_limit=context.get("provider_minute_limit"),
+            provider_calls_per_minute=context.get("provider_calls_per_minute"),
         )
 
         try:
@@ -1604,6 +1606,8 @@ class SCIdxPipelineRuntime:
                     tickers=",".join(sorted(set(missing))),
                     debug=False,
                     max_provider_calls=retry_calls,
+                    provider_minute_limit=context.get("provider_minute_limit"),
+                    provider_calls_per_minute=context.get("provider_calls_per_minute"),
                 )
                 ingest_module._run_backfill_missing(args)
                 missing = engine_db.fetch_missing_real_for_trade_date(target_day)
@@ -1689,6 +1693,8 @@ class SCIdxPipelineRuntime:
                         tickers=",".join(replacement_tickers[:replacement_calls]),
                         debug=False,
                         max_provider_calls=replacement_calls,
+                        provider_minute_limit=context.get("provider_minute_limit"),
+                        provider_calls_per_minute=context.get("provider_calls_per_minute"),
                     )
                     ingest_module._run_backfill_missing(args)
                     context["provider_calls_remaining"] = max(
