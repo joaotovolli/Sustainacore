@@ -225,7 +225,7 @@ def test_backfill_stops_on_provider_rate_limit_without_more_tickers(monkeypatch)
     assert code == 2
     assert summary["provider_rate_limited"] is True
     assert summary["provider_calls_used"] == 1
-    assert summary["effective_calls_per_minute"] == 4
+    assert summary["effective_calls_per_minute"] == 2
     assert calls == [("AAPL", _dt.date(2026, 6, 22), _dt.date(2026, 6, 22))]
 
 
@@ -270,9 +270,9 @@ def test_backfill_paces_calls_under_minute_limit(monkeypatch):
     code, summary = ingest_prices._run_backfill(args)
 
     assert code == 0
-    assert summary["effective_calls_per_minute"] == 4
+    assert summary["effective_calls_per_minute"] == 2
     assert len(calls) == 2
-    assert sleeps == [15.0]
+    assert sleeps == [30.0]
 
 
 def test_backfill_skips_existing_canonical_rows(monkeypatch):
@@ -355,6 +355,6 @@ def test_backfill_missing_uses_pacing_and_reports_rate(monkeypatch):
     code, summary = ingest_prices._run_backfill_missing(args)
 
     assert code == 0
-    assert summary["effective_calls_per_minute"] == 4
+    assert summary["effective_calls_per_minute"] == 2
     assert len(calls) == 2
-    assert sleeps == [15.0]
+    assert sleeps == [30.0]
