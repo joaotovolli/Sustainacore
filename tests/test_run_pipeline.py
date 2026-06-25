@@ -555,6 +555,9 @@ def test_determine_target_dates_blocks_rate_limit_during_provider_resolution(mon
     assert result["retryable"] is False
     assert result["counts"]["provider_daily_remaining"] == 798
     assert result["counts"]["max_provider_calls"] == 0
+    assert result["remediation"] == (
+        "Wait for the provider minute-rate window to clear or reduce provider call pacing, then rerun once."
+    )
 
 
 def test_determine_target_dates_clean_skips_when_provider_not_ready(monkeypatch, tmp_path):

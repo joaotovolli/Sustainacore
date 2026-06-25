@@ -70,6 +70,10 @@ TERMINAL_SHORT_STATUS = {
     "blocked": "BLOCKED",
 }
 SHORT_TO_TERMINAL_STATUS = {value: key for key, value in TERMINAL_SHORT_STATUS.items()}
+PROVIDER_DAILY_QUOTA_REMEDIATION = "Wait for provider quota reset or increase provider quota, then rerun once."
+PROVIDER_MINUTE_RATE_REMEDIATION = (
+    "Wait for the provider minute-rate window to clear or reduce provider call pacing, then rerun once."
+)
 
 
 class StagePolicy(TypedDict):
@@ -533,6 +537,11 @@ def _provider_budget_block_result(
         counts["required_provider_calls"] = required_provider_calls
     result_context = dict(context or {})
     result_context.update(counts)
+    remediation = (
+        PROVIDER_MINUTE_RATE_REMEDIATION
+        if reason == "provider_rate_limited"
+        else PROVIDER_DAILY_QUOTA_REMEDIATION
+    )
     return {
         "status": "BLOCKED",
         "detail": reason,
@@ -540,7 +549,7 @@ def _provider_budget_block_result(
         "error_token": reason,
         "counts": counts,
         "context": result_context,
-        "remediation": "Wait for provider quota reset or increase provider quota, then rerun once.",
+        "remediation": remediation,
         "retryable": False,
     }
 
@@ -1485,7 +1494,7 @@ class SCIdxPipelineRuntime:
                     "max_canon_after_ingest": max_canon_after,
                     "latest_ingest_end_date": end_date,
                 },
-                "remediation": "Wait for provider quota reset or increase provider quota, then rerun once.",
+                "remediation": PROVIDER_MINUTE_RATE_REMEDIATION,
             }
         if exit_code != 0:
             return {
