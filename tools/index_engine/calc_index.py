@@ -34,6 +34,16 @@ BASE_LEVEL = 1000.0
 UNIVERSE_DEF = "top25_port_weight_gt0_latest_port_date_le_trade_date"
 TRADING_DAY_FALLBACK_MAX_GAP_ENV = "SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP"
 DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP = 3
+MAX_ABS_CONSTITUENT_RETURN_ENV = "SC_IDX_MAX_ABS_CONSTITUENT_RETURN"
+DEFAULT_MAX_ABS_CONSTITUENT_RETURN = 0.20
+REBALANCE_CONTINUITY_ABS_TOL_ENV = "SC_IDX_REBALANCE_CONTINUITY_ABS_TOL"
+DEFAULT_REBALANCE_CONTINUITY_ABS_TOL = 1e-6
+REBALANCE_CONTINUITY_REL_TOL_ENV = "SC_IDX_REBALANCE_CONTINUITY_REL_TOL"
+DEFAULT_REBALANCE_CONTINUITY_REL_TOL = 1e-8
+
+
+class IndexValidationError(RuntimeError):
+    """Expected validation failure that should stop publication cleanly."""
 
 
 def _parse_date(value: str) -> _dt.date:
@@ -51,6 +61,20 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _sample(values: List[str], limit: int = 10) -> str:
+    return ",".join(values[:limit])
 
 
 def _extend_short_trading_calendar(
@@ -197,6 +221,121 @@ def _collect_missing(
         if price is None:
             missing.append(ticker)
     return missing
+
+
+def validate_rebalance_prior_prices(
+    *,
+    rebalance_date: _dt.date,
+    prev_date: _dt.date,
+    tickers: List[str],
+    prices_prev: Dict[str, Dict[str, object]],
+) -> None:
+    missing = _collect_missing(prev_date, tickers, prices_prev)
+    if missing:
+        raise IndexValidationError(
+            "rebalance_prior_price_missing:"
+            f"rebalance_date={rebalance_date.isoformat()} "
+            f"prev_date={prev_date.isoformat()} "
+            f"missing_count={len(missing)} "
+            f"sample={_sample(missing)}"
+        )
+
+    stale_quality = [
+        ticker
+        for ticker in tickers
+        if str(prices_prev.get(ticker, {}).get("quality") or "").upper()
+        in {"HISTORICAL", "CURRENT", "STALE"}
+    ]
+    if stale_quality:
+        raise IndexValidationError(
+            "rebalance_prior_price_stale_anchor:"
+            f"rebalance_date={rebalance_date.isoformat()} "
+            f"prev_date={prev_date.isoformat()} "
+            f"count={len(stale_quality)} "
+            f"sample={_sample(stale_quality)}"
+        )
+
+
+def validate_price_return_sanity(
+    *,
+    prev_date: _dt.date,
+    trade_date: _dt.date,
+    tickers: List[str],
+    prices_prev: Dict[str, float],
+    prices_now: Dict[str, float],
+    max_abs_return: float,
+) -> None:
+    for ticker in tickers:
+        p0 = prices_prev.get(ticker)
+        p1 = prices_now.get(ticker)
+        if p0 is None or p1 is None:
+            continue
+        if p0 <= 0 or p1 <= 0:
+            raise IndexValidationError(
+                "invalid_price_for_return:"
+                f"ticker={ticker} "
+                f"prev_date={prev_date.isoformat()} "
+                f"trade_date={trade_date.isoformat()} "
+                f"prev_price={p0:.6f} "
+                f"current_price={p1:.6f}"
+            )
+        ret_1d = p1 / p0 - 1.0
+        if abs(ret_1d) > max_abs_return:
+            raise IndexValidationError(
+                "suspicious_price_return:"
+                f"ticker={ticker} "
+                f"prev_date={prev_date.isoformat()} "
+                f"trade_date={trade_date.isoformat()} "
+                f"prev_price={p0:.6f} "
+                f"current_price={p1:.6f} "
+                f"ret_1d={ret_1d:.8f} "
+                f"threshold={max_abs_return:.4f}"
+            )
+
+
+def validate_rebalance_continuity(
+    *,
+    rebalance_date: _dt.date,
+    prev_date: _dt.date,
+    prev_level: float,
+    shares: Dict[str, float],
+    prices_prev: Dict[str, float],
+    divisor: float,
+    abs_tol: float,
+    rel_tol: float,
+) -> None:
+    if prev_level <= 0 or divisor <= 0:
+        raise IndexValidationError(
+            "rebalance_continuity_invalid_input:"
+            f"rebalance_date={rebalance_date.isoformat()} "
+            f"prev_date={prev_date.isoformat()} "
+            f"prev_level={prev_level:.6f} "
+            f"divisor={divisor:.12f}"
+        )
+    missing = [ticker for ticker in shares if ticker not in prices_prev]
+    if missing:
+        raise IndexValidationError(
+            "rebalance_continuity_missing_price:"
+            f"rebalance_date={rebalance_date.isoformat()} "
+            f"prev_date={prev_date.isoformat()} "
+            f"missing_count={len(missing)} "
+            f"sample={_sample(missing)}"
+        )
+    bridge_level = sum(shares[ticker] * prices_prev[ticker] for ticker in shares) / divisor
+    diff = bridge_level - prev_level
+    tolerance = max(abs_tol, abs(prev_level) * rel_tol)
+    if abs(diff) > tolerance:
+        diff_pct = bridge_level / prev_level - 1.0
+        raise IndexValidationError(
+            "rebalance_continuity_mismatch:"
+            f"rebalance_date={rebalance_date.isoformat()} "
+            f"prev_date={prev_date.isoformat()} "
+            f"expected_level={prev_level:.8f} "
+            f"bridge_level={bridge_level:.8f} "
+            f"diff={diff:.8f} "
+            f"diff_pct={diff_pct:.8f} "
+            f"tolerance={tolerance:.8f}"
+        )
 
 
 def _weights_from_shares_and_prices(
@@ -562,10 +701,6 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return 2
 
-    if args.rebuild:
-        db.delete_index_range(start_date, end_date)
-        db.delete_holdings_divisor(trading_days)
-
     run_id = start_run(
         "index_calc_v1",
         end_date=end_date,
@@ -593,9 +728,24 @@ def main(argv: list[str] | None = None) -> int:
     prices_quality_by_date: Dict[_dt.date, Dict[str, str]] = {}
     weights_by_date: Dict[_dt.date, Dict[str, float]] = {}
     contrib_weights_prev_by_trade: Dict[_dt.date, Dict[str, float]] = {}
+    pending_holdings_rows: Dict[_dt.date, list[dict]] = {}
+    pending_divisor_rows: Dict[_dt.date, float] = {}
+    constituent_rows_all: list[dict] = []
     levels: Dict[_dt.date, float] = {}
     returns_1d: Dict[_dt.date, float] = {}
     missing_by_date: Dict[_dt.date, list[str]] = {}
+    max_abs_constituent_return = max(
+        0.0,
+        _env_float(MAX_ABS_CONSTITUENT_RETURN_ENV, DEFAULT_MAX_ABS_CONSTITUENT_RETURN),
+    )
+    continuity_abs_tol = max(
+        0.0,
+        _env_float(REBALANCE_CONTINUITY_ABS_TOL_ENV, DEFAULT_REBALANCE_CONTINUITY_ABS_TOL),
+    )
+    continuity_rel_tol = max(
+        0.0,
+        _env_float(REBALANCE_CONTINUITY_REL_TOL_ENV, DEFAULT_REBALANCE_CONTINUITY_REL_TOL),
+    )
 
     prev_trade: _dt.date | None = None
     prev_port_date: _dt.date | None = None
@@ -646,62 +796,45 @@ def main(argv: list[str] | None = None) -> int:
             prev_level = levels.get(prev_date, BASE_LEVEL)
             prev_divisor = divisors_by_reb.get(current_reb or trade_date, 1.0)
             prices_prev = db.fetch_prices(prev_date, tickers, allow_close=args.allow_close)
-            missing_prev = _collect_missing(prev_date, tickers, prices_prev)
-            if missing_prev:
-                fallback = {}
-                remaining = []
-                for ticker in missing_prev:
-                    prior = db.fetch_latest_price_before(
-                        prev_date,
-                        ticker,
-                        allow_close=args.allow_close,
+            if prev_trade is not None:
+                try:
+                    validate_rebalance_prior_prices(
+                        rebalance_date=trade_date,
+                        prev_date=prev_date,
+                        tickers=tickers,
+                        prices_prev=prices_prev,
                     )
-                    if prior is None:
-                        remaining.append(ticker)
-                        continue
-                    _prev_date, price = prior
-                    fallback[ticker] = {
-                        "price": price,
-                        "quality": "HISTORICAL",
-                    }
-                if remaining:
-                    current_prices = db.fetch_prices(
-                        trade_date,
-                        remaining,
-                        allow_close=args.allow_close,
-                    )
-                    for ticker in remaining:
-                        info = current_prices.get(ticker)
-                        if info and info.get("price") is not None:
-                            fallback[ticker] = {
-                                "price": float(info["price"]),
-                                "quality": "CURRENT",
-                            }
-                if len(fallback) != len(missing_prev):
-                    retry_calls = min(10, max(1, len(remaining)))
-                    _attempt_missing_backfill(
-                        trade_date=prev_date,
-                        tickers=remaining,
-                        max_provider_calls=retry_calls,
-                    )
-                    prices_prev = db.fetch_prices(prev_date, tickers, allow_close=args.allow_close)
-                    missing_prev = _collect_missing(prev_date, tickers, prices_prev)
-                    if missing_prev:
-                        missing_by_date[prev_date] = missing_prev
-                        current_reb = None
-                        continue
-                prices_prev.update(fallback)
+                except IndexValidationError as exc:
+                    finish_run(run_id, status="ERROR", error=str(exc))
+                    print(f"index_calc_validation_failed:{exc}", file=sys.stderr)
+                    return 2
             price_map_prev = {
                 ticker: float(info["price"])
                 for ticker, info in prices_prev.items()
                 if info.get("price") is not None
             }
-            shares, divisor = compute_holdings_at_rebalance(
-                tickers=tickers,
-                prices_prev=price_map_prev,
-                level_prev=prev_level,
-                divisor_prev=prev_divisor,
-            )
+            try:
+                shares, divisor = compute_holdings_at_rebalance(
+                    tickers=tickers,
+                    prices_prev=price_map_prev,
+                    level_prev=prev_level,
+                    divisor_prev=prev_divisor,
+                )
+                validate_rebalance_continuity(
+                    rebalance_date=trade_date,
+                    prev_date=prev_date,
+                    prev_level=prev_level,
+                    shares=shares,
+                    prices_prev=price_map_prev,
+                    divisor=divisor,
+                    abs_tol=continuity_abs_tol,
+                    rel_tol=continuity_rel_tol,
+                )
+            except (IndexValidationError, ValueError) as exc:
+                error_msg = f"rebalance_validation_failed:{exc}"
+                finish_run(run_id, status="ERROR", error=error_msg)
+                print(f"index_calc_validation_failed:{error_msg}", file=sys.stderr)
+                return 2
             rebalance_weights_prev = _prime_rebalance_prev_snapshot(
                 prev_date=prev_date,
                 shares=shares,
@@ -725,8 +858,8 @@ def main(argv: list[str] | None = None) -> int:
                 {"ticker": ticker, "target_weight": 1.0 / len(tickers), "shares": shares[ticker]}
                 for ticker in shares
             ]
-            db.upsert_holdings(trade_date, holdings_rows)
-            db.upsert_divisor(trade_date, divisor, reason="rebalance")
+            pending_holdings_rows[trade_date] = holdings_rows
+            pending_divisor_rows[trade_date] = divisor
 
         if current_reb is None:
             continue
@@ -767,6 +900,21 @@ def main(argv: list[str] | None = None) -> int:
         }
         prices_by_date[trade_date] = price_map
         prices_quality_by_date[trade_date] = quality_map
+
+        if prev_trade and prev_trade in prices_by_date:
+            try:
+                validate_price_return_sanity(
+                    prev_date=prev_trade,
+                    trade_date=trade_date,
+                    tickers=list(holdings_by_reb[current_reb].keys()),
+                    prices_prev=prices_by_date[prev_trade],
+                    prices_now=price_map,
+                    max_abs_return=max_abs_constituent_return,
+                )
+            except IndexValidationError as exc:
+                finish_run(run_id, status="ERROR", error=str(exc))
+                print(f"index_calc_validation_failed:{exc}", file=sys.stderr)
+                return 2
 
         level = compute_levels(
             trading_days=[trade_date],
@@ -810,7 +958,7 @@ def main(argv: list[str] | None = None) -> int:
                     "price_quality": price_quality,
                 }
             )
-        db.upsert_constituent_daily(constituent_rows)
+        constituent_rows_all.extend(constituent_rows)
         total_constituent_rows += len(constituent_rows)
         prev_trade = trade_date
 
@@ -848,8 +996,6 @@ def main(argv: list[str] | None = None) -> int:
     if trading_days and not levels_rows:
         finish_run(run_id, status="ERROR", error="no_levels_computed")
         return 2
-    db.upsert_levels(levels_rows)
-
     ordered_levels = sorted(levels.keys())
     contributions = compute_contributions(
         trading_days=ordered_levels,
@@ -879,7 +1025,6 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             total_contrib_rows += 1
-    db.upsert_contribution_daily(contrib_rows)
 
     lookback_days: list[_dt.date] = []
     if trading_days:
@@ -983,6 +1128,16 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             )
             return 2
+    if args.rebuild:
+        db.delete_index_range(start_date, end_date)
+        db.delete_holdings_divisor(trading_days)
+    for rebalance_date, rows in pending_holdings_rows.items():
+        db.upsert_holdings(rebalance_date, rows)
+    for rebalance_date, divisor in pending_divisor_rows.items():
+        db.upsert_divisor(rebalance_date, divisor, reason="rebalance")
+    db.upsert_constituent_daily(constituent_rows_all)
+    db.upsert_levels(levels_rows)
+    db.upsert_contribution_daily(contrib_rows)
     db.upsert_stats_daily(stats_rows)
 
     finish_run(run_id, status="OK", error=None)
