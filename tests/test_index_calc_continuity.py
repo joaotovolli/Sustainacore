@@ -12,6 +12,7 @@ def test_seed_prior_state_uses_previous_level(monkeypatch):
     prev_day = dt.date(2025, 12, 31)
 
     monkeypatch.setattr(ci.db, "fetch_last_level_before", lambda date: (prev_day, 1079.0))
+    monkeypatch.setattr(ci.db, "fetch_constituent_shares", lambda date: {})
     monkeypatch.setattr(ci.db, "fetch_latest_rebalance_date", lambda date: rebalance)
     monkeypatch.setattr(ci.db, "fetch_holdings_for_rebalance", lambda date: {"AAA": 2.0})
     monkeypatch.setattr(ci.db, "fetch_divisor_for_date", lambda date: 3.0)

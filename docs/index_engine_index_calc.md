@@ -20,6 +20,11 @@ imputation have been resolved for the target window. The orchestrator calls it w
 - Computes daily index level (Total Return) using `SC_IDX_PRICES_CANON`:
   - Prefers `CANON_ADJ_CLOSE_PX`.
   - Allows `CANON_CLOSE_PX` only with `--allow-close`.
+- Runs fail-closed validation before publishing derived rows for a rebalance window:
+  - every incoming constituent must have a canonical previous trading day price;
+  - stale historical or current-day anchors are rejected for rebalance continuity;
+  - one-day constituent returns above the configured sanity threshold are rejected;
+  - the new basket valued at previous-day prices must reconcile to the previous stored level.
 - Stores:
   - `SC_IDX_LEVELS` (level_tr)
   - `SC_IDX_CONSTITUENT_DAILY` (daily holdings snapshot + weights)
@@ -41,12 +46,18 @@ Rebalance:
   - `MV_prev = Level_TR(P) * Divisor(P)`
   - `Shares_i = (TargetWeight_i * MV_prev) / Price_i(P)`
   - `Divisor(R) = MV_newBasket_prevClose / Level_TR(P)`
+- Rebalance continuity must use prices from the immediately previous trading day. The calculator does
+  not substitute stale historical anchors for missing prior-day prices.
+- The continuity bridge check requires `MV_newBasket_prevClose / Divisor(R)` to match
+  `Level_TR(P)` within tolerance before any rebalance-derived rows are written.
 
 Daily levels:
 
 - For each trading day `t`, use the latest rebalance holdings:
   - `MV_t = Σ Shares_i * Price_i(t)`
   - `Level_TR(t) = MV_t / Divisor(rebalance)`
+- Before publishing, the calculator checks one-day constituent price moves for suspicious
+  adjusted/unadjusted or split-basis mismatches. The default absolute return threshold is 20%.
 
 Stats lookback windows:
 
@@ -70,6 +81,12 @@ Optional flags:
 - `--max-dates` / `--max-tickers` / `--max-samples`
 - `--email-on-fail` (send one alert/day when strict fails)
 - `--dry-run` (print missing diagnostics only)
+
+Optional validation tuning:
+
+- `SC_IDX_MAX_ABS_CONSTITUENT_RETURN` (default `0.20`)
+- `SC_IDX_REBALANCE_CONTINUITY_ABS_TOL` (default `1e-6`)
+- `SC_IDX_REBALANCE_CONTINUITY_REL_TOL` (default `1e-8`)
 
 Primary orchestrated entrypoint:
 
