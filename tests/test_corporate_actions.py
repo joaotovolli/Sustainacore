@@ -40,6 +40,34 @@ def test_legitimate_ordinary_move_is_not_classified_as_split() -> None:
     ) is None
 
 
+def test_reviewed_rebuild_allows_and_audits_non_split_large_move(capsys) -> None:
+    calc_index.validate_price_return_sanity(
+        prev_date=dt.date(2025, 4, 8),
+        trade_date=dt.date(2025, 4, 9),
+        tickers=["AAA"],
+        prices_prev={"AAA": 151.29648},
+        prices_now={"AAA": 183.2018},
+        max_abs_return=0.20,
+        action_lookup=lambda *_: None,
+        allow_reviewed_non_split_moves=True,
+    )
+    assert "index_calc_reviewed_non_split_move" in capsys.readouterr().err
+
+
+def test_reviewed_rebuild_still_blocks_unresolved_split_candidate() -> None:
+    with pytest.raises(calc_index.IndexValidationError, match="corporate_action_confirmation_required"):
+        calc_index.validate_price_return_sanity(
+            prev_date=dt.date(2026, 7, 1),
+            trade_date=dt.date(2026, 7, 2),
+            tickers=["AAA"],
+            prices_prev={"AAA": 400.0},
+            prices_now={"AAA": 100.0},
+            max_abs_return=0.20,
+            action_lookup=lambda *_: None,
+            allow_reviewed_non_split_moves=True,
+        )
+
+
 def test_adjusted_history_must_be_economically_continuous() -> None:
     action = ConfirmedCorporateAction("AAA", dt.date(2026, 7, 2), "FORWARD_SPLIT", 4.0)
     assert adjusted_basis_is_consistent(
