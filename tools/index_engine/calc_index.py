@@ -5,7 +5,7 @@ import datetime as _dt
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = REPO_ROOT / "app"
@@ -27,6 +27,11 @@ from index_engine.index_calc_v1 import (
 from index_engine.run_log import finish_run, start_run
 from index_engine import db_index_calc as db
 from index_engine import db as engine_db
+from index_engine import db_corporate_actions as db_ca
+from index_engine.corporate_actions import (
+    adjusted_basis_is_consistent,
+    detect_split_candidate,
+)
 
 
 BASE_DATE = _dt.date(2025, 1, 2)
@@ -264,6 +269,8 @@ def validate_price_return_sanity(
     prices_prev: Dict[str, float],
     prices_now: Dict[str, float],
     max_abs_return: float,
+    action_lookup: Callable[[str, _dt.date], object | None] | None = None,
+    candidate_recorder: Callable[[object], object] | None = None,
 ) -> None:
     for ticker in tickers:
         p0 = prices_prev.get(ticker)
@@ -281,6 +288,33 @@ def validate_price_return_sanity(
             )
         ret_1d = p1 / p0 - 1.0
         if abs(ret_1d) > max_abs_return:
+            candidate = detect_split_candidate(
+                ticker=ticker,
+                effective_date=trade_date,
+                previous_price=p0,
+                current_price=p1,
+            )
+            confirmed = action_lookup(ticker, trade_date) if candidate and action_lookup else None
+            if candidate and confirmed is None and candidate_recorder:
+                candidate_recorder(candidate)
+            if confirmed is not None and not adjusted_basis_is_consistent(
+                previous_adjusted_price=p0,
+                current_adjusted_price=p1,
+                confirmed_action=confirmed,
+                max_economic_return=max_abs_return,
+            ):
+                raise IndexValidationError(
+                    "corporate_action_adjusted_basis_unresolved:"
+                    f"ticker={ticker} effective_date={trade_date.isoformat()} "
+                    f"action_type={confirmed.action_type} ratio={confirmed.ratio:.8f} "
+                    "required_method=REFRESH_ADJUSTED_HISTORY"
+                )
+            if candidate and confirmed is None and action_lookup is not None:
+                raise IndexValidationError(
+                    "corporate_action_confirmation_required:"
+                    f"ticker={ticker} effective_date={trade_date.isoformat()} "
+                    f"candidate_type={candidate.action_type} candidate_ratio={candidate.ratio:.8f}"
+                )
             raise IndexValidationError(
                 "suspicious_price_return:"
                 f"ticker={ticker} "
@@ -910,6 +944,8 @@ def main(argv: list[str] | None = None) -> int:
                     prices_prev=prices_by_date[prev_trade],
                     prices_now=price_map,
                     max_abs_return=max_abs_constituent_return,
+                    action_lookup=db_ca.fetch_confirmed_action,
+                    candidate_recorder=lambda candidate: db_ca.record_pending_candidate(candidate, run_id),
                 )
             except IndexValidationError as exc:
                 finish_run(run_id, status="ERROR", error=str(exc))
