@@ -108,7 +108,7 @@ Oracle affected-row count to match the intended update count. Automated refresh 
 actual material change and an economically continuous adjusted-price series across the effective date.
 
 During `--rebuild --strict` only, missing exact rebalance anchors receive one bounded exact-date fetch
-and are then refetched and validated. The historical fallback window is date-aware and capped. Ordinary
+and are then fetched again and validated. The historical fallback window is date-aware and capped. Ordinary
 scheduled calculation does not make this retry. Any still-missing, stale, historical, or current-day
 anchor blocks publication.
 
