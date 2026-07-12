@@ -62,6 +62,12 @@ class FakeConnection:
     def rollback(self):
         self.rollbacks += 1
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
 
 def complete_records() -> list[repair.BackupRecord]:
     return [
@@ -321,6 +327,46 @@ def test_rerunning_dry_run_performs_zero_oracle_writes() -> None:
     assert all(sql.startswith(("SELECT", "WITH")) for sql in conn.cur.sql)
     assert conn.commits == 0
     assert conn.rollbacks == 0
+
+
+def test_failed_readiness_precedes_schema_and_backup_writes(monkeypatch, tmp_path: Path) -> None:
+    conn = FakeConnection()
+    writes = []
+    price_file = tmp_path / "prices.csv"
+    price_file.write_text("ticker,trade_date,adjusted_close\nAAA,2026-07-01,10\n", encoding="utf-8")
+    monkeypatch.setattr(repair, "load_env_files", lambda: None)
+    monkeypatch.setattr(repair, "get_connection", lambda: conn)
+    monkeypatch.setattr(repair, "dry_run", lambda *_: (END, []))
+    monkeypatch.setattr(
+        repair,
+        "run_reconstruction_readiness",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("readiness_failed")),
+    )
+    monkeypatch.setattr(repair, "ensure_action_schema", lambda *_: writes.append("schema"))
+    monkeypatch.setattr(repair, "create_backups", lambda *_args, **_kwargs: writes.append("backup"))
+
+    with pytest.raises(RuntimeError, match="readiness_failed"):
+        repair.main(
+            [
+                "--apply",
+                "--ticker",
+                "AAA",
+                "--effective-date",
+                "2026-07-02",
+                "--ratio",
+                "4",
+                "--source-reference",
+                "authoritative-reference",
+                "--adjusted-price-csv",
+                str(price_file),
+                "--start",
+                START.isoformat(),
+                "--end",
+                END.isoformat(),
+            ]
+        )
+    assert writes == []
+    assert conn.commits == 0
 
 
 def workflow_context(tmp_path: Path) -> repair.ApplyContext:

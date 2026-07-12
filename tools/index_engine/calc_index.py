@@ -261,6 +261,33 @@ def validate_rebalance_prior_prices(
         )
 
 
+def fetch_rebalance_prior_prices(
+    *,
+    prev_date: _dt.date,
+    tickers: List[str],
+    allow_close: bool,
+) -> Dict[str, Dict[str, object]]:
+    """Fetch the exact anchor and make one bounded repair attempt before validation."""
+    prices = db.fetch_prices(prev_date, tickers, allow_close=allow_close)
+    missing = _collect_missing(prev_date, tickers, prices)
+    if not missing:
+        return prices
+    print(
+        "rebalance_prior_price_backfill:"
+        f"prev_date={prev_date.isoformat()} count={len(missing)} sample={_sample(missing)}"
+    )
+    _attempt_missing_backfill(
+        trade_date=prev_date,
+        tickers=missing,
+        max_provider_calls=min(10, max(1, len(missing))),
+    )
+    return db.fetch_prices(prev_date, tickers, allow_close=allow_close)
+
+
+def should_retry_rebalance_anchor(*, rebuild: bool, strict: bool) -> bool:
+    return rebuild and strict
+
+
 def validate_price_return_sanity(
     *,
     prev_date: _dt.date,
@@ -845,7 +872,14 @@ def main(argv: list[str] | None = None) -> int:
             prev_date = prev_trade or trade_date
             prev_level = levels.get(prev_date, BASE_LEVEL)
             prev_divisor = divisors_by_reb.get(current_reb or trade_date, 1.0)
-            prices_prev = db.fetch_prices(prev_date, tickers, allow_close=args.allow_close)
+            if should_retry_rebalance_anchor(rebuild=args.rebuild, strict=args.strict):
+                prices_prev = fetch_rebalance_prior_prices(
+                    prev_date=prev_date,
+                    tickers=tickers,
+                    allow_close=args.allow_close,
+                )
+            else:
+                prices_prev = db.fetch_prices(prev_date, tickers, allow_close=args.allow_close)
             if prev_trade is not None:
                 try:
                     validate_rebalance_prior_prices(

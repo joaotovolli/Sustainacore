@@ -29,6 +29,43 @@ python3 tools/db_migrations/repair_sc_idx_corporate_actions.py \
 
 Dry-run executes metadata and diagnostic `SELECT` statements only.
 
+## Exhaustive reconstruction readiness
+
+Run the full-range readiness sweep before every apply. It is also invoked automatically by the apply
+tool before schema, backup, price, or derived-table writes:
+
+```bash
+python3 tools/index_engine/reconstruction_readiness.py \
+  --start 2025-01-02 \
+  --adjusted-price-csv /tmp/reviewed_adjusted_history.csv \
+  --ticker CRWD \
+  --probe-missing-anchors \
+  --require-quiescent \
+  --rehearse-portfolio
+```
+
+The command uses `SELECT` statements only, overlays the reviewed CSV in memory, traverses every active
+universe and rebalance, aggregates all exact-anchor defects, probes each missing ticker/date once, and
+classifies every large move. Missing anchors are acceptable only when the bounded exact-date probe can
+recover them. Ratio-like unresolved moves, stale or substitute anchors, missing active prices, schema
+or restore-shape defects, and incomplete holdings all fail readiness. Output must include
+`mode=RECONSTRUCTION_READINESS`, `oracle_writes=0`, and `overall_status=PASS`.
+
+The portfolio stage is rehearsed using its dry-run path. Oracle backup DDL, manifest inserts, canonical
+updates, official/portfolio persistence, rollback DML, final status transition, timer restoration, and
+research export cannot be write-equivalently rehearsed against production without writes. They remain
+protected by static DDL checks, prior validated restore-shape evidence, focused transaction fixtures,
+the manifest-backed compensation path, and post-reconstruction strict verification.
+
+### Failure history and earlier detection
+
+| Pull Request | Production-discovered defect | Why earlier checks missed it | Earlier detection now |
+| --- | --- | --- | --- |
+| #547 | Oracle rejected binds in CTAS DDL | Fake cursors accepted DDL binds | Readiness inspects CTAS for bind-free typed dates; regression executes DDL without binds |
+| #548 | CTAS relaxed nullability | Compatibility required byte-for-byte metadata | Readiness validates restore shape against a complete production backup while ignoring only nullability |
+| #549 | Ordinary large moves stopped reconstruction | Tests covered classification but not full history | Readiness enumerates and classifies every threshold breach across the full range |
+| #550 | Exact entrant anchors were absent | Runtime stopped at the first rebalance | Readiness aggregates every rebalance and probes all missing ticker/date requirements before apply |
+
 ## Controlled apply
 
 After merge and deployment, stop the timer and rerun dry-run. Apply using either a reviewed adjusted
@@ -69,6 +106,11 @@ otherwise valid source tables. Status reporting distinguishes `NOT_RECORDED`, `C
 CSV repair rejects duplicate or out-of-range dates, does not permit implicit inserts, and requires the
 Oracle affected-row count to match the intended update count. Automated refresh success requires an
 actual material change and an economically continuous adjusted-price series across the effective date.
+
+During `--rebuild --strict` only, missing exact rebalance anchors receive one bounded exact-date fetch
+and are then fetched again and validated. The historical fallback window is date-aware and capped. Ordinary
+scheduled calculation does not make this retry. Any still-missing, stale, historical, or current-day
+anchor blocks publication.
 
 ## Rollback
 

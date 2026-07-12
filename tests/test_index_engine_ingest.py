@@ -8,6 +8,32 @@ from tools.index_engine import ingest_prices
 from tools.index_engine.ingest_prices import compute_canonical_rows, _build_raw_rows_from_provider
 
 
+def test_exact_day_empty_range_uses_bounded_single_day_fallback(monkeypatch):
+    day = _dt.date(2025, 12, 31)
+    fallback = [{"ticker": "AAA", "trade_date": day.isoformat(), "adj_close": 10.0}]
+    calls = []
+    monkeypatch.setattr(ingest_prices, "fetch_eod_prices", lambda *_args: [])
+    monkeypatch.setattr(
+        ingest_prices,
+        "fetch_single_day_bar",
+        lambda ticker, trade_date, **kwargs: calls.append((ticker, trade_date, kwargs["window"])) or fallback,
+    )
+    assert ingest_prices._fetch_provider_rows("AAA", day, day) == fallback
+    assert calls == [("AAA", day, min(5000, max(10, (_dt.date.today() - day).days + 10)))]
+
+
+def test_multi_day_empty_range_does_not_expand_fallback(monkeypatch):
+    start = _dt.date(2025, 12, 30)
+    end = _dt.date(2025, 12, 31)
+    monkeypatch.setattr(ingest_prices, "fetch_eod_prices", lambda *_args: [])
+
+    def unexpected_fallback(*_args):
+        raise AssertionError("single-day fallback must remain bounded")
+
+    monkeypatch.setattr(ingest_prices, "fetch_single_day_bar", unexpected_fallback)
+    assert ingest_prices._fetch_provider_rows("AAA", start, end) == []
+
+
 def test_compute_canonical_uses_provider_close_when_adj_missing():
     trade_date = _dt.date(2025, 1, 2)
     raw_rows = [
