@@ -586,6 +586,7 @@ def rebuild_official(start: dt.date, end: dt.date) -> None:
             end.isoformat(),
             "--rebuild",
             "--strict",
+            "--allow-reviewed-non-split-moves",
             "--no-preflight-self-heal",
         ],
         check=True,

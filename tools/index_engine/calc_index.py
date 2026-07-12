@@ -271,6 +271,7 @@ def validate_price_return_sanity(
     max_abs_return: float,
     action_lookup: Callable[[str, _dt.date], object | None] | None = None,
     candidate_recorder: Callable[[object], object] | None = None,
+    allow_reviewed_non_split_moves: bool = False,
 ) -> None:
     for ticker in tickers:
         p0 = prices_prev.get(ticker)
@@ -294,6 +295,14 @@ def validate_price_return_sanity(
                 previous_price=p0,
                 current_price=p1,
             )
+            if candidate is None and allow_reviewed_non_split_moves:
+                print(
+                    "index_calc_reviewed_non_split_move:"
+                    f"ticker={ticker} prev_date={prev_date.isoformat()} "
+                    f"trade_date={trade_date.isoformat()} ret_1d={ret_1d:.8f}",
+                    file=sys.stderr,
+                )
+                continue
             confirmed = action_lookup(ticker, trade_date) if candidate and action_lookup else None
             if candidate and confirmed is None and candidate_recorder:
                 candidate_recorder(candidate)
@@ -566,6 +575,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--end", help="End date YYYY-MM-DD (default: max trading day)")
     parser.add_argument("--since-base", action="store_true", help="Use base date 2025-01-02")
     parser.add_argument("--rebuild", action="store_true")
+    parser.add_argument(
+        "--allow-reviewed-non-split-moves",
+        action="store_true",
+        help="During a strict rebuild, audit and allow large moves that are not split-ratio candidates",
+    )
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--allow-close", action="store_true")
@@ -594,6 +608,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-tickers", type=int, default=10)
     parser.add_argument("--max-samples", type=int, default=25)
     args = parser.parse_args(argv)
+    if args.allow_reviewed_non_split_moves and not (args.rebuild and args.strict):
+        parser.error("--allow-reviewed-non-split-moves requires --rebuild and --strict")
 
     load_default_env()
 
@@ -946,6 +962,7 @@ def main(argv: list[str] | None = None) -> int:
                     max_abs_return=max_abs_constituent_return,
                     action_lookup=db_ca.fetch_confirmed_action,
                     candidate_recorder=lambda candidate: db_ca.record_pending_candidate(candidate, run_id),
+                    allow_reviewed_non_split_moves=args.allow_reviewed_non_split_moves,
                 )
             except IndexValidationError as exc:
                 finish_run(run_id, status="ERROR", error=str(exc))
