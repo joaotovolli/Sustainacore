@@ -16,6 +16,50 @@ def test_rebalance_prior_price_missing_fails_closed() -> None:
         )
 
 
+def test_missing_exact_rebalance_anchor_is_backfilled_once(monkeypatch) -> None:
+    day = dt.date(2025, 12, 31)
+    responses = [
+        {"AAA": {"price": 100.0, "quality": "REAL"}},
+        {
+            "AAA": {"price": 100.0, "quality": "REAL"},
+            "BBB": {"price": 200.0, "quality": "REAL"},
+        },
+    ]
+    calls = []
+    monkeypatch.setattr(ci.db, "fetch_prices", lambda *_args, **_kwargs: responses.pop(0))
+    monkeypatch.setattr(
+        ci,
+        "_attempt_missing_backfill",
+        lambda **kwargs: calls.append(kwargs) or (1, {}),
+    )
+
+    prices = ci.fetch_rebalance_prior_prices(
+        prev_date=day, tickers=["AAA", "BBB"], allow_close=False
+    )
+    ci.validate_rebalance_prior_prices(
+        rebalance_date=dt.date(2026, 1, 2),
+        prev_date=day,
+        tickers=["AAA", "BBB"],
+        prices_prev=prices,
+    )
+
+    assert calls == [{"trade_date": day, "tickers": ["BBB"], "max_provider_calls": 1}]
+
+
+def test_rebalance_anchor_still_fails_closed_after_backfill(monkeypatch) -> None:
+    day = dt.date(2025, 12, 31)
+    monkeypatch.setattr(ci.db, "fetch_prices", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(ci, "_attempt_missing_backfill", lambda **_kwargs: (0, {}))
+    prices = ci.fetch_rebalance_prior_prices(prev_date=day, tickers=["AAA"], allow_close=False)
+    with pytest.raises(ci.IndexValidationError, match="rebalance_prior_price_missing"):
+        ci.validate_rebalance_prior_prices(
+            rebalance_date=dt.date(2026, 1, 2),
+            prev_date=day,
+            tickers=["AAA"],
+            prices_prev=prices,
+        )
+
+
 def test_stale_historical_anchor_is_rejected_for_rebalance() -> None:
     with pytest.raises(ci.IndexValidationError, match="rebalance_prior_price_stale_anchor"):
         ci.validate_rebalance_prior_prices(
@@ -115,6 +159,7 @@ def test_validation_failure_does_not_publish_or_delete_rows(monkeypatch, capsys)
         return {}
 
     monkeypatch.setattr(ci.db, "fetch_prices", fetch_prices)
+    monkeypatch.setattr(ci, "_attempt_missing_backfill", lambda **_kwargs: (0, {}))
 
     def record_write(name):
         def inner(*args, **kwargs):
