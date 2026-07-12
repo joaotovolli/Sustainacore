@@ -187,6 +187,13 @@ def _columns(conn, object_name: str) -> list[tuple[object, ...]]:
     return [tuple(row) for row in cur.fetchall()]
 
 
+def _columns_compatible(conn, target_object: str, backup_object: str) -> bool:
+    """Compare the ordered restore shape while ignoring CTAS nullability relaxation."""
+    target = _columns(conn, target_object)
+    backup = _columns(conn, backup_object)
+    return [column[:5] for column in target] == [column[:5] for column in backup]
+
+
 def _count_and_range(
     conn,
     object_name: str,
@@ -274,7 +281,7 @@ def validate_backup_set(
             raise BackupValidationError(f"production_object_missing:{record.target_object}")
         if not _object_exists(conn, record.backup_object):
             raise BackupValidationError(f"backup_object_missing:{record.backup_object}")
-        if _columns(conn, record.target_object) != _columns(conn, record.backup_object):
+        if not _columns_compatible(conn, record.target_object, record.backup_object):
             raise BackupValidationError(f"backup_columns_mismatch:{record.target_object}")
         count, minimum, maximum = _total_count_and_range(
             conn, record.backup_object, _date_column(record.target_object)
@@ -340,7 +347,7 @@ def create_backups(
             f"CREATE TABLE {backup} AS SELECT * FROM {target} "
             f"WHERE {date_column} BETWEEN {start_literal} AND {end_literal}"
         )
-        if _columns(conn, target) != _columns(conn, backup):
+        if not _columns_compatible(conn, target, backup):
             raise BackupValidationError(f"backup_columns_mismatch:{target}")
         backup_count, _, _ = _total_count_and_range(conn, backup, date_column)
         if backup_count != source_count:

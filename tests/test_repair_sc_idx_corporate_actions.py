@@ -89,6 +89,28 @@ def test_backup_names_are_unique_timestamp_safe() -> None:
     assert generated[:14].isdigit()
 
 
+def test_backup_columns_allow_ctas_nullability_relaxation(monkeypatch) -> None:
+    target = [("TRADE_DATE", "DATE", 7, None, None, "N")]
+    backup = [("TRADE_DATE", "DATE", 7, None, None, "Y")]
+    monkeypatch.setattr(
+        repair,
+        "_columns",
+        lambda _conn, name: target if name == "TARGET" else backup,
+    )
+    assert repair._columns_compatible(object(), "TARGET", "BACKUP")
+
+
+def test_backup_columns_reject_restore_shape_mismatch(monkeypatch) -> None:
+    target = [("TRADE_DATE", "DATE", 7, None, None, "N")]
+    backup = [("TRADE_DATE", "TIMESTAMP(6)", 11, None, 6, "Y")]
+    monkeypatch.setattr(
+        repair,
+        "_columns",
+        lambda _conn, name: target if name == "TARGET" else backup,
+    )
+    assert not repair._columns_compatible(object(), "TARGET", "BACKUP")
+
+
 def test_price_file_is_ticker_scoped(tmp_path: Path) -> None:
     path = tmp_path / "prices.csv"
     path.write_text(
