@@ -1,29 +1,35 @@
 #!/usr/bin/env python3
-"""Back up, repair, rebuild, or roll back TECH100 corporate-action history."""
+"""Back up, repair, verify, or atomically roll back TECH100 history."""
 
 from __future__ import annotations
 
 import argparse
 import csv
 import datetime as dt
+import os
 import re
+import secrets
 import subprocess
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Iterable, Mapping
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.getenv("SC_IDX_REPO_ROOT") or Path(__file__).resolve().parents[2])
 APP = ROOT / "app"
 for path in (ROOT, APP):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from tools.oracle.env_bootstrap import load_env_files
 from db_helper import get_connection
 from index_engine.corporate_actions import earliest_material_change
+from tools.oracle.env_bootstrap import load_env_files
 
 BASE_DATE = dt.date(2025, 1, 2)
+MANIFEST_TABLE = "SC_IDX_CA_BACKUP_MANIFEST"
 BACKUP_OBJECTS = {
+    "PR": "SC_IDX_PRICES_RAW",
     "PC": "SC_IDX_PRICES_CANON",
     "HD": "SC_IDX_HOLDINGS",
     "DV": "SC_IDX_DIVISOR",
@@ -38,201 +44,746 @@ BACKUP_OBJECTS = {
 }
 
 
+class BackupValidationError(RuntimeError):
+    """The complete backup set could not be proven before a write."""
+
+
+class BackupCollisionError(BackupValidationError):
+    """A generated or requested backup object already exists."""
+
+
+class RestorationError(RuntimeError):
+    """Atomic rollback failed for one target object."""
+
+
+class PriceRepairError(RuntimeError):
+    """Adjusted-price input or affected-row validation failed."""
+
+
+class ReconstructionError(RuntimeError):
+    """Rebuild, strict verification, or final status transition failed."""
+
+
+@dataclass(frozen=True)
+class BackupRecord:
+    run_id: str
+    tag: str
+    target_object: str
+    backup_object: str
+    start_date: dt.date
+    end_date: dt.date
+    source_row_count: int
+    backup_row_count: int
+    validation_status: str
+
+
+def _as_date(value: object) -> dt.date | None:
+    if isinstance(value, dt.datetime):
+        return value.date()
+    return value if isinstance(value, dt.date) else None
+
+
+def new_backup_tag() -> str:
+    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+    return f"{timestamp}{secrets.token_hex(2).upper()}"
+
+
 def backup_name(tag: str, code: str) -> str:
-    clean = re.sub(r"[^A-Z0-9]", "", tag.upper())[:12]
-    if not clean:
+    clean = re.sub(r"[^A-Z0-9]", "", tag.upper())
+    if not clean or len(clean) > 18:
         raise ValueError("invalid_backup_tag")
-    return f"SCB_CA_{clean}_{code}"
-
-
-def load_adjusted_prices(path: Path, ticker: str) -> dict[dt.date, float]:
-    rows: dict[dt.date, float] = {}
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        required = {"ticker", "trade_date", "adjusted_close"}
-        if not reader.fieldnames or not required.issubset({x.lower() for x in reader.fieldnames}):
-            raise ValueError("price_csv_columns_required:ticker,trade_date,adjusted_close")
-        keys = {x.lower(): x for x in reader.fieldnames}
-        for row in reader:
-            if str(row[keys["ticker"]]).strip().upper() != ticker:
-                continue
-            day = dt.date.fromisoformat(str(row[keys["trade_date"]])[:10])
-            value = float(row[keys["adjusted_close"]])
-            if value <= 0:
-                raise ValueError(f"invalid_adjusted_price:{day.isoformat()}")
-            rows[day] = value
-    if not rows:
-        raise ValueError("no_adjusted_prices_for_ticker")
-    return rows
+    name = f"SCB_CA_{clean}_{code}"
+    if len(name) > 30:
+        raise ValueError("backup_object_name_too_long")
+    return name
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Repair TECH100 history after a confirmed corporate action")
-    p.add_argument("--apply", action="store_true")
-    p.add_argument("--rollback-tag")
-    p.add_argument("--ticker")
-    p.add_argument("--effective-date", type=dt.date.fromisoformat)
-    p.add_argument("--ratio", type=float)
-    p.add_argument("--action-type", choices=("FORWARD_SPLIT", "REVERSE_SPLIT"), default="FORWARD_SPLIT")
-    p.add_argument("--source-type", default="REGULATORY_FILING")
-    p.add_argument("--source-reference")
-    p.add_argument("--adjusted-price-csv", type=Path)
-    p.add_argument("--refresh-adjusted-history", action="store_true")
-    p.add_argument("--max-refresh-calls", type=int, default=500)
-    p.add_argument("--start", type=dt.date.fromisoformat, default=BASE_DATE)
-    p.add_argument("--end", type=dt.date.fromisoformat)
-    p.add_argument("--backup-tag")
-    p.add_argument("--report", type=Path)
-    return p
+    result = argparse.ArgumentParser(description="Repair TECH100 history after a confirmed corporate action")
+    result.add_argument("--apply", action="store_true")
+    result.add_argument("--rollback-tag")
+    result.add_argument("--reuse-backups", action="store_true")
+    result.add_argument("--run-id")
+    result.add_argument("--ticker")
+    result.add_argument("--effective-date", type=dt.date.fromisoformat)
+    result.add_argument("--ratio", type=float)
+    result.add_argument("--action-type", choices=("FORWARD_SPLIT", "REVERSE_SPLIT"), default="FORWARD_SPLIT")
+    result.add_argument("--source-type", default="REGULATORY_FILING")
+    result.add_argument("--source-reference")
+    result.add_argument("--adjusted-price-csv", type=Path)
+    result.add_argument("--refresh-adjusted-history", action="store_true")
+    result.add_argument("--max-refresh-calls", type=int, default=500)
+    result.add_argument("--start", type=dt.date.fromisoformat, default=BASE_DATE)
+    result.add_argument("--end", type=dt.date.fromisoformat)
+    result.add_argument("--backup-tag")
+    result.add_argument("--report", type=Path)
+    return result
 
 
-def _date_column(table: str) -> str | None:
-    return {
-        "SC_IDX_PRICES_CANON": "TRADE_DATE", "SC_IDX_HOLDINGS": "REBALANCE_DATE",
-        "SC_IDX_DIVISOR": "EFFECTIVE_DATE", "SC_IDX_LEVELS": "TRADE_DATE",
-        "SC_IDX_CONSTITUENT_DAILY": "TRADE_DATE", "SC_IDX_CONTRIBUTION_DAILY": "TRADE_DATE",
-        "SC_IDX_STATS_DAILY": "TRADE_DATE", "SC_IDX_PORTFOLIO_ANALYTICS_DAILY": "TRADE_DATE",
-        "SC_IDX_PORTFOLIO_POSITION_DAILY": "TRADE_DATE", "SC_IDX_PORTFOLIO_OPT_INPUTS": "TRADE_DATE",
+def _date_column(table: str) -> str:
+    columns = {
+        "SC_IDX_PRICES_RAW": "TRADE_DATE",
+        "SC_IDX_PRICES_CANON": "TRADE_DATE",
+        "SC_IDX_HOLDINGS": "REBALANCE_DATE",
+        "SC_IDX_DIVISOR": "EFFECTIVE_DATE",
+        "SC_IDX_LEVELS": "TRADE_DATE",
+        "SC_IDX_CONSTITUENT_DAILY": "TRADE_DATE",
+        "SC_IDX_CONTRIBUTION_DAILY": "TRADE_DATE",
+        "SC_IDX_STATS_DAILY": "TRADE_DATE",
+        "SC_IDX_PORTFOLIO_ANALYTICS_DAILY": "TRADE_DATE",
+        "SC_IDX_PORTFOLIO_POSITION_DAILY": "TRADE_DATE",
+        "SC_IDX_PORTFOLIO_OPT_INPUTS": "TRADE_DATE",
         "SC_IDX_CORPORATE_ACTIONS": "EFFECTIVE_DATE",
-    }.get(table)
+    }
+    return columns[table]
 
 
-def _write_report(path: Path | None, lines: list[str]) -> None:
+def _write_report(path: Path | None, lines: Iterable[str]) -> None:
     if path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _object_exists(conn, object_name: str) -> bool:
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name=:name", {"name": object_name})
+    return int(cur.fetchone()[0]) == 1
+
+
+def _columns(conn, object_name: str) -> list[tuple[object, ...]]:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT column_name,data_type,data_length,data_precision,data_scale,nullable "
+        "FROM user_tab_columns WHERE table_name=:name ORDER BY column_id",
+        {"name": object_name},
+    )
+    return [tuple(row) for row in cur.fetchall()]
+
+
+def _count_and_range(
+    conn,
+    object_name: str,
+    date_column: str,
+    start: dt.date,
+    end: dt.date,
+) -> tuple[int, dt.date | None, dt.date | None]:
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT COUNT(*),MIN({date_column}),MAX({date_column}) FROM {object_name} "
+        f"WHERE {date_column} BETWEEN :start_date AND :end_date",
+        {"start_date": start, "end_date": end},
+    )
+    count, minimum, maximum = cur.fetchone()
+    return int(count), _as_date(minimum), _as_date(maximum)
+
+
+def _total_count_and_range(
+    conn,
+    object_name: str,
+    date_column: str,
+) -> tuple[int, dt.date | None, dt.date | None]:
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*),MIN({date_column}),MAX({date_column}) FROM {object_name}")
+    count, minimum, maximum = cur.fetchone()
+    return int(count), _as_date(minimum), _as_date(maximum)
+
+
+def _manifest_rows(conn, tag: str) -> list[BackupRecord]:
+    if not _object_exists(conn, MANIFEST_TABLE):
+        raise BackupValidationError("backup_manifest_table_missing")
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT run_id,backup_tag,target_object,backup_object,start_date,end_date,"
+        "source_row_count,backup_row_count,validation_status "
+        f"FROM {MANIFEST_TABLE} WHERE backup_tag=:tag ORDER BY target_object",
+        {"tag": tag},
+    )
+    return [
+        BackupRecord(
+            run_id=str(row[0]),
+            tag=str(row[1]),
+            target_object=str(row[2]),
+            backup_object=str(row[3]),
+            start_date=_as_date(row[4]),
+            end_date=_as_date(row[5]),
+            source_row_count=int(row[6]),
+            backup_row_count=int(row[7]),
+            validation_status=str(row[8]),
+        )
+        for row in cur.fetchall()
+    ]
+
+
+def validate_backup_set(
+    conn,
+    tag: str,
+    start: dt.date,
+    end: dt.date,
+    *,
+    expected_run_id: str | None = None,
+) -> list[BackupRecord]:
+    """Prove one complete, compatible backup set without executing DML."""
+    records = _manifest_rows(conn, tag)
+    expected_targets = set(BACKUP_OBJECTS.values())
+    actual_targets = {record.target_object for record in records}
+    if actual_targets != expected_targets:
+        missing = sorted(expected_targets - actual_targets)
+        extra = sorted(actual_targets - expected_targets)
+        raise BackupValidationError(f"backup_manifest_incomplete:missing={missing}:extra={extra}")
+    run_ids = {record.run_id for record in records}
+    if len(run_ids) != 1:
+        raise BackupValidationError("backup_manifest_multiple_run_ids")
+    run_id = next(iter(run_ids))
+    if expected_run_id is not None and run_id != expected_run_id:
+        raise BackupValidationError("backup_manifest_run_id_mismatch")
+
+    validated: list[BackupRecord] = []
+    for record in records:
+        if record.validation_status != "VALIDATED":
+            raise BackupValidationError(f"backup_manifest_not_validated:{record.target_object}")
+        if record.start_date != start or record.end_date != end:
+            raise BackupValidationError(f"backup_manifest_range_mismatch:{record.target_object}")
+        if not _object_exists(conn, record.target_object):
+            raise BackupValidationError(f"production_object_missing:{record.target_object}")
+        if not _object_exists(conn, record.backup_object):
+            raise BackupValidationError(f"backup_object_missing:{record.backup_object}")
+        if _columns(conn, record.target_object) != _columns(conn, record.backup_object):
+            raise BackupValidationError(f"backup_columns_mismatch:{record.target_object}")
+        count, minimum, maximum = _total_count_and_range(
+            conn, record.backup_object, _date_column(record.target_object)
+        )
+        if count != record.source_row_count or count != record.backup_row_count:
+            raise BackupValidationError(f"backup_row_count_mismatch:{record.target_object}")
+        if minimum is not None and minimum < start:
+            raise BackupValidationError(f"backup_min_date_outside_range:{record.target_object}")
+        if maximum is not None and maximum > end:
+            raise BackupValidationError(f"backup_max_date_outside_range:{record.target_object}")
+        validated.append(record)
+    return validated
+
+
+def ensure_action_schema(conn) -> None:
+    blocks: list[str] = []
+    current: list[str] = []
+    for line in (ROOT / "oracle_scripts/sc_idx_corporate_actions.sql").read_text(encoding="utf-8").splitlines():
+        if line.strip() == "/":
+            if current:
+                blocks.append("\n".join(current))
+                current = []
+        else:
+            current.append(line)
+    if current:
+        blocks.append("\n".join(current))
+    cur = conn.cursor()
+    for block in blocks:
+        cur.execute(block)
+
+
+def create_backups(
+    conn,
+    tag: str,
+    run_id: str,
+    start: dt.date,
+    end: dt.date,
+    *,
+    reuse: bool = False,
+) -> list[BackupRecord]:
+    if reuse:
+        return validate_backup_set(conn, tag, start, end, expected_run_id=run_id)
+
+    names = {code: backup_name(tag, code) for code in BACKUP_OBJECTS}
+    collisions = sorted(name for name in names.values() if _object_exists(conn, name))
+    if collisions:
+        raise BackupCollisionError(f"backup_object_collision:{','.join(collisions)}")
+
+    cur = conn.cursor()
+    records: list[BackupRecord] = []
+    for code, target in BACKUP_OBJECTS.items():
+        if not _object_exists(conn, target):
+            raise BackupValidationError(f"production_object_missing:{target}")
+        backup = names[code]
+        date_column = _date_column(target)
+        source_count, _, _ = _count_and_range(conn, target, date_column, start, end)
+        cur.execute(
+            f"CREATE TABLE {backup} AS SELECT * FROM {target} "
+            f"WHERE {date_column} BETWEEN :start_date AND :end_date",
+            {"start_date": start, "end_date": end},
+        )
+        if _columns(conn, target) != _columns(conn, backup):
+            raise BackupValidationError(f"backup_columns_mismatch:{target}")
+        backup_count, _, _ = _total_count_and_range(conn, backup, date_column)
+        if backup_count != source_count:
+            raise BackupValidationError(f"backup_row_count_mismatch:{target}")
+        records.append(
+            BackupRecord(run_id, tag, target, backup, start, end, source_count, backup_count, "VALIDATED")
+        )
+
+    cur.executemany(
+        f"INSERT INTO {MANIFEST_TABLE} "
+        "(run_id,backup_tag,target_object,backup_object,start_date,end_date,source_row_count,"
+        "backup_row_count,created_at,validation_status) "
+        "VALUES (:run_id,:tag,:target,:backup,:start_date,:end_date,:source_count,"
+        ":backup_count,SYSTIMESTAMP,:status)",
+        [
+            {
+                "run_id": record.run_id,
+                "tag": record.tag,
+                "target": record.target_object,
+                "backup": record.backup_object,
+                "start_date": record.start_date,
+                "end_date": record.end_date,
+                "source_count": record.source_row_count,
+                "backup_count": record.backup_row_count,
+                "status": record.validation_status,
+            }
+            for record in records
+        ],
+    )
+    conn.commit()
+    return validate_backup_set(conn, tag, start, end, expected_run_id=run_id)
+
+
+def load_adjusted_prices(
+    path: Path,
+    ticker: str,
+    start: dt.date = BASE_DATE,
+    end: dt.date | None = None,
+) -> dict[dt.date, float]:
+    end = end or dt.date.max
+    rows: dict[dt.date, float] = {}
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {"ticker", "trade_date", "adjusted_close"}
+        if not reader.fieldnames or not required.issubset({item.lower() for item in reader.fieldnames}):
+            raise PriceRepairError("price_csv_columns_required:ticker,trade_date,adjusted_close")
+        keys = {item.lower(): item for item in reader.fieldnames}
+        for row in reader:
+            if str(row[keys["ticker"]]).strip().upper() != ticker:
+                continue
+            day = dt.date.fromisoformat(str(row[keys["trade_date"]])[:10])
+            if day in rows:
+                raise PriceRepairError(f"duplicate_adjusted_price_date:{day.isoformat()}")
+            if not start <= day <= end:
+                raise PriceRepairError(f"adjusted_price_date_outside_repair_range:{day.isoformat()}")
+            value = float(row[keys["adjusted_close"]])
+            if value <= 0:
+                raise PriceRepairError(f"invalid_adjusted_price:{day.isoformat()}")
+            rows[day] = value
+    if not rows:
+        raise PriceRepairError("no_adjusted_prices_for_ticker")
+    return rows
+
+
+def fetch_adjusted_prices(
+    conn,
+    ticker: str,
+    start: dt.date,
+    end: dt.date,
+) -> dict[dt.date, float]:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT trade_date,canon_adj_close_px FROM SC_IDX_PRICES_CANON "
+        "WHERE ticker=:ticker AND trade_date BETWEEN :start_date AND :end_date ORDER BY trade_date",
+        {"ticker": ticker, "start_date": start, "end_date": end},
+    )
+    return {
+        _as_date(day): float(price)
+        for day, price in cur.fetchall()
+        if _as_date(day) is not None and price is not None
+    }
+
+
+def validate_price_update_scope(
+    conn,
+    ticker: str,
+    prices: Mapping[dt.date, float],
+    start: dt.date,
+    end: dt.date,
+) -> dict[dt.date, float]:
+    outside = sorted(day for day in prices if not start <= day <= end)
+    if outside:
+        raise PriceRepairError(f"adjusted_price_dates_outside_backup:{outside[0].isoformat()}")
+    stored = fetch_adjusted_prices(conn, ticker, start, end)
+    missing = sorted(set(prices) - set(stored))
+    if missing:
+        raise PriceRepairError(f"canonical_rows_missing:no_inserts_permitted:{missing[0].isoformat()}")
+    return stored
+
+
+def validate_canonical_dates_backed_up(
+    conn,
+    records: Iterable[BackupRecord],
+    ticker: str,
+    dates: Iterable[dt.date],
+) -> None:
+    intended = sorted(set(dates))
+    canonical = next(
+        (record for record in records if record.target_object == "SC_IDX_PRICES_CANON"),
+        None,
+    )
+    if canonical is None:
+        raise BackupValidationError("canonical_backup_manifest_missing")
+    if not intended:
+        raise BackupValidationError("canonical_backup_dates_empty")
+    placeholders = ",".join(f":day{index}" for index in range(len(intended)))
+    binds: dict[str, object] = {"ticker": ticker}
+    binds.update({f"day{index}": day for index, day in enumerate(intended)})
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT COUNT(DISTINCT trade_date) FROM {canonical.backup_object} "
+        f"WHERE ticker=:ticker AND trade_date IN ({placeholders})",
+        binds,
+    )
+    backed_count = int(cur.fetchone()[0])
+    if backed_count != len(intended):
+        raise BackupValidationError(
+            f"canonical_backup_date_count_mismatch:expected={len(intended)}:actual={backed_count}"
+        )
+
+
+def apply_prices(conn, ticker: str, prices: Mapping[dt.date, float]) -> int:
+    rows = [{"ticker": ticker, "trade_date": day, "price": price} for day, price in sorted(prices.items())]
+    cur = conn.cursor()
+    cur.executemany(
+        "UPDATE SC_IDX_PRICES_CANON SET canon_adj_close_px=:price,computed_at=SYSTIMESTAMP "
+        "WHERE ticker=:ticker AND trade_date=:trade_date",
+        rows,
+    )
+    actual = int(cur.rowcount)
+    if actual != len(rows):
+        conn.rollback()
+        raise PriceRepairError(f"canonical_update_count_mismatch:expected={len(rows)}:actual={actual}")
+    conn.commit()
+    return actual
+
+
+def validate_refreshed_history(
+    before: Mapping[dt.date, float],
+    after: Mapping[dt.date, float],
+    *,
+    effective_date: dt.date,
+    start: dt.date,
+    end: dt.date,
+    max_economic_return: float = 0.20,
+) -> tuple[dt.date, int, float]:
+    changed = earliest_material_change(before, after)
+    if changed is None:
+        raise PriceRepairError("adjusted_history_refresh_no_material_change")
+    changed_dates = [day for day in sorted(set(before) & set(after)) if before[day] != after[day]]
+    if any(day < start or day > end for day in changed_dates):
+        raise PriceRepairError("adjusted_history_change_outside_backup_range")
+    previous_dates = [day for day in after if day < effective_date]
+    if not previous_dates or effective_date not in after:
+        raise PriceRepairError("split_continuity_prices_missing")
+    previous_date = max(previous_dates)
+    economic_return = after[effective_date] / after[previous_date] - 1.0
+    if abs(economic_return) > max_economic_return:
+        raise PriceRepairError(
+            f"split_discontinuity_unresolved:return={economic_return:.12g}:threshold={max_economic_return:.12g}"
+        )
+    return changed, len(changed_dates), economic_return
+
+
+def upsert_action_confirmed(conn, args: argparse.Namespace, start: dt.date, run_id: str) -> None:
+    conn.cursor().execute(
+        """
+        MERGE INTO SC_IDX_CORPORATE_ACTIONS d
+        USING (SELECT 'TECH100' index_code,:ticker ticker,:action_type action_type,
+                      :effective_date effective_date FROM dual) s
+        ON (d.index_code=s.index_code AND d.ticker=s.ticker AND d.action_type=s.action_type
+            AND d.effective_date=s.effective_date)
+        WHEN MATCHED THEN UPDATE SET ratio=:ratio,confirmation_status='CONFIRMED',
+          source_type=:source_type,source_reference=:source_reference,
+          confirmed_at=NVL(d.confirmed_at,SYSTIMESTAMP),applied_at=NULL,
+          affected_start_date=:affected_start_date,processing_run_id=:run_id
+        WHEN NOT MATCHED THEN INSERT
+          (index_code,ticker,action_type,effective_date,ratio,confirmation_status,source_type,
+           source_reference,confirmed_at,processing_method,applied_at,affected_start_date,processing_run_id)
+        VALUES
+          ('TECH100',:ticker,:action_type,:effective_date,:ratio,'CONFIRMED',:source_type,
+           :source_reference,SYSTIMESTAMP,'REFRESH_ADJUSTED_HISTORY',NULL,:affected_start_date,:run_id)
+        """,
+        {
+            "ticker": args.ticker,
+            "action_type": args.action_type,
+            "effective_date": args.effective_date,
+            "ratio": args.ratio,
+            "source_type": args.source_type,
+            "source_reference": args.source_reference,
+            "affected_start_date": start,
+            "run_id": run_id,
+        },
+    )
+    conn.commit()
+
+
+def mark_action_applied(conn, args: argparse.Namespace, run_id: str) -> None:
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE SC_IDX_CORPORATE_ACTIONS SET confirmation_status='APPLIED',applied_at=SYSTIMESTAMP "
+        "WHERE index_code='TECH100' AND ticker=:ticker AND action_type=:action_type "
+        "AND effective_date=:effective_date AND processing_run_id=:run_id "
+        "AND confirmation_status='CONFIRMED'",
+        {
+            "ticker": args.ticker,
+            "action_type": args.action_type,
+            "effective_date": args.effective_date,
+            "run_id": run_id,
+        },
+    )
+    if int(cur.rowcount) != 1:
+        conn.rollback()
+        raise RuntimeError("action_applied_status_update_count_mismatch")
+    conn.commit()
+
+
+def rebuild(start: dt.date, end: dt.date) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools/index_engine/calc_index.py"),
+            "--start",
+            start.isoformat(),
+            "--end",
+            end.isoformat(),
+            "--rebuild",
+            "--strict",
+            "--no-preflight-self-heal",
+        ],
+        check=True,
+        cwd=ROOT,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools/index_engine/build_portfolio_analytics.py"),
+            "--start",
+            start.isoformat(),
+            "--end",
+            end.isoformat(),
+        ],
+        check=True,
+        cwd=ROOT,
+    )
+
+
+def verify_strict(start: dt.date, end: dt.date, run_id: str) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools/index_engine/verify_index_integrity.py"),
+            "--start",
+            start.isoformat(),
+            "--end",
+            end.isoformat(),
+            "--processing-run-id",
+            run_id,
+        ],
+        check=True,
+        cwd=ROOT,
+    )
+
+
+def complete_reconstruction(
+    *,
+    rebuild_fn: Callable[[], None],
+    verify_fn: Callable[[], None],
+    mark_applied_fn: Callable[[], None],
+) -> None:
+    for stage, operation in (
+        ("rebuild", rebuild_fn),
+        ("strict_verification", verify_fn),
+        ("mark_applied", mark_applied_fn),
+    ):
+        try:
+            operation()
+        except Exception as exc:
+            raise ReconstructionError(f"{stage}_failed:{exc}") from exc
+
+
+def rollback(conn, tag: str, start: dt.date, end: dt.date) -> list[str]:
+    """Validate everything first, then restore the complete set in one transaction."""
+    records = validate_backup_set(conn, tag, start, end)
+    by_target = {record.target_object: record for record in records}
+    restored: list[str] = []
+    cur = conn.cursor()
+    try:
+        for target in reversed(list(BACKUP_OBJECTS.values())):
+            record = by_target[target]
+            date_column = _date_column(target)
+            try:
+                cur.execute(
+                    f"DELETE FROM {target} WHERE {date_column} BETWEEN :start_date AND :end_date",
+                    {"start_date": start, "end_date": end},
+                )
+                cur.execute(
+                    f"INSERT INTO {target} SELECT * FROM {record.backup_object}",
+                )
+            except Exception as exc:
+                raise RestorationError(f"restore_failed:{target}:{exc}") from exc
+            restored.append(target)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return restored
+
+
 def dry_run(conn, args: argparse.Namespace) -> tuple[dt.date, list[str]]:
     cur = conn.cursor()
     cur.execute("SELECT MAX(trade_date) FROM SC_IDX_TRADING_DAYS")
-    max_day = args.end or cur.fetchone()[0]
-    if isinstance(max_day, dt.datetime): max_day = max_day.date()
-    cur.execute("""
-      WITH p AS (
-        SELECT ticker,trade_date,canon_adj_close_px,
-               LAG(canon_adj_close_px) OVER(PARTITION BY ticker ORDER BY trade_date) previous_px
-        FROM SC_IDX_PRICES_CANON
-      )
-      SELECT COUNT(*),MIN(trade_date),MAX(trade_date) FROM p
-      WHERE previous_px>0 AND ABS(canon_adj_close_px/previous_px-1)>.20
-    """)
-    candidate_count,candidate_min,candidate_max=cur.fetchone()
-    lines=["mode=DRY_RUN",f"rebuild_start={args.start.isoformat()}",f"rebuild_end={max_day.isoformat()}",
-           f"price_candidates={candidate_count}",f"candidate_min={candidate_min.date().isoformat() if candidate_min else ''}",
-           f"candidate_max={candidate_max.date().isoformat() if candidate_max else ''}"]
+    max_day = args.end or _as_date(cur.fetchone()[0])
+    cur.execute(
+        """
+        WITH p AS (
+          SELECT ticker,trade_date,canon_adj_close_px,
+                 LAG(canon_adj_close_px) OVER(PARTITION BY ticker ORDER BY trade_date) previous_px
+          FROM SC_IDX_PRICES_CANON
+        )
+        SELECT COUNT(*),MIN(trade_date),MAX(trade_date) FROM p
+        WHERE previous_px>0 AND ABS(canon_adj_close_px/previous_px-1)>.20
+        """
+    )
+    candidate_count, candidate_min, candidate_max = cur.fetchone()
+    lines = [
+        "mode=DRY_RUN",
+        "oracle_writes=0",
+        f"rebuild_start={args.start.isoformat()}",
+        f"rebuild_end={max_day.isoformat()}",
+        f"price_candidates={candidate_count}",
+        f"candidate_min={_as_date(candidate_min).isoformat() if candidate_min else ''}",
+        f"candidate_max={_as_date(candidate_max).isoformat() if candidate_max else ''}",
+    ]
     for table in BACKUP_OBJECTS.values():
         try:
             cur.execute(f"SELECT COUNT(*) FROM {table}")
             lines.append(f"{table}_rows={cur.fetchone()[0]}")
         except Exception as exc:
-            if "ORA-00942" in str(exc): lines.append(f"{table}_rows=UNAVAILABLE")
-            else: raise
-    return max_day,lines
-
-
-def create_backups(conn, tag: str, start: dt.date, end: dt.date) -> list[str]:
-    cur=conn.cursor();created=[]
-    for code,table in BACKUP_OBJECTS.items():
-        name=backup_name(tag,code); dc=_date_column(table)
-        try:
-            sql=f"CREATE TABLE {name} AS SELECT * FROM {table}"
-            binds={}
-            if dc:
-                sql+=f" WHERE {dc} BETWEEN :start_date AND :end_date";binds={"start_date":start,"end_date":end}
-            cur.execute(sql,binds);created.append(name)
-        except Exception as exc:
-            if "ORA-00955" in str(exc): created.append(name)
-            elif "ORA-00942" in str(exc) and table=="SC_IDX_CORPORATE_ACTIONS": continue
-            else: raise
-    return created
-
-
-def ensure_action_schema(conn) -> None:
-    blocks=[];current=[]
-    for line in (ROOT/'oracle_scripts/sc_idx_corporate_actions.sql').read_text(encoding='utf-8').splitlines():
-        if line.strip()=='/':
-            if current: blocks.append('\n'.join(current));current=[]
-        else: current.append(line)
-    if current: blocks.append('\n'.join(current))
-    cur=conn.cursor()
-    for block in blocks: cur.execute(block)
-
-
-def apply_prices(conn, ticker: str, prices: dict[dt.date,float]) -> int:
-    cur=conn.cursor();rows=[{"ticker":ticker,"trade_date":d,"price":p} for d,p in sorted(prices.items())]
-    cur.executemany("UPDATE SC_IDX_PRICES_CANON SET canon_adj_close_px=:price,computed_at=SYSTIMESTAMP WHERE ticker=:ticker AND trade_date=:trade_date",rows)
-    return cur.rowcount
-
-
-def upsert_action(conn,args:argparse.Namespace,start:dt.date,run_id:str)->None:
-    conn.cursor().execute("""
-      MERGE INTO SC_IDX_CORPORATE_ACTIONS d
-      USING (SELECT 'TECH100' index_code,:ticker ticker,:action_type action_type,:effective_date effective_date FROM dual) s
-      ON (d.index_code=s.index_code AND d.ticker=s.ticker AND d.action_type=s.action_type AND d.effective_date=s.effective_date)
-      WHEN MATCHED THEN UPDATE SET ratio=:ratio,confirmation_status='CONFIRMED',source_type=:source_type,source_reference=:source_reference,
-        confirmed_at=NVL(d.confirmed_at,SYSTIMESTAMP),affected_start_date=:affected_start_date,processing_run_id=:run_id
-      WHEN NOT MATCHED THEN INSERT (index_code,ticker,action_type,effective_date,ratio,confirmation_status,source_type,source_reference,confirmed_at,processing_method,applied_at,affected_start_date,processing_run_id)
-        VALUES ('TECH100',:ticker,:action_type,:effective_date,:ratio,'CONFIRMED',:source_type,:source_reference,SYSTIMESTAMP,'REFRESH_ADJUSTED_HISTORY',NULL,:affected_start_date,:run_id)
-    """,{"ticker":args.ticker,"action_type":args.action_type,"effective_date":args.effective_date,"ratio":args.ratio,
-          "source_type":args.source_type,"source_reference":args.source_reference,"affected_start_date":start,"run_id":run_id})
-
-
-def mark_action_applied(conn,args:argparse.Namespace,run_id:str)->None:
-    conn.cursor().execute("UPDATE SC_IDX_CORPORATE_ACTIONS SET confirmation_status='APPLIED',applied_at=SYSTIMESTAMP WHERE index_code='TECH100' AND ticker=:ticker AND action_type=:action_type AND effective_date=:effective_date AND processing_run_id=:run_id",
-                          {"ticker":args.ticker,"action_type":args.action_type,"effective_date":args.effective_date,"run_id":run_id})
-    conn.commit()
-
-
-def rebuild(start:dt.date,end:dt.date)->None:
-    subprocess.run([sys.executable,str(ROOT/'tools/index_engine/calc_index.py'),'--start',start.isoformat(),'--end',end.isoformat(),'--rebuild','--strict','--no-preflight-self-heal'],check=True,cwd=ROOT)
-    subprocess.run([sys.executable,str(ROOT/'tools/index_engine/build_portfolio_analytics.py'),'--start',start.isoformat(),'--end',end.isoformat()],check=True,cwd=ROOT)
-
-
-def rollback(conn,tag:str,start:dt.date,end:dt.date)->list[str]:
-    cur=conn.cursor();restored=[]
-    for code,table in reversed(list(BACKUP_OBJECTS.items())):
-        name=backup_name(tag,code);dc=_date_column(table)
-        try:
-            if dc: cur.execute(f"DELETE FROM {table} WHERE {dc} BETWEEN :s AND :e",{"s":start,"e":end})
-            else: cur.execute(f"DELETE FROM {table}")
-            cur.execute(f"INSERT INTO {table} SELECT * FROM {name}");restored.append(table)
-        except Exception as exc:
-            if "ORA-00942" in str(exc): continue
-            raise
-    conn.commit();return restored
-
-
-def main(argv:list[str]|None=None)->int:
-    args=parser().parse_args(argv);load_env_files()
-    with get_connection() as conn:
-        max_day,lines=dry_run(conn,args)
-        if args.rollback_tag:
-            restored=rollback(conn,args.rollback_tag,args.start,max_day);lines += ["mode=ROLLBACK",f"restored_objects={len(restored)}"]
-        elif args.apply:
-            if not all((args.ticker,args.effective_date,args.ratio,args.source_reference)):
-                raise SystemExit("apply_requires_ticker_effective_date_ratio_source_reference")
-            if bool(args.adjusted_price_csv)==bool(args.refresh_adjusted_history):
-                raise SystemExit("apply_requires_exactly_one_adjusted_history_source")
-            ticker=args.ticker.strip().upper();args.ticker=ticker
-            tag=args.backup_tag or dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d%H%M')
-            ensure_action_schema(conn)
-            created=create_backups(conn,tag,args.start,max_day);run_id=f"ca-{uuid.uuid4()}"
-            if args.refresh_adjusted_history:
-                subprocess.run([sys.executable,str(ROOT/'tools/index_engine/ingest_prices.py'),'--start',args.start.isoformat(),'--end',args.effective_date.isoformat(),'--backfill','--tickers',ticker,'--max-provider-calls',str(args.max_refresh_calls)],check=True,cwd=ROOT)
-                prices={}
+            if "ORA-00942" in str(exc):
+                lines.append(f"{table}_rows=UNAVAILABLE")
             else:
-                prices=load_adjusted_prices(args.adjusted_price_csv,ticker)
-                cur=conn.cursor();cur.execute("SELECT trade_date,canon_adj_close_px FROM SC_IDX_PRICES_CANON WHERE ticker=:t",{"t":ticker})
-                stored={(d.date() if isinstance(d,dt.datetime) else d):float(v) for d,v in cur if v is not None}
-                changed=earliest_material_change(stored,prices)
-                if changed is None: raise SystemExit("no_material_adjusted_price_change")
-                args.start=min(args.start,changed);apply_prices(conn,ticker,prices)
-            upsert_action(conn,args,args.start,run_id);conn.commit();rebuild(args.start,max_day);mark_action_applied(conn,args,run_id)
-            lines += ["mode=APPLY",f"backup_tag={tag}",f"backup_objects={len(created)}",f"rebuild_start={args.start.isoformat()}"]
-        _write_report(args.report,lines)
-        for line in lines: print(line)
+                raise
+    return max_day, lines
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    load_env_files()
+    with get_connection() as conn:
+        max_day, lines = dry_run(conn, args)
+        if args.rollback_tag:
+            restored = rollback(conn, args.rollback_tag, args.start, max_day)
+            lines.extend(("mode=ROLLBACK", f"restored_objects={len(restored)}"))
+        elif args.apply:
+            if not all((args.ticker, args.effective_date, args.ratio, args.source_reference)):
+                raise SystemExit("apply_requires_ticker_effective_date_ratio_source_reference")
+            if bool(args.adjusted_price_csv) == bool(args.refresh_adjusted_history):
+                raise SystemExit("apply_requires_exactly_one_adjusted_history_source")
+            if args.reuse_backups and not args.run_id:
+                raise SystemExit("backup_reuse_requires_run_id")
+            if args.reuse_backups and not args.backup_tag:
+                raise SystemExit("backup_reuse_requires_backup_tag")
+
+            args.ticker = args.ticker.strip().upper()
+            run_id = args.run_id or f"ca-{uuid.uuid4()}"
+            tag = args.backup_tag or new_backup_tag()
+            ensure_action_schema(conn)
+            backups = create_backups(
+                conn,
+                tag,
+                run_id,
+                args.start,
+                max_day,
+                reuse=args.reuse_backups,
+            )
+            lines.extend((f"backup_tag={tag}", f"backup_run_id={run_id}", f"backup_objects={len(backups)}"))
+
+            if args.refresh_adjusted_history:
+                before = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(ROOT / "tools/index_engine/ingest_prices.py"),
+                        "--start",
+                        args.start.isoformat(),
+                        "--end",
+                        args.effective_date.isoformat(),
+                        "--backfill",
+                        "--tickers",
+                        args.ticker,
+                        "--max-provider-calls",
+                        str(args.max_refresh_calls),
+                    ],
+                    check=True,
+                    cwd=ROOT,
+                )
+                after = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
+                changed, changed_count, event_return = validate_refreshed_history(
+                    before,
+                    after,
+                    effective_date=args.effective_date,
+                    start=args.start,
+                    end=max_day,
+                )
+                validate_canonical_dates_backed_up(conn, backups, args.ticker, set(before) & set(after))
+            else:
+                prices = load_adjusted_prices(args.adjusted_price_csv, args.ticker, args.start, max_day)
+                before = validate_price_update_scope(conn, args.ticker, prices, args.start, max_day)
+                validate_canonical_dates_backed_up(conn, backups, args.ticker, prices)
+                changed = earliest_material_change(before, prices)
+                if changed is None:
+                    raise PriceRepairError("no_material_adjusted_price_change")
+                apply_prices(conn, args.ticker, prices)
+                after = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
+                changed, changed_count, event_return = validate_refreshed_history(
+                    before,
+                    after,
+                    effective_date=args.effective_date,
+                    start=args.start,
+                    end=max_day,
+                )
+
+            lines.extend(
+                (
+                    f"earliest_material_change={changed.isoformat()}",
+                    f"materially_changed_rows={changed_count}",
+                    f"event_economic_return={event_return:.12g}",
+                )
+            )
+            upsert_action_confirmed(conn, args, args.start, run_id)
+            try:
+                complete_reconstruction(
+                    rebuild_fn=lambda: rebuild(args.start, max_day),
+                    verify_fn=lambda: verify_strict(args.start, max_day, run_id),
+                    mark_applied_fn=lambda: mark_action_applied(conn, args, run_id),
+                )
+            except ReconstructionError as exc:
+                rollback_command = (
+                    "python3 tools/db_migrations/repair_sc_idx_corporate_actions.py "
+                    f"--rollback-tag {tag} --start {args.start.isoformat()} --end {max_day.isoformat()}"
+                )
+                lines.extend(
+                    (
+                        "mode=APPLY_FAILED",
+                        "action_status=CONFIRMED",
+                        f"failure={exc}",
+                        f"rollback_command={rollback_command}",
+                    )
+                )
+                _write_report(args.report, lines)
+                print(
+                    f"reconstruction_failed:{exc}:action_status=CONFIRMED "
+                    f"rollback_command={rollback_command}",
+                    file=sys.stderr,
+                )
+                return 2
+            lines.extend(("mode=APPLY", "strict_verification=PASS", "action_status=APPLIED"))
+
+        _write_report(args.report, lines)
+        for line in lines:
+            print(line)
     return 0
 
 
-if __name__=='__main__': raise SystemExit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())

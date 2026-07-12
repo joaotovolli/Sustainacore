@@ -48,7 +48,7 @@ value equals shares multiplied by price within 1e-6 for every constituent row.
 
 ## Affected objects
 
-`SC_IDX_PRICES_CANON`, `SC_IDX_HOLDINGS`, `SC_IDX_DIVISOR`, `SC_IDX_LEVELS`,
+`SC_IDX_PRICES_RAW`, `SC_IDX_PRICES_CANON`, `SC_IDX_HOLDINGS`, `SC_IDX_DIVISOR`, `SC_IDX_LEVELS`,
 `SC_IDX_CONSTITUENT_DAILY`, `SC_IDX_CONTRIBUTION_DAILY`, `SC_IDX_STATS_DAILY`,
 `SC_IDX_PORTFOLIO_ANALYTICS_DAILY`, `SC_IDX_PORTFOLIO_POSITION_DAILY`, and
 `SC_IDX_PORTFOLIO_OPT_INPUTS`.
@@ -61,7 +61,7 @@ also multiply synthetic shares for the same action, because that would double-ad
 
 ## Rollback scope
 
-Before applying, create timestamped backups of the impacted canonical prices, corporate-action rows,
+Before applying, create timestamped backups of the impacted raw and canonical prices, corporate-action rows,
 holdings, divisors, levels, constituent history, contributions, statistics, portfolio analytics,
 portfolio positions, and optimizer inputs. Restore all objects from the same backup tag as one
 controlled rollback.
