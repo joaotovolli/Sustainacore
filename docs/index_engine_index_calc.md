@@ -58,6 +58,10 @@ Daily levels:
   - `Level_TR(t) = MV_t / Divisor(rebalance)`
 - Before publishing, the calculator checks one-day constituent price moves for suspicious
   adjusted/unadjusted or split-basis mismatches. The default absolute return threshold is 20%.
+- Ratio-like moves create an auditable pending corporate-action candidate and block publication.
+- A confirmed action still blocks publication until adjusted history is consistent across the event.
+- Under the adjusted-price methodology, confirmed splits trigger a bounded ticker-history refresh and
+  dependent rebuild; synthetic shares are not also multiplied.
 
 Stats lookback windows:
 
@@ -87,6 +91,9 @@ Optional validation tuning:
 - `SC_IDX_MAX_ABS_CONSTITUENT_RETURN` (default `0.20`)
 - `SC_IDX_REBALANCE_CONTINUITY_ABS_TOL` (default `1e-6`)
 - `SC_IDX_REBALANCE_CONTINUITY_REL_TOL` (default `1e-8`)
+
+Corporate-action repair and rollback are documented in
+`docs/runbooks/corporate_action_reconstruction.md`.
 
 Primary orchestrated entrypoint:
 
