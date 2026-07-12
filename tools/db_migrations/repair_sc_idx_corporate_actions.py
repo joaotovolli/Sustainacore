@@ -64,6 +64,15 @@ class ReconstructionError(RuntimeError):
     """Rebuild, strict verification, or final status transition failed."""
 
 
+class ApplyStageError(RuntimeError):
+    """One named post-backup apply stage failed."""
+
+    def __init__(self, stage: str, original: Exception):
+        self.stage = stage
+        self.original = original
+        super().__init__(f"{stage}_failed:{original}")
+
+
 @dataclass(frozen=True)
 class BackupRecord:
     run_id: str
@@ -75,6 +84,24 @@ class BackupRecord:
     source_row_count: int
     backup_row_count: int
     validation_status: str
+
+
+@dataclass(frozen=True)
+class ApplyContext:
+    tag: str
+    run_id: str
+    start: dt.date
+    end: dt.date
+    rollback_command: str
+    report_path: Path
+
+
+@dataclass(frozen=True)
+class ApplyStage:
+    name: str
+    operation: Callable[[], None]
+    may_mutate: bool = False
+    action_status_after: str | None = None
 
 
 def _as_date(value: object) -> dt.date | None:
@@ -537,7 +564,7 @@ def mark_action_applied(conn, args: argparse.Namespace, run_id: str) -> None:
     conn.commit()
 
 
-def rebuild(start: dt.date, end: dt.date) -> None:
+def rebuild_official(start: dt.date, end: dt.date) -> None:
     subprocess.run(
         [
             sys.executable,
@@ -553,6 +580,9 @@ def rebuild(start: dt.date, end: dt.date) -> None:
         check=True,
         cwd=ROOT,
     )
+
+
+def rebuild_portfolio(start: dt.date, end: dt.date) -> None:
     subprocess.run(
         [
             sys.executable,
@@ -565,6 +595,12 @@ def rebuild(start: dt.date, end: dt.date) -> None:
         check=True,
         cwd=ROOT,
     )
+
+
+def rebuild(start: dt.date, end: dt.date) -> None:
+    """Compatibility wrapper preserving the documented rebuild order."""
+    rebuild_official(start, end)
+    rebuild_portfolio(start, end)
 
 
 def verify_strict(start: dt.date, end: dt.date, run_id: str) -> None:
@@ -627,6 +663,139 @@ def rollback(conn, tag: str, start: dt.date, end: dt.date) -> list[str]:
         conn.rollback()
         raise
     return restored
+
+
+def verify_restoration(conn, tag: str, start: dt.date, end: dt.date) -> None:
+    """Verify the compensated target range against the validated manifest."""
+    records = validate_backup_set(conn, tag, start, end)
+    for record in records:
+        count, minimum, maximum = _count_and_range(
+            conn,
+            record.target_object,
+            _date_column(record.target_object),
+            start,
+            end,
+        )
+        if count != record.backup_row_count:
+            raise RestorationError(f"restoration_row_count_mismatch:{record.target_object}")
+        backup_count, backup_minimum, backup_maximum = _total_count_and_range(
+            conn,
+            record.backup_object,
+            _date_column(record.target_object),
+        )
+        if (count, minimum, maximum) != (backup_count, backup_minimum, backup_maximum):
+            raise RestorationError(f"restoration_range_mismatch:{record.target_object}")
+
+
+def fetch_action_status(conn, args: argparse.Namespace, run_id: str) -> str:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT confirmation_status FROM SC_IDX_CORPORATE_ACTIONS "
+        "WHERE index_code='TECH100' AND ticker=:ticker AND action_type=:action_type "
+        "AND effective_date=:effective_date AND processing_run_id=:run_id",
+        {
+            "ticker": args.ticker,
+            "action_type": args.action_type,
+            "effective_date": args.effective_date,
+            "run_id": run_id,
+        },
+    )
+    row = cur.fetchone()
+    return str(row[0]) if row else "NOT_RECORDED"
+
+
+def emit_backup_context(
+    context: ApplyContext,
+    lines: list[str],
+    *,
+    printer: Callable[..., None] = print,
+) -> None:
+    context_lines = [
+        f"backup_tag={context.tag}",
+        f"backup_run_id={context.run_id}",
+        f"repair_start={context.start.isoformat()}",
+        f"repair_end={context.end.isoformat()}",
+        f"rollback_command={context.rollback_command}",
+    ]
+    lines.extend(context_lines)
+    _write_report(context.report_path, lines)
+    for line in context_lines:
+        printer(line, flush=True)
+
+
+def execute_controlled_apply(
+    conn,
+    context: ApplyContext,
+    stages: Iterable[ApplyStage],
+    lines: list[str],
+    *,
+    rollback_fn: Callable[[], None] | None = None,
+    verify_restoration_fn: Callable[[], None] | None = None,
+    action_status_fn: Callable[[], str] | None = None,
+    printer: Callable[..., None] = print,
+) -> int:
+    """Run every post-backup stage with manifest-backed compensation."""
+    emit_backup_context(context, lines, printer=printer)
+    rollback_fn = rollback_fn or (lambda: rollback(conn, context.tag, context.start, context.end))
+    verify_restoration_fn = verify_restoration_fn or (
+        lambda: verify_restoration(conn, context.tag, context.start, context.end)
+    )
+    action_status_fn = action_status_fn or (lambda: "NOT_RECORDED")
+    mutation_started = False
+    action_status = "NOT_RECORDED"
+    success_output_start = len(lines)
+
+    for stage in stages:
+        if stage.may_mutate:
+            mutation_started = True
+        try:
+            stage.operation()
+        except Exception as exc:
+            failure = ApplyStageError(stage.name, exc)
+            action_status_before_rollback = action_status
+            conn.rollback()
+            automatic_rollback = "NOT_REQUIRED"
+            rollback_error: Exception | None = None
+            if mutation_started:
+                try:
+                    rollback_fn()
+                    verify_restoration_fn()
+                    automatic_rollback = "PASS"
+                except Exception as restore_exc:
+                    automatic_rollback = "FAIL"
+                    rollback_error = restore_exc
+            try:
+                action_status = action_status_fn()
+            except Exception as status_exc:
+                lines.append(f"action_status_check_error={status_exc}")
+
+            failure_lines = [
+                "mode=APPLY_FAILED",
+                "pipeline_timer=LEAVE_STOPPED",
+                f"backup_tag={context.tag}",
+                f"backup_run_id={context.run_id}",
+                f"failing_stage={failure.stage}",
+                f"original_error={failure.original}",
+                f"action_status_before_rollback={action_status_before_rollback}",
+                f"action_status={action_status}",
+                f"automatic_rollback={automatic_rollback}",
+            ]
+            if rollback_error is not None:
+                failure_lines.append(f"rollback_error={rollback_error}")
+            failure_lines.append(f"rollback_command={context.rollback_command}")
+            lines.extend(failure_lines)
+            _write_report(context.report_path, lines)
+            for line in failure_lines:
+                printer(line, flush=True)
+            return 2
+        if stage.action_status_after is not None:
+            action_status = stage.action_status_after
+
+    lines.extend(("mode=APPLY", "strict_verification=PASS", "action_status=APPLIED"))
+    _write_report(context.report_path, lines)
+    for line in lines[success_output_start:]:
+        printer(line, flush=True)
+    return 0
 
 
 def dry_run(conn, args: argparse.Namespace) -> tuple[dt.date, list[str]]:
@@ -696,88 +865,161 @@ def main(argv: list[str] | None = None) -> int:
                 max_day,
                 reuse=args.reuse_backups,
             )
-            lines.extend((f"backup_tag={tag}", f"backup_run_id={run_id}", f"backup_objects={len(backups)}"))
+            lines.append(f"backup_objects={len(backups)}")
+            rollback_command = (
+                "python3 tools/db_migrations/repair_sc_idx_corporate_actions.py "
+                f"--rollback-tag {tag} --start {args.start.isoformat()} --end {max_day.isoformat()}"
+            )
+            report_path = args.report or (
+                ROOT
+                / "tools/audit/output/corporate_action_forensics"
+                / f"repair_apply_{tag}.txt"
+            )
+            context = ApplyContext(tag, run_id, args.start, max_day, rollback_command, report_path)
+            state: dict[str, object] = {}
+            stages: list[ApplyStage] = []
 
             if args.refresh_adjusted_history:
-                before = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
-                subprocess.run(
-                    [
-                        sys.executable,
-                        str(ROOT / "tools/index_engine/ingest_prices.py"),
-                        "--start",
-                        args.start.isoformat(),
-                        "--end",
-                        args.effective_date.isoformat(),
-                        "--backfill",
-                        "--tickers",
-                        args.ticker,
-                        "--max-provider-calls",
-                        str(args.max_refresh_calls),
-                    ],
-                    check=True,
-                    cwd=ROOT,
-                )
-                after = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
-                changed, changed_count, event_return = validate_refreshed_history(
-                    before,
-                    after,
-                    effective_date=args.effective_date,
-                    start=args.start,
-                    end=max_day,
-                )
-                validate_canonical_dates_backed_up(conn, backups, args.ticker, set(before) & set(after))
-            else:
-                prices = load_adjusted_prices(args.adjusted_price_csv, args.ticker, args.start, max_day)
-                before = validate_price_update_scope(conn, args.ticker, prices, args.start, max_day)
-                validate_canonical_dates_backed_up(conn, backups, args.ticker, prices)
-                changed = earliest_material_change(before, prices)
-                if changed is None:
-                    raise PriceRepairError("no_material_adjusted_price_change")
-                apply_prices(conn, args.ticker, prices)
-                after = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
-                changed, changed_count, event_return = validate_refreshed_history(
-                    before,
-                    after,
-                    effective_date=args.effective_date,
-                    start=args.start,
-                    end=max_day,
-                )
+                def prepare_refresh() -> None:
+                    before = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
+                    validate_canonical_dates_backed_up(conn, backups, args.ticker, before)
+                    state["before"] = before
 
-            lines.extend(
-                (
-                    f"earliest_material_change={changed.isoformat()}",
-                    f"materially_changed_rows={changed_count}",
-                    f"event_economic_return={event_return:.12g}",
-                )
-            )
-            upsert_action_confirmed(conn, args, args.start, run_id)
-            try:
-                complete_reconstruction(
-                    rebuild_fn=lambda: rebuild(args.start, max_day),
-                    verify_fn=lambda: verify_strict(args.start, max_day, run_id),
-                    mark_applied_fn=lambda: mark_action_applied(conn, args, run_id),
-                )
-            except ReconstructionError as exc:
-                rollback_command = (
-                    "python3 tools/db_migrations/repair_sc_idx_corporate_actions.py "
-                    f"--rollback-tag {tag} --start {args.start.isoformat()} --end {max_day.isoformat()}"
-                )
-                lines.extend(
+                def refresh_prices() -> None:
+                    subprocess.run(
+                        [
+                            sys.executable,
+                            str(ROOT / "tools/index_engine/ingest_prices.py"),
+                            "--start",
+                            args.start.isoformat(),
+                            "--end",
+                            args.effective_date.isoformat(),
+                            "--backfill",
+                            "--tickers",
+                            args.ticker,
+                            "--max-provider-calls",
+                            str(args.max_refresh_calls),
+                        ],
+                        check=True,
+                        cwd=ROOT,
+                    )
+
+                def validate_refresh() -> None:
+                    before = state["before"]
+                    after = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
+                    changed, changed_count, event_return = validate_refreshed_history(
+                        before,
+                        after,
+                        effective_date=args.effective_date,
+                        start=args.start,
+                        end=max_day,
+                    )
+                    changed_dates = {
+                        day for day in set(before) & set(after) if before[day] != after[day]
+                    }
+                    validate_canonical_dates_backed_up(
+                        conn, backups, args.ticker, changed_dates
+                    )
+                    lines.extend(
+                        (
+                            f"earliest_material_change={changed.isoformat()}",
+                            f"materially_changed_rows={changed_count}",
+                            f"event_economic_return={event_return:.12g}",
+                        )
+                    )
+
+                stages.extend(
                     (
-                        "mode=APPLY_FAILED",
-                        "action_status=CONFIRMED",
-                        f"failure={exc}",
-                        f"rollback_command={rollback_command}",
+                        ApplyStage("prepare_automated_refresh", prepare_refresh),
+                        ApplyStage("automated_price_ingestion", refresh_prices, may_mutate=True),
+                        ApplyStage("validate_refreshed_history", validate_refresh),
                     )
                 )
-                _write_report(args.report, lines)
-                print(
-                    f"reconstruction_failed:{exc}:action_status=CONFIRMED "
-                    f"rollback_command={rollback_command}",
-                    file=sys.stderr,
+            else:
+                def prepare_csv_repair() -> None:
+                    prices = load_adjusted_prices(
+                        args.adjusted_price_csv, args.ticker, args.start, max_day
+                    )
+                    before = validate_price_update_scope(
+                        conn, args.ticker, prices, args.start, max_day
+                    )
+                    validate_canonical_dates_backed_up(
+                        conn, backups, args.ticker, prices
+                    )
+                    changed = earliest_material_change(before, prices)
+                    if changed is None:
+                        raise PriceRepairError("no_material_adjusted_price_change")
+                    state.update(prices=prices, before=before)
+
+                def update_csv_prices() -> None:
+                    apply_prices(conn, args.ticker, state["prices"])
+
+                def validate_csv_repair() -> None:
+                    before = state["before"]
+                    after = fetch_adjusted_prices(conn, args.ticker, args.start, max_day)
+                    validate_canonical_dates_backed_up(
+                        conn, backups, args.ticker, state["prices"]
+                    )
+                    changed, changed_count, event_return = validate_refreshed_history(
+                        before,
+                        after,
+                        effective_date=args.effective_date,
+                        start=args.start,
+                        end=max_day,
+                    )
+                    lines.extend(
+                        (
+                            f"earliest_material_change={changed.isoformat()}",
+                            f"materially_changed_rows={changed_count}",
+                            f"event_economic_return={event_return:.12g}",
+                        )
+                    )
+
+                stages.extend(
+                    (
+                        ApplyStage("prepare_csv_repair", prepare_csv_repair),
+                        ApplyStage("csv_canonical_update", update_csv_prices, may_mutate=True),
+                        ApplyStage("validate_csv_history", validate_csv_repair),
+                    )
                 )
-                return 2
-            lines.extend(("mode=APPLY", "strict_verification=PASS", "action_status=APPLIED"))
+
+            stages.extend(
+                (
+                    ApplyStage(
+                        "confirm_action",
+                        lambda: upsert_action_confirmed(conn, args, args.start, run_id),
+                        may_mutate=True,
+                        action_status_after="CONFIRMED",
+                    ),
+                    ApplyStage(
+                        "rebuild_official_index",
+                        lambda: rebuild_official(args.start, max_day),
+                        may_mutate=True,
+                    ),
+                    ApplyStage(
+                        "rebuild_portfolio_outputs",
+                        lambda: rebuild_portfolio(args.start, max_day),
+                        may_mutate=True,
+                    ),
+                    ApplyStage(
+                        "strict_verification",
+                        lambda: verify_strict(args.start, max_day, run_id),
+                    ),
+                    ApplyStage(
+                        "mark_action_applied",
+                        lambda: mark_action_applied(conn, args, run_id),
+                        may_mutate=True,
+                        action_status_after="APPLIED",
+                    ),
+                )
+            )
+            return execute_controlled_apply(
+                conn,
+                context,
+                stages,
+                lines,
+                action_status_fn=lambda: fetch_action_status(conn, args, run_id),
+            )
 
         _write_report(args.report, lines)
         for line in lines:

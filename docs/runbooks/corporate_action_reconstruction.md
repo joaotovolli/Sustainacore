@@ -51,7 +51,20 @@ validation status in `SC_IDX_CA_BACKUP_MANIFEST`.
 The apply order is fixed: validate the complete backup set, refresh or update the confirmed ticker,
 prove the earliest changed date and split continuity, rebuild official outputs, rebuild portfolio
 outputs, run strict quantitative verification, and only then mark the action `APPLIED`. Any rebuild or
-verification failure leaves it `CONFIRMED` and prints the exact rollback command.
+verification failure enters the same compensation path as a price-repair failure.
+
+Immediately after backup validation, the tool persists and flushes the backup tag, run identifier,
+repair range, and exact rollback command before the first mutation-capable operation. Every later stage
+uses one controlled failure handler, including external ingestion, CSV update, post-write validation,
+action confirmation, both rebuilds, strict verification, and final status transition.
+
+After any possible source mutation, failure handling first rolls back uncommitted parent-connection
+work, then performs manifest-backed atomic restoration and verifies restored counts and ranges. A
+successful compensation reports `automatic_rollback=PASS`. If compensation fails, the report retains
+both the original stage error and rollback error plus the manual rollback command. The timer must stay
+stopped. A failure before any mutation reports `automatic_rollback=NOT_REQUIRED` and does not rewrite
+otherwise valid source tables. Status reporting distinguishes `NOT_RECORDED`, `CONFIRMED`, and
+`APPLIED`; after successful compensation it reports the status actually restored from the backup set.
 
 CSV repair rejects duplicate or out-of-range dates, does not permit implicit inserts, and requires the
 Oracle affected-row count to match the intended update count. Automated refresh success requires an

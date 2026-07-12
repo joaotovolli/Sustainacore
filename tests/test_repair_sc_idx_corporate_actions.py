@@ -1,4 +1,5 @@
 import datetime as dt
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -264,3 +265,256 @@ def test_rerunning_dry_run_performs_zero_oracle_writes() -> None:
     assert all(sql.startswith(("SELECT", "WITH")) for sql in conn.cur.sql)
     assert conn.commits == 0
     assert conn.rollbacks == 0
+
+
+def workflow_context(tmp_path: Path) -> repair.ApplyContext:
+    return repair.ApplyContext(
+        TAG,
+        RUN_ID,
+        START,
+        END,
+        f"repair --rollback-tag {TAG} --start {START} --end {END}",
+        tmp_path / "apply-report.txt",
+    )
+
+
+def run_controlled(
+    tmp_path: Path,
+    stages: list[repair.ApplyStage],
+    *,
+    rollback_fn=None,
+    verify_restoration_fn=None,
+    action_status_fn=None,
+    events: list[str] | None = None,
+):
+    conn = FakeConnection()
+    lines: list[str] = []
+    events = events if events is not None else []
+
+    def printer(line, flush=False):
+        events.append(f"print:{line}:flush={flush}")
+
+    code = repair.execute_controlled_apply(
+        conn,
+        workflow_context(tmp_path),
+        stages,
+        lines,
+        rollback_fn=rollback_fn or (lambda: events.append("rollback")),
+        verify_restoration_fn=verify_restoration_fn or (lambda: events.append("restore_verified")),
+        action_status_fn=action_status_fn or (lambda: "NOT_RECORDED"),
+        printer=printer,
+    )
+    return code, conn, lines, events
+
+
+def test_csv_post_write_continuity_failure_invokes_atomic_restoration(tmp_path: Path) -> None:
+    prices = {"changed": False}
+
+    def update():
+        prices["changed"] = True
+
+    def fail_validation():
+        raise repair.PriceRepairError("split_discontinuity_unresolved")
+
+    def restore():
+        prices["changed"] = False
+
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage("csv_canonical_update", update, may_mutate=True),
+            repair.ApplyStage("validate_csv_history", fail_validation),
+        ],
+        rollback_fn=restore,
+    )
+    assert code == 2
+    assert not prices["changed"]
+    assert "automatic_rollback=PASS" in lines
+    assert "restore_verified" in events
+
+
+def test_automated_ingest_validation_failure_invokes_restoration(tmp_path: Path) -> None:
+    state = {"ingested": False}
+    events: list[str] = []
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage(
+                "automated_price_ingestion",
+                lambda: state.update(ingested=True),
+                may_mutate=True,
+            ),
+            repair.ApplyStage(
+                "validate_refreshed_history",
+                lambda: (_ for _ in ()).throw(repair.PriceRepairError("no_material_change")),
+            ),
+        ],
+        rollback_fn=lambda: (state.update(ingested=False), events.append("rollback")),
+        events=events,
+    )
+    assert code == 2
+    assert not state["ingested"]
+    assert "automatic_rollback=PASS" in lines
+
+
+def test_ingestion_subprocess_failure_after_possible_write_attempts_restoration(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    def ingest():
+        events.append("ingest_may_have_written")
+        raise subprocess.CalledProcessError(1, ["ingest"])
+
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [repair.ApplyStage("automated_price_ingestion", ingest, may_mutate=True)],
+        events=events,
+    )
+    assert code == 2
+    assert "rollback" in events
+    assert "failing_stage=automated_price_ingestion" in lines
+
+
+def test_action_upsert_failure_restores_prices_and_reports_not_recorded(tmp_path: Path) -> None:
+    state = {"prices_changed": False}
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage(
+                "csv_canonical_update",
+                lambda: state.update(prices_changed=True),
+                may_mutate=True,
+            ),
+            repair.ApplyStage(
+                "confirm_action",
+                lambda: (_ for _ in ()).throw(RuntimeError("upsert failed")),
+                may_mutate=True,
+                action_status_after="CONFIRMED",
+            ),
+        ],
+        rollback_fn=lambda: state.update(prices_changed=False),
+        action_status_fn=lambda: "NOT_RECORDED",
+    )
+    assert code == 2
+    assert not state["prices_changed"]
+    assert "action_status_before_rollback=NOT_RECORDED" in lines
+    assert "action_status=NOT_RECORDED" in lines
+    assert "automatic_rollback=PASS" in lines
+
+
+def test_rebuild_failure_uses_manifest_compensation(tmp_path: Path) -> None:
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage("confirm_action", lambda: None, may_mutate=True, action_status_after="CONFIRMED"),
+            repair.ApplyStage(
+                "rebuild_official_index",
+                lambda: (_ for _ in ()).throw(RuntimeError("rebuild failed")),
+                may_mutate=True,
+            ),
+        ],
+    )
+    assert code == 2
+    assert "rollback" in events
+    assert "automatic_rollback=PASS" in lines
+
+
+def test_strict_verification_failure_never_marks_applied(tmp_path: Path) -> None:
+    events: list[str] = []
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage("confirm_action", lambda: events.append("confirmed"), True, "CONFIRMED"),
+            repair.ApplyStage("rebuild_official_index", lambda: events.append("official"), True),
+            repair.ApplyStage("rebuild_portfolio_outputs", lambda: events.append("portfolio"), True),
+            repair.ApplyStage(
+                "strict_verification",
+                lambda: (_ for _ in ()).throw(RuntimeError("verification failed")),
+            ),
+            repair.ApplyStage("mark_action_applied", lambda: events.append("applied"), True, "APPLIED"),
+        ],
+        events=events,
+    )
+    assert code == 2
+    assert "applied" not in events
+    assert "failing_stage=strict_verification" in lines
+    assert "action_status_before_rollback=CONFIRMED" in lines
+
+
+def test_rollback_failure_reports_original_and_rollback_errors(tmp_path: Path) -> None:
+    code, _, lines, _ = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage(
+                "csv_canonical_update",
+                lambda: (_ for _ in ()).throw(RuntimeError("original failure")),
+                may_mutate=True,
+            )
+        ],
+        rollback_fn=lambda: (_ for _ in ()).throw(RuntimeError("rollback failure")),
+        action_status_fn=lambda: "CONFIRMED",
+    )
+    assert code == 2
+    assert "original_error=original failure" in lines
+    assert "rollback_error=rollback failure" in lines
+    assert "automatic_rollback=FAIL" in lines
+    assert "action_status=CONFIRMED" in lines
+    assert any(line.startswith("rollback_command=") for line in lines)
+
+
+def test_backup_context_is_emitted_before_first_mutation(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    def mutate():
+        events.append("mutation")
+
+    code, _, _, events = run_controlled(
+        tmp_path,
+        [repair.ApplyStage("repair", mutate, may_mutate=True)],
+        events=events,
+    )
+    assert code == 0
+    mutation_index = events.index("mutation")
+    required = ("backup_tag=", "backup_run_id=", "repair_start=", "repair_end=", "rollback_command=")
+    for prefix in required:
+        index = next(i for i, event in enumerate(events) if event.startswith(f"print:{prefix}"))
+        assert index < mutation_index
+        assert events[index].endswith("flush=True")
+    report = (tmp_path / "apply-report.txt").read_text(encoding="utf-8")
+    assert f"backup_tag={TAG}" in report
+    assert f"backup_run_id={RUN_ID}" in report
+
+
+def test_failure_before_mutation_does_not_restore(tmp_path: Path) -> None:
+    events: list[str] = []
+    code, conn, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage(
+                "prepare_csv_repair",
+                lambda: (_ for _ in ()).throw(repair.PriceRepairError("scope failed")),
+            )
+        ],
+        events=events,
+    )
+    assert code == 2
+    assert "rollback" not in events
+    assert "automatic_rollback=NOT_REQUIRED" in lines
+    assert conn.commits == 0
+
+
+def test_success_order_includes_all_apply_gates(tmp_path: Path) -> None:
+    events: list[str] = []
+    stages = [
+        repair.ApplyStage("repair", lambda: events.append("repair"), True),
+        repair.ApplyStage("validate", lambda: events.append("validate")),
+        repair.ApplyStage("confirm", lambda: events.append("confirm"), True, "CONFIRMED"),
+        repair.ApplyStage("official", lambda: events.append("official"), True),
+        repair.ApplyStage("portfolio", lambda: events.append("portfolio"), True),
+        repair.ApplyStage("verify", lambda: events.append("verify")),
+        repair.ApplyStage("apply", lambda: events.append("apply"), True, "APPLIED"),
+    ]
+    code, _, lines, events = run_controlled(tmp_path, stages, events=events)
+    assert code == 0
+    ordered = [event for event in events if not event.startswith("print:")]
+    assert ordered == ["repair", "validate", "confirm", "official", "portfolio", "verify", "apply"]
+    assert "action_status=APPLIED" in lines
