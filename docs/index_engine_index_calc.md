@@ -62,6 +62,9 @@ Daily levels:
 - A confirmed action still blocks publication until adjusted history is consistent across the event.
 - Under the adjusted-price methodology, confirmed splits trigger a bounded ticker-history refresh and
   dependent rebuild; synthetic shares are not also multiplied.
+- Controlled `--rebuild --strict` runs make one bounded exact-date recovery attempt for missing
+  rebalance anchors, then refetch and apply the same fail-closed quality checks. Scheduled incremental
+  calculations do not enable this reconstruction-only retry.
 
 Stats lookback windows:
 
@@ -94,6 +97,10 @@ Optional validation tuning:
 
 Corporate-action repair and rollback are documented in
 `docs/runbooks/corporate_action_reconstruction.md`.
+
+Before a controlled reconstruction, run `tools/index_engine/reconstruction_readiness.py`. It scans the
+complete intended range, aggregates all rebalance and price-basis blockers, rehearses portfolio output
+construction without writes, and exits non-zero unless `overall_status=PASS`.
 
 Primary orchestrated entrypoint:
 

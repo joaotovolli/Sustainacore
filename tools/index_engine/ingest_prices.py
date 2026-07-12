@@ -397,12 +397,16 @@ def _build_missing_rows(
 
 
 def _fetch_provider_rows(ticker: str, start_date: _dt.date, end_date: _dt.date) -> list[dict]:
+    fallback_window = min(5000, max(10, (_dt.date.today() - start_date).days + 10))
     try:
-        return fetch_eod_prices([ticker], start_date.isoformat(), end_date.isoformat())
+        rows = fetch_eod_prices([ticker], start_date.isoformat(), end_date.isoformat())
+        if rows or start_date != end_date:
+            return rows
+        return fetch_single_day_bar(ticker, start_date, window=fallback_window)
     except Exception as exc:
         if start_date == end_date:
             try:
-                return fetch_single_day_bar(ticker, start_date)
+                return fetch_single_day_bar(ticker, start_date, window=fallback_window)
             except Exception:
                 raise exc
         raise

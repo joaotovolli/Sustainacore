@@ -284,6 +284,10 @@ def fetch_rebalance_prior_prices(
     return db.fetch_prices(prev_date, tickers, allow_close=allow_close)
 
 
+def should_retry_rebalance_anchor(*, rebuild: bool, strict: bool) -> bool:
+    return rebuild and strict
+
+
 def validate_price_return_sanity(
     *,
     prev_date: _dt.date,
@@ -868,11 +872,14 @@ def main(argv: list[str] | None = None) -> int:
             prev_date = prev_trade or trade_date
             prev_level = levels.get(prev_date, BASE_LEVEL)
             prev_divisor = divisors_by_reb.get(current_reb or trade_date, 1.0)
-            prices_prev = fetch_rebalance_prior_prices(
-                prev_date=prev_date,
-                tickers=tickers,
-                allow_close=args.allow_close,
-            )
+            if should_retry_rebalance_anchor(rebuild=args.rebuild, strict=args.strict):
+                prices_prev = fetch_rebalance_prior_prices(
+                    prev_date=prev_date,
+                    tickers=tickers,
+                    allow_close=args.allow_close,
+                )
+            else:
+                prices_prev = db.fetch_prices(prev_date, tickers, allow_close=args.allow_close)
             if prev_trade is not None:
                 try:
                     validate_rebalance_prior_prices(

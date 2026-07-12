@@ -847,6 +847,25 @@ def dry_run(conn, args: argparse.Namespace) -> tuple[dt.date, list[str]]:
     return max_day, lines
 
 
+def run_reconstruction_readiness(args: argparse.Namespace, end: dt.date) -> None:
+    command = [
+        sys.executable,
+        str(ROOT / "tools/index_engine/reconstruction_readiness.py"),
+        "--start",
+        args.start.isoformat(),
+        "--end",
+        end.isoformat(),
+        "--ticker",
+        args.ticker,
+        "--probe-missing-anchors",
+        "--require-quiescent",
+        "--rehearse-portfolio",
+    ]
+    if args.adjusted_price_csv:
+        command.extend(("--adjusted-price-csv", str(args.adjusted_price_csv)))
+    subprocess.run(command, check=True, cwd=ROOT)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     load_env_files()
@@ -868,6 +887,7 @@ def main(argv: list[str] | None = None) -> int:
             args.ticker = args.ticker.strip().upper()
             run_id = args.run_id or f"ca-{uuid.uuid4()}"
             tag = args.backup_tag or new_backup_tag()
+            run_reconstruction_readiness(args, max_day)
             ensure_action_schema(conn)
             backups = create_backups(
                 conn,

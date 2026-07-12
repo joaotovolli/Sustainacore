@@ -60,6 +60,13 @@ def test_rebalance_anchor_still_fails_closed_after_backfill(monkeypatch) -> None
         )
 
 
+def test_rebalance_anchor_retry_is_limited_to_strict_rebuild() -> None:
+    assert ci.should_retry_rebalance_anchor(rebuild=True, strict=True)
+    assert not ci.should_retry_rebalance_anchor(rebuild=False, strict=True)
+    assert not ci.should_retry_rebalance_anchor(rebuild=True, strict=False)
+    assert not ci.should_retry_rebalance_anchor(rebuild=False, strict=False)
+
+
 def test_stale_historical_anchor_is_rejected_for_rebalance() -> None:
     with pytest.raises(ci.IndexValidationError, match="rebalance_prior_price_stale_anchor"):
         ci.validate_rebalance_prior_prices(
