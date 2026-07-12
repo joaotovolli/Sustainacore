@@ -18,10 +18,12 @@ class FakeCursor:
         self.result: list[tuple] = []
         self.fail_on = fail_on
         self.rowcount = rowcount
+        self.calls: list[tuple[str, object]] = []
 
     def execute(self, sql, binds=None):
         normalized = " ".join(sql.strip().upper().split())
         self.sql.append(normalized)
+        self.calls.append((normalized, binds))
         if self.fail_on and self.fail_on in normalized:
             raise RuntimeError("forced restoration failure")
         if "WITH P AS" in normalized:
@@ -164,6 +166,38 @@ def test_colliding_backup_tag_is_rejected(monkeypatch) -> None:
         repair.create_backups(conn, TAG, RUN_ID, START, END)
     assert not any(sql.startswith("CREATE TABLE") for sql in conn.cur.sql)
     assert conn.commits == 0
+
+
+def test_backup_ddl_uses_typed_date_literals_without_binds(monkeypatch) -> None:
+    conn = FakeConnection()
+    created: set[str] = set()
+
+    def object_exists(_conn, name):
+        if name in repair.BACKUP_OBJECTS.values():
+            return True
+        return name in created
+
+    original_execute = conn.cur.execute
+
+    def execute(sql, binds=None):
+        normalized = " ".join(sql.strip().upper().split())
+        if normalized.startswith("CREATE TABLE"):
+            created.add(normalized.split()[2])
+        return original_execute(sql, binds)
+
+    conn.cur.execute = execute
+    monkeypatch.setattr(repair, "_object_exists", object_exists)
+    monkeypatch.setattr(repair, "_count_and_range", lambda *_: (10, START, END))
+    monkeypatch.setattr(repair, "_total_count_and_range", lambda *_: (10, START, END))
+    monkeypatch.setattr(repair, "_columns", lambda *_: [("ID", "NUMBER")])
+    monkeypatch.setattr(repair, "validate_backup_set", lambda *_args, **_kwargs: complete_records())
+
+    repair.create_backups(conn, TAG, RUN_ID, START, END)
+
+    ddl_calls = [(sql, binds) for sql, binds in conn.cur.calls if sql.startswith("CREATE TABLE")]
+    assert len(ddl_calls) == len(repair.BACKUP_OBJECTS)
+    assert all(binds is None for _, binds in ddl_calls)
+    assert all("DATE '2025-01-02'" in sql and "DATE '2026-07-10'" in sql for sql, _ in ddl_calls)
 
 
 def test_backup_reuse_requires_same_manifest_run(monkeypatch) -> None:

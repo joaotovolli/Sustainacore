@@ -331,10 +331,14 @@ def create_backups(
         backup = names[code]
         date_column = _date_column(target)
         source_count, _, _ = _count_and_range(conn, target, date_column, start, end)
+        # Oracle does not permit bind variables in DDL (DPI-1059). These values
+        # are parsed argparse dates, so render typed DATE literals while keeping
+        # all identifiers constrained by the static backup allowlist above.
+        start_literal = f"DATE '{start.isoformat()}'"
+        end_literal = f"DATE '{end.isoformat()}'"
         cur.execute(
             f"CREATE TABLE {backup} AS SELECT * FROM {target} "
-            f"WHERE {date_column} BETWEEN :start_date AND :end_date",
-            {"start_date": start, "end_date": end},
+            f"WHERE {date_column} BETWEEN {start_literal} AND {end_literal}"
         )
         if _columns(conn, target) != _columns(conn, backup):
             raise BackupValidationError(f"backup_columns_mismatch:{target}")
