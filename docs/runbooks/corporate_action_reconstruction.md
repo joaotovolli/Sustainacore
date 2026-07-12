@@ -1,3 +1,4 @@
+<!-- cspell:ignore CRWD -->
 # TECH100 corporate-action reconstruction
 
 TECH100 uses canonical adjusted closing prices. A confirmed split is handled by refreshing adjusted

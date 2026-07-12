@@ -1,3 +1,4 @@
+<!-- cspell:ignore CRWD -->
 # TECH100 corporate-action and rebalance forensics
 
 Generated 2026-07-12 using read-only Oracle queries through the VM1 service environment.
