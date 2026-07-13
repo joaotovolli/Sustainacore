@@ -69,7 +69,7 @@ Daily levels:
   calculations. Oracle array DML is emitted in configurable bounded batches; levels, shares, divisors,
   contributions and statistics use the same formulas and tolerances as the unbatched path.
 - When a rebuild starts on an existing base or rebalance date, its seeded holdings/divisor snapshot is
-  staged for identical repersistence before the range delete. This preserves the initial basket state;
+  staged to be written back unchanged after the range delete. This preserves the initial basket state;
   it does not create a new rebalance or change shares, target weights, or divisor mathematics.
 
 Stats lookback windows:
