@@ -57,7 +57,18 @@ def install_history(monkeypatch, *, days, universes, prices, confirmed=()):
     monkeypatch.setattr(readiness, "_schema_blockers", lambda *_: [])
     monkeypatch.setattr(readiness, "_trading_days", lambda *_: days)
     monkeypatch.setattr(readiness, "_universes", lambda *_: universes)
-    monkeypatch.setattr(readiness, "_prices", lambda *_args, **_kwargs: prices)
+    def price_days(*_args, trading_days, planned=None, planned_ticker=None, **_kwargs):
+        for day in trading_days:
+            daily = {
+                ticker: value
+                for (price_day, ticker), value in prices.items()
+                if price_day == day
+            }
+            if planned and planned_ticker and day in planned:
+                daily[planned_ticker] = (float(planned[day]), "PLANNED_REPAIR")
+            yield day, daily
+
+    monkeypatch.setattr(readiness, "_price_maps_for_trading_days", price_days)
     monkeypatch.setattr(readiness, "_confirmed_actions", lambda *_: set(confirmed))
 
 
@@ -186,3 +197,43 @@ def test_failed_readiness_prevents_reconstruction(monkeypatch):
     assert "--probe-missing-anchors" in command
     assert "--require-quiescent" in command
     assert "--rehearse-portfolio" in command
+
+
+def test_price_stream_retains_only_one_date_and_uses_fetchmany():
+    class Cursor:
+        def __init__(self, rows):
+            self.rows = rows
+            self.offset = 0
+            self.arraysize = 100
+            self.fetch_sizes = []
+
+        def execute(self, _sql, _binds):
+            self.offset = 0
+
+        def fetchmany(self, size):
+            self.fetch_sizes.append(size)
+            batch = self.rows[self.offset : self.offset + size]
+            self.offset += len(batch)
+            return batch
+
+    days = [dt.date(2025, 1, 2), dt.date(2025, 1, 3), dt.date(2025, 1, 6)]
+    tickers = [f"T{index:03d}" for index in range(400)]
+    rows = [
+        (day, ticker, 100.0 + index, "REAL")
+        for day in days
+        for index, ticker in enumerate(tickers)
+    ]
+    raw = Cursor(rows)
+    streamed = list(
+        readiness._iter_prices_by_day(
+            readiness.SelectOnlyCursor(raw),
+            start=days[0],
+            end=days[-1],
+            tickers=tickers,
+            fetch_size=127,
+        )
+    )
+
+    assert [day for day, _prices in streamed] == days
+    assert [len(prices) for _day, prices in streamed] == [400, 400, 400]
+    assert set(raw.fetch_sizes) == {127}

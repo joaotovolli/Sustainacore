@@ -11,12 +11,14 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Iterator, Mapping
 from typing import Callable
 
 ROOT = Path(os.getenv("SC_IDX_REPO_ROOT") or Path(__file__).resolve().parents[2])
 sys.path[:0] = [str(ROOT), str(ROOT / "app")]
 
 from db_helper import get_connection
+from index_engine.oracle_runtime import configure_reconstruction_connection
 from index_engine.corporate_actions import detect_split_candidate
 from tools.db_migrations import repair_sc_idx_corporate_actions as repair
 from tools.oracle.env_bootstrap import load_env_files
@@ -106,11 +108,13 @@ class ReadinessReport:
 class SelectOnlyCursor:
     def __init__(self, cursor):
         self._cursor = cursor
+        self._fallback_consumed = False
 
     def execute(self, sql: str, binds: dict[str, object] | None = None):
         normalized = sql.lstrip().upper()
         if not normalized.startswith(("SELECT", "WITH")):
             raise RuntimeError("readiness_non_select_sql_rejected")
+        self._fallback_consumed = False
         return self._cursor.execute(sql, binds or {})
 
     def fetchone(self):
@@ -118,6 +122,24 @@ class SelectOnlyCursor:
 
     def fetchall(self):
         return self._cursor.fetchall()
+
+    def fetchmany(self, size: int | None = None):
+        if hasattr(self._cursor, "fetchmany"):
+            return self._cursor.fetchmany(size) if size is not None else self._cursor.fetchmany()
+        if self._fallback_consumed:
+            return []
+        self._fallback_consumed = True
+        rows = self._cursor.fetchall()
+        return rows[:size] if size is not None else rows
+
+    @property
+    def arraysize(self) -> int:
+        return getattr(self._cursor, "arraysize", 100)
+
+    @arraysize.setter
+    def arraysize(self, value: int) -> None:
+        if hasattr(self._cursor, "arraysize"):
+            self._cursor.arraysize = value
 
 
 def _objects(cur: SelectOnlyCursor) -> set[str]:
@@ -200,15 +222,19 @@ def _active_port_date(port_dates: list[dt.date], day: dt.date) -> dt.date | None
     return active
 
 
-def _prices(
+def _iter_prices_by_day(
     cur: SelectOnlyCursor,
     *,
     start: dt.date,
     end: dt.date,
     tickers: list[str],
-) -> dict[tuple[dt.date, str], tuple[float | None, str]]:
+    planned: Mapping[dt.date, float] | None = None,
+    planned_ticker: str | None = None,
+    fetch_size: int = 500,
+) -> Iterator[tuple[dt.date, dict[str, tuple[float | None, str]]]]:
+    """Stream bounded per-date price maps instead of retaining the full matrix."""
     if not tickers:
-        return {}
+        return
     placeholders = ",".join(f":ticker{i}" for i in range(len(tickers)))
     binds: dict[str, object] = {"start_date": start, "end_date": end}
     binds.update({f"ticker{i}": ticker for i, ticker in enumerate(tickers)})
@@ -218,15 +244,65 @@ def _prices(
         f"AND ticker IN ({placeholders}) ORDER BY trade_date,ticker",
         binds,
     )
-    result = {}
-    for trade_date, ticker, price, quality in cur.fetchall():
-        day = _as_date(trade_date)
-        if day:
-            result[(day, str(ticker).strip().upper())] = (
+    cur.arraysize = fetch_size
+    current_day: dt.date | None = None
+    current: dict[str, tuple[float | None, str]] = {}
+    while True:
+        batch = cur.fetchmany(fetch_size)
+        if not batch:
+            break
+        for trade_date, ticker, price, quality in batch:
+            day = _as_date(trade_date)
+            if day is None:
+                continue
+            if current_day is not None and day != current_day:
+                if planned and planned_ticker and current_day in planned:
+                    current[planned_ticker] = (float(planned[current_day]), "PLANNED_REPAIR")
+                yield current_day, current
+                current = {}
+            current_day = day
+            current[str(ticker).strip().upper()] = (
                 float(price) if price is not None else None,
                 str(quality or "").upper(),
             )
-    return result
+    if current_day is not None:
+        if planned and planned_ticker and current_day in planned:
+            current[planned_ticker] = (float(planned[current_day]), "PLANNED_REPAIR")
+        yield current_day, current
+
+
+def _price_maps_for_trading_days(
+    cur: SelectOnlyCursor,
+    *,
+    trading_days: list[dt.date],
+    tickers: list[str],
+    planned: Mapping[dt.date, float] | None = None,
+    planned_ticker: str | None = None,
+) -> Iterator[tuple[dt.date, dict[str, tuple[float | None, str]]]]:
+    if not trading_days:
+        return
+    streamed = iter(
+        _iter_prices_by_day(
+            cur,
+            start=trading_days[0],
+            end=trading_days[-1],
+            tickers=tickers,
+            planned=planned,
+            planned_ticker=planned_ticker,
+        )
+    )
+    next_item = next(streamed, None)
+    for day in trading_days:
+        while next_item is not None and next_item[0] < day:
+            next_item = next(streamed, None)
+        if next_item is not None and next_item[0] == day:
+            price_map = next_item[1]
+            next_item = next(streamed, None)
+        else:
+            price_map = {}
+            if planned and planned_ticker and day in planned:
+                price_map[planned_ticker] = (float(planned[day]), "PLANNED_REPAIR")
+        yield day, price_map
 
 
 def _confirmed_actions(cur: SelectOnlyCursor, start: dt.date, end: dt.date) -> set[tuple[str, dt.date]]:
@@ -301,6 +377,7 @@ def _portfolio_rehearsal(start: dt.date, end: dt.date) -> bool:
             "--end",
             end.isoformat(),
             "--dry-run",
+            "--low-resource",
             "--skip-preflight",
         ],
         capture_output=True,
@@ -336,94 +413,88 @@ def collect_readiness(
     universes = _universes(cur, end)
     port_dates = sorted(universes)
     all_tickers = sorted({ticker for values in universes.values() for ticker in values})
-    price_start = trading_days[0] - dt.timedelta(days=10) if trading_days else args.start
-    prices = _prices(cur, start=price_start, end=end, tickers=all_tickers)
+    planned: dict[dt.date, float] = {}
     if args.adjusted_price_csv:
         planned = repair.load_adjusted_prices(args.adjusted_price_csv, args.ticker, args.start, end)
-        for day, value in planned.items():
-            prices[(day, args.ticker)] = (float(value), "PLANNED_REPAIR")
     confirmed = _confirmed_actions(cur, args.start, end)
 
     previous_port = None
     previous_day = None
-    rebalance_days: list[tuple[dt.date, dt.date | None, dt.date, list[str]]] = []
-    for day in trading_days:
+    previous_prices: dict[str, tuple[float | None, str]] = {}
+    threshold = args.max_abs_constituent_return
+    probe = anchor_probe if anchor_probe is not None else (_probe_anchor if args.probe_missing_anchors else None)
+    for day, current_prices in _price_maps_for_trading_days(
+        cur,
+        trading_days=trading_days,
+        tickers=all_tickers,
+        planned=planned,
+        planned_ticker=args.ticker,
+    ):
         port_date = _active_port_date(port_dates, day)
         if port_date is None:
             report.missing_holdings_count += 1
             previous_day = day
+            previous_prices = current_prices
             continue
         tickers = universes.get(port_date, [])
         if len(tickers) != 25:
             report.missing_holdings_count += 1
         if port_date != previous_port:
             report.rebalance_count += 1
-            rebalance_days.append((day, previous_day, port_date, tickers))
+            if previous_day is not None:
+                for ticker in tickers:
+                    price, quality = previous_prices.get(ticker, (None, ""))
+                    if price is None:
+                        recoverable = None
+                        if probe:
+                            try:
+                                recovered = probe(ticker, previous_day)
+                                recoverable = bool(recovered)
+                                if (
+                                    recoverable
+                                    and isinstance(recovered, (int, float))
+                                    and not isinstance(recovered, bool)
+                                ):
+                                    previous_prices[ticker] = (float(recovered), "PROBED_REAL")
+                            except Exception:
+                                recoverable = False
+                        report.anchors.append(
+                            AnchorIssue(day, previous_day, ticker, "MISSING", recoverable)
+                        )
+                    elif quality in STALE_QUALITIES:
+                        report.anchors.append(AnchorIssue(day, previous_day, ticker, "STALE"))
+                    elif quality in SUBSTITUTE_QUALITIES:
+                        report.anchors.append(AnchorIssue(day, previous_day, ticker, "SUBSTITUTE"))
             previous_port = port_date
-        if any(prices.get((day, ticker), (None, ""))[0] is None for ticker in tickers):
+        if any(current_prices.get(ticker, (None, ""))[0] is None for ticker in tickers):
             report.partial_source_dates.add(day)
-        previous_day = day
-
-    probe = anchor_probe if anchor_probe is not None else (_probe_anchor if args.probe_missing_anchors else None)
-    for rebalance_date, prior_day, _port_date, tickers in rebalance_days:
-        if prior_day is None:
-            continue
-        for ticker in tickers:
-            price, quality = prices.get((prior_day, ticker), (None, ""))
-            if price is None:
-                recoverable = None
-                if probe:
-                    try:
-                        recovered = probe(ticker, prior_day)
-                        recoverable = bool(recovered)
-                        if (
-                            recoverable
-                            and isinstance(recovered, (int, float))
-                            and not isinstance(recovered, bool)
-                        ):
-                            prices[(prior_day, ticker)] = (float(recovered), "PROBED_REAL")
-                    except Exception:
-                        recoverable = False
-                report.anchors.append(
-                    AnchorIssue(rebalance_date, prior_day, ticker, "MISSING", recoverable)
+        if previous_day is not None:
+            for ticker in tickers:
+                p0 = previous_prices.get(ticker, (None, ""))[0]
+                p1 = current_prices.get(ticker, (None, ""))[0]
+                if p0 is None or p1 is None or p0 <= 0 or p1 <= 0:
+                    continue
+                return_1d = p1 / p0 - 1.0
+                if abs(return_1d) <= threshold:
+                    continue
+                candidate = detect_split_candidate(
+                    ticker=ticker,
+                    effective_date=day,
+                    previous_price=p0,
+                    current_price=p1,
                 )
-            elif quality in STALE_QUALITIES:
-                report.anchors.append(AnchorIssue(rebalance_date, prior_day, ticker, "STALE"))
-            elif quality in SUBSTITUTE_QUALITIES:
-                report.anchors.append(AnchorIssue(rebalance_date, prior_day, ticker, "SUBSTITUTE"))
-
-    threshold = args.max_abs_constituent_return
-    previous_day = None
-    for day in trading_days:
-        port_date = _active_port_date(port_dates, day)
-        if port_date is None or previous_day is None:
-            previous_day = day
-            continue
-        for ticker in universes.get(port_date, []):
-            p0 = prices.get((previous_day, ticker), (None, ""))[0]
-            p1 = prices.get((day, ticker), (None, ""))[0]
-            if p0 is None or p1 is None or p0 <= 0 or p1 <= 0:
-                continue
-            return_1d = p1 / p0 - 1.0
-            if abs(return_1d) <= threshold:
-                continue
-            candidate = detect_split_candidate(
-                ticker=ticker,
-                effective_date=day,
-                previous_price=p0,
-                current_price=p1,
-            )
-            if candidate and (ticker, day) not in confirmed:
-                classification = "UNRESOLVED_SPLIT_CANDIDATE"
-            elif candidate:
-                classification = "CONFIRMED_CORPORATE_ACTION"
-            else:
-                classification = "AUDITED_NON_SPLIT_MOVE"
-            move = LargeMove(ticker, previous_day, day, return_1d, classification)
-            report.large_moves.append(move)
-            if classification == "UNRESOLVED_SPLIT_CANDIDATE":
-                report.unresolved_splits.append(move)
+                if candidate and (ticker, day) not in confirmed:
+                    classification = "UNRESOLVED_SPLIT_CANDIDATE"
+                elif candidate:
+                    classification = "CONFIRMED_CORPORATE_ACTION"
+                else:
+                    classification = "AUDITED_NON_SPLIT_MOVE"
+                move = LargeMove(ticker, previous_day, day, return_1d, classification)
+                report.large_moves.append(move)
+                if classification == "UNRESOLVED_SPLIT_CANDIDATE":
+                    report.unresolved_splits.append(move)
         previous_day = day
+        previous_prices = current_prices
     conn.rollback()
     return report
 
@@ -480,8 +551,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     load_env_files()
-    with get_connection() as conn:
-        conn.call_timeout = 30_000
+    with configure_reconstruction_connection(get_connection()) as conn:
         report = collect_readiness(conn, args)
     print_report(report)
     return 0 if report.passed else 2

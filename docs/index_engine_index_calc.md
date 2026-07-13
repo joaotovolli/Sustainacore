@@ -65,6 +65,9 @@ Daily levels:
 - Controlled `--rebuild --strict` runs make one bounded exact-date recovery attempt for missing
   rebalance anchors, then refetch and apply the same fail-closed quality checks. Scheduled incremental
   calculations do not enable this reconstruction-only retry.
+- Full-range rebuilds retain only the previous and current price maps for return and contribution
+  calculations. Oracle array DML is emitted in configurable bounded batches; levels, shares, divisors,
+  contributions and statistics use the same formulas and tolerances as the unbatched path.
 
 Stats lookback windows:
 
@@ -101,6 +104,11 @@ Corporate-action repair and rollback are documented in
 Before a controlled reconstruction, run `tools/index_engine/reconstruction_readiness.py`. It scans the
 complete intended range, aggregates all rebalance and price-basis blockers, rehearses portfolio output
 construction without writes, and exits non-zero unless `overall_status=PASS`.
+
+The low-resource portfolio rehearsal also requires the generated static model constraints to match
+Oracle exactly. Controlled reconstruction leaves that table unchanged and fails before output mutation
+on any mismatch. Oracle statements use the bounded `SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS` setting
+(300000 milliseconds by default during reconstruction).
 
 Primary orchestrated entrypoint:
 

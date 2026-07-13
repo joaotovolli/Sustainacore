@@ -24,6 +24,14 @@ for path in (ROOT, APP):
 
 from db_helper import get_connection
 from index_engine.corporate_actions import earliest_material_change
+from index_engine.oracle_runtime import (
+    DEFAULT_RECON_ORACLE_CALL_TIMEOUT_MS,
+    configure_reconstruction_connection,
+)
+from index_engine.reconstruction_status import (
+    read_reconstruction_status,
+    write_reconstruction_status,
+)
 from tools.oracle.env_bootstrap import load_env_files
 
 BASE_DATE = dt.date(2025, 1, 2)
@@ -42,6 +50,10 @@ BACKUP_OBJECTS = {
     "PO": "SC_IDX_PORTFOLIO_OPT_INPUTS",
     "CA": "SC_IDX_CORPORATE_ACTIONS",
 }
+
+
+def _new_reconstruction_connection():
+    return configure_reconstruction_connection(get_connection())
 
 
 class BackupValidationError(RuntimeError):
@@ -94,6 +106,8 @@ class ApplyContext:
     end: dt.date
     rollback_command: str
     report_path: Path
+    status_path: Path | None = None
+    revision: str = ""
 
 
 @dataclass(frozen=True)
@@ -113,6 +127,21 @@ def _as_date(value: object) -> dt.date | None:
 def new_backup_tag() -> str:
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
     return f"{timestamp}{secrets.token_hex(2).upper()}"
+
+
+def deployed_revision() -> str:
+    configured = os.getenv("SC_IDX_DEPLOYED_REVISION", "").strip()
+    if configured:
+        return configured
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "UNKNOWN"
 
 
 def backup_name(tag: str, code: str) -> str:
@@ -144,6 +173,16 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--end", type=dt.date.fromisoformat)
     result.add_argument("--backup-tag")
     result.add_argument("--report", type=Path)
+    result.add_argument(
+        "--status-file",
+        type=Path,
+        default=Path(
+            os.getenv(
+                "SC_IDX_RECONSTRUCTION_STATUS_FILE",
+                "/var/lib/sustainacore/sc_idx/reconstruction_status.json",
+            )
+        ),
+    )
     return result
 
 
@@ -591,28 +630,47 @@ def rebuild_official(start: dt.date, end: dt.date) -> None:
         ],
         check=True,
         cwd=ROOT,
+        timeout=int(os.getenv("SC_IDX_RECON_OFFICIAL_TIMEOUT_SEC", "1800")),
     )
 
 
-def rebuild_portfolio(start: dt.date, end: dt.date) -> None:
-    subprocess.run(
-        [
+def rebuild_portfolio(
+    start: dt.date,
+    end: dt.date,
+    *,
+    backup_tag: str | None = None,
+    run_id: str | None = None,
+    status_path: Path | None = None,
+) -> None:
+    if not backup_tag or not run_id:
+        raise ReconstructionError("portfolio_rebuild_requires_manifest_coordinates")
+    command = [
             sys.executable,
             str(ROOT / "tools/index_engine/build_portfolio_analytics.py"),
             "--start",
             start.isoformat(),
             "--end",
             end.isoformat(),
-        ],
+            "--low-resource",
+            "--backup-tag",
+            backup_tag,
+            "--run-id",
+            run_id,
+        ]
+    if status_path is not None:
+        command.extend(("--status-file", str(status_path)))
+    subprocess.run(
+        command,
         check=True,
         cwd=ROOT,
+        timeout=int(os.getenv("SC_IDX_RECON_PORTFOLIO_TIMEOUT_SEC", "1800")),
     )
 
 
-def rebuild(start: dt.date, end: dt.date) -> None:
+def rebuild(start: dt.date, end: dt.date, *, backup_tag: str, run_id: str) -> None:
     """Compatibility wrapper preserving the documented rebuild order."""
     rebuild_official(start, end)
-    rebuild_portfolio(start, end)
+    rebuild_portfolio(start, end, backup_tag=backup_tag, run_id=run_id)
 
 
 def verify_strict(start: dt.date, end: dt.date, run_id: str) -> None:
@@ -629,6 +687,7 @@ def verify_strict(start: dt.date, end: dt.date, run_id: str) -> None:
         ],
         check=True,
         cwd=ROOT,
+        timeout=int(os.getenv("SC_IDX_RECON_VERIFY_TIMEOUT_SEC", "600")),
     )
 
 
@@ -716,6 +775,26 @@ def fetch_action_status(conn, args: argparse.Namespace, run_id: str) -> str:
     return str(row[0]) if row else "NOT_RECORDED"
 
 
+def _rollback_with_fresh_connection(tag: str, start: dt.date, end: dt.date) -> None:
+    with _new_reconstruction_connection() as restore_conn:
+        rollback(restore_conn, tag, start, end)
+
+
+def _verify_restoration_with_fresh_connection(tag: str, start: dt.date, end: dt.date) -> None:
+    with _new_reconstruction_connection() as verify_conn:
+        verify_restoration(verify_conn, tag, start, end)
+
+
+def _fetch_action_status_with_fresh_connection(args: argparse.Namespace, run_id: str) -> str:
+    with _new_reconstruction_connection() as status_conn:
+        return fetch_action_status(status_conn, args, run_id)
+
+
+def _mark_action_applied_with_fresh_connection(args: argparse.Namespace, run_id: str) -> None:
+    with _new_reconstruction_connection() as action_conn:
+        mark_action_applied(action_conn, args, run_id)
+
+
 def emit_backup_context(
     context: ApplyContext,
     lines: list[str],
@@ -748,6 +827,57 @@ def execute_controlled_apply(
 ) -> int:
     """Run every post-backup stage with manifest-backed compensation."""
     emit_backup_context(context, lines, printer=printer)
+
+    def update_status(
+        status: str,
+        stage: str,
+        *,
+        failure_class: str | None = None,
+        rollback_status: str | None = None,
+    ) -> None:
+        if context.status_path is None:
+            return
+        try:
+            progress: dict[str, object] = {}
+            if context.status_path.exists():
+                existing = read_reconstruction_status(context.status_path)
+                if existing.get("run_id") == context.run_id:
+                    for key in (
+                        "last_completed_date",
+                        "rows_processed",
+                        "model_code",
+                        "completed_model_count",
+                        "analytics_rows_committed",
+                        "position_rows_committed",
+                        "optimizer_rows_committed",
+                    ):
+                        progress[key] = existing.get(key)
+            write_reconstruction_status(
+                context.status_path,
+                run_id=context.run_id,
+                backup_tag=context.tag,
+                revision=context.revision,
+                repair_start=context.start.isoformat(),
+                repair_end=context.end.isoformat(),
+                stage=stage,
+                stage_started_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                last_completed_date=progress.get("last_completed_date"),
+                rows_processed=progress.get("rows_processed", 0),
+                model_code=progress.get("model_code"),
+                completed_model_count=progress.get("completed_model_count", 0),
+                analytics_rows_committed=progress.get("analytics_rows_committed", 0),
+                position_rows_committed=progress.get("position_rows_committed", 0),
+                optimizer_rows_committed=progress.get("optimizer_rows_committed", 0),
+                status=status,
+                failure_class=failure_class,
+                rollback_status=rollback_status,
+            )
+        except Exception as exc:
+            diagnostic = f"status_update_error={type(exc).__name__}:{exc}"
+            lines.append(diagnostic)
+            printer(diagnostic, flush=True)
+
+    update_status("PENDING", "backups_validated")
     rollback_fn = rollback_fn or (lambda: rollback(conn, context.tag, context.start, context.end))
     verify_restoration_fn = verify_restoration_fn or (
         lambda: verify_restoration(conn, context.tag, context.start, context.end)
@@ -758,14 +888,32 @@ def execute_controlled_apply(
     success_output_start = len(lines)
 
     for stage in stages:
-        if stage.may_mutate:
-            mutation_started = True
         try:
+            update_status(
+                "VERIFYING" if stage.name == "strict_verification" else "RUNNING",
+                stage.name,
+            )
+            if stage.may_mutate:
+                mutation_started = True
             stage.operation()
         except Exception as exc:
             failure = ApplyStageError(stage.name, exc)
             action_status_before_rollback = action_status
-            conn.rollback()
+            if mutation_started:
+                try:
+                    update_status(
+                        "COMPENSATING",
+                        stage.name,
+                        failure_class=type(exc).__name__,
+                        rollback_status="RUNNING",
+                    )
+                except Exception as status_exc:
+                    lines.append(f"status_update_error={status_exc}")
+            parent_rollback_error: Exception | None = None
+            try:
+                conn.rollback()
+            except Exception as rollback_exc:
+                parent_rollback_error = rollback_exc
             automatic_rollback = "NOT_REQUIRED"
             rollback_error: Exception | None = None
             if mutation_started:
@@ -792,9 +940,20 @@ def execute_controlled_apply(
                 f"action_status={action_status}",
                 f"automatic_rollback={automatic_rollback}",
             ]
+            if parent_rollback_error is not None:
+                failure_lines.append(f"parent_connection_rollback_error={parent_rollback_error}")
             if rollback_error is not None:
                 failure_lines.append(f"rollback_error={rollback_error}")
             failure_lines.append(f"rollback_command={context.rollback_command}")
+            try:
+                update_status(
+                    "ROLLED_BACK" if automatic_rollback == "PASS" else "FAILED",
+                    stage.name,
+                    failure_class=type(exc).__name__,
+                    rollback_status=automatic_rollback,
+                )
+            except Exception as status_exc:
+                failure_lines.append(f"status_update_error={status_exc}")
             lines.extend(failure_lines)
             _write_report(context.report_path, lines)
             for line in failure_lines:
@@ -804,6 +963,7 @@ def execute_controlled_apply(
             action_status = stage.action_status_after
 
     lines.extend(("mode=APPLY", "strict_verification=PASS", "action_status=APPLIED"))
+    update_status("SUCCEEDED", "mark_action_applied")
     _write_report(context.report_path, lines)
     for line in lines[success_output_start:]:
         printer(line, flush=True)
@@ -863,13 +1023,22 @@ def run_reconstruction_readiness(args: argparse.Namespace, end: dt.date) -> None
     ]
     if args.adjusted_price_csv:
         command.extend(("--adjusted-price-csv", str(args.adjusted_price_csv)))
-    subprocess.run(command, check=True, cwd=ROOT)
+    subprocess.run(
+        command,
+        check=True,
+        cwd=ROOT,
+        timeout=int(os.getenv("SC_IDX_RECON_READINESS_TIMEOUT_SEC", "600")),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     load_env_files()
-    with get_connection() as conn:
+    os.environ.setdefault(
+        "SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS",
+        str(DEFAULT_RECON_ORACLE_CALL_TIMEOUT_MS),
+    )
+    with _new_reconstruction_connection() as conn:
         max_day, lines = dry_run(conn, args)
         if args.rollback_tag:
             restored = rollback(conn, args.rollback_tag, args.start, max_day)
@@ -907,7 +1076,16 @@ def main(argv: list[str] | None = None) -> int:
                 / "tools/audit/output/corporate_action_forensics"
                 / f"repair_apply_{tag}.txt"
             )
-            context = ApplyContext(tag, run_id, args.start, max_day, rollback_command, report_path)
+            context = ApplyContext(
+                tag,
+                run_id,
+                args.start,
+                max_day,
+                rollback_command,
+                report_path,
+                args.status_file,
+                deployed_revision(),
+            )
             state: dict[str, object] = {}
             stages: list[ApplyStage] = []
 
@@ -1030,7 +1208,13 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                     ApplyStage(
                         "rebuild_portfolio_outputs",
-                        lambda: rebuild_portfolio(args.start, max_day),
+                        lambda: rebuild_portfolio(
+                            args.start,
+                            max_day,
+                            backup_tag=tag,
+                            run_id=run_id,
+                            status_path=args.status_file,
+                        ),
                         may_mutate=True,
                     ),
                     ApplyStage(
@@ -1039,7 +1223,7 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                     ApplyStage(
                         "mark_action_applied",
-                        lambda: mark_action_applied(conn, args, run_id),
+                        lambda: _mark_action_applied_with_fresh_connection(args, run_id),
                         may_mutate=True,
                         action_status_after="APPLIED",
                     ),
@@ -1050,7 +1234,11 @@ def main(argv: list[str] | None = None) -> int:
                 context,
                 stages,
                 lines,
-                action_status_fn=lambda: fetch_action_status(conn, args, run_id),
+                rollback_fn=lambda: _rollback_with_fresh_connection(tag, args.start, max_day),
+                verify_restoration_fn=lambda: _verify_restoration_with_fresh_connection(
+                    tag, args.start, max_day
+                ),
+                action_status_fn=lambda: _fetch_action_status_with_fresh_connection(args, run_id),
             )
 
         _write_report(args.report, lines)

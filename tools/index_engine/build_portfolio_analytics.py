@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +17,16 @@ from tools.oracle.env_bootstrap import load_env_files
 from tools.oracle import preflight_oracle
 
 from index_engine import db_portfolio_analytics as db
-from index_engine.portfolio_analytics_v1 import build_portfolio_outputs
+from index_engine.portfolio_analytics_v1 import (
+    DEFAULT_MODEL_SPECS,
+    build_constraint_rows,
+    build_portfolio_outputs,
+)
+from index_engine.oracle_runtime import DEFAULT_RECON_ORACLE_CALL_TIMEOUT_MS
+from index_engine.reconstruction_status import (
+    read_reconstruction_status,
+    write_reconstruction_status,
+)
 
 
 def _parse_date(value: str | None) -> _dt.date | None:
@@ -31,6 +41,22 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--end", help="Optional write window end YYYY-MM-DD")
     parser.add_argument("--apply-ddl", action="store_true", help="Apply the portfolio analytics DDL first")
     parser.add_argument("--dry-run", action="store_true", help="Compute and summarize without writing")
+    parser.add_argument(
+        "--low-resource",
+        action="store_true",
+        help="Persist one model at a time using manifest-backed bounded batches",
+    )
+    parser.add_argument("--backup-tag", help="Validated reconstruction backup tag")
+    parser.add_argument("--run-id", help="Validated reconstruction run identifier")
+    parser.add_argument(
+        "--status-file",
+        type=Path,
+        default=(
+            Path(os.environ["SC_IDX_RECONSTRUCTION_STATUS_FILE"])
+            if os.getenv("SC_IDX_RECONSTRUCTION_STATUS_FILE")
+            else None
+        ),
+    )
     parser.add_argument(
         "--skip-preflight",
         action="store_true",
@@ -62,6 +88,7 @@ def _summarize_outputs(
     analytics_rows: list[dict[str, object]],
     position_rows: list[dict[str, object]],
     optimizer_rows: list[dict[str, object]],
+    position_row_count: int | None = None,
 ) -> str:
     models = sorted(
         {
@@ -80,7 +107,7 @@ def _summarize_outputs(
     lines = [
         f"write_window={start_date.isoformat()}..{end_date.isoformat()}",
         f"analytics_rows={len(analytics_rows)}",
-        f"position_rows={len(position_rows)}",
+        f"position_rows={position_row_count if position_row_count is not None else len(position_rows)}",
         f"optimizer_rows={len(optimizer_rows)}",
         f"models={','.join(models)}",
         f"latest_trade_date={latest_date.isoformat() if latest_date else 'none'}",
@@ -92,6 +119,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     load_env_files()
     load_default_env()
+    if args.low_resource:
+        os.environ.setdefault(
+            "SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS",
+            str(DEFAULT_RECON_ORACLE_CALL_TIMEOUT_MS),
+        )
 
     if not args.skip_preflight and preflight_oracle.main() != 0:
         return 2
@@ -115,15 +147,105 @@ def main(argv: list[str] | None = None) -> int:
     metadata_rows = db.fetch_metadata_rows()
     price_rows = db.fetch_price_rows(start_date=min_date, end_date=max_date)
 
+    if args.low_resource and not args.dry_run and not (args.backup_tag and args.run_id):
+        raise ValueError("low_resource_writes_require_manifest_coordinates")
+
+    expected_constraints = build_constraint_rows(DEFAULT_MODEL_SPECS)
+    if args.low_resource:
+        db.validate_static_constraints(expected_constraints)
+
+    streamed_analytics: list[dict[str, object]] = []
+    streamed_position_count = 0
+    completed_model_count = 0
+    analytics_rows_committed = 0
+    position_rows_committed = 0
+
+    def update_progress(**values: object) -> None:
+        if args.status_file is None:
+            return
+        try:
+            current = (
+                read_reconstruction_status(args.status_file)
+                if args.status_file.exists()
+                else {}
+            )
+            current.update(values)
+            write_reconstruction_status(args.status_file, **current)
+        except Exception as exc:
+            print(
+                f"portfolio_status_update_error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+
+    def persist_model(_spec, analytics, positions) -> None:
+        nonlocal streamed_position_count
+        nonlocal completed_model_count, analytics_rows_committed, position_rows_committed
+        analytics = _filter_rows(analytics, start_date=start_date, end_date=end_date)
+        positions = _filter_rows(positions, start_date=start_date, end_date=end_date)
+        streamed_analytics.extend(analytics)
+        streamed_position_count += len(positions)
+        if not args.dry_run:
+            analytics_count, position_count = db.persist_model_output_batch(
+                analytics_rows=analytics,
+                position_rows=positions,
+            )
+            print(
+                f"portfolio_model_persist:model={_spec.code} analytics_rows={analytics_count} "
+                f"position_rows={position_count}",
+                flush=True,
+            )
+            completed_model_count += 1
+            analytics_rows_committed += analytics_count
+            position_rows_committed += position_count
+            completed_dates = [
+                row["trade_date"]
+                for row in analytics
+                if isinstance(row.get("trade_date"), _dt.date)
+            ]
+            update_progress(
+                status="RUNNING",
+                stage="portfolio_model_persistence",
+                stage_started_at=_dt.datetime.now(_dt.timezone.utc).isoformat(),
+                last_completed_date=(max(completed_dates).isoformat() if completed_dates else None),
+                rows_processed=analytics_rows_committed + position_rows_committed,
+                model_code=_spec.code,
+                completed_model_count=completed_model_count,
+                analytics_rows_committed=analytics_rows_committed,
+                position_rows_committed=position_rows_committed,
+                optimizer_rows_committed=0,
+            )
+
+    if args.low_resource and not args.dry_run:
+        from tools.db_migrations import repair_sc_idx_corporate_actions as repair
+
+        with db.get_connection() as conn:
+            repair.validate_backup_set(
+                conn,
+                args.backup_tag,
+                start_date,
+                end_date,
+                expected_run_id=args.run_id,
+            )
+        db.reset_output_window(start_date=start_date, end_date=end_date)
+
     outputs = build_portfolio_outputs(
         official_daily_rows=official_daily_rows,
         official_position_rows=official_position_rows,
         metadata_rows=metadata_rows,
         price_rows=price_rows,
+        model_output_callback=persist_model if args.low_resource else None,
     )
 
-    analytics_rows = _filter_rows(outputs["analytics"], start_date=start_date, end_date=end_date)
-    position_rows = _filter_rows(outputs["positions"], start_date=start_date, end_date=end_date)
+    analytics_rows = (
+        streamed_analytics
+        if args.low_resource
+        else _filter_rows(outputs["analytics"], start_date=start_date, end_date=end_date)
+    )
+    position_rows = (
+        []
+        if args.low_resource
+        else _filter_rows(outputs["positions"], start_date=start_date, end_date=end_date)
+    )
     optimizer_rows = _filter_rows(outputs["optimizer_inputs"], start_date=start_date, end_date=end_date)
 
     summary = _summarize_outputs(
@@ -132,20 +254,40 @@ def main(argv: list[str] | None = None) -> int:
         analytics_rows=analytics_rows,
         position_rows=position_rows,
         optimizer_rows=optimizer_rows,
+        position_row_count=streamed_position_count if args.low_resource else None,
     )
     print(summary, flush=True)
 
     if args.dry_run:
         return 0
 
-    db.persist_outputs(
-        start_date=start_date,
-        end_date=end_date,
-        analytics_rows=analytics_rows,
-        position_rows=position_rows,
-        optimizer_rows=optimizer_rows,
-        constraint_rows=outputs["constraints"],
-    )
+    if args.low_resource:
+        optimizer_count = db.persist_optimizer_with_static_constraints(
+            optimizer_rows=optimizer_rows,
+            constraint_rows=expected_constraints,
+        )
+        print(f"portfolio_optimizer_persist:rows={optimizer_count}", flush=True)
+        update_progress(
+            status="RUNNING",
+            stage="portfolio_optimizer_persistence",
+            stage_started_at=_dt.datetime.now(_dt.timezone.utc).isoformat(),
+            last_completed_date=end_date.isoformat(),
+            rows_processed=analytics_rows_committed + position_rows_committed + optimizer_count,
+            model_code=None,
+            completed_model_count=completed_model_count,
+            analytics_rows_committed=analytics_rows_committed,
+            position_rows_committed=position_rows_committed,
+            optimizer_rows_committed=optimizer_count,
+        )
+    else:
+        db.persist_outputs(
+            start_date=start_date,
+            end_date=end_date,
+            analytics_rows=analytics_rows,
+            position_rows=position_rows,
+            optimizer_rows=optimizer_rows,
+            constraint_rows=outputs["constraints"],
+        )
     print("portfolio_analytics: refresh_complete", flush=True)
     return 0
 

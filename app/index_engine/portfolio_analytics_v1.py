@@ -6,7 +6,7 @@ import datetime as _dt
 import math
 import statistics
 from dataclasses import dataclass
-from typing import Dict, Iterable, Mapping, Sequence
+from typing import Callable, Dict, Iterable, Mapping, Sequence
 
 INDEX_CODE = "TECH100"
 MOMENTUM_WINDOW = 20
@@ -299,6 +299,10 @@ def build_portfolio_outputs(
     metadata_rows: Sequence[MetadataRow],
     price_rows: Sequence[PriceRow],
     model_specs: Sequence[ModelSpec] = DEFAULT_MODEL_SPECS,
+    model_output_callback: Callable[
+        [ModelSpec, list[dict[str, object]], list[dict[str, object]]], None
+    ]
+    | None = None,
 ) -> dict[str, list[dict[str, object]]]:
     if not official_daily_rows:
         return {"analytics": [], "positions": [], "optimizer_inputs": [], "constraints": []}
@@ -406,9 +410,7 @@ def build_portfolio_outputs(
             factor_history=factor_history,
             price_quality_by_date=price_quality_by_date,
         )
-        position_rows.extend(model_positions)
-        analytics_rows.extend(
-            build_analytics_rows(
+        model_analytics = build_analytics_rows(
                 model_code=spec.code,
                 model_name=spec.name,
                 trade_days=trade_days,
@@ -423,7 +425,11 @@ def build_portfolio_outputs(
                 price_quality_by_date=price_quality_by_date,
                 official_daily_by_date=official_daily_by_date if spec.code == INDEX_CODE else None,
             )
-        )
+        if model_output_callback is None:
+            position_rows.extend(model_positions)
+            analytics_rows.extend(model_analytics)
+        else:
+            model_output_callback(spec, model_analytics, model_positions)
 
     return {
         "analytics": analytics_rows,

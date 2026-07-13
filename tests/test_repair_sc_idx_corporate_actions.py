@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app.index_engine.reconstruction_status import read_reconstruction_status
 from tools.db_migrations import repair_sc_idx_corporate_actions as repair
 
 START = dt.date(2025, 1, 2)
@@ -52,6 +53,7 @@ class FakeConnection:
         self.cur = FakeCursor(fail_on=fail_on, rowcount=rowcount)
         self.commits = 0
         self.rollbacks = 0
+        self.call_timeout = None
 
     def cursor(self):
         return self.cur
@@ -520,6 +522,145 @@ def test_rebuild_failure_uses_manifest_compensation(tmp_path: Path) -> None:
     assert "automatic_rollback=PASS" in lines
 
 
+@pytest.mark.parametrize(
+    "failure_point",
+    (
+        "reset_output_window",
+        "official_levels_persistence",
+        "contribution_persistence",
+        "statistics_persistence",
+        "portfolio_analytics_persistence",
+        "portfolio_model_1_positions_persistence",
+        "portfolio_model_2_positions_persistence",
+        "portfolio_model_3_positions_persistence",
+        "portfolio_model_4_positions_persistence",
+        "portfolio_model_5_positions_persistence",
+        "portfolio_model_6_positions_persistence",
+        "optimizer_persistence",
+        "before_strict_verification",
+    ),
+)
+def test_committed_stage_failures_use_complete_manifest_compensation(
+    tmp_path: Path, failure_point: str
+) -> None:
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage(
+                failure_point,
+                lambda: (_ for _ in ()).throw(RuntimeError(failure_point)),
+                may_mutate=True,
+            )
+        ],
+    )
+    assert code == 2
+    assert events.count("rollback") == 1
+    assert events.count("restore_verified") == 1
+    assert "automatic_rollback=PASS" in lines
+
+
+@pytest.mark.parametrize(
+    "failure_point",
+    (
+        "csv_canonical_update",
+        "confirm_action",
+        "rebuild_official_index",
+        "rebuild_portfolio_outputs",
+        "mark_action_applied",
+    ),
+)
+def test_oracle_call_timeout_after_mutation_uses_compensation(
+    tmp_path: Path, failure_point: str
+) -> None:
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage(
+                failure_point,
+                lambda: (_ for _ in ()).throw(TimeoutError("DPY-4024 call timeout")),
+                may_mutate=True,
+            )
+        ],
+    )
+    assert code == 2
+    assert events.count("rollback") == 1
+    assert events.count("restore_verified") == 1
+    assert "automatic_rollback=PASS" in lines
+
+
+def test_oracle_call_timeout_before_mutation_skips_compensation(tmp_path: Path) -> None:
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage(
+                "prepare_csv_repair",
+                lambda: (_ for _ in ()).throw(TimeoutError("DPY-4024 call timeout")),
+            )
+        ],
+    )
+    assert code == 2
+    assert "rollback" not in events
+    assert "restore_verified" not in events
+    assert "automatic_rollback=NOT_REQUIRED" in lines
+
+
+def test_main_and_fresh_recovery_connections_receive_call_timeout(monkeypatch) -> None:
+    created = []
+
+    def connection():
+        value = FakeConnection()
+        created.append(value)
+        return value
+
+    monkeypatch.setenv("SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS", "345678")
+    monkeypatch.setattr(repair, "get_connection", connection)
+    monkeypatch.setattr(repair, "rollback", lambda conn, *_: None)
+    monkeypatch.setattr(repair, "verify_restoration", lambda conn, *_: None)
+    monkeypatch.setattr(repair, "fetch_action_status", lambda conn, *_: "NOT_RECORDED")
+    monkeypatch.setattr(repair, "mark_action_applied", lambda conn, *_: None)
+    args = repair.parser().parse_args(
+        ["--ticker", "CRWD", "--effective-date", "2026-07-02"]
+    )
+
+    parent = repair._new_reconstruction_connection()
+    repair._rollback_with_fresh_connection(TAG, START, END)
+    repair._verify_restoration_with_fresh_connection(TAG, START, END)
+    repair._fetch_action_status_with_fresh_connection(args, RUN_ID)
+    repair._mark_action_applied_with_fresh_connection(args, RUN_ID)
+
+    assert parent.call_timeout == 345678
+    assert len(created) == 5
+    assert all(conn.call_timeout == 345678 for conn in created)
+    assert len({id(conn) for conn in created}) == 5
+
+
+def test_compensation_restores_all_mutated_state_and_leaves_constraints_unchanged(
+    tmp_path: Path,
+) -> None:
+    tables = {target: [f"before:{target}"] for target in repair.BACKUP_OBJECTS.values()}
+    tables["SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS"] = ["static-constraints"]
+    before = {name: list(rows) for name, rows in tables.items()}
+
+    def mutate_then_timeout():
+        for target in repair.BACKUP_OBJECTS.values():
+            tables[target] = [f"changed:{target}"]
+        raise TimeoutError("ambiguous commit disconnect")
+
+    def restore():
+        for target in repair.BACKUP_OBJECTS.values():
+            tables[target] = list(before[target])
+
+    code, _, lines, _ = run_controlled(
+        tmp_path,
+        [repair.ApplyStage("portfolio_optimizer_persistence", mutate_then_timeout, True)],
+        rollback_fn=restore,
+        verify_restoration_fn=lambda: None,
+    )
+    assert code == 2
+    assert tables == before
+    assert "automatic_rollback=PASS" in lines
+
+
 def test_strict_verification_failure_never_marks_applied(tmp_path: Path) -> None:
     events: list[str] = []
     code, _, lines, events = run_controlled(
@@ -561,6 +702,36 @@ def test_rollback_failure_reports_original_and_rollback_errors(tmp_path: Path) -
     assert "automatic_rollback=FAIL" in lines
     assert "action_status=CONFIRMED" in lines
     assert any(line.startswith("rollback_command=") for line in lines)
+
+
+def test_dead_parent_connection_does_not_prevent_fresh_compensation(tmp_path: Path) -> None:
+    events = []
+
+    class DeadParent(FakeConnection):
+        def rollback(self):
+            raise RuntimeError("parent connection closed")
+
+    lines = []
+    code = repair.execute_controlled_apply(
+        DeadParent(),
+        workflow_context(tmp_path),
+        [
+            repair.ApplyStage(
+                "portfolio_positions",
+                lambda: (_ for _ in ()).throw(RuntimeError("ORA-03113")),
+                may_mutate=True,
+            )
+        ],
+        lines,
+        rollback_fn=lambda: events.append("fresh_rollback"),
+        verify_restoration_fn=lambda: events.append("fresh_verification"),
+        action_status_fn=lambda: "NOT_RECORDED",
+    )
+
+    assert code == 2
+    assert events == ["fresh_rollback", "fresh_verification"]
+    assert "automatic_rollback=PASS" in lines
+    assert "parent_connection_rollback_error=parent connection closed" in lines
 
 
 def test_backup_context_is_emitted_before_first_mutation(tmp_path: Path) -> None:
@@ -620,3 +791,92 @@ def test_success_order_includes_all_apply_gates(tmp_path: Path) -> None:
     ordered = [event for event in events if not event.startswith("print:")]
     assert ordered == ["repair", "validate", "confirm", "official", "portfolio", "verify", "apply"]
     assert "action_status=APPLIED" in lines
+
+
+def test_controlled_apply_persists_success_and_rollback_status(tmp_path: Path) -> None:
+    status_path = tmp_path / "status.json"
+    success_context = repair.ApplyContext(
+        TAG,
+        RUN_ID,
+        START,
+        END,
+        "rollback-command",
+        tmp_path / "success.txt",
+        status_path,
+        "revision-1",
+    )
+    assert repair.execute_controlled_apply(
+        FakeConnection(),
+        success_context,
+        [repair.ApplyStage("mark_action_applied", lambda: None, True, "APPLIED")],
+        [],
+    ) == 0
+    assert read_reconstruction_status(status_path)["status"] == "SUCCEEDED"
+
+    failure_context = repair.ApplyContext(
+        TAG,
+        RUN_ID,
+        START,
+        END,
+        "rollback-command",
+        tmp_path / "failure.txt",
+        status_path,
+        "revision-1",
+    )
+    assert repair.execute_controlled_apply(
+        FakeConnection(),
+        failure_context,
+        [
+            repair.ApplyStage(
+                "portfolio_positions",
+                lambda: (_ for _ in ()).throw(RuntimeError("failed")),
+                True,
+            )
+        ],
+        [],
+        rollback_fn=lambda: None,
+        verify_restoration_fn=lambda: None,
+    ) == 2
+    payload = read_reconstruction_status(status_path)
+    assert payload["status"] == "ROLLED_BACK"
+    assert payload["rollback_status"] == "PASS"
+
+
+def test_status_write_failure_is_secondary_and_compensation_still_runs(
+    monkeypatch, tmp_path: Path
+) -> None:
+    events: list[str] = []
+    context = repair.ApplyContext(
+        TAG,
+        RUN_ID,
+        START,
+        END,
+        "rollback-command",
+        tmp_path / "failure.txt",
+        tmp_path / "status.json",
+        "revision-1",
+    )
+    monkeypatch.setattr(
+        repair,
+        "write_reconstruction_status",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("status unavailable")),
+    )
+    lines: list[str] = []
+    code = repair.execute_controlled_apply(
+        FakeConnection(),
+        context,
+        [
+            repair.ApplyStage(
+                "portfolio_positions",
+                lambda: (_ for _ in ()).throw(TimeoutError("Oracle call timeout")),
+                True,
+            )
+        ],
+        lines,
+        rollback_fn=lambda: events.append("rollback"),
+        verify_restoration_fn=lambda: events.append("verify"),
+    )
+    assert code == 2
+    assert events == ["rollback", "verify"]
+    assert "automatic_rollback=PASS" in lines
+    assert any(line.startswith("status_update_error=OSError") for line in lines)

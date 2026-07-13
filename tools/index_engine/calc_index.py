@@ -18,8 +18,6 @@ from index_engine.data_quality import generate_weekdays
 from index_engine.alert_state import should_send_alert_once_per_day
 from index_engine.alerts import send_email
 from index_engine.index_calc_v1 import (
-    compute_constituent_daily,
-    compute_contributions,
     compute_holdings_at_rebalance,
     compute_levels,
     compute_stats,
@@ -427,6 +425,35 @@ def _weights_from_shares_and_prices(
     }
 
 
+def _contribution_rows_for_day(
+    *,
+    trade_date: _dt.date,
+    weights_prev: Dict[str, float],
+    prices_prev: Dict[str, float],
+    prices_now: Dict[str, float],
+) -> tuple[list[dict], float]:
+    rows: list[dict] = []
+    total = 0.0
+    for ticker, weight_prev in weights_prev.items():
+        p0 = prices_prev.get(ticker)
+        p1 = prices_now.get(ticker)
+        if p0 is None or p1 is None or p0 == 0:
+            continue
+        ret_1d = p1 / p0 - 1.0
+        contribution = weight_prev * ret_1d
+        rows.append(
+            {
+                "trade_date": trade_date,
+                "ticker": ticker,
+                "weight_prev": weight_prev,
+                "ret_1d": ret_1d,
+                "contribution": contribution,
+            }
+        )
+        total += contribution
+    return rows, total
+
+
 def _prime_rebalance_prev_snapshot(
     *,
     prev_date: _dt.date,
@@ -801,13 +828,13 @@ def main(argv: list[str] | None = None) -> int:
 
     holdings_by_reb: Dict[_dt.date, Dict[str, float]] = {}
     divisors_by_reb: Dict[_dt.date, float] = {}
-    prices_by_date: Dict[_dt.date, Dict[str, float]] = {}
-    prices_quality_by_date: Dict[_dt.date, Dict[str, str]] = {}
     weights_by_date: Dict[_dt.date, Dict[str, float]] = {}
-    contrib_weights_prev_by_trade: Dict[_dt.date, Dict[str, float]] = {}
     pending_holdings_rows: Dict[_dt.date, list[dict]] = {}
     pending_divisor_rows: Dict[_dt.date, float] = {}
     constituent_rows_all: list[dict] = []
+    contrib_rows: list[dict] = []
+    contribution_sum_by_date: Dict[_dt.date, float] = {}
+    n_imputed_by_date: Dict[_dt.date, int] = {}
     levels: Dict[_dt.date, float] = {}
     returns_1d: Dict[_dt.date, float] = {}
     missing_by_date: Dict[_dt.date, list[str]] = {}
@@ -829,6 +856,8 @@ def main(argv: list[str] | None = None) -> int:
     current_reb: _dt.date | None = None
     total_constituent_rows = 0
     total_contrib_rows = 0
+    previous_prices: Dict[str, float] = {}
+    previous_weights: Dict[str, float] = {}
 
     if trading_days:
         prev_trade, current_reb, prev_port_date, holdings_by_reb, divisors_by_reb, levels = _seed_prior_state(
@@ -847,18 +876,10 @@ def main(argv: list[str] | None = None) -> int:
                 if info.get("price") is not None
             }
             if price_map_prev:
-                prices_by_date[prev_trade] = price_map_prev
-                prices_quality_by_date[prev_trade] = {
-                    ticker: str(info.get("quality") or "").upper()
-                    for ticker, info in prices_prev.items()
-                    if info.get("price") is not None
-                }
-                weights_by_date.update(
-                    compute_constituent_daily(
-                        trading_days=[prev_trade],
-                        holdings_by_rebalance={current_reb: holdings_by_reb[current_reb]},
-                        prices_by_date={prev_trade: price_map_prev},
-                    )
+                previous_prices = price_map_prev
+                previous_weights = _weights_from_shares_and_prices(
+                    shares=holdings_by_reb[current_reb],
+                    prices=price_map_prev,
                 )
 
     for trade_date in trading_days:
@@ -868,6 +889,7 @@ def main(argv: list[str] | None = None) -> int:
 
         is_rebalance = port_date != prev_port_date
 
+        rebalance_weights_prev: Dict[str, float] = {}
         if is_rebalance:
             prev_date = prev_trade or trade_date
             prev_level = levels.get(prev_date, BASE_LEVEL)
@@ -919,20 +941,11 @@ def main(argv: list[str] | None = None) -> int:
                 finish_run(run_id, status="ERROR", error=error_msg)
                 print(f"index_calc_validation_failed:{error_msg}", file=sys.stderr)
                 return 2
-            rebalance_weights_prev = _prime_rebalance_prev_snapshot(
-                prev_date=prev_date,
+            rebalance_weights_prev = _weights_from_shares_and_prices(
                 shares=shares,
-                price_map_prev=price_map_prev,
-                quality_map_prev={
-                    ticker: str(info.get("quality") or "").upper()
-                    for ticker, info in prices_prev.items()
-                    if info.get("price") is not None
-                },
-                prices_by_date=prices_by_date,
-                prices_quality_by_date=prices_quality_by_date,
+                prices=price_map_prev,
             )
-            if rebalance_weights_prev:
-                contrib_weights_prev_by_trade[trade_date] = rebalance_weights_prev
+            previous_prices.update(price_map_prev)
             current_reb = trade_date
             prev_port_date = port_date
             holdings_by_reb[trade_date] = shares
@@ -982,16 +995,17 @@ def main(argv: list[str] | None = None) -> int:
             for ticker, info in prices_now.items()
             if info.get("price") is not None
         }
-        prices_by_date[trade_date] = price_map
-        prices_quality_by_date[trade_date] = quality_map
+        n_imputed_by_date[trade_date] = sum(
+            1 for quality in quality_map.values() if quality == "IMPUTED"
+        )
 
-        if prev_trade and prev_trade in prices_by_date:
+        if prev_trade and previous_prices:
             try:
                 validate_price_return_sanity(
                     prev_date=prev_trade,
                     trade_date=trade_date,
                     tickers=list(holdings_by_reb[current_reb].keys()),
-                    prices_prev=prices_by_date[prev_trade],
+                    prices_prev=previous_prices,
                     prices_now=price_map,
                     max_abs_return=max_abs_constituent_return,
                     action_lookup=db_ca.fetch_confirmed_action,
@@ -1015,13 +1029,23 @@ def main(argv: list[str] | None = None) -> int:
         if prev_trade and prev_trade in levels:
             returns_1d[trade_date] = level / levels[prev_trade] - 1.0
 
-        weights_by_date.update(
-            compute_constituent_daily(
-                trading_days=[trade_date],
-                holdings_by_rebalance={current_reb: holdings_by_reb[current_reb]},
-                prices_by_date={trade_date: price_map},
-            )
+        current_weights = _weights_from_shares_and_prices(
+            shares=holdings_by_reb[current_reb],
+            prices=price_map,
         )
+        weights_by_date[trade_date] = current_weights
+
+        if prev_trade:
+            weight_prev_map = rebalance_weights_prev or previous_weights
+            daily_contrib_rows, contribution_sum = _contribution_rows_for_day(
+                trade_date=trade_date,
+                weights_prev=weight_prev_map,
+                prices_prev=previous_prices,
+                prices_now=price_map,
+            )
+            contrib_rows.extend(daily_contrib_rows)
+            total_contrib_rows += len(daily_contrib_rows)
+            contribution_sum_by_date[trade_date] = contribution_sum
 
         constituent_rows = []
         for ticker, shares in holdings_by_reb[current_reb].items():
@@ -1032,7 +1056,7 @@ def main(argv: list[str] | None = None) -> int:
             quality = str(info.get("quality") or "").upper()
             price_quality = "IMPUTED" if quality == "IMPUTED" else "REAL"
             market_value = shares * float(price_used)
-            weight = weights_by_date.get(trade_date, {}).get(ticker)
+            weight = current_weights.get(ticker)
             constituent_rows.append(
                 {
                     "trade_date": trade_date,
@@ -1047,6 +1071,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         constituent_rows_all.extend(constituent_rows)
         total_constituent_rows += len(constituent_rows)
+        previous_prices = price_map
+        previous_weights = current_weights
         prev_trade = trade_date
 
     if args.strict and missing_by_date:
@@ -1084,35 +1110,6 @@ def main(argv: list[str] | None = None) -> int:
         finish_run(run_id, status="ERROR", error="no_levels_computed")
         return 2
     ordered_levels = sorted(levels.keys())
-    contributions = compute_contributions(
-        trading_days=ordered_levels,
-        weights_by_date=weights_by_date,
-        prices_by_date=prices_by_date,
-        weights_prev_by_date=contrib_weights_prev_by_trade,
-    )
-    contrib_rows = []
-    for trade_date, rows in contributions.items():
-        prev_date = _prev_trading_day(ordered_levels, trade_date)
-        weight_prev_map = contrib_weights_prev_by_trade.get(trade_date) or weights_by_date.get(prev_date, {})
-        for ticker, contribution in rows.items():
-            weight_prev = weight_prev_map.get(ticker)
-            ret_1d = None
-            if prev_date and ticker in prices_by_date.get(prev_date, {}) and ticker in prices_by_date.get(trade_date, {}):
-                p0 = prices_by_date[prev_date][ticker]
-                p1 = prices_by_date[trade_date][ticker]
-                if p0:
-                    ret_1d = p1 / p0 - 1.0
-            contrib_rows.append(
-                {
-                    "trade_date": trade_date,
-                    "ticker": ticker,
-                    "weight_prev": weight_prev,
-                    "ret_1d": ret_1d,
-                    "contribution": contribution,
-                }
-            )
-            total_contrib_rows += 1
-
     lookback_days: list[_dt.date] = []
     if trading_days:
         lookback_days = db.fetch_trading_days_before(trading_days[0], limit=25)
@@ -1133,9 +1130,7 @@ def main(argv: list[str] | None = None) -> int:
     for trade_date, row in stats.items():
         if trade_date not in trading_days:
             continue
-        n_imputed = sum(
-            1 for quality in prices_quality_by_date.get(trade_date, {}).values() if quality == "IMPUTED"
-        )
+        n_imputed = n_imputed_by_date.get(trade_date, 0)
         stats_rows.append(
             {
                 "trade_date": trade_date,
@@ -1159,8 +1154,8 @@ def main(argv: list[str] | None = None) -> int:
         latest_level_value = float(latest_level) if latest_level is not None else None
         index_ret = returns_1d_full.get(latest_date)
         contrib_sum = None
-        if latest_date in contributions:
-            contrib_sum = sum(contributions.get(latest_date, {}).values())
+        if latest_date in contribution_sum_by_date:
+            contrib_sum = contribution_sum_by_date[latest_date]
         stats_ret = stats.get(latest_date, {}).get("ret_1d")
         if (
             prev_level is not None
