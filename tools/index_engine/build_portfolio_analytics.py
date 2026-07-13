@@ -32,6 +32,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--apply-ddl", action="store_true", help="Apply the portfolio analytics DDL first")
     parser.add_argument("--dry-run", action="store_true", help="Compute and summarize without writing")
     parser.add_argument(
+        "--low-resource",
+        action="store_true",
+        help="Persist one model at a time using manifest-backed bounded batches",
+    )
+    parser.add_argument("--backup-tag", help="Validated reconstruction backup tag")
+    parser.add_argument("--run-id", help="Validated reconstruction run identifier")
+    parser.add_argument(
         "--skip-preflight",
         action="store_true",
         help="Skip Oracle preflight (only for tests or when preflight already ran)",
@@ -62,6 +69,7 @@ def _summarize_outputs(
     analytics_rows: list[dict[str, object]],
     position_rows: list[dict[str, object]],
     optimizer_rows: list[dict[str, object]],
+    position_row_count: int | None = None,
 ) -> str:
     models = sorted(
         {
@@ -80,7 +88,7 @@ def _summarize_outputs(
     lines = [
         f"write_window={start_date.isoformat()}..{end_date.isoformat()}",
         f"analytics_rows={len(analytics_rows)}",
-        f"position_rows={len(position_rows)}",
+        f"position_rows={position_row_count if position_row_count is not None else len(position_rows)}",
         f"optimizer_rows={len(optimizer_rows)}",
         f"models={','.join(models)}",
         f"latest_trade_date={latest_date.isoformat() if latest_date else 'none'}",
@@ -115,15 +123,61 @@ def main(argv: list[str] | None = None) -> int:
     metadata_rows = db.fetch_metadata_rows()
     price_rows = db.fetch_price_rows(start_date=min_date, end_date=max_date)
 
+    if args.low_resource and not args.dry_run and not (args.backup_tag and args.run_id):
+        raise ValueError("low_resource_writes_require_manifest_coordinates")
+
+    streamed_analytics: list[dict[str, object]] = []
+    streamed_position_count = 0
+
+    def persist_model(_spec, analytics, positions) -> None:
+        nonlocal streamed_position_count
+        analytics = _filter_rows(analytics, start_date=start_date, end_date=end_date)
+        positions = _filter_rows(positions, start_date=start_date, end_date=end_date)
+        streamed_analytics.extend(analytics)
+        streamed_position_count += len(positions)
+        if not args.dry_run:
+            analytics_count, position_count = db.persist_model_output_batch(
+                analytics_rows=analytics,
+                position_rows=positions,
+            )
+            print(
+                f"portfolio_model_persist:model={_spec.code} analytics_rows={analytics_count} "
+                f"position_rows={position_count}",
+                flush=True,
+            )
+
+    if args.low_resource and not args.dry_run:
+        from db_helper import get_connection
+        from tools.db_migrations import repair_sc_idx_corporate_actions as repair
+
+        with get_connection() as conn:
+            repair.validate_backup_set(
+                conn,
+                args.backup_tag,
+                start_date,
+                end_date,
+                expected_run_id=args.run_id,
+            )
+        db.reset_output_window(start_date=start_date, end_date=end_date)
+
     outputs = build_portfolio_outputs(
         official_daily_rows=official_daily_rows,
         official_position_rows=official_position_rows,
         metadata_rows=metadata_rows,
         price_rows=price_rows,
+        model_output_callback=persist_model if args.low_resource else None,
     )
 
-    analytics_rows = _filter_rows(outputs["analytics"], start_date=start_date, end_date=end_date)
-    position_rows = _filter_rows(outputs["positions"], start_date=start_date, end_date=end_date)
+    analytics_rows = (
+        streamed_analytics
+        if args.low_resource
+        else _filter_rows(outputs["analytics"], start_date=start_date, end_date=end_date)
+    )
+    position_rows = (
+        []
+        if args.low_resource
+        else _filter_rows(outputs["positions"], start_date=start_date, end_date=end_date)
+    )
     optimizer_rows = _filter_rows(outputs["optimizer_inputs"], start_date=start_date, end_date=end_date)
 
     summary = _summarize_outputs(
@@ -132,20 +186,28 @@ def main(argv: list[str] | None = None) -> int:
         analytics_rows=analytics_rows,
         position_rows=position_rows,
         optimizer_rows=optimizer_rows,
+        position_row_count=streamed_position_count if args.low_resource else None,
     )
     print(summary, flush=True)
 
     if args.dry_run:
         return 0
 
-    db.persist_outputs(
-        start_date=start_date,
-        end_date=end_date,
-        analytics_rows=analytics_rows,
-        position_rows=position_rows,
-        optimizer_rows=optimizer_rows,
-        constraint_rows=outputs["constraints"],
-    )
+    if args.low_resource:
+        optimizer_count = db.persist_optimizer_and_constraints(
+            optimizer_rows=optimizer_rows,
+            constraint_rows=outputs["constraints"],
+        )
+        print(f"portfolio_optimizer_persist:rows={optimizer_count}", flush=True)
+    else:
+        db.persist_outputs(
+            start_date=start_date,
+            end_date=end_date,
+            analytics_rows=analytics_rows,
+            position_rows=position_rows,
+            optimizer_rows=optimizer_rows,
+            constraint_rows=outputs["constraints"],
+        )
     print("portfolio_analytics: refresh_complete", flush=True)
     return 0
 

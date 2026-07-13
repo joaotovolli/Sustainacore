@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from app.index_engine.index_calc_v1 import compute_holdings_at_rebalance
+from app.index_engine.index_calc_v1 import compute_contributions, compute_holdings_at_rebalance
 from tools.index_engine import calc_index as ci
 
 
@@ -14,6 +14,29 @@ def test_rebalance_prior_price_missing_fails_closed() -> None:
             tickers=["AAA", "BBB"],
             prices_prev={"AAA": {"price": 100.0, "quality": "REAL"}},
         )
+
+
+def test_rolling_contribution_rows_match_legacy_full_history_math() -> None:
+    previous = dt.date(2026, 6, 30)
+    current = dt.date(2026, 7, 1)
+    weights = {"AAA": 0.6, "BBB": 0.4}
+    prices_prev = {"AAA": 100.0, "BBB": 200.0}
+    prices_now = {"AAA": 102.0, "BBB": 198.0}
+    legacy = compute_contributions(
+        trading_days=[previous, current],
+        weights_by_date={previous: weights},
+        prices_by_date={previous: prices_prev, current: prices_now},
+    )[current]
+
+    rows, total = ci._contribution_rows_for_day(
+        trade_date=current,
+        weights_prev=weights,
+        prices_prev=prices_prev,
+        prices_now=prices_now,
+    )
+    streamed = {row["ticker"]: row["contribution"] for row in rows}
+    assert streamed == pytest.approx(legacy)
+    assert total == pytest.approx(sum(legacy.values()))
 
 
 def test_missing_exact_rebalance_anchor_is_backfilled_once(monkeypatch) -> None:

@@ -65,6 +65,9 @@ Daily levels:
 - Controlled `--rebuild --strict` runs make one bounded exact-date recovery attempt for missing
   rebalance anchors, then refetch and apply the same fail-closed quality checks. Scheduled incremental
   calculations do not enable this reconstruction-only retry.
+- Full-range rebuilds retain only the previous and current price maps for return and contribution
+  calculations. Oracle array DML is emitted in configurable bounded batches; levels, shares, divisors,
+  contributions and statistics use the same formulas and tolerances as the unbatched path.
 
 Stats lookback windows:
 

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app.index_engine.reconstruction_status import read_reconstruction_status
 from tools.db_migrations import repair_sc_idx_corporate_actions as repair
 
 START = dt.date(2025, 1, 2)
@@ -520,6 +521,36 @@ def test_rebuild_failure_uses_manifest_compensation(tmp_path: Path) -> None:
     assert "automatic_rollback=PASS" in lines
 
 
+@pytest.mark.parametrize(
+    "failure_point",
+    (
+        "official_levels_persistence",
+        "contribution_persistence",
+        "statistics_persistence",
+        "portfolio_analytics_persistence",
+        "portfolio_positions_persistence",
+        "optimizer_persistence",
+    ),
+)
+def test_committed_stage_failures_use_complete_manifest_compensation(
+    tmp_path: Path, failure_point: str
+) -> None:
+    code, _, lines, events = run_controlled(
+        tmp_path,
+        [
+            repair.ApplyStage(
+                failure_point,
+                lambda: (_ for _ in ()).throw(RuntimeError(failure_point)),
+                may_mutate=True,
+            )
+        ],
+    )
+    assert code == 2
+    assert events.count("rollback") == 1
+    assert events.count("restore_verified") == 1
+    assert "automatic_rollback=PASS" in lines
+
+
 def test_strict_verification_failure_never_marks_applied(tmp_path: Path) -> None:
     events: list[str] = []
     code, _, lines, events = run_controlled(
@@ -561,6 +592,36 @@ def test_rollback_failure_reports_original_and_rollback_errors(tmp_path: Path) -
     assert "automatic_rollback=FAIL" in lines
     assert "action_status=CONFIRMED" in lines
     assert any(line.startswith("rollback_command=") for line in lines)
+
+
+def test_dead_parent_connection_does_not_prevent_fresh_compensation(tmp_path: Path) -> None:
+    events = []
+
+    class DeadParent(FakeConnection):
+        def rollback(self):
+            raise RuntimeError("parent connection closed")
+
+    lines = []
+    code = repair.execute_controlled_apply(
+        DeadParent(),
+        workflow_context(tmp_path),
+        [
+            repair.ApplyStage(
+                "portfolio_positions",
+                lambda: (_ for _ in ()).throw(RuntimeError("ORA-03113")),
+                may_mutate=True,
+            )
+        ],
+        lines,
+        rollback_fn=lambda: events.append("fresh_rollback"),
+        verify_restoration_fn=lambda: events.append("fresh_verification"),
+        action_status_fn=lambda: "NOT_RECORDED",
+    )
+
+    assert code == 2
+    assert events == ["fresh_rollback", "fresh_verification"]
+    assert "automatic_rollback=PASS" in lines
+    assert "parent_connection_rollback_error=parent connection closed" in lines
 
 
 def test_backup_context_is_emitted_before_first_mutation(tmp_path: Path) -> None:
@@ -620,3 +681,52 @@ def test_success_order_includes_all_apply_gates(tmp_path: Path) -> None:
     ordered = [event for event in events if not event.startswith("print:")]
     assert ordered == ["repair", "validate", "confirm", "official", "portfolio", "verify", "apply"]
     assert "action_status=APPLIED" in lines
+
+
+def test_controlled_apply_persists_success_and_rollback_status(tmp_path: Path) -> None:
+    status_path = tmp_path / "status.json"
+    success_context = repair.ApplyContext(
+        TAG,
+        RUN_ID,
+        START,
+        END,
+        "rollback-command",
+        tmp_path / "success.txt",
+        status_path,
+        "revision-1",
+    )
+    assert repair.execute_controlled_apply(
+        FakeConnection(),
+        success_context,
+        [repair.ApplyStage("mark_action_applied", lambda: None, True, "APPLIED")],
+        [],
+    ) == 0
+    assert read_reconstruction_status(status_path)["status"] == "SUCCEEDED"
+
+    failure_context = repair.ApplyContext(
+        TAG,
+        RUN_ID,
+        START,
+        END,
+        "rollback-command",
+        tmp_path / "failure.txt",
+        status_path,
+        "revision-1",
+    )
+    assert repair.execute_controlled_apply(
+        FakeConnection(),
+        failure_context,
+        [
+            repair.ApplyStage(
+                "portfolio_positions",
+                lambda: (_ for _ in ()).throw(RuntimeError("failed")),
+                True,
+            )
+        ],
+        [],
+        rollback_fn=lambda: None,
+        verify_restoration_fn=lambda: None,
+    ) == 2
+    payload = read_reconstruction_status(status_path)
+    assert payload["status"] == "ROLLED_BACK"
+    assert payload["rollback_status"] == "PASS"

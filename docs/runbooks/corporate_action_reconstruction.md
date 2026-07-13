@@ -1,4 +1,4 @@
-<!-- cspell:ignore CRWD -->
+<!-- cspell:ignore CRWD fsync -->
 # TECH100 corporate-action reconstruction
 
 TECH100 uses canonical adjusted closing prices. A confirmed split is handled by refreshing adjusted
@@ -111,6 +111,52 @@ During `--rebuild --strict` only, missing exact rebalance anchors receive one bo
 and are then fetched again and validated. The historical fallback window is date-aware and capped. Ordinary
 scheduled calculation does not make this retry. Any still-missing, stale, historical, or current-day
 anchor blocks publication.
+
+### Low-resource VM1 execution profile
+
+VM1 has one vCPU and approximately 1 GB RAM. Use the checked-in launcher for a controlled apply after
+the normal dry-run and readiness gates pass:
+
+```bash
+bash tools/index_engine/run_reconstruction_low_resource.sh --apply \
+  --ticker CRWD --effective-date 2026-07-02 --ratio 4 \
+  --source-reference '<authoritative-reference>' \
+  --adjusted-price-csv /tmp/reviewed_adjusted_history.csv \
+  --start 2025-01-02 --end <latest-complete-date>
+```
+
+The transient unit uses `Type=exec`, `Nice=10`, idle I/O scheduling, a 70% CPU quota, and a soft
+650 MB `MemoryHigh`. It deliberately has no `MemoryMax` and no hard `RuntimeMaxSec`: forced cgroup
+termination cannot run manifest compensation. Each heavy Python subprocess instead has a bounded
+timeout which raises into the normal compensation handler. Do not use `Type=oneshot` with
+`RuntimeMaxSec`; systemd ignores that combination while the start job is active.
+
+Portfolio output is generated one model at a time and written in 250-row batches. Each committed
+model or table remains covered by the validated reconstruction manifest. An Oracle disconnect is not
+blindly retried because commit state is ambiguous; it fails into fresh-connection manifest rollback.
+The official index writer also bounds Oracle array DML while retaining the same pre-publication
+mathematical validation.
+
+Swap is not created automatically. Adding swap changes VM-wide failure and latency behavior and
+requires separate operator approval. Verify memory and kernel evidence before considering it.
+
+### One-shot progress inspection
+
+The controlled apply atomically updates:
+
+```text
+/var/lib/sustainacore/sc_idx/reconstruction_status.json
+```
+
+Inspect it once without polling:
+
+```bash
+python3 tools/index_engine/reconstruction_status.py
+```
+
+The file contains recovery coordinates, deployed revision, current stage, status, failure class and
+rollback status. It never contains credentials, environment values or provider responses. Status
+updates are written through a temporary file, `fsync`, and atomic rename.
 
 ## Rollback
 

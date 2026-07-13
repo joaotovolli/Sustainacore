@@ -2,12 +2,20 @@
 from __future__ import annotations
 
 import datetime as _dt
+import os
 from typing import Iterable, Optional
 
 from db_helper import get_connection
 from index_engine.db import normalize_ticker
 
 INDEX_CODE = "TECH100"
+DEFAULT_WRITE_BATCH_SIZE = 250
+
+
+def _executemany_batched(cur, sql: str, binds: list[dict]) -> None:
+    batch_size = max(1, int(os.getenv("SC_IDX_INDEX_WRITE_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)))
+    for offset in range(0, len(binds), batch_size):
+        cur.executemany(sql, binds[offset : offset + batch_size])
 
 
 def _disable_parallel_dml(conn) -> None:
@@ -507,7 +515,7 @@ def upsert_holdings(rebalance_date: _dt.date, rows: list[dict]) -> None:
     with get_connection() as conn:
         cur = conn.cursor()
         _disable_parallel_dml(conn)
-        cur.executemany(sql, binds)
+        _executemany_batched(cur, sql, binds)
         conn.commit()
 
 
@@ -563,7 +571,7 @@ def upsert_levels(rows: list[dict]) -> None:
     with get_connection() as conn:
         cur = conn.cursor()
         _disable_parallel_dml(conn)
-        cur.executemany(sql, binds)
+        _executemany_batched(cur, sql, binds)
         conn.commit()
 
 
@@ -602,7 +610,7 @@ def upsert_constituent_daily(rows: list[dict]) -> None:
     with get_connection() as conn:
         cur = conn.cursor()
         _disable_parallel_dml(conn)
-        cur.executemany(sql, binds)
+        _executemany_batched(cur, sql, binds)
         conn.commit()
 
 
@@ -635,7 +643,7 @@ def upsert_contribution_daily(rows: list[dict]) -> None:
     with get_connection() as conn:
         cur = conn.cursor()
         _disable_parallel_dml(conn)
-        cur.executemany(sql, binds)
+        _executemany_batched(cur, sql, binds)
         conn.commit()
 
 
@@ -683,7 +691,7 @@ def upsert_stats_daily(rows: list[dict]) -> None:
     with get_connection() as conn:
         cur = conn.cursor()
         _disable_parallel_dml(conn)
-        cur.executemany(sql, binds)
+        _executemany_batched(cur, sql, binds)
         conn.commit()
 
 

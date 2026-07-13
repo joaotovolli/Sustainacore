@@ -214,6 +214,25 @@ def test_build_portfolio_outputs_generates_rows_for_all_models():
     ]
     assert {row["ticker"]: row["model_weight"] for row in eq_rows} == {"AAA": 0.5, "BBB": 0.5}
 
+    streamed_analytics = []
+    streamed_positions = []
+    streamed = build_portfolio_outputs(
+        official_daily_rows=official_daily,
+        official_position_rows=official_positions,
+        metadata_rows=metadata_rows,
+        price_rows=price_rows,
+        model_output_callback=lambda _spec, analytics, positions: (
+            streamed_analytics.extend(analytics),
+            streamed_positions.extend(positions),
+        ),
+    )
+    assert streamed["analytics"] == []
+    assert streamed["positions"] == []
+    assert streamed_analytics == outputs["analytics"]
+    assert streamed_positions == outputs["positions"]
+    assert streamed["optimizer_inputs"] == outputs["optimizer_inputs"]
+    assert streamed["constraints"] == outputs["constraints"]
+
 
 def test_model_path_chain_links_rebalance_without_level_cliff():
     trade_days = [

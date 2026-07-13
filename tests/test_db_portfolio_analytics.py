@@ -86,3 +86,48 @@ def test_fetch_portfolio_completion_max_date_stays_back_when_latest_rebalance_in
     )
 
     assert db_portfolio_analytics.fetch_portfolio_completion_max_date() == dt.date(2026, 4, 1)
+
+
+def test_model_output_persistence_uses_bounded_batches_and_fresh_connections(monkeypatch):
+    batch_lengths = []
+    connections = []
+
+    class Cursor:
+        def executemany(self, _sql, rows):
+            batch_lengths.append(len(rows))
+
+    class Connection:
+        call_timeout = None
+
+        def __init__(self):
+            self.commits = 0
+
+        def cursor(self):
+            return Cursor()
+
+        def commit(self):
+            self.commits += 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def connection():
+        value = Connection()
+        connections.append(value)
+        return value
+
+    monkeypatch.setenv("SC_IDX_PORTFOLIO_WRITE_BATCH_SIZE", "250")
+    monkeypatch.setattr(db_portfolio_analytics, "get_connection", connection)
+    analytics = [{} for _ in range(601)]
+    positions = [{} for _ in range(601)]
+
+    assert db_portfolio_analytics.persist_model_output_batch(
+        analytics_rows=analytics,
+        position_rows=positions,
+    ) == (601, 601)
+    assert batch_lengths == [250, 250, 101, 250, 250, 101]
+    assert len(connections) == 2
+    assert [conn.commits for conn in connections] == [1, 1]

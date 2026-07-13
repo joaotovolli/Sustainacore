@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import datetime as _dt
+import os
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator, Sequence
 
 from db_helper import get_connection
 
@@ -18,6 +19,22 @@ from .portfolio_analytics_v1 import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DDL_PATH = REPO_ROOT / "oracle_scripts" / "sc_idx_portfolio_analytics_v1.sql"
 DROP_DDL_PATH = REPO_ROOT / "oracle_scripts" / "sc_idx_portfolio_analytics_v1_drop.sql"
+DEFAULT_FETCH_SIZE = 500
+DEFAULT_WRITE_BATCH_SIZE = 250
+
+
+def _fetchmany(cur, size: int = DEFAULT_FETCH_SIZE) -> Iterator[tuple[object, ...]]:
+    cur.arraysize = size
+    while True:
+        rows = cur.fetchmany(size)
+        if not rows:
+            return
+        yield from rows
+
+
+def _batches(rows: Sequence[dict[str, object]], size: int) -> Iterator[Sequence[dict[str, object]]]:
+    for offset in range(0, len(rows), size):
+        yield rows[offset : offset + size]
 
 
 def _coerce_date(value: object) -> _dt.date | None:
@@ -101,7 +118,7 @@ def fetch_official_daily_rows() -> list[OfficialDailyRow]:
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql, {"index_code": "TECH100"})
-        for record in cur.fetchall():
+        for record in _fetchmany(cur):
             trade_date = _coerce_date(record[0])
             level_tr = float(record[1]) if record[1] is not None else None
             if trade_date is None or level_tr is None:
@@ -137,7 +154,7 @@ def fetch_official_position_rows() -> list[OfficialPositionRow]:
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql)
-        for record in cur.fetchall():
+        for record in _fetchmany(cur):
             trade_date = _coerce_date(record[0])
             rebalance_date = _coerce_date(record[1])
             ticker = str(record[2]).strip().upper() if record[2] is not None else ""
@@ -171,7 +188,7 @@ def fetch_metadata_rows() -> list[MetadataRow]:
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql)
-        for record in cur.fetchall():
+        for record in _fetchmany(cur):
             port_date = _coerce_date(record[0])
             ticker = str(record[1]).strip().upper() if record[1] is not None else ""
             if port_date is None or not ticker:
@@ -210,7 +227,7 @@ def fetch_price_rows(
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql, {"start_date": start_date, "end_date": end_date})
-        for record in cur.fetchall():
+        for record in _fetchmany(cur):
             trade_date = _coerce_date(record[0])
             ticker = str(record[1]).strip().upper() if record[1] is not None else ""
             price = float(record[2]) if record[2] is not None else None
@@ -296,28 +313,12 @@ def persist_outputs(
     optimizer_rows: Sequence[dict[str, object]],
     constraint_rows: Sequence[dict[str, object]],
 ) -> None:
-    with get_connection() as conn:
-        cur = conn.cursor()
-        try:
-            cur.execute("ALTER SESSION DISABLE PARALLEL DML")
-        except Exception:
-            pass
-
-        for table_name in (
+    batch_size = max(1, int(os.getenv("SC_IDX_PORTFOLIO_WRITE_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)))
+    statements = (
+        (
             "SC_IDX_PORTFOLIO_ANALYTICS_DAILY",
-            "SC_IDX_PORTFOLIO_POSITION_DAILY",
-            "SC_IDX_PORTFOLIO_OPT_INPUTS",
-        ):
-            cur.execute(
-                f"DELETE FROM {table_name} WHERE trade_date BETWEEN :start_date AND :end_date",
-                {"start_date": start_date, "end_date": end_date},
-            )
-
-        cur.execute("DELETE FROM SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS")
-
-        if analytics_rows:
-            cur.executemany(
-                "INSERT INTO SC_IDX_PORTFOLIO_ANALYTICS_DAILY ("
+            analytics_rows,
+            "INSERT INTO SC_IDX_PORTFOLIO_ANALYTICS_DAILY ("
                 "  model_code, trade_date, model_name, rebalance_date, level_tr, ret_1d, ret_5d, ret_20d, "
                 "  ret_mtd, ret_ytd, vol_20d, vol_60d, drawdown_to_date, max_drawdown_252d, "
                 "  n_constituents, n_imputed, top1_weight, top5_weight, herfindahl, avg_governance_score, "
@@ -330,12 +331,11 @@ def persist_outputs(
                 "  :avg_momentum_20d, :avg_low_vol_60d, :sector_count, :factor_governance_exposure, "
                 "  :factor_momentum_exposure, :factor_low_vol_exposure, :factor_sector_tilt_abs, :factor_concentration"
                 ")",
-                analytics_rows,
-            )
-
-        if position_rows:
-            cur.executemany(
-                "INSERT INTO SC_IDX_PORTFOLIO_POSITION_DAILY ("
+        ),
+        (
+            "SC_IDX_PORTFOLIO_POSITION_DAILY",
+            position_rows,
+            "INSERT INTO SC_IDX_PORTFOLIO_POSITION_DAILY ("
                 "  model_code, trade_date, ticker, model_name, rebalance_date, port_date, company_name, sector, "
                 "  model_weight, benchmark_weight, active_weight, price_quality, ret_1d, contrib_1d, contrib_5d, "
                 "  contrib_20d, contrib_mtd, contrib_ytd, governance_score, transparency, ethical_principles, "
@@ -346,12 +346,11 @@ def persist_outputs(
                 "  :contrib_20d, :contrib_mtd, :contrib_ytd, :governance_score, :transparency, :ethical_principles, "
                 "  :governance_structure, :regulatory_alignment, :stakeholder_engagement, :momentum_20d, :low_vol_60d"
                 ")",
-                position_rows,
-            )
-
-        if optimizer_rows:
-            cur.executemany(
-                "INSERT INTO SC_IDX_PORTFOLIO_OPT_INPUTS ("
+        ),
+        (
+            "SC_IDX_PORTFOLIO_OPT_INPUTS",
+            optimizer_rows,
+            "INSERT INTO SC_IDX_PORTFOLIO_OPT_INPUTS ("
                 "  trade_date, port_date, ticker, company_name, sector, benchmark_weight, governance_score, "
                 "  momentum_20d, low_vol_60d, governance_rank, momentum_rank, low_vol_rank, hybrid_rank, "
                 "  price_quality, eligible_flag"
@@ -360,20 +359,124 @@ def persist_outputs(
                 "  :momentum_20d, :low_vol_60d, :governance_rank, :momentum_rank, :low_vol_rank, :hybrid_rank, "
                 "  :price_quality, :eligible_flag"
                 ")",
-                optimizer_rows,
+        ),
+    )
+    with get_connection() as conn:
+        conn.call_timeout = 120_000
+        cur = conn.cursor()
+        try:
+            cur.execute("ALTER SESSION DISABLE PARALLEL DML")
+        except Exception:
+            pass
+        for table_name, rows, sql in statements:
+            cur.execute(
+                f"DELETE FROM {table_name} WHERE trade_date BETWEEN :start_date AND :end_date",
+                {"start_date": start_date, "end_date": end_date},
             )
-
-        if constraint_rows:
-            cur.executemany(
-                "INSERT INTO SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS ("
-                "  model_code, constraint_key, constraint_type, constraint_value"
-                ") VALUES ("
-                "  :model_code, :constraint_key, :constraint_type, :constraint_value"
-                ")",
-                constraint_rows,
+            written = 0
+            for batch in _batches(rows, batch_size):
+                cur.executemany(sql, batch)
+                written += len(batch)
+            print(
+                f"portfolio_persist:table={table_name} rows={written} batch_size={batch_size}",
+                flush=True,
             )
-
+        cur.execute("DELETE FROM SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS")
+        constraint_sql = (
+            "INSERT INTO SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS ("
+            "  model_code, constraint_key, constraint_type, constraint_value"
+            ") VALUES ("
+            "  :model_code, :constraint_key, :constraint_type, :constraint_value"
+            ")"
+        )
+        for batch in _batches(constraint_rows, batch_size):
+            cur.executemany(constraint_sql, batch)
         conn.commit()
+
+
+def reset_output_window(*, start_date: _dt.date, end_date: _dt.date) -> None:
+    """Commit an empty protected window before bounded manifest-backed inserts."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        for table_name in (
+            "SC_IDX_PORTFOLIO_ANALYTICS_DAILY",
+            "SC_IDX_PORTFOLIO_POSITION_DAILY",
+            "SC_IDX_PORTFOLIO_OPT_INPUTS",
+        ):
+            cur.execute(
+                f"DELETE FROM {table_name} WHERE trade_date BETWEEN :start_date AND :end_date",
+                {"start_date": start_date, "end_date": end_date},
+            )
+        cur.execute("DELETE FROM SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS")
+        conn.commit()
+
+
+def persist_model_output_batch(
+    *,
+    analytics_rows: Sequence[dict[str, object]],
+    position_rows: Sequence[dict[str, object]],
+) -> tuple[int, int]:
+    """Persist one model at a time so six model paths are never retained together."""
+    batch_size = max(1, int(os.getenv("SC_IDX_PORTFOLIO_WRITE_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)))
+    analytics_sql = (
+        "INSERT INTO SC_IDX_PORTFOLIO_ANALYTICS_DAILY ("
+        "model_code,trade_date,model_name,rebalance_date,level_tr,ret_1d,ret_5d,ret_20d,ret_mtd,ret_ytd,"
+        "vol_20d,vol_60d,drawdown_to_date,max_drawdown_252d,n_constituents,n_imputed,top1_weight,top5_weight,"
+        "herfindahl,avg_governance_score,avg_momentum_20d,avg_low_vol_60d,sector_count,factor_governance_exposure,"
+        "factor_momentum_exposure,factor_low_vol_exposure,factor_sector_tilt_abs,factor_concentration) VALUES ("
+        ":model_code,:trade_date,:model_name,:rebalance_date,:level_tr,:ret_1d,:ret_5d,:ret_20d,:ret_mtd,:ret_ytd,"
+        ":vol_20d,:vol_60d,:drawdown_to_date,:max_drawdown_252d,:n_constituents,:n_imputed,:top1_weight,:top5_weight,"
+        ":herfindahl,:avg_governance_score,:avg_momentum_20d,:avg_low_vol_60d,:sector_count,:factor_governance_exposure,"
+        ":factor_momentum_exposure,:factor_low_vol_exposure,:factor_sector_tilt_abs,:factor_concentration)"
+    )
+    position_sql = (
+        "INSERT INTO SC_IDX_PORTFOLIO_POSITION_DAILY ("
+        "model_code,trade_date,ticker,model_name,rebalance_date,port_date,company_name,sector,model_weight,"
+        "benchmark_weight,active_weight,price_quality,ret_1d,contrib_1d,contrib_5d,contrib_20d,contrib_mtd,"
+        "contrib_ytd,governance_score,transparency,ethical_principles,governance_structure,regulatory_alignment,"
+        "stakeholder_engagement,momentum_20d,low_vol_60d) VALUES ("
+        ":model_code,:trade_date,:ticker,:model_name,:rebalance_date,:port_date,:company_name,:sector,:model_weight,"
+        ":benchmark_weight,:active_weight,:price_quality,:ret_1d,:contrib_1d,:contrib_5d,:contrib_20d,:contrib_mtd,"
+        ":contrib_ytd,:governance_score,:transparency,:ethical_principles,:governance_structure,:regulatory_alignment,"
+        ":stakeholder_engagement,:momentum_20d,:low_vol_60d)"
+    )
+    for rows, sql in ((analytics_rows, analytics_sql), (position_rows, position_sql)):
+        with get_connection() as conn:
+            conn.call_timeout = 120_000
+            cur = conn.cursor()
+            for batch in _batches(rows, batch_size):
+                cur.executemany(sql, batch)
+            conn.commit()
+    return len(analytics_rows), len(position_rows)
+
+
+def persist_optimizer_and_constraints(
+    *,
+    optimizer_rows: Sequence[dict[str, object]],
+    constraint_rows: Sequence[dict[str, object]],
+) -> int:
+    batch_size = max(1, int(os.getenv("SC_IDX_PORTFOLIO_WRITE_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)))
+    optimizer_sql = (
+        "INSERT INTO SC_IDX_PORTFOLIO_OPT_INPUTS (trade_date,port_date,ticker,company_name,sector,benchmark_weight,"
+        "governance_score,momentum_20d,low_vol_60d,governance_rank,momentum_rank,low_vol_rank,hybrid_rank,"
+        "price_quality,eligible_flag) VALUES (:trade_date,:port_date,:ticker,:company_name,:sector,:benchmark_weight,"
+        ":governance_score,:momentum_20d,:low_vol_60d,:governance_rank,:momentum_rank,:low_vol_rank,:hybrid_rank,"
+        ":price_quality,:eligible_flag)"
+    )
+    constraint_sql = (
+        "INSERT INTO SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS "
+        "(model_code,constraint_key,constraint_type,constraint_value) VALUES "
+        "(:model_code,:constraint_key,:constraint_type,:constraint_value)"
+    )
+    with get_connection() as conn:
+        conn.call_timeout = 120_000
+        cur = conn.cursor()
+        for batch in _batches(optimizer_rows, batch_size):
+            cur.executemany(optimizer_sql, batch)
+        for batch in _batches(constraint_rows, batch_size):
+            cur.executemany(constraint_sql, batch)
+        conn.commit()
+    return len(optimizer_rows)
 
 
 __all__ = [
@@ -391,4 +494,7 @@ __all__ = [
     "fetch_price_rows",
     "fetch_trade_date_bounds",
     "persist_outputs",
+    "persist_model_output_batch",
+    "persist_optimizer_and_constraints",
+    "reset_output_window",
 ]
