@@ -5,7 +5,10 @@ import datetime as _dt
 from typing import Iterable, Mapping, Optional, Sequence
 
 from db_helper import get_connection as _get_connection
-from .oracle_runtime import configure_reconstruction_connection_if_enabled
+try:
+    from index_engine.oracle_runtime import configure_reconstruction_connection_if_enabled
+except ModuleNotFoundError:  # package imported as app.index_engine in unit tests
+    from .oracle_runtime import configure_reconstruction_connection_if_enabled
 
 TICKER_ALIASES = {"FI": "FISV"}
 
