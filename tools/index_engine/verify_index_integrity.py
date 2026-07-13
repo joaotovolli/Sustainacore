@@ -81,6 +81,9 @@ def _rebalance_checks(
     maximum_bridge = (0.0, None)
     maximum_anchor = (0.0, None)
     total_missing = 0
+    missing_price_details: list[str] = []
+    missing_state_count = 0
+    missing_state_details: list[str] = []
     total_stale = 0
     stale_quality = 0
     for rebalance_date in rebalance_dates:
@@ -130,8 +133,20 @@ def _rebalance_checks(
             },
         )
         prices = {str(ticker): float(price) for ticker, price in cur.fetchall() if price is not None}
-        if previous_level is None or previous_divisor is None or new_divisor is None:
-            total_missing += len(shares)
+        missing_state = [
+            name
+            for name, value in (
+                ("previous_level", previous_level),
+                ("previous_divisor", previous_divisor),
+                ("new_divisor", new_divisor),
+            )
+            if value is None
+        ]
+        if missing_state:
+            missing_state_count += len(missing_state)
+            missing_state_details.append(
+                f"{rebalance_date.isoformat()}:{','.join(missing_state)}"
+            )
             continue
         audit = audit_rebalance(
             previous_level=float(previous_level),
@@ -143,6 +158,10 @@ def _rebalance_checks(
             anchor_relative_tolerance=anchor_tolerance,
         )
         total_missing += audit.missing_price_count
+        missing_price_details.extend(
+            f"{rebalance_date.isoformat()}:{ticker}"
+            for ticker in sorted(set(shares) - set(prices))
+        )
         total_stale += audit.stale_anchor_count
         if abs(audit.bridge_residual) > abs(maximum_bridge[0]):
             maximum_bridge = (audit.bridge_residual, rebalance_date)
@@ -164,7 +183,20 @@ def _rebalance_checks(
             bridge_tolerance,
             date=maximum_bridge[1],
         ),
-        IntegrityCheck("rebalance_missing_exact_prices", total_missing, 0, total_missing == 0),
+        IntegrityCheck(
+            "rebalance_missing_exact_prices",
+            total_missing,
+            0,
+            total_missing == 0,
+            detail=";".join(missing_price_details[:25]),
+        ),
+        IntegrityCheck(
+            "rebalance_missing_state_prerequisites",
+            missing_state_count,
+            0,
+            missing_state_count == 0,
+            detail=";".join(missing_state_details[:25]),
+        ),
         IntegrityCheck(
             "rebalance_stale_anchor_count",
             total_stale,

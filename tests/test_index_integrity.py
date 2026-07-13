@@ -9,6 +9,7 @@ from app.index_engine.index_integrity import (
     maximum_check,
     rebalance_bridge_residual,
 )
+from tools.index_engine.verify_index_integrity import _rebalance_checks
 
 
 def test_contribution_sum_reconciles() -> None:
@@ -68,3 +69,49 @@ def test_stale_rebalance_anchor_fails_verification() -> None:
 def test_rebalance_bridge_requires_all_prices() -> None:
     with pytest.raises(ValueError, match="missing_prices"):
         rebalance_bridge_residual(previous_level=1000, divisor=1, shares={"A": 1}, prices={})
+
+
+class _MissingBaseDivisorCursor:
+    def __init__(self) -> None:
+        self.sql = ""
+
+    def execute(self, sql, binds=None) -> None:
+        self.sql = " ".join(sql.split())
+
+    def fetchone(self):
+        if "MAX(trade_date)" in self.sql:
+            return (dt.date(2025, 3, 31),)
+        if "SELECT level_tr" in self.sql:
+            return (1000.0,)
+        if "SELECT divisor" in self.sql and "effective_date=(" in self.sql:
+            return (None,)
+        if "SELECT divisor" in self.sql:
+            return (1.0,)
+        raise AssertionError(self.sql)
+
+    def fetchall(self):
+        if "SELECT DISTINCT rebalance_date" in self.sql:
+            return [(dt.date(2025, 4, 1),)]
+        if "SELECT ticker,target_weight,shares" in self.sql:
+            return [(f"T{number:02d}", 0.04, 1.0) for number in range(25)]
+        if "SELECT ticker,canon_adj_close_px" in self.sql:
+            return [(f"T{number:02d}", 100.0) for number in range(25)]
+        raise AssertionError(self.sql)
+
+
+def test_missing_rebalance_state_is_not_misreported_as_25_missing_prices() -> None:
+    checks = _rebalance_checks(
+        _MissingBaseDivisorCursor(),
+        start=dt.date(2025, 1, 2),
+        end=dt.date(2026, 7, 10),
+        bridge_tolerance=1e-6,
+        anchor_tolerance=1e-8,
+    )
+    by_name = {check.name: check for check in checks}
+
+    assert by_name["rebalance_missing_exact_prices"].value == 0
+    assert by_name["rebalance_missing_exact_prices"].passed
+    state = by_name["rebalance_missing_state_prerequisites"]
+    assert state.value == 1
+    assert not state.passed
+    assert state.detail == "2025-04-01:previous_divisor"
