@@ -24,7 +24,14 @@ for path in (ROOT, APP):
 
 from db_helper import get_connection
 from index_engine.corporate_actions import earliest_material_change
-from index_engine.reconstruction_status import write_reconstruction_status
+from index_engine.oracle_runtime import (
+    DEFAULT_RECON_ORACLE_CALL_TIMEOUT_MS,
+    configure_reconstruction_connection,
+)
+from index_engine.reconstruction_status import (
+    read_reconstruction_status,
+    write_reconstruction_status,
+)
 from tools.oracle.env_bootstrap import load_env_files
 
 BASE_DATE = dt.date(2025, 1, 2)
@@ -43,6 +50,10 @@ BACKUP_OBJECTS = {
     "PO": "SC_IDX_PORTFOLIO_OPT_INPUTS",
     "CA": "SC_IDX_CORPORATE_ACTIONS",
 }
+
+
+def _new_reconstruction_connection():
+    return configure_reconstruction_connection(get_connection())
 
 
 class BackupValidationError(RuntimeError):
@@ -629,11 +640,11 @@ def rebuild_portfolio(
     *,
     backup_tag: str | None = None,
     run_id: str | None = None,
+    status_path: Path | None = None,
 ) -> None:
     if not backup_tag or not run_id:
         raise ReconstructionError("portfolio_rebuild_requires_manifest_coordinates")
-    subprocess.run(
-        [
+    command = [
             sys.executable,
             str(ROOT / "tools/index_engine/build_portfolio_analytics.py"),
             "--start",
@@ -645,7 +656,11 @@ def rebuild_portfolio(
             backup_tag,
             "--run-id",
             run_id,
-        ],
+        ]
+    if status_path is not None:
+        command.extend(("--status-file", str(status_path)))
+    subprocess.run(
+        command,
         check=True,
         cwd=ROOT,
         timeout=int(os.getenv("SC_IDX_RECON_PORTFOLIO_TIMEOUT_SEC", "1800")),
@@ -761,22 +776,22 @@ def fetch_action_status(conn, args: argparse.Namespace, run_id: str) -> str:
 
 
 def _rollback_with_fresh_connection(tag: str, start: dt.date, end: dt.date) -> None:
-    with get_connection() as restore_conn:
+    with _new_reconstruction_connection() as restore_conn:
         rollback(restore_conn, tag, start, end)
 
 
 def _verify_restoration_with_fresh_connection(tag: str, start: dt.date, end: dt.date) -> None:
-    with get_connection() as verify_conn:
+    with _new_reconstruction_connection() as verify_conn:
         verify_restoration(verify_conn, tag, start, end)
 
 
 def _fetch_action_status_with_fresh_connection(args: argparse.Namespace, run_id: str) -> str:
-    with get_connection() as status_conn:
+    with _new_reconstruction_connection() as status_conn:
         return fetch_action_status(status_conn, args, run_id)
 
 
 def _mark_action_applied_with_fresh_connection(args: argparse.Namespace, run_id: str) -> None:
-    with get_connection() as action_conn:
+    with _new_reconstruction_connection() as action_conn:
         mark_action_applied(action_conn, args, run_id)
 
 
@@ -822,21 +837,45 @@ def execute_controlled_apply(
     ) -> None:
         if context.status_path is None:
             return
-        write_reconstruction_status(
-            context.status_path,
-            run_id=context.run_id,
-            backup_tag=context.tag,
-            revision=context.revision,
-            repair_start=context.start.isoformat(),
-            repair_end=context.end.isoformat(),
-            stage=stage,
-            stage_started_at=dt.datetime.now(dt.timezone.utc).isoformat(),
-            last_completed_date=None,
-            rows_processed=0,
-            status=status,
-            failure_class=failure_class,
-            rollback_status=rollback_status,
-        )
+        try:
+            progress: dict[str, object] = {}
+            if context.status_path.exists():
+                existing = read_reconstruction_status(context.status_path)
+                if existing.get("run_id") == context.run_id:
+                    for key in (
+                        "last_completed_date",
+                        "rows_processed",
+                        "model_code",
+                        "completed_model_count",
+                        "analytics_rows_committed",
+                        "position_rows_committed",
+                        "optimizer_rows_committed",
+                    ):
+                        progress[key] = existing.get(key)
+            write_reconstruction_status(
+                context.status_path,
+                run_id=context.run_id,
+                backup_tag=context.tag,
+                revision=context.revision,
+                repair_start=context.start.isoformat(),
+                repair_end=context.end.isoformat(),
+                stage=stage,
+                stage_started_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                last_completed_date=progress.get("last_completed_date"),
+                rows_processed=progress.get("rows_processed", 0),
+                model_code=progress.get("model_code"),
+                completed_model_count=progress.get("completed_model_count", 0),
+                analytics_rows_committed=progress.get("analytics_rows_committed", 0),
+                position_rows_committed=progress.get("position_rows_committed", 0),
+                optimizer_rows_committed=progress.get("optimizer_rows_committed", 0),
+                status=status,
+                failure_class=failure_class,
+                rollback_status=rollback_status,
+            )
+        except Exception as exc:
+            diagnostic = f"status_update_error={type(exc).__name__}:{exc}"
+            lines.append(diagnostic)
+            printer(diagnostic, flush=True)
 
     update_status("PENDING", "backups_validated")
     rollback_fn = rollback_fn or (lambda: rollback(conn, context.tag, context.start, context.end))
@@ -995,7 +1034,11 @@ def run_reconstruction_readiness(args: argparse.Namespace, end: dt.date) -> None
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     load_env_files()
-    with get_connection() as conn:
+    os.environ.setdefault(
+        "SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS",
+        str(DEFAULT_RECON_ORACLE_CALL_TIMEOUT_MS),
+    )
+    with _new_reconstruction_connection() as conn:
         max_day, lines = dry_run(conn, args)
         if args.rollback_tag:
             restored = rollback(conn, args.rollback_tag, args.start, max_day)
@@ -1170,6 +1213,7 @@ def main(argv: list[str] | None = None) -> int:
                             max_day,
                             backup_tag=tag,
                             run_id=run_id,
+                            status_path=args.status_file,
                         ),
                         may_mutate=True,
                     ),

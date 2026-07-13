@@ -131,3 +131,110 @@ def test_model_output_persistence_uses_bounded_batches_and_fresh_connections(mon
     assert batch_lengths == [250, 250, 101, 250, 250, 101]
     assert len(connections) == 2
     assert [conn.commits for conn in connections] == [1, 1]
+
+
+def test_static_constraints_match_without_any_constraint_dml(monkeypatch):
+    expected = [
+        {
+            "model_code": "TECH100",
+            "constraint_key": "LONG_ONLY",
+            "constraint_type": "BOOLEAN",
+            "constraint_value": "TRUE",
+        }
+    ]
+    monkeypatch.setattr(
+        db_portfolio_analytics,
+        "fetch_constraint_rows",
+        lambda: [("TECH100", "LONG_ONLY", "BOOLEAN", "TRUE")],
+    )
+    db_portfolio_analytics.validate_static_constraints(expected)
+
+
+def test_static_constraint_mismatch_fails_closed(monkeypatch):
+    expected = [
+        {
+            "model_code": "TECH100",
+            "constraint_key": "LONG_ONLY",
+            "constraint_type": "BOOLEAN",
+            "constraint_value": "TRUE",
+        }
+    ]
+    monkeypatch.setattr(db_portfolio_analytics, "fetch_constraint_rows", lambda: [])
+    import pytest
+
+    with pytest.raises(RuntimeError, match="model_portfolio_constraints_mismatch"):
+        db_portfolio_analytics.validate_static_constraints(expected)
+
+
+def test_reset_output_window_never_mutates_static_constraints(monkeypatch):
+    executed = []
+
+    class Cursor:
+        def execute(self, sql, _binds=None):
+            executed.append(" ".join(sql.upper().split()))
+
+    class Connection:
+        call_timeout = None
+
+        def __init__(self):
+            self.commits = 0
+
+        def cursor(self):
+            return Cursor()
+
+        def commit(self):
+            self.commits += 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    connection = Connection()
+    monkeypatch.setattr(db_portfolio_analytics, "get_connection", lambda: connection)
+    db_portfolio_analytics.reset_output_window(
+        start_date=dt.date(2025, 1, 2),
+        end_date=dt.date(2026, 7, 10),
+    )
+    assert connection.commits == 1
+    assert len(executed) == 3
+    assert all("SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS" not in sql for sql in executed)
+
+
+def test_optimizer_persistence_validates_but_never_rewrites_constraints(monkeypatch):
+    executed = []
+    validations = []
+
+    class Cursor:
+        def executemany(self, sql, rows):
+            executed.append((" ".join(sql.upper().split()), len(rows)))
+
+    class Connection:
+        call_timeout = None
+
+        def cursor(self):
+            return Cursor()
+
+        def commit(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(db_portfolio_analytics, "get_connection", Connection)
+    monkeypatch.setattr(
+        db_portfolio_analytics,
+        "validate_static_constraints",
+        lambda rows: validations.append(rows),
+    )
+    constraints = [{"model_code": "TECH100", "constraint_key": "LONG_ONLY"}]
+    assert db_portfolio_analytics.persist_optimizer_with_static_constraints(
+        optimizer_rows=[{}],
+        constraint_rows=constraints,
+    ) == 1
+    assert validations == [constraints]
+    assert all("SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS" not in sql for sql, _ in executed)

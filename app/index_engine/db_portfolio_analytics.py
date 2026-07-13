@@ -7,7 +7,9 @@ import os
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
-from db_helper import get_connection
+from db_helper import get_connection as _get_connection
+
+from .oracle_runtime import configure_reconstruction_connection_if_enabled
 
 from .portfolio_analytics_v1 import (
     MetadataRow,
@@ -21,6 +23,11 @@ DDL_PATH = REPO_ROOT / "oracle_scripts" / "sc_idx_portfolio_analytics_v1.sql"
 DROP_DDL_PATH = REPO_ROOT / "oracle_scripts" / "sc_idx_portfolio_analytics_v1_drop.sql"
 DEFAULT_FETCH_SIZE = 500
 DEFAULT_WRITE_BATCH_SIZE = 250
+
+
+def get_connection():
+    """Return a connection bounded by the reconstruction statement timeout."""
+    return configure_reconstruction_connection_if_enabled(_get_connection())
 
 
 def _fetchmany(cur, size: int = DEFAULT_FETCH_SIZE) -> Iterator[tuple[object, ...]]:
@@ -362,7 +369,8 @@ def persist_outputs(
         ),
     )
     with get_connection() as conn:
-        conn.call_timeout = 120_000
+        if os.getenv("SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS") is None:
+            conn.call_timeout = 120_000
         cur = conn.cursor()
         try:
             cur.execute("ALTER SESSION DISABLE PARALLEL DML")
@@ -407,8 +415,47 @@ def reset_output_window(*, start_date: _dt.date, end_date: _dt.date) -> None:
                 f"DELETE FROM {table_name} WHERE trade_date BETWEEN :start_date AND :end_date",
                 {"start_date": start_date, "end_date": end_date},
             )
-        cur.execute("DELETE FROM SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS")
         conn.commit()
+
+
+def _normalized_constraint_rows(
+    rows: Iterable[dict[str, object] | Sequence[object]],
+) -> list[tuple[object, object, object, object]]:
+    normalized: list[tuple[object, object, object, object]] = []
+    for row in rows:
+        if isinstance(row, dict):
+            values = (
+                row.get("model_code"),
+                row.get("constraint_key"),
+                row.get("constraint_type"),
+                row.get("constraint_value"),
+            )
+        else:
+            values = tuple(row[:4])
+        normalized.append(tuple(None if value is None else str(value) for value in values))
+    return sorted(normalized)
+
+
+def fetch_constraint_rows() -> list[tuple[object, object, object, object]]:
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT model_code,constraint_key,constraint_type,constraint_value "
+            "FROM SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS "
+            "ORDER BY model_code,constraint_key"
+        )
+        return [tuple(row) for row in _fetchmany(cur)]
+
+
+def validate_static_constraints(expected_rows: Sequence[dict[str, object]]) -> None:
+    """Fail before output mutation unless immutable constraints match exactly."""
+    expected = _normalized_constraint_rows(expected_rows)
+    actual = _normalized_constraint_rows(fetch_constraint_rows())
+    if actual != expected:
+        raise RuntimeError(
+            "model_portfolio_constraints_mismatch:"
+            f"expected_rows={len(expected)}:actual_rows={len(actual)}"
+        )
 
 
 def persist_model_output_batch(
@@ -442,7 +489,6 @@ def persist_model_output_batch(
     )
     for rows, sql in ((analytics_rows, analytics_sql), (position_rows, position_sql)):
         with get_connection() as conn:
-            conn.call_timeout = 120_000
             cur = conn.cursor()
             for batch in _batches(rows, batch_size):
                 cur.executemany(sql, batch)
@@ -450,11 +496,13 @@ def persist_model_output_batch(
     return len(analytics_rows), len(position_rows)
 
 
-def persist_optimizer_and_constraints(
+def persist_optimizer_with_static_constraints(
     *,
     optimizer_rows: Sequence[dict[str, object]],
     constraint_rows: Sequence[dict[str, object]],
 ) -> int:
+    """Persist optimizer rows while leaving validated static constraints unchanged."""
+    validate_static_constraints(constraint_rows)
     batch_size = max(1, int(os.getenv("SC_IDX_PORTFOLIO_WRITE_BATCH_SIZE", DEFAULT_WRITE_BATCH_SIZE)))
     optimizer_sql = (
         "INSERT INTO SC_IDX_PORTFOLIO_OPT_INPUTS (trade_date,port_date,ticker,company_name,sector,benchmark_weight,"
@@ -463,18 +511,10 @@ def persist_optimizer_and_constraints(
         ":governance_score,:momentum_20d,:low_vol_60d,:governance_rank,:momentum_rank,:low_vol_rank,:hybrid_rank,"
         ":price_quality,:eligible_flag)"
     )
-    constraint_sql = (
-        "INSERT INTO SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS "
-        "(model_code,constraint_key,constraint_type,constraint_value) VALUES "
-        "(:model_code,:constraint_key,:constraint_type,:constraint_value)"
-    )
     with get_connection() as conn:
-        conn.call_timeout = 120_000
         cur = conn.cursor()
         for batch in _batches(optimizer_rows, batch_size):
             cur.executemany(optimizer_sql, batch)
-        for batch in _batches(constraint_rows, batch_size):
-            cur.executemany(constraint_sql, batch)
         conn.commit()
     return len(optimizer_rows)
 
@@ -495,6 +535,8 @@ __all__ = [
     "fetch_trade_date_bounds",
     "persist_outputs",
     "persist_model_output_batch",
-    "persist_optimizer_and_constraints",
+    "persist_optimizer_with_static_constraints",
     "reset_output_window",
+    "fetch_constraint_rows",
+    "validate_static_constraints",
 ]

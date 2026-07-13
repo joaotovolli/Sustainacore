@@ -21,6 +21,11 @@ def test_status_write_is_atomic_and_secrets_free(tmp_path):
         stage_started_at="2026-07-13T00:00:00+00:00",
         last_completed_date="2026-07-10",
         rows_processed=57000,
+        model_code="TECH100_GOV",
+        completed_model_count=3,
+        analytics_rows_committed=1140,
+        position_rows_committed=28500,
+        optimizer_rows_committed=175,
         status="RUNNING",
         failure_class=None,
         rollback_status=None,
@@ -30,6 +35,9 @@ def test_status_write_is_atomic_and_secrets_free(tmp_path):
     payload = read_reconstruction_status(path)
     assert payload["run_id"] == "ca-1"
     assert payload["rows_processed"] == 57000
+    assert payload["model_code"] == "TECH100_GOV"
+    assert payload["completed_model_count"] == 3
+    assert payload["position_rows_committed"] == 28500
     assert "password" not in payload
     assert "must-not-be-written" not in path.read_text(encoding="utf-8")
     assert not list(tmp_path.glob("*.tmp"))

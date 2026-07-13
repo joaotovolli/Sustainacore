@@ -105,6 +105,11 @@ Before a controlled reconstruction, run `tools/index_engine/reconstruction_readi
 complete intended range, aggregates all rebalance and price-basis blockers, rehearses portfolio output
 construction without writes, and exits non-zero unless `overall_status=PASS`.
 
+The low-resource portfolio rehearsal also requires the generated static model constraints to match
+Oracle exactly. Controlled reconstruction leaves that table unchanged and fails before output mutation
+on any mismatch. Oracle statements use the bounded `SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS` setting
+(300000 milliseconds by default during reconstruction).
+
 Primary orchestrated entrypoint:
 
 ```bash

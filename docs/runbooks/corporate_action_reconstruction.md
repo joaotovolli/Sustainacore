@@ -131,11 +131,34 @@ termination cannot run manifest compensation. Each heavy Python subprocess inste
 timeout which raises into the normal compensation handler. Do not use `Type=oneshot` with
 `RuntimeMaxSec`; systemd ignores that combination while the start job is active.
 
+The launcher submits with `systemd-run --no-block` and returns after unit acceptance. It prints the
+generated unit, durable status path, and one bounded inspection command; it never attaches Codex to
+the reconstruction output or starts a polling loop. Expected acceptance coordinates are:
+
+```text
+launch_status=ACCEPTED
+unit_name=<generated-unit>.service
+status_file=/var/lib/sustainacore/sc_idx/reconstruction_status.json
+status_command=<one-shot-command>
+```
+
 Portfolio output is generated one model at a time and written in 250-row batches. Each committed
 model or table remains covered by the validated reconstruction manifest. An Oracle disconnect is not
 blindly retried because commit state is ambiguous; it fails into fresh-connection manifest rollback.
 The official index writer also bounds Oracle array DML while retaining the same pre-publication
 mathematical validation.
+
+Model portfolio constraints are static reconstruction prerequisites. Before the first portfolio
+output deletion, the low-resource path generates the expected constraints and compares the normalized
+set exactly with Oracle. A mismatch fails before mutation. When they match, the controlled path never
+deletes or rewrites `SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS`; therefore the dated 12-object manifest covers
+every table that the path can mutate.
+
+`SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS` bounds each Oracle statement on the parent reconstruction
+connection and every fresh persistence, compensation, restoration-verification, and final-status
+connection. The default is 300000 milliseconds, chosen to accommodate the validated backup sizes on
+VM1 while preventing an Oracle call from hanging indefinitely. A timeout before mutation does not
+restore; a timeout after possible mutation enters manifest-backed compensation with fresh connections.
 
 Swap is not created automatically. Adding swap changes VM-wide failure and latency behavior and
 requires separate operator approval. Verify memory and kernel evidence before considering it.
@@ -154,9 +177,12 @@ Inspect it once without polling:
 python3 tools/index_engine/reconstruction_status.py
 ```
 
-The file contains recovery coordinates, deployed revision, current stage, status, failure class and
-rollback status. It never contains credentials, environment values or provider responses. Status
-updates are written through a temporary file, `fsync`, and atomic rename.
+The file contains recovery coordinates, deployed revision, current stage, status, failure class,
+rollback status, last completed date, rows processed, current model, completed model count, and
+committed analytics, position and optimizer row counts. It never contains credentials, environment
+values or provider responses. Status updates are written through a temporary file, `fsync`, and atomic
+rename. A status-write error is reported as a secondary diagnostic and never prevents database
+compensation.
 
 ## Rollback
 

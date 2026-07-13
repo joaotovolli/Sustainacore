@@ -5,11 +5,16 @@ import datetime as _dt
 import os
 from typing import Iterable, Optional
 
-from db_helper import get_connection
+from db_helper import get_connection as _get_connection
 from index_engine.db import normalize_ticker
+from index_engine.oracle_runtime import configure_reconstruction_connection_if_enabled
 
 INDEX_CODE = "TECH100"
 DEFAULT_WRITE_BATCH_SIZE = 250
+
+
+def get_connection():
+    return configure_reconstruction_connection_if_enabled(_get_connection())
 
 
 def _executemany_batched(cur, sql: str, binds: list[dict]) -> None:

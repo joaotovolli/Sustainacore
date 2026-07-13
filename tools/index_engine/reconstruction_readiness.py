@@ -18,6 +18,7 @@ ROOT = Path(os.getenv("SC_IDX_REPO_ROOT") or Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "app")]
 
 from db_helper import get_connection
+from index_engine.oracle_runtime import configure_reconstruction_connection
 from index_engine.corporate_actions import detect_split_candidate
 from tools.db_migrations import repair_sc_idx_corporate_actions as repair
 from tools.oracle.env_bootstrap import load_env_files
@@ -550,8 +551,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     load_env_files()
-    with get_connection() as conn:
-        conn.call_timeout = 30_000
+    with configure_reconstruction_connection(get_connection()) as conn:
         report = collect_readiness(conn, args)
     print_report(report)
     return 0 if report.passed else 2

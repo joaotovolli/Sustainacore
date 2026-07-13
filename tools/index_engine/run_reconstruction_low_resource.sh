@@ -9,11 +9,12 @@ fi
 unit="sc-idx-reconstruction-$(date -u +%Y%m%d%H%M%S)"
 repo="$(readlink -f /home/opc/Sustainacore)"
 python="/home/opc/Sustainacore/.venv/bin/python"
+status_file="/var/lib/sustainacore/sc_idx/reconstruction_status.json"
+call_timeout_ms="${SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS:-300000}"
 
-exec sudo -n systemd-run \
-  --wait \
-  --pipe \
-  --collect \
+sudo -n systemd-run \
+  --quiet \
+  --no-block \
   --unit="${unit}" \
   --property=Type=exec \
   --property=User=opc \
@@ -30,7 +31,13 @@ exec sudo -n systemd-run \
   --property=MemoryHigh=650M \
   --property=KillMode=control-group \
   --property=TimeoutStartSec=30 \
-  --setenv=SC_IDX_RECONSTRUCTION_STATUS_FILE=/var/lib/sustainacore/sc_idx/reconstruction_status.json \
+  --setenv="SC_IDX_RECONSTRUCTION_STATUS_FILE=${status_file}" \
+  --setenv="SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS=${call_timeout_ms}" \
   --setenv=SC_IDX_INDEX_WRITE_BATCH_SIZE=250 \
   --setenv=SC_IDX_PORTFOLIO_WRITE_BATCH_SIZE=250 \
   -- "${python}" tools/db_migrations/repair_sc_idx_corporate_actions.py "$@"
+
+echo "launch_status=ACCEPTED"
+echo "unit_name=${unit}.service"
+echo "status_file=${status_file}"
+echo "status_command=sudo -n systemctl show ${unit}.service -p ActiveState -p SubState -p Result -p ExecMainStatus --no-pager && ${python} tools/index_engine/reconstruction_status.py --status-file ${status_file}"

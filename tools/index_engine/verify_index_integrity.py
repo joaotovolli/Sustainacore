@@ -14,6 +14,7 @@ ROOT = Path(os.getenv("SC_IDX_REPO_ROOT") or Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "app")]
 
 from db_helper import get_connection
+from index_engine.oracle_runtime import configure_reconstruction_connection
 from index_engine.index_integrity import IntegrityCheck, audit_rebalance, maximum_check
 from tools.oracle.env_bootstrap import load_env_files
 
@@ -394,8 +395,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     load_env_files()
-    with get_connection() as conn:
-        conn.call_timeout = 30_000
+    with configure_reconstruction_connection(get_connection()) as conn:
         checks = collect_checks(conn, args)
     for check in checks:
         context = ""
