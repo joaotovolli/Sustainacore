@@ -20,6 +20,7 @@ for path in (REPO_ROOT, APP_PATH):
 from tools.oracle.env_bootstrap import load_env_files
 
 from index_engine.data_quality import generate_weekdays
+from index_engine.oracle_runtime import configure_reconstruction_connection_if_enabled
 from index_engine.db import (
     fetch_constituent_tickers,
     fetch_distinct_tech100_tickers,
@@ -746,7 +747,7 @@ def _fetch_existing_ok(
     binds.update({f"t{i}": t for i, t in enumerate(tickers)})
     existing: set[tuple[str, _dt.date]] = set()
     from db_helper import get_connection
-    with get_connection() as conn:
+    with configure_reconstruction_connection_if_enabled(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute(sql, binds)
         for ticker, trade_date in cur.fetchall():

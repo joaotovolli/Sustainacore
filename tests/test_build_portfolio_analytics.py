@@ -101,7 +101,9 @@ def test_constraint_mismatch_fails_before_low_resource_reset(monkeypatch):
     assert events == []
 
 
-def test_status_file_failure_is_secondary_to_portfolio_persistence(monkeypatch, capsys):
+def test_status_file_failure_is_secondary_to_portfolio_persistence(
+    monkeypatch, capsys, tmp_path
+):
     _patch_low_resource_inputs(monkeypatch)
     events = []
     monkeypatch.setattr(builder.db, "validate_static_constraints", lambda _rows: None)
@@ -161,7 +163,7 @@ def test_status_file_failure_is_secondary_to_portfolio_persistence(monkeypatch, 
             "--run-id",
             "ca-1",
             "--status-file",
-            "/tmp/test-reconstruction-status.json",
+            str(tmp_path / "reconstruction-status.json"),
             "--start",
             "2026-01-02",
             "--end",

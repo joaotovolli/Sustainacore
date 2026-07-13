@@ -1,6 +1,7 @@
 import pytest
 
 from app.index_engine import oracle_runtime
+from app.index_engine import db as price_db
 
 
 class Connection:
@@ -26,6 +27,14 @@ def test_optional_configuration_leaves_scheduled_connection_unchanged(monkeypatc
     conn = Connection()
     oracle_runtime.configure_reconstruction_connection_if_enabled(conn)
     assert conn.call_timeout is None
+
+
+def test_price_database_connections_opt_in_during_reconstruction(monkeypatch):
+    monkeypatch.setenv("SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS", "234567")
+    conn = Connection()
+    monkeypatch.setattr(price_db, "_get_connection", lambda: conn)
+    assert price_db.get_connection() is conn
+    assert conn.call_timeout == 234567
 
 
 @pytest.mark.parametrize("value", ("0", "-1"))

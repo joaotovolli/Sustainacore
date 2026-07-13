@@ -155,10 +155,11 @@ deletes or rewrites `SC_IDX_MODEL_PORTFOLIO_CONSTRAINTS`; therefore the dated 12
 every table that the path can mutate.
 
 `SC_IDX_RECON_ORACLE_CALL_TIMEOUT_MS` bounds each Oracle statement on the parent reconstruction
-connection and every fresh persistence, compensation, restoration-verification, and final-status
-connection. The default is 300000 milliseconds, chosen to accommodate the validated backup sizes on
-VM1 while preventing an Oracle call from hanging indefinitely. A timeout before mutation does not
-restore; a timeout after possible mutation enters manifest-backed compensation with fresh connections.
+connection, inherited raw/canonical price-ingestion connections, and every fresh persistence,
+compensation, restoration-verification, and final-status connection. The default is 300000
+milliseconds, chosen to accommodate the validated backup sizes on VM1 while preventing an Oracle call
+from hanging indefinitely. A timeout before mutation does not restore; a timeout after possible
+mutation enters manifest-backed compensation with fresh connections.
 
 Swap is not created automatically. Adding swap changes VM-wide failure and latency behavior and
 requires separate operator approval. Verify memory and kernel evidence before considering it.
