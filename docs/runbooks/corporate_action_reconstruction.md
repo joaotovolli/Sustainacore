@@ -203,6 +203,8 @@ a partial restoration. Leave the timer stopped and preserve every backup table a
 ## Required verification
 
 - CRWD has no split-only loss and no duplicate adjustment.
+- Missing prior level/divisor state is reported separately from genuinely missing exact canonical
+  rebalance anchors; both conditions remain fail-closed.
 - `market_value = shares * price_used` within 1e-6.
 - daily index return equals summed contributions within 1e-6.
 - every rebalance bridge agrees with the prior level within max(1e-6, level × 1e-8).

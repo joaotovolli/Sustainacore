@@ -213,6 +213,41 @@ def _seed_prior_state(
     return prev_trade, current_reb, prev_port_date, holdings_by_reb, divisors_by_reb, levels
 
 
+def _stage_seeded_rebalance_for_rebuild(
+    *,
+    rebuild: bool,
+    trading_days: List[_dt.date],
+    current_reb: _dt.date | None,
+    holdings_by_reb: Dict[_dt.date, Dict[str, float]],
+    divisors_by_reb: Dict[_dt.date, float],
+    pending_holdings_rows: Dict[_dt.date, list[dict]],
+    pending_divisor_rows: Dict[_dt.date, float],
+) -> None:
+    """Retain a seeded snapshot that the bounded rebuild will delete.
+
+    A base-date rebuild can seed its initial holdings and divisor from the
+    existing row.  The later range delete includes that same date, so the
+    snapshot must be staged for identical repersistence even though the
+    universe does not transition on the first calculation day.
+    """
+
+    if not rebuild or current_reb is None or current_reb not in trading_days:
+        return
+    shares = holdings_by_reb.get(current_reb)
+    divisor = divisors_by_reb.get(current_reb)
+    if not shares or divisor is None:
+        raise RuntimeError(f"seeded_rebalance_state_incomplete:{current_reb.isoformat()}")
+    target_weight = 1.0 / len(shares)
+    pending_holdings_rows.setdefault(
+        current_reb,
+        [
+            {"ticker": ticker, "target_weight": target_weight, "shares": share_count}
+            for ticker, share_count in shares.items()
+        ],
+    )
+    pending_divisor_rows.setdefault(current_reb, divisor)
+
+
 def _collect_missing(
     trade_date: _dt.date,
     tickers: List[str],
@@ -863,6 +898,15 @@ def main(argv: list[str] | None = None) -> int:
         prev_trade, current_reb, prev_port_date, holdings_by_reb, divisors_by_reb, levels = _seed_prior_state(
             start_date=trading_days[0],
             allow_close=args.allow_close,
+        )
+        _stage_seeded_rebalance_for_rebuild(
+            rebuild=args.rebuild,
+            trading_days=trading_days,
+            current_reb=current_reb,
+            holdings_by_reb=holdings_by_reb,
+            divisors_by_reb=divisors_by_reb,
+            pending_holdings_rows=pending_holdings_rows,
+            pending_divisor_rows=pending_divisor_rows,
         )
         if prev_trade and current_reb and current_reb in holdings_by_reb:
             prices_prev = db.fetch_prices(
