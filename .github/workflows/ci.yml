@@ -4,19 +4,23 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "11 6 * * *"
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   sc-idx-orchestration:
     name: SC_IDX orchestration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-sc-idx-${{ hashFiles('requirements.txt') }}
@@ -49,7 +53,7 @@ jobs:
             --restart \
             --report-dir artifacts/sc_idx_pipeline_smoke
       - name: Upload SC_IDX smoke artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sc-idx-pipeline-smoke
           path: artifacts/sc_idx_pipeline_smoke
@@ -58,7 +62,7 @@ jobs:
     name: Ensure sensitive files are ignored
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify that sensitive files are not committed
         run: |
           set -euo pipefail
@@ -74,7 +78,7 @@ jobs:
     name: Guard forbidden terms
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Scan for forbidden provider terms
         run: |
           set -euo pipefail
@@ -106,10 +110,10 @@ jobs:
     outputs:
       ui: ${{ steps.filter.outputs.ui }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -125,7 +129,7 @@ jobs:
     needs: vrt-changes
     if: github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && needs.vrt-changes.outputs.ui == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Configure smoke VRT for pull requests
@@ -135,13 +139,13 @@ jobs:
           echo "VRT_SMOKE=1" >> "$GITHUB_ENV"
           echo "VRT_FORCE_VIEWPORT=360x800" >> "$GITHUB_ENV"
           echo "VRT_FORCE_PAGES=home" >> "$GITHUB_ENV"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "18"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: website_django/package-lock.json
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('website_django/requirements.txt') }}
@@ -152,7 +156,7 @@ jobs:
           set -euo pipefail
           python3 -m pip install -r website_django/requirements.txt
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('website_django/package-lock.json') }}
@@ -190,7 +194,7 @@ jobs:
           cd website_django
           node scripts/mobile_vrt_diff.mjs
       - name: Upload VRT artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mobile-vrt-artifacts
           path: artifacts/vrt
