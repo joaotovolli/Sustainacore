@@ -8,7 +8,12 @@ on:
       - 'website_django/core/**'
   workflow_dispatch: {}
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "23 3 * * *"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   ui-home-compare:
@@ -16,10 +21,10 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: "18"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: website_django/package-lock.json
       - name: Install dependencies
@@ -133,7 +138,7 @@ jobs:
           node scripts/ui_compare_threshold.mjs
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ui-home-compare
           path: artifacts/ui
@@ -153,7 +158,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Ensure preview links in PR body
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = context.payload.pull_request;
@@ -179,7 +184,7 @@ jobs:
               body: updated
             });
       - name: Comment with artifact download command
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = context.payload.pull_request;
