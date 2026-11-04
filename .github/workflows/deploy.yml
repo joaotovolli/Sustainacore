@@ -16,6 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read
   contents: read
   pull-requests: write
   issues: write # allow deploy alerts to reach PRs
