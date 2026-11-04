@@ -22,7 +22,7 @@ rsync -az --delete \
 
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${VM_USER}@${VM_HOST}" \
   TARGET_SHA="$TARGET_SHA" REPO_URL="$REPO_URL" API_APP="$API_APP" SC_IDX_LINK="$SC_IDX_LINK" STAGE="$STAGE" \
-  bash -s <<'REMOTE_SCRIPT'
+  SC_IDX_ONLY="${SC_IDX_ONLY:-0}" bash -s <<'REMOTE_SCRIPT'
     set -euo pipefail
 
     ensure_sc_idx_release() {
@@ -59,6 +59,15 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${V
       sudo cp "$release_dir"/infra/systemd/sc-idx-*.service /etc/systemd/system/
       sudo cp "$release_dir"/infra/systemd/sc-idx-*.timer /etc/systemd/system/
     }
+
+    if [[ "${SC_IDX_ONLY:-0}" == "1" ]]; then
+      ensure_sc_idx_release
+      sudo systemctl daemon-reload
+      sudo systemctl reset-failed sc-idx-pipeline.service || true
+      printf "sc_idx_release=%s\n" "$(readlink -f "$SC_IDX_LINK")"
+      sudo -n -u opc git -C "$(readlink -f "$SC_IDX_LINK")" rev-parse HEAD
+      exit 0
+    fi
 
     sudo mkdir -p "$API_APP"
     sudo rsync -a --delete \
