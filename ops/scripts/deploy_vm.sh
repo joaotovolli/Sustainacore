@@ -64,8 +64,8 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${V
       ensure_sc_idx_release
       sudo systemctl daemon-reload
       sudo systemctl reset-failed sc-idx-pipeline.service || true
-      printf "sc_idx_release=%s\n" "$(readlink -f "$SC_IDX_LINK")"
-      sudo -n -u opc git -C "$(readlink -f "$SC_IDX_LINK")" rev-parse HEAD
+      printf "sc_idx_release=%s\n" "$(sudo -n readlink -f "$SC_IDX_LINK")"
+      sudo -n -u opc git -C "$(sudo -n readlink -f "$SC_IDX_LINK")" rev-parse HEAD
       exit 0
     fi
 
@@ -97,6 +97,6 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${V
 
     curl -fsS "http://127.0.0.1:8080/ask2?q=ping&k=1" | head -c 400
     echo
-    printf "sc_idx_release=%s\n" "$(readlink -f "$SC_IDX_LINK")"
-    sudo -n -u opc git -C "$(readlink -f "$SC_IDX_LINK")" rev-parse --short HEAD
+    printf "sc_idx_release=%s\n" "$(sudo -n readlink -f "$SC_IDX_LINK")"
+    sudo -n -u opc git -C "$(sudo -n readlink -f "$SC_IDX_LINK")" rev-parse --short HEAD
 REMOTE_SCRIPT
