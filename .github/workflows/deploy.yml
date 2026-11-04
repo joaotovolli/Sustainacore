@@ -2,6 +2,11 @@ name: Deploy after Canary
 
 on:
   workflow_dispatch:
+    inputs:
+      sc_idx_only:
+        description: Deploy only the SC_IDX release without API migrations
+        type: boolean
+        default: false
   workflow_run:
     workflows:
       - Canary + Self-Heal
@@ -184,6 +189,7 @@ jobs:
           VM_HOST: ${{ secrets.VM_HOST }}
           VM_USER: ${{ secrets.VM_USER }}
           SSH_KEY_PATH: ${{ steps.ssh-key.outputs.path }}
+          SC_IDX_ONLY: ${{ inputs.sc_idx_only && '1' || '0' }}
         run: |
           set -euo pipefail
           if [[ -z "${SSH_KEY_PATH:-}" ]]; then
