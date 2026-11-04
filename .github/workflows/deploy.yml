@@ -37,7 +37,7 @@ jobs:
           WORKFLOW_RUN_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || '' }}
           WORKFLOW_RUN_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || '' }}
           WORKFLOW_RUN_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
-          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           VM_HOST: ${{ secrets.VM_HOST }}
           VM_USER: ${{ secrets.VM_USER }}
           VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
@@ -113,7 +113,7 @@ jobs:
     if: ${{ needs.noop_on_skip.outputs.should_deploy == 'true' }}
     runs-on: ubuntu-latest
     env:
-      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
+      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     outputs:
       ready: ${{ steps.preflight.outputs.ready }}
       deploy-status: ${{ steps.run-deploy.outputs.status }}
