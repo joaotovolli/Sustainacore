@@ -1,6 +1,7 @@
 name: Deploy after Canary
 
 on:
+  workflow_dispatch:
   workflow_run:
     workflows:
       - Canary + Self-Heal
@@ -15,13 +16,14 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read
   contents: read
   pull-requests: write
   issues: write # allow deploy alerts to reach PRs
 
 jobs:
   noop_on_skip:
-    if: ${{ github.event_name == 'workflow_run' }}
+    if: ${{ github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     outputs:
       should_deploy: ${{ steps.gate.outputs.should_deploy }}
@@ -35,7 +37,7 @@ jobs:
           WORKFLOW_RUN_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || '' }}
           WORKFLOW_RUN_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || '' }}
           WORKFLOW_RUN_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
-          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           VM_HOST: ${{ secrets.VM_HOST }}
           VM_USER: ${{ secrets.VM_USER }}
           VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
@@ -59,6 +61,8 @@ jobs:
             if [[ ${#reasons[@]} -eq 0 ]]; then
               should="true"
             fi
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            should="true"
           else
             reasons+=("Unsupported triggering event '$EVENT_NAME'.")
           fi
@@ -106,15 +110,28 @@ jobs:
 
   deploy:
     needs: noop_on_skip
-    if: ${{ github.event_name == 'workflow_run' && needs.noop_on_skip.outputs.should_deploy == 'true' }}
+    if: ${{ needs.noop_on_skip.outputs.should_deploy == 'true' }}
     runs-on: ubuntu-latest
     env:
-      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.sha || github.sha }}
+      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     outputs:
       ready: ${{ steps.preflight.outputs.ready }}
       deploy-status: ${{ steps.run-deploy.outputs.status }}
       deploy-snippet: ${{ steps.run-deploy.outputs.snippet }}
     steps:
+      - name: Require successful canary for manual deployment
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner, repo: context.repo.repo,
+              workflow_id: 'canary.yml', head_sha: process.env.TARGET_SHA,
+              event: 'push', status: 'success', per_page: 30,
+            });
+            if (!data.workflow_runs.some(run => run.head_branch === 'main')) {
+              core.setFailed('A successful push-to-main canary is required for this exact revision.');
+            }
       - name: Preflight secrets
         id: preflight
         shell: bash
