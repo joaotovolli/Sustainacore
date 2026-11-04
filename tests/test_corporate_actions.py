@@ -54,6 +54,17 @@ def test_reviewed_rebuild_allows_and_audits_non_split_large_move(capsys) -> None
     assert "index_calc_reviewed_non_split_move" in capsys.readouterr().err
 
 
+def test_reviewed_incremental_move_requires_exact_observations(capsys) -> None:
+    args = dict(prev_date=dt.date(2026, 10, 29), trade_date=dt.date(2026, 10, 30),
+                tickers=["INTC"], prices_prev={"INTC": 92.07},
+                prices_now={"INTC": 65.76}, max_abs_return=0.20)
+    calc_index.validate_price_return_sanity(**args)
+    assert "index_calc_reviewed_non_split_move" in capsys.readouterr().err
+    args["prices_now"] = {"INTC": 65.75}
+    with pytest.raises(calc_index.IndexValidationError, match="suspicious_price_return"):
+        calc_index.validate_price_return_sanity(**args)
+
+
 def test_reviewed_rebuild_still_blocks_unresolved_split_candidate() -> None:
     with pytest.raises(calc_index.IndexValidationError, match="corporate_action_confirmation_required"):
         calc_index.validate_price_return_sanity(
@@ -108,3 +119,21 @@ def test_confirmed_action_with_inconsistent_adjusted_basis_blocks() -> None:
             prices_prev={"AAA":400.0},prices_now={"AAA":100.0},max_abs_return=0.20,
             action_lookup=lambda *_: action,
         )
+
+
+@pytest.mark.parametrize('field,value', [
+    ('prev_date', dt.date(2026, 10, 28)),
+    ('trade_date', dt.date(2026, 11, 2)),
+    ('prices_prev', {'INTC': 92.08}),
+    ('ticker', 'OTHER'),
+])
+def test_reviewed_move_rejects_other_observations(field, value):
+    args = dict(prev_date=dt.date(2026, 10, 29), trade_date=dt.date(2026, 10, 30),
+                tickers=['INTC'], prices_prev={'INTC': 92.07},
+                prices_now={'INTC': 65.76}, max_abs_return=0.20)
+    if field == 'ticker':
+        args.update(tickers=[value], prices_prev={value: 92.07}, prices_now={value: 65.76})
+    else:
+        args[field] = value
+    with pytest.raises(calc_index.IndexValidationError, match='suspicious_price_return'):
+        calc_index.validate_price_return_sanity(**args)
