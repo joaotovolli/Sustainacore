@@ -39,6 +39,9 @@ TRADING_DAY_FALLBACK_MAX_GAP_ENV = "SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP"
 DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP = 3
 MAX_ABS_CONSTITUENT_RETURN_ENV = "SC_IDX_MAX_ABS_CONSTITUENT_RETURN"
 DEFAULT_MAX_ABS_CONSTITUENT_RETURN = 0.20
+# Independently reviewed closing prices; exact matches only, never split candidates.
+# https://stockanalysis.com/stocks/intc/history/ (2026-10-29 and 2026-10-30)
+REVIEWED_PRICE_MOVES = {("INTC", _dt.date(2026, 10, 29), _dt.date(2026, 10, 30), 92.07, 65.76)}
 REBALANCE_CONTINUITY_ABS_TOL_ENV = "SC_IDX_REBALANCE_CONTINUITY_ABS_TOL"
 DEFAULT_REBALANCE_CONTINUITY_ABS_TOL = 1e-6
 REBALANCE_CONTINUITY_REL_TOL_ENV = "SC_IDX_REBALANCE_CONTINUITY_REL_TOL"
@@ -355,7 +358,8 @@ def validate_price_return_sanity(
                 previous_price=p0,
                 current_price=p1,
             )
-            if candidate is None and allow_reviewed_non_split_moves:
+            reviewed = (ticker, prev_date, trade_date, p0, p1) in REVIEWED_PRICE_MOVES
+            if candidate is None and (allow_reviewed_non_split_moves or reviewed):
                 print(
                     "index_calc_reviewed_non_split_move:"
                     f"ticker={ticker} prev_date={prev_date.isoformat()} "
