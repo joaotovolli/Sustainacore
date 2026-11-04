@@ -22,7 +22,7 @@ rsync -az --delete \
 
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${VM_USER}@${VM_HOST}" \
   TARGET_SHA="$TARGET_SHA" REPO_URL="$REPO_URL" API_APP="$API_APP" SC_IDX_LINK="$SC_IDX_LINK" STAGE="$STAGE" \
-  bash -lc '
+  bash -s <<'REMOTE_SCRIPT'
     set -euo pipefail
 
     ensure_sc_idx_release() {
@@ -90,4 +90,4 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${V
     echo
     printf "sc_idx_release=%s\n" "$(readlink -f "$SC_IDX_LINK")"
     sudo -n -u opc git -C "$(readlink -f "$SC_IDX_LINK")" rev-parse --short HEAD
-  '
+REMOTE_SCRIPT
