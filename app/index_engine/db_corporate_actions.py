@@ -22,9 +22,9 @@ def has_action_in_window(ticker: str, previous: dt.date, current: dt.date) -> bo
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) FROM SC_IDX_CORPORATE_ACTIONS WHERE index_code=:code "
-                "AND ticker=:ticker AND effective_date > :previous AND effective_date <= :current",
-                code=INDEX_CODE, ticker=ticker, previous=previous, current=current,
+                "SELECT COUNT(*) FROM SC_IDX_CORPORATE_ACTIONS WHERE index_code=:idx_code "
+                "AND ticker=:ticker AND effective_date > :start_day AND effective_date <= :end_day",
+                idx_code=INDEX_CODE, ticker=ticker, start_day=previous, end_day=current,
             )
             return bool(cur.fetchone()[0])
 
