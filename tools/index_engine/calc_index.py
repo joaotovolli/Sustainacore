@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import math
 import os
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ for path in (REPO_ROOT, APP_ROOT):
         sys.path.insert(0, str(path))
 
 from tools.index_engine.env_loader import load_default_env
+from index_engine.price_move_review import matching_review
 from index_engine.data_quality import generate_weekdays
 from index_engine.alert_state import should_send_alert_once_per_day
 from index_engine.alerts import send_email
@@ -39,9 +41,6 @@ TRADING_DAY_FALLBACK_MAX_GAP_ENV = "SC_IDX_TRADING_DAY_FALLBACK_MAX_GAP"
 DEFAULT_TRADING_DAY_FALLBACK_MAX_GAP = 3
 MAX_ABS_CONSTITUENT_RETURN_ENV = "SC_IDX_MAX_ABS_CONSTITUENT_RETURN"
 DEFAULT_MAX_ABS_CONSTITUENT_RETURN = 0.20
-# Independently reviewed closing prices; exact matches only, never split candidates.
-# https://stockanalysis.com/stocks/intc/history/ (2026-10-29 and 2026-10-30)
-REVIEWED_PRICE_MOVES = {("INTC", _dt.date(2026, 10, 29), _dt.date(2026, 10, 30), 92.07, 65.76)}
 REBALANCE_CONTINUITY_ABS_TOL_ENV = "SC_IDX_REBALANCE_CONTINUITY_ABS_TOL"
 DEFAULT_REBALANCE_CONTINUITY_ABS_TOL = 1e-6
 REBALANCE_CONTINUITY_REL_TOL_ENV = "SC_IDX_REBALANCE_CONTINUITY_REL_TOL"
@@ -50,6 +49,30 @@ DEFAULT_REBALANCE_CONTINUITY_REL_TOL = 1e-8
 
 class IndexValidationError(RuntimeError):
     """Expected validation failure that should stop publication cleanly."""
+
+
+def price_validation_report(error: IndexValidationError) -> dict:
+    """Expose only fields emitted by the price guard, never arbitrary exception text."""
+    import re
+
+    category, _, fields = str(error).partition(":")
+    keys = {"ticker": "ticker", "prev_date": "previous_trade_date",
+            "trade_date": "trade_date", "effective_date": "trade_date",
+            "prev_price": "previous_price", "current_price": "current_price",
+            "ret_1d": "observed_return", "threshold": "validation_threshold"}
+    details = {"error_category": category, "verification_status": "blocked",
+               "corporate_action_status": "requires_review" if category.startswith("corporate_action")
+                                          else "not_established",
+               "recommended_action": "Review both adjusted closes and the action register before retrying."}
+    safe = []
+    for field in fields.split():
+        key, _, value = field.partition("=")
+        if key in keys and re.fullmatch(r"[A-Za-z0-9_.+-]{1,48}", value):
+            details[keys[key]] = value
+            safe.append(field)
+    return {"status": "FAILED", "detail": category, "error": category + ":" + " ".join(safe),
+            "context": {"price_validation": details}, "error_token": "calc_exit_code",
+            "retryable": False, "remediation": details["recommended_action"]}
 
 
 def _parse_date(value: str) -> _dt.date:
@@ -335,13 +358,15 @@ def validate_price_return_sanity(
     action_lookup: Callable[[str, _dt.date], object | None] | None = None,
     candidate_recorder: Callable[[object], object] | None = None,
     allow_reviewed_non_split_moves: bool = False,
+    adjusted_prices: bool = True,
+    action_present: Callable[[str, _dt.date, _dt.date], bool] | None = None,
 ) -> None:
     for ticker in tickers:
         p0 = prices_prev.get(ticker)
         p1 = prices_now.get(ticker)
         if p0 is None or p1 is None:
-            continue
-        if p0 <= 0 or p1 <= 0:
+            raise IndexValidationError(f"missing_price_for_return:ticker={ticker} prev_date={prev_date} trade_date={trade_date}")
+        if not all(math.isfinite(p) and p > 0 for p in (p0, p1)):
             raise IndexValidationError(
                 "invalid_price_for_return:"
                 f"ticker={ticker} "
@@ -358,12 +383,16 @@ def validate_price_return_sanity(
                 previous_price=p0,
                 current_price=p1,
             )
-            reviewed = (ticker, prev_date, trade_date, p0, p1) in REVIEWED_PRICE_MOVES
+            reviewed = None
+            if candidate is None and adjusted_prices:
+                reviewed = matching_review(ticker, prev_date, trade_date, p0, p1)
+                if reviewed and action_present and action_present(ticker, prev_date, trade_date):
+                    raise IndexValidationError(f"corporate_action_review_required:ticker={ticker} prev_date={prev_date} trade_date={trade_date}")
             if candidate is None and (allow_reviewed_non_split_moves or reviewed):
                 print(
                     "index_calc_reviewed_non_split_move:"
                     f"ticker={ticker} prev_date={prev_date.isoformat()} "
-                    f"trade_date={trade_date.isoformat()} ret_1d={ret_1d:.8f}",
+                    f"trade_date={trade_date.isoformat()} ret_1d={ret_1d:.8f} evidence={reviewed or 'reconstruction'}",
                     file=sys.stderr,
                 )
                 continue
@@ -663,6 +692,10 @@ def _run_self_heal(
 
 
 def main(argv: list[str] | None = None) -> int:
+    return calculate(argv, propagate_validation=False)
+
+
+def calculate(argv: list[str] | None, *, propagate_validation: bool) -> int:
     parser = argparse.ArgumentParser(description="TECH100 index calc v1")
     parser.add_argument("--start", help="Start date YYYY-MM-DD")
     parser.add_argument("--end", help="End date YYYY-MM-DD (default: max trading day)")
@@ -1053,8 +1086,10 @@ def main(argv: list[str] | None = None) -> int:
                     prev_date=prev_trade,
                     trade_date=trade_date,
                     tickers=list(holdings_by_reb[current_reb].keys()),
-                    prices_prev=previous_prices,
+                    prices_prev=price_map_prev if is_rebalance else previous_prices,
                     prices_now=price_map,
+                    adjusted_prices=not args.allow_close,
+                    action_present=db_ca.has_action_in_window,
                     max_abs_return=max_abs_constituent_return,
                     action_lookup=db_ca.fetch_confirmed_action,
                     candidate_recorder=lambda candidate: db_ca.record_pending_candidate(candidate, run_id),
@@ -1063,6 +1098,8 @@ def main(argv: list[str] | None = None) -> int:
             except IndexValidationError as exc:
                 finish_run(run_id, status="ERROR", error=str(exc))
                 print(f"index_calc_validation_failed:{exc}", file=sys.stderr)
+                if propagate_validation:
+                    raise
                 return 2
 
         level = compute_levels(

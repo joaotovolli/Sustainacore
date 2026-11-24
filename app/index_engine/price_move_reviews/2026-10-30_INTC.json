@@ -1,0 +1,9 @@
+{
+  "ticker": "INTC", "security": "Intel Corporation common stock", "exchange": "NASDAQ", "currency": "USD",
+  "previous_trade_date": "2026-10-29", "trade_date": "2026-10-30",
+  "canonical_prices": [92.07, 65.76], "independent_adjusted_prices": [92.07, 65.76],
+  "basis": "adjusted_regular_session_close", "corporate_actions": "checked_clear",
+  "independent_source_confirmed": true, "reviewer": "joaotovolli", "reviewed_at": "2026-11-04",
+  "price_evidence": "SC_IDX incident 554, independent adjusted closing-price history for both sessions",
+  "action_evidence": "Incident 554, corporate-action register and contemporary reporting reviewed"
+}

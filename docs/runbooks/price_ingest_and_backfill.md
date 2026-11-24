@@ -185,3 +185,29 @@ PYTHONPATH=/home/opc/Sustainacore python3 tools/index_engine/calc_index.py \
 sudo systemctl start sc-idx-canon-monitor.service
 sudo journalctl -u sc-idx-canon-monitor.service -n 80 --no-pager
 ```
+
+## Reviewing an exceptional daily return
+
+The default 20% guard stops the daily calculation for review. Inspect
+`stage_results.calc_index.detail_json.context.price_validation` in the run
+report. Check all constituents in the incomplete window against the exact prior
+trading session. Verify both regular-session adjusted closes for the same
+listed security, exchange and currency against a source independent of ingest.
+Check issuer distributions, splits and the Oracle corporate-action register.
+If sources disagree, re-read the affected canonical source bar before any write.
+For a verified correction to a published observation, capture the affected rows,
+holdings, divisors and dependent portfolio outputs before recomputing the bounded
+window. Keep the previous observations and the independent evidence for audit.
+
+For a verified exceptional observation use the JSON fields in
+`app/index_engine/price_move_reviews/2026-10-30_INTC.json`. Record the exact
+canonical pair separately from the independent adjusted closes, the reviewer,
+review date, and retrievable references for both price and action evidence.
+Install the record atomically in the administrator-owned
+`/etc/sustainacore/price_move_reviews/YYYY-MM-DD_TICKER.json` (current session
+date, service-readable, no service write access). Retain the reviewed file
+and evidence. Run the documented database-only pipeline. The journal records
+the SHA-256 of the accepted record. A changed observation needs a new review.
+Missing evidence, different canonical values, a split candidate, or a registered
+action in the interval stops incremental acceptance. Published independent
+prices may differ by at most 0.000005 from their stored representation.
