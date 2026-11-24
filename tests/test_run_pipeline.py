@@ -1812,3 +1812,23 @@ def test_refresh_pipeline_report_preseeds_telemetry_path(tmp_path):
     refreshed = orchestration._refresh_pipeline_report(state, runtime)
 
     assert refreshed["report"]["artifact_paths"]["telemetry_path"].endswith("sc_idx_pipeline_run-test.json")
+
+
+def test_calc_stage_propagates_review_failure(monkeypatch):
+    from tools.index_engine import calc_index
+
+    day = dt.date(2026, 11, 23)
+    def reject(argv, *, propagate_validation):
+        assert "--strict" in argv and propagate_validation
+        calc_index.validate_price_return_sanity(
+            prev_date=dt.date(2026, 11, 20), trade_date=day, tickers=["NVDA"],
+            prices_prev={"NVDA": 125.79}, prices_now={"NVDA": 165.050003}, max_abs_return=0.20,
+        )
+
+    monkeypatch.setattr(calc_index, "calculate", reject)
+    monkeypatch.setattr(orchestration.engine_db, "fetch_max_canon_trade_date", lambda: day)
+    result = SCIdxPipelineRuntime().calc_index({"context": {"calc_target_day": day, "trading_days": [day]}})
+    assert result["status"] == "FAILED" and result["error_token"] == "calc_exit_code"
+    assert result["retryable"] is False
+    assert result["context"]["price_validation"]["ticker"] == "NVDA"
+    assert "125.790000" in result["error"]

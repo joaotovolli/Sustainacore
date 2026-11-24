@@ -1843,7 +1843,7 @@ class SCIdxPipelineRuntime:
         trading_days = _context_trading_days(context, default_end=max_canon_date)
         end_day = max(day for day in trading_days if day <= max_canon_date)
         try:
-            code = calc_module.main(
+            code = calc_module.calculate(
                 [
                     "--start",
                     target_day.isoformat(),
@@ -1852,8 +1852,10 @@ class SCIdxPipelineRuntime:
                     "--strict",
                     "--debug",
                     "--no-preflight-self-heal",
-                ]
+                ], propagate_validation=True,
             )
+        except calc_module.IndexValidationError as exc:
+            return calc_module.price_validation_report(exc)
         except Exception as exc:
             return {
                 "status": "FAILED",
@@ -2959,6 +2961,10 @@ def run_pipeline(args: PipelineArgs) -> tuple[int, PipelineGraphState]:
     final_state = graph.invoke(state)
     terminal_status = _derive_terminal_status(final_state)
     final_state["terminal_status"] = terminal_status
+    # Preserve the failed terminal row and its alert, but avoid systemd retries
+    # while an operator needs to review the same deterministic observation.
+    if terminal_status == "failed" and (final_state.get("context") or {}).get("price_validation"):
+        return 2, final_state
     return _exit_code_for_terminal(terminal_status), final_state
 
 

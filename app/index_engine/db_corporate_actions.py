@@ -17,6 +17,18 @@ def _missing_object(exc: Exception) -> bool:
     return bool(exc.args and getattr(exc.args[0], "code", None) == 942)
 
 
+def has_action_in_window(ticker: str, previous: dt.date, current: dt.date) -> bool:
+    """Reviews require a readable action register, including pending actions."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM SC_IDX_CORPORATE_ACTIONS WHERE index_code=:code "
+                "AND ticker=:ticker AND effective_date > :previous AND effective_date <= :current",
+                code=INDEX_CODE, ticker=ticker, previous=previous, current=current,
+            )
+            return bool(cur.fetchone()[0])
+
+
 def fetch_confirmed_action(ticker: str, effective_date: dt.date) -> ConfirmedCorporateAction | None:
     sql = (
         "SELECT ticker,effective_date,action_type,ratio,processing_method "

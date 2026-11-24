@@ -137,3 +137,42 @@ def test_reviewed_move_rejects_other_observations(field, value):
         args[field] = value
     with pytest.raises(calc_index.IndexValidationError, match='suspicious_price_return'):
         calc_index.validate_price_return_sanity(**args)
+
+
+def test_private_review_gates_and_audits_incremental_gain(tmp_path, monkeypatch, capsys):
+    import hashlib
+    import json
+    from index_engine import price_move_review as reviews
+
+    monkeypatch.setattr(reviews, "PRIVATE", tmp_path)
+    record = json.loads((reviews.PACKAGED / "2026-10-30_INTC.json").read_text())
+    record.update(ticker="NVDA", previous_trade_date="2026-11-20", trade_date="2026-11-23",
+                  canonical_prices=[125.53, 165.050003], independent_adjusted_prices=[125.53, 165.05])
+    args = dict(prev_date=dt.date(2026, 11, 20), trade_date=dt.date(2026, 11, 23),
+                tickers=["NVDA"], prices_prev={"NVDA": 125.53}, prices_now={"NVDA": 165.050003},
+                max_abs_return=0.20)
+    file = tmp_path / "2026-11-23_NVDA.json"
+    with pytest.raises(calc_index.IndexValidationError, match="suspicious_price_return") as exc:
+        calc_index.validate_price_return_sanity(**args)
+    report = calc_index.price_validation_report(exc.value)
+    assert not report["retryable"]
+    assert report["context"]["price_validation"]["previous_price"] == "125.530000"
+    for override in [{"independent_adjusted_prices": [125.79, 165.05]}, {"basis": "unadjusted"},
+                     {"price_evidence": ""}, {"independent_source_confirmed": False}]:
+        file.write_text(json.dumps({**record, **override}))
+        with pytest.raises(calc_index.IndexValidationError, match="suspicious_price_return"):
+            calc_index.validate_price_return_sanity(**args)
+    file.write_text(json.dumps(record))
+    with pytest.raises(calc_index.IndexValidationError, match="corporate_action_review_required"):
+        calc_index.validate_price_return_sanity(**args, action_present=lambda *_: True)
+    for _ in range(2):
+        calc_index.validate_price_return_sanity(**args, action_present=lambda *_: False)
+        assert hashlib.sha256(file.read_bytes()).hexdigest() in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("price", [None, float("inf"), float("nan"), -1.0, 0.0])
+def test_invalid_price_cannot_enter_review(price):
+    with pytest.raises(calc_index.IndexValidationError, match="price_for_return"):
+        calc_index.validate_price_return_sanity(prev_date=dt.date(2026, 11, 20),
+            trade_date=dt.date(2026, 11, 23), tickers=["NVDA"], prices_prev={"NVDA": price},
+            prices_now={"NVDA": 165.05}, max_abs_return=0.2)
